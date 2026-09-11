@@ -1,4 +1,4 @@
-// PETAL parametric geometry kernel, version 2.2
+// PETAL parametric geometry kernel, version 2.3
 // Units: millimetres. Front surface z = r*r / (4*f).
 // Custom center interface: 120 mm OD, 30 mm center bore, four M4
 // clearance windows on a 60 mm keyed / 40 mm legacy bolt circle. Custom interface.
@@ -22,18 +22,18 @@ function qsort(a)=len(a)<2?a:let(lo=min(a),hi=max(a),mid=(lo+hi)/2,p=mid<hi?mid:
 function hh(r,a,w=4.6)=[r-w/2,r+w/2,a-w/(2*r)*180/PI,a+w/(2*r)*180/PI];
 function legacy_tilespec(n,k,j)=let(w=(diameter/2-45)/k,b0=45+j*w,b1=45+(j+1)*w,rm=b0+w*.65,h=180/n)
  [b0+(j>0?gap/2:0),b1-(j<k-1?gap/2:0),-h+gap/(2*b0)*180/PI,h-gap/(2*b0)*180/PI,
- concat([hh(rm,-h+8/rm*180/PI),hh(rm,h-8/rm*180/PI),hh(j==0?52.5:b0+8,0)],j<k-1?[hh(b1-8,0)]:[]),0,thickness,rear_style?1:0,n,k,j];
+ concat([hh(rm,-h+8/rm*180/PI),hh(rm,h-8/rm*180/PI)],j==0?[hh(52.5,0)]:[for(a=radial_angles(n,k,j-1))hh(b0+8,a)],j<k-1?[for(a=radial_angles(n,k,j))hh(b1-8,a)]:[]),0,thickness,rear_style?1:0,n,k,j];
 function tilespec(n,k,j)=joint_style?jpanel(n,k,j):legacy_tilespec(n,k,j);
 function smode(s)=len(s)>7?s[7]:0;
 function fdata(s)=let(f=diameter*fd,xc=(s[0]+s[1])/2,base=atan(xc/(2*f)),ms=[tan(base-facet_angle/2),tan(base+facet_angle/2)],mins=[for(m=ms)let(q=m>=0?1:cos(s[3]),r=max(s[0],min(s[1],2*f*m*q)))r*r/(4*f)-m*(r*q-xc)])[min(mins)-thickness,xc,ms[0],ms[1]];
 function fz(x,d)=d[0]+max(d[2]*(x-d[1]),d[3]*(x-d[1]));
 function roof(s,x,y)=let(mode=smode(s),r=sqrt(x*x+y*y))mode==2?let(d=fdata(tilespec(s[8],s[9],s[10])),h=180/s[8])fz(cos(h)*x+sin(h)*abs(y),d)-.2:
- mode==3?let(w=(diameter/2-45)/s[9],rb=45+(s[10]+1)*w,d1=fdata(tilespec(s[8],s[9],s[10])),d2=fdata(tilespec(s[8],s[9],s[10]+1)),u=max(0,min(1,(r-(rb-gap/2))/gap)))(1-u)*fz(x,d1)+u*fz(x,d2)-.2:
+ mode==3?let(w=(diameter/2-45)/s[9],rb=45+(s[10]+1)*w,d1=fdata(tilespec(s[8],s[9],s[10])),d2=fdata(tilespec(s[8],s[9],s[10]+1)),u=max(0,min(1,(r-(rb-gap/2))/gap)))(1-u)*fz(cos(jalpha(s))*x-sin(jalpha(s))*y,d1)+u*fz(cos(jbeta(s))*x-sin(jbeta(s))*y,d2)-.2:
  mode==4?let(d=fdata(tilespec(s[8],s[9],0)),xx=max([for(i=[0:s[8]-1])cos(i*360/s[8])*x+sin(i*360/s[8])*y]))fz(xx,d)-.2:zz(r)+s[5];
-function creases(s)=let(mode=smode(s))mode==1?[[1,0,fdata(s)[1]]]:mode==2?let(d=fdata(tilespec(s[8],s[9],s[10])),h=180/s[8])[[0,1,0],[cos(h),sin(h),d[1]],[cos(h),-sin(h),d[1]]]:mode==3?[[1,0,fdata(tilespec(s[8],s[9],s[10]))[1]],[1,0,fdata(tilespec(s[8],s[9],s[10]+1))[1]]]:mode==4?[for(i=[0:s[8]/2-1])let(a=(i+.5)*360/s[8])[-sin(a),cos(a),0]]:[];
+function creases(s)=let(mode=smode(s))mode==1?[[1,0,fdata(s)[1]]]:mode==2?let(d=fdata(tilespec(s[8],s[9],s[10])),h=180/s[8])[[0,1,0],[cos(h),sin(h),d[1]],[cos(h),-sin(h),d[1]]]:mode==3?[[cos(jalpha(s)),-sin(jalpha(s)),fdata(tilespec(s[8],s[9],s[10]))[1]],[cos(jbeta(s)),-sin(jbeta(s)),fdata(tilespec(s[8],s[9],s[10]+1))[1]]]:mode==4?[for(i=[0:s[8]/2-1])let(a=(i+.5)*360/s[8])[-sin(a),cos(a),0]]:[];
 function orient(v,t)=[cos(t)*v[0]+sin(t)*v[2],v[1],-sin(t)*v[0]+cos(t)*v[2]];
 function yawpoint(v,a)=[cos(a)*v[0]-sin(a)*v[1],sin(a)*v[0]+cos(a)*v[1],v[2]];
-function envelope(s,t,a)=let(vs=[for(r=seq(s[0],s[1],16),ang=seq(s[2],s[3],24),l=[0,1])yawpoint(orient([r*cos(ang),r*sin(ang),(l?(rear_style?fz(r*cos(ang),fdata(s)):zz(r)-thickness)-(joint_style?3:0):zz(r))],t),a)])
+function envelope(s,t,a)=let(vs=[for(r=seq(s[0],s[1],16),ang=seq(s[2],s[3],24),l=[0,1])yawpoint(orient([r*cos(ang),r*sin(ang),(l?(rear_style?fz(r*cos(ang),fdata(s)):zz(r)-thickness):zz(r))],t),a)])
  [for(k=[0:2])max([for(v=vs)v[k]])-min([for(v=vs)v[k]])+(supports?(k==2?5.6:8):0)];
 function fits(d)=((d[0]<=bed_x-2*margin&&d[1]<=bed_y-2*margin)||(d[1]<=bed_x-2*margin&&d[0]<=bed_y-2*margin))&&d[2]<=bed_z-2;
 function exactfit(d)=d[0]<=bed_x-2*margin&&d[1]<=bed_y-2*margin&&d[2]<=bed_z-2;
@@ -86,7 +86,7 @@ module rib(s,t,cx,zmin,y,foot){probes=[y-.6,y,y+.6];ds=[for(yy=probes)let(d=doma
  F=concat([for(i=[0:len(xs)-2],j=[0:9])let(a=i*10+j,b=i*10+(j+1)%10,c=b+10,d=a+10)each [[a,b,c],[a,c,d]]],[for(j=[0:9])each [[M,(j+1)%10,j],[M+1,(len(xs)-1)*10+j,(len(xs)-1)*10+(j+1)%10]]]);
  polyhedron(points=V,faces=[for(f=F)[f[2],f[1],f[0]]],convexity=12);
 }
-module patch(s,t=0,printing=false,is_panel=false,bed_yaw=0){M=modelmesh(s);V=M[0];F=M[1];Vt=[for(v=V)orient(v,t)];lo=[for(k=[0:2])min([for(v=Vt)v[k]])];hi=[for(k=[0:2])max([for(v=Vt)v[k]])];
+module patch(s,t=0,printing=false,is_panel=false,bed_yaw=0){M=modelmesh(s);V=M[0];F=M[1];slim=smode(s)==6||smode(s)==7;slope=slim?jslope(s):[0,0];Vt=[for(v=V)slim?orient(yawpoint(v,-atan2(slope[1],slope[0])),atan(norm(slope))):orient(v,t)];lo=[for(k=[0:2])min([for(v=Vt)v[k]])];hi=[for(k=[0:2])max([for(v=Vt)v[k]])];
  Vp=[for(v=Vt)[v[0]-(lo[0]+hi[0])/2,v[1]-(lo[1]+hi[1])/2,v[2]-lo[2]+(is_panel&&supports?5.6:0)]];
  swap=hi[0]-lo[0]>bed_x-2*margin||hi[1]-lo[1]>bed_y-2*margin;
  rot=is_panel?bed_yaw:(swap?90:0);
@@ -94,14 +94,14 @@ module patch(s,t=0,printing=false,is_panel=false,bed_yaw=0){M=modelmesh(s);V=M[0
  if(printing&&is_panel&&supports){tip=s[0]*sin(s[3]);foot=min(8,2*tip/(rib_count-1)*.75);for(y=seq(-tip,tip,rib_count-1))rotate([0,0,rot])color("Orange")if(joint_style)jrib(s,Vp,y,foot);else rib(s,t,(lo[0]+hi[0])/2,lo[2],y,foot);}
 }
 function legacy_side(j)=let(r=45+j*W+W*.65)[r-6,r+6,-14/r*180/PI,14/r*180/PI,[hh(r,-8/r*180/PI),hh(r,8/r*180/PI)],-thickness-.2,3.2,rear_style?2:0,N,K,j];
-function legacy_radial(j)=let(r=45+(j+1)*W)[r-14,r+14,-6/r*180/PI,6/r*180/PI,[hh(r-8,0),hh(r+8,0)],-thickness-.2,3.2,rear_style?3:0,N,K,j];
+function legacy_radial(j,q=0)=let(r=45+(j+1)*W)[r-14,r+14,-6/r*180/PI,6/r*180/PI,[hh(r-8,0),hh(r+8,0)],-thickness-.2,3.2,rear_style?3:0,N,K,j,q];
 function root_holes()=[for(i=[0:N-1])hh(52.5,i*360/N)];
 function legacy_rear()=[15,60,-180/N,360-180/N,concat(root_holes(),[for(i=[0:3])hh(20,45+i*90)]),-thickness-.2,6,rear_style?4:0,N,K,0];
 function clamp()=[joint_style?47:43,joint_style?58:60,-180/N,360-180/N,root_holes(),joint_style?3:3.4,joint_style?2.8:3.2];
 module single(type,j=0,printing=true,q=0){s=type=="panel"?tilespec(N,K,j):type=="side-bridge"?side(j,q):type=="ring-bridge"?radial(j,q):type=="hub-rear"?rear():clamp();cp=type=="panel"&&printing?pickprint(s):[];t=type=="panel"&&printing?cp[3]:(type=="side-bridge"||type=="ring-bridge")&&!rear_style&&!joint_style?atan((s[0]+s[1])/(4*diameter*fd)):0;if(type=="panel"&&printing)echo(print_angle=cp[1],bed_rotation=cp[2],support_ribs=supports?rib_count:0);patch(s,t,printing,type=="panel",type=="panel"&&printing?cp[2]:0);}
 if(part=="assembly"){
  for(j=[0:K-1],i=[0:N-1])rotate([0,0,i*360/N+ring_phase(N,j)]){
-  color(j%2==0?"Teal":"LightSeaGreen")single("panel",j,false);
+  color(j%2==0?"Silver":"LightSteelBlue")single("panel",j,false);
   for(q=[0:(joint_style?jstation(N,K,j)[4]:1)-1])rotate([0,0,180/N])color("SlateGray")single("side-bridge",j,false,q);
   if(j<K-1)for(q=[0:len(radial_angles(N,K,j))-1])rotate([0,0,radial_angles(N,K,j)[q]])color("SlateGray")single("ring-bridge",j,false,q);
  }
@@ -111,35 +111,38 @@ if(part=="assembly"){
 assert(adaptive_joints==0||adaptive_joints==1,"Use on/off adaptive joints");
 assert(stagger_rings==0||stagger_rings==1,"Use on/off staggered rings");
 assert(connector_spacing>=60&&connector_spacing<=180,"Connector spacing must be 60-180 mm");
-// Keyed rear docking system. 8 mm shoulder tongues; rear sockets use
-// joint_clearance per side. 3 mm local pads preserve reflector wall thickness.
+// Shallow 0.35 mm footprint seats and plain bolt holes.
+// joint_clearance sets edge clearance; no raised keys or docking pads.
 assert(joint_style==0||joint_style==1,"Choose legacy or keyed joints.");
 assert(joint_clearance>=.1&&joint_clearance<=.4,"Joint clearance must be .1-.4 mm per side.");
 function kd()=2.6;
-function ring_phase(n,j)=joint_style&&stagger_rings?(j%2)*180/n:0;
+function ring_phase(n,j)=stagger_rings?(j%2)*180/n:0;
 function ring_bolt_span()=adaptive_joints||stagger_rings?7:8;
 function jstation(n,k,j,q=0)=let(w=(diameter/2-45)/k,b0=45+j*w,b1=b0+w,nl=joint_style&&(adaptive_joints||stagger_rings),lo=nl?max(j>0?b0+16:62,16*n/PI):(j>0?b0+2:62),hi=b1-(nl&&j<k-1?16:2),count=joint_style&&adaptive_joints?max(1,ceil((hi-lo)/connector_spacing)):1,cell=(hi-lo)/count)[lo+(q+.5)*cell,min(9,cell/2-6),b0,b1,count];
-function radial_angles(n,k,j)=!joint_style?[0]:let(r=45+(j+1)*(diameter/2-45)/k,h=180/n,width=stagger_rings?h:2*h,bases=stagger_rings?[-h/2,h/2]:[0],count=adaptive_joints?max(1,ceil(r*width*PI/180/connector_spacing)):1)[for(b=bases,i=[0:count-1])b+((i+.5)/count-.5)*width];
+function radial_angles(n,k,j)=!joint_style?(stagger_rings?[-90/n,90/n]:[0]):let(r=45+(j+1)*(diameter/2-45)/k,h=180/n,width=stagger_rings?h:2*h,bases=stagger_rings?[-h/2,h/2]:[0],count=adaptive_joints?max(1,ceil(r*width*PI/180/connector_spacing)):1)[for(b=bases,i=[0:count-1])b+((i+.5)/count-.5)*width];
 function jcenters(n,k,j)=let(t=jstation(n,k,j),h=180/n)concat([for(q=[0:t[4]-1])let(u=jstation(n,k,j,q))for(r=[u[0]],sg=[-1,1])[r,sg*(h-8/r*180/PI)]],j==0?[[52.5,0]]:[for(a=radial_angles(n,k,j-1),sg=[-1,1])[t[2]+8,a+sg*ring_bolt_span()/t[2]*180/PI]],j<k-1?[for(a=radial_angles(n,k,j),sg=[-1,1])[t[3]-8,a+sg*ring_bolt_span()/t[3]*180/PI]]:[]);
 function jboxes(cs,w)=[for(c=cs)hh(c[0],c[1],w)];
 function jfit(n,k)=min([for(j=[0:k-1])let(t=jstation(n,k,j),s=legacy_tilespec(n,k,j),ps=jboxes(jcenters(n,k,j),12))t[1]>=5&&len([for(b=ps)if(b[0]<s[0]+.5||b[1]>s[1]-.5||b[2]<s[2]+.001*180/PI||b[3]>s[3]-.001*180/PI)1])==0&&len([for(i=[0:len(ps)-1],u=[0:len(ps)-1])if(i<u&&min(ps[i][1],ps[u][1])>max(ps[i][0],ps[u][0])+.001&&min(ps[i][3],ps[u][3])>max(ps[i][2],ps[u][2])+.001*180/PI)1])==0?1:0])==1;
 function jpanel(n,k,j)=let(s=legacy_tilespec(n,k,j))[s[0],s[1],s[2],s[3],jboxes(jcenters(n,k,j),4.6),0,thickness,5,n,k,j];
-function side(j,q=0)=joint_style?let(t=jstation(N,K,j,q),r=t[0],d=t[1])[r-6,r+6,-14/r*180/PI,14/r*180/PI,[],0,4.5,6,N,K,j,q]:legacy_side(j);
-function radial(j,q=0)=joint_style?let(r=45+(j+1)*W)[r-14,r+14,(-ring_bolt_span()/r-6/(r-8))*180/PI,(ring_bolt_span()/r+6/(r-8))*180/PI,[],0,4.5,7,N,K,j,q]:legacy_radial(j);
+function side(j,q=0)=joint_style?let(t=jstation(N,K,j,q),r=t[0],d=t[1])[r-6,r+6,-14/r*180/PI,14/r*180/PI,[],0,3.2,6,N,K,j,q]:legacy_side(j);
+function radial(j,q=0)=joint_style?let(r=45+(j+1)*W)[r-14,r+14,(-ring_bolt_span()/r-6/(r-8))*180/PI,(ring_bolt_span()/r+6/(r-8))*180/PI,[],0,3.2,7,N,K,j,q]:legacy_radial(j,q);
 function rear()=joint_style?[15,60,-180/N,360-180/N,[],0,6,8,N,K,0]:legacy_rear();
 function jc(s)=smode(s)==5?jcenters(s[8],s[9],s[10]):smode(s)==6?let(t=jstation(s[8],s[9],s[10],s[11]))[for(r=[t[0]],sg=[-1,1])[r,sg*8/r*180/PI]]:smode(s)==7?let(r=45+(s[10]+1)*(diameter/2-45)/s[9])[for(rr=[r-8,r+8],sg=[-1,1])[rr,sg*ring_bolt_span()/r*180/PI]]:[for(i=[0:s[8]-1])[52.5,i*360/s[8]]];
 function jholes(s)=concat(jboxes(jc(s),4.6),smode(s)==8?[for(i=[0:3])hh(30,45+i*90)]:[]);
-function jallboxes(s)=concat(jholes(s),jboxes(jc(s),smode(s)==5?8+2*joint_clearance:8),smode(s)==5?jboxes(jc(s),12):[]);
+function jallboxes(s)=concat(jholes(s),smode(s)==5?jseats(s[8],s[9],s[10]):[]);
 function jalpha(s)=radial_angles(s[8],s[9],s[10])[s[11]];
 function jbeta(s)=jalpha(s)-(stagger_rings?sign(jalpha(s))*180/s[8]:0);
 function jrear(s,x,y)=let(mode=smode(s),r=sqrt(x*x+y*y),sp=legacy_tilespec(s[8],s[9],s[10]))!rear_style?zz(r)-thickness:mode==5?fz(x,fdata(sp)):mode==6?let(h=180/s[8])fz(cos(h)*x+sin(h)*abs(y),fdata(sp)):mode==7?let(rb=45+(s[10]+1)*(diameter/2-45)/s[9],d2=fdata(legacy_tilespec(s[8],s[9],s[10]+1)),u=max(0,min(1,(r-rb+gap/2)/gap)))(1-u)*fz(cos(jalpha(s))*x-sin(jalpha(s))*y,fdata(sp))+u*fz(cos(jbeta(s))*x-sin(jbeta(s))*y,d2):fz(max([for(i=[0:s[8]-1])cos(i*360/s[8])*x+sin(i*360/s[8])*y]),fdata(sp));
-function jlevel(s,x,y,l,floor)=smode(s)==5?(l==0?jrear(s,x,y)-3:l==1?jrear(s,x,y)-.4:l==2?jrear(s,x,y):zz(sqrt(x*x+y*y))):(l==0?floor:l==1?jrear(s,x,y)-3-.2:jrear(s,x,y)-.6);
+function jseats(n,k,j)=let(h=180/n,t=jstation(n,k,j),c=joint_clearance)concat([for(q=[0:t[4]-1])let(r=jstation(n,k,j,q)[0])for(sg=[-1,1])[r-6-c,r+6+c,sg>0?h-(14+c)/r*180/PI:-h-c/r*180/PI,sg>0?h+c/r*180/PI:-h+(14+c)/r*180/PI]],[for(inner=[true,false])if(inner?j>0:j<k-1)let(b=inner?t[2]:t[3],ring=inner?j-1:j,half=(ring_bolt_span()/b+6/(b-8)+c/b)*180/PI)for(a=radial_angles(n,k,ring))[inner?b-c:b-14-c,inner?b+14+c:b+c,a-half,a+half]]);
+function jtop(s,x,y)=jrear(s,x,y)+(smode(s)==8?0:.35)-.2;
+function jslope(s)=let(r=(s[0]+s[1])/2,y=r*sin(min(abs(s[2]),abs(s[3]))))smode(s)==6||smode(s)==7?[(jtop(s,s[1],0)-jtop(s,s[0],0))/(s[1]-s[0]),(jtop(s,r,y)-jtop(s,r,-y))/(2*y)]:[0,0];
+function jlevel(s,x,y,l,base)=smode(s)==5?(l==0?jrear(s,x,y):l==1?jrear(s,x,y)+.35:zz(sqrt(x*x+y*y))):(l==0?base[0]*x+base[1]*y+base[2]:jtop(s,x,y));
 function jcreases(s)=let(mode=smode(s),d=fdata(legacy_tilespec(s[8],s[9],s[10])),h=180/s[8])!rear_style?[]:mode==5?[[1,0,d[1]]]:mode==6?[[0,1,0],[cos(h),sin(h),d[1]],[cos(h),-sin(h),d[1]]]:mode==7?[[cos(jalpha(s)),-sin(jalpha(s)),d[1]],[cos(jbeta(s)),-sin(jbeta(s)),fdata(legacy_tilespec(s[8],s[9],s[10]+1))[1]]]:[for(i=[0:s[8]/2-1])let(a=(i+.5)*360/s[8])[-sin(a),cos(a),0]];
 function jrr(s)=qsort(concat(seq(s[0],s[1],max(1,ceil((s[1]-s[0])/resolution))),[for(b=jallboxes(s),r=[b[0],b[1]])if(r>s[0]&&r<s[1])r],smode(s)==7?let(r=(s[0]+s[1])/2)[r-gap/2,r,r+gap/2]:[]));
 function jaa(s)=qsort(concat(seq(s[2],s[3],max(2,ceil((s[3]-s[2])*PI/180*s[1]/resolution))),[for(b=jallboxes(s),a=[b[2],b[3]])if(a>s[2]&&a<s[3])a]));
-function jon(s,i,j,l,R,A,full)=let(jj=full?(j+len(A)-1)%(len(A)-1):j,nl=smode(s)==5?3:2)l<0||l>=nl||i<0||i>=len(R)-1||jj<0||jj>=len(A)-1?false:let(r=(R[i]+R[i+1])/2,a=(A[jj]+A[jj+1])/2,cs=jc(s))smode(s)==5?((l==2||inside(r,a,jboxes(cs,12)))&&!inside(r,a,l==0?jboxes(cs,8+2*joint_clearance):jholes(s))):((l==0||inside(r,a,jboxes(cs,8)))&&!inside(r,a,jholes(s)));
-function jvirtual(s)=let(R=jrr(s),A=jaa(s),full=abs(s[3]-s[2]-360)<.00001,nr=len(R),nc=len(A)-(full?1:0),nl=smode(s)==5?3:2,off=nr*nc,V=[for(l=[0:nl],r=R,j=[0:nc-1])[r*cos(A[j]),r*sin(A[j]),l]],F=[for(l=[0:nl-1],i=[0:nr-2],j=[0:len(A)-2])if(jon(s,i,j,l,R,A,full))let(b=[vid(i,j,l,nr,nc),vid(i+1,j,l,nr,nc),vid(i+1,j+1,l,nr,nc),vid(i,j+1,l,nr,nc)],q=[for(x=b)x+off])each concat(!jon(s,i,j,l+1,R,A,full)?[[q[0],q[1],q[2]],[q[0],q[2],q[3]]]:[],!jon(s,i,j,l-1,R,A,full)?[[b[2],b[1],b[0]],[b[3],b[2],b[0]]]:[],[for(e=[[0,1,i,j-1],[1,2,i+1,j],[2,3,i,j+1],[3,0,i-1,j]])if(!jon(s,e[2],e[3],l,R,A,full))each [[q[e[0]],b[e[0]],b[e[1]]],[q[e[0]],b[e[1]],q[e[1]]]]])])[V,F];
-function jointmesh(s)=let(M=splitall(jvirtual(s),jcreases(s)),nl=smode(s)==5?3:2,floor=min([for(v=M[0])jrear(s,v[0],v[1])-3-.2])-s[6],V=[for(v=M[0])let(i=min(nl-1,floor(v[2])),t=v[2]-i)[v[0],v[1],jlevel(s,v[0],v[1],i,floor)*(1-t)+jlevel(s,v[0],v[1],i+1,floor)*t]],used=qsort([for(f=M[1])each f]))[[for(i=used)V[i]],[for(f=M[1])[for(i=f)bfind(used,i)]]];
+function jon(s,i,j,l,R,A,full)=let(jj=full?(j+len(A)-1)%(len(A)-1):j,nl=smode(s)==5?2:1)l<0||l>=nl||i<0||i>=len(R)-1||jj<0||jj>=len(A)-1?false:let(r=(R[i]+R[i+1])/2,a=(A[jj]+A[jj+1])/2)(smode(s)!=5||l==1||!inside(r,a,jseats(s[8],s[9],s[10])))&&!inside(r,a,jholes(s));
+function jvirtual(s)=let(R=jrr(s),A=jaa(s),full=abs(s[3]-s[2]-360)<.00001,nr=len(R),nc=len(A)-(full?1:0),nl=smode(s)==5?2:1,off=nr*nc,V=[for(l=[0:nl],r=R,j=[0:nc-1])[r*cos(A[j]),r*sin(A[j]),l]],F=[for(l=[0:nl-1],i=[0:nr-2],j=[0:len(A)-2])if(jon(s,i,j,l,R,A,full))let(b=[vid(i,j,l,nr,nc),vid(i+1,j,l,nr,nc),vid(i+1,j+1,l,nr,nc),vid(i,j+1,l,nr,nc)],q=[for(x=b)x+off])each concat(!jon(s,i,j,l+1,R,A,full)?[[q[0],q[1],q[2]],[q[0],q[2],q[3]]]:[],!jon(s,i,j,l-1,R,A,full)?[[b[2],b[1],b[0]],[b[3],b[2],b[0]]]:[],[for(e=[[0,1,i,j-1],[1,2,i+1,j],[2,3,i,j+1],[3,0,i-1,j]])if(!jon(s,e[2],e[3],l,R,A,full))each [[q[e[0]],b[e[0]],b[e[1]]],[q[e[0]],b[e[1]],q[e[1]]]]])])[V,F];
+function jointmesh(s)=let(M=splitall(jvirtual(s),jcreases(s)),nl=smode(s)==5?2:1,slope=jslope(s),intercept=min([for(v=M[0])jtop(s,v[0],v[1])-slope[0]*v[0]-slope[1]*v[1]])-s[6]*sqrt(1+slope[0]*slope[0]+slope[1]*slope[1]),floor=[slope[0],slope[1],intercept],V=[for(v=M[0])let(i=min(nl-1,floor(v[2])),t=v[2]-i)[v[0],v[1],jlevel(s,v[0],v[1],i,floor)*(1-t)+jlevel(s,v[0],v[1],i+1,floor)*t]],used=qsort([for(f=M[1])each f]))[[for(i=used)V[i]],[for(f=M[1])[for(i=f)bfind(used,i)]]];
 function modelmesh(s)=smode(s)>=5?jointmesh(s):legacy_modelmesh(s);
 function slicepts(vs,y)=[for(i=[0:2])let(a=vs[i],b=vs[(i+1)%3])each concat(abs(a[1]-y)<1e-8?[[a[0],a[2]]]:[],((a[1]<y&&b[1]>y)||(a[1]>y&&b[1]<y))?let(t=(y-a[1])/(b[1]-a[1]))[[a[0]+t*(b[0]-a[0]),a[2]+t*(b[2]-a[2])]]:[])];
 function slices(V,F,y)=[for(f=F)let(ps=slicepts([for(i=f)V[i]],y))if(len(ps)>=2)let(xs=[for(v=ps)v[0]],a=[for(v=ps)if(v[0]==min(xs))v][0],b=[for(v=ps)if(v[0]==max(xs))v][0])if(b[0]-a[0]>1e-8)[a[0],b[0],a[1],(b[1]-a[1])/(b[0]-a[0])]];
