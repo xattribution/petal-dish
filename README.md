@@ -4,7 +4,7 @@ A browser-based parabolic dish generator with printer-aware segmentation, a 3D a
 
 Download [dist/petal-offline.html](dist/petal-offline.html) and open it directly in a browser. The hosted app uses the same geometry and exports.
 
-## Captured hub and real hardware (3.0)
+## Junction plates and captured hub (3.1)
 
 All bolt bores are round, Ø4.6 mm for M4 through-bolts. The default recessed plates and rear hub have hexagonal nut pockets: nominal 7 mm nuts plus twice the fit-clearance setting, 7.4 mm across flats by default. Pockets have at least 3.4 mm depth and a horizontal nut bearing face with at least 2 mm supporting material. Hold nuts in place until their bolts engage; pockets prevent rotation rather than retaining loose nuts upside down.
 
@@ -20,11 +20,11 @@ Root shoulders are deep enough for recessed screw heads and at least a 3 mm root
 
 The cap uses M4 ISO 7380-1 button-head screws, with heads no larger than Ø8 × 2.2 mm, in Ø8.4 counterbores. Counterbore floors sit at least 2.4 mm below the lowest surrounding front surface. Standard tall socket-cap heads do not fit. Choose screw lengths from exported grip dimensions, nut height, washers where applicable, and mount-adapter thickness. See the exported assembly guide for hardware dimensions and references.
 
-**Interface revision 5 needs a complete matching set.** Earlier hubs, retaining rings and root profiles do not mate. The external 60 mm mount pattern is unchanged. The legacy strap option retains its 40 mm mount pattern and pressure-clamped hub, now with round bores.
+**Interface revision 6 relocates ring holes and seats.** Regenerate panels and ring plates together. Revision-5 hubs and caps remain compatible; earlier hubs, retaining rings and root profiles do not mate. The external 60 mm mount pattern is unchanged. The legacy strap option retains its 40 mm mount pattern and pressure-clamped hub, now with round bores.
 
 ## Layout and connectors
 
-Staggering is independent of connector style. Alternate rings rotate by half a petal, `180 / petal_count` degrees. A staggered petal overlaps two neighbors in the adjacent ring. Connectors stay inside those two-panel overlaps; three-panel junction plates are not included.
+Staggering is independent of connector style. Alternate rings rotate by half a petal, `180 / petal_count` degrees. A staggered petal overlaps two neighbors in the adjacent ring. Recessed junction plates sit at inner-ring seams: one bolt in each of two inner petals and two bolts in one outer petal. Each boundary uses one plate per inner seam. Aligned rings and legacy straps retain overlap connectors.
 
 Default side plates use two bolts, one per petal. Between-ring plates use four, two per petal. Shallow 0.35 mm footprint seats replace individual locating keys along the panel seams. Sloped plate backs export rotated flat for printing; local depth accommodates the nut pockets. Adaptive spacing adds connectors along long seams. Spacing defaults to 150 mm and is a geometric placement rule, not a structural calculation.
 
