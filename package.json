@@ -1,1 +1,8 @@
-{"name":"petal-dish","private":true,"type":"module","scripts":{"test":"node tests/geometry.test.mjs"}}
+{
+  "name": "petal-dish",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/geometry.test.mjs && node tests/facets.test.mjs && node tests/joints.test.mjs && node tests/support-clearance.test.mjs"
+  }
+}
