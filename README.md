@@ -8,6 +8,10 @@ Download [dist/petal-offline.html](dist/petal-offline.html) and open the downloa
 
 Set dish diameter, focal ratio, rear construction, joint system, and printer volume. Inspect the assembly, exploded view, rear view, or oriented print parts. Export individual STLs or a ZIP containing all unique parts, quantities, OpenSCAD source, parameters, and assembly instructions.
 
+## Two-bolt side connectors (2.2)
+
+Default keyed joints use compact two-bolt saddles between petals in the same ring, and four-bolt saddles between rings. Panel sockets and exported hardware counts match this arrangement. Adaptive spacing still adds connectors along long seams. Interface revision 3 requires matching panels and side saddles; do not mix with previous four-bolt side joints. The 60 mm hub mount is unchanged.
+
 ## Staggered rings and adaptive fasteners (2.1)
 
 Alternate rings can rotate by **half a petal**, or `180 / petal_count` degrees. An eight-petal layout uses 22.5°, a ten-petal layout 18°. A fixed 90° rotation would leave seams aligned for some petal counts. The new layout interrupts continuous radial seams while keeping the same parabolic surface.
@@ -20,19 +24,19 @@ The app reports ring offsets, saddle count and assembly bolts. Exported manifest
 
 Turn off both staggering and adaptive connectors to reproduce the preceding keyed layout. Legacy two-bolt straps remain aligned and use their original placement. Changing these settings requires regenerating matching panels and fittings. Staggering is intended to improve load distribution, but no physical strength improvement has been measured.
 
-## Revision 2: keyed joints and indexed hub
+## Keyed joints and indexed hub
 
 The default connection now separates location from clamping:
 
-- **Four-bolt saddles:** four spaced M4 bolts replace the narrow two-bolt seam straps. Angular and radial seams have matching saddle shapes.
-- **Locating tongues:** four 8 mm shoulder tongues enter rear sockets, resisting lateral slip and twisting through bearing contact. Bolts supply the clamping force.
+- **Keyed saddles:** two M4 bolts per same-ring connector; four per between-ring connector.
+- **Locating tongues:** 8 mm shoulder tongues enter rear sockets, resisting lateral slip and twisting through bearing contact. Bolts supply the clamping force.
 - **Reinforced sockets:** 12 mm docking pads add 3 mm behind the original shell. Sockets stop 0.4 mm short of the original rear surface, preserving nominal shell thickness outside the through-bolt windows.
 - **Adjustable fit:** clearance is 0.2 mm per side by default, adjustable from 0.1 to 0.4 mm. Tongues are 2.6 mm tall. The assembly includes 0.2 mm axial clearance.
 - **Rear installation:** all joint pieces install from behind. The final petal can be lowered into place without sliding along a closed ring of continuous tongues. This is discrete tongue-and-socket registration through the saddle, not a continuous tongue-and-groove edge.
 - **Indexed center:** one locating shoulder per petal root, a flat rear mounting face, and a slimmer 116 mm OD front clamp with a 94 mm opening.
 - **Wider mount pattern:** custom four-M4 pattern on a **60 mm bolt circle**, clocked at 45°, with a 30 mm center opening and 120 mm hub OD.
 
-**Revision 2 requires a matching full kit.** It does not mate with legacy panels, straps, or 40 mm BCD adapters. Select **Legacy two-bolt straps** for old designs. Changing dish geometry, petal count, rear style, or joint generation requires regenerating the matching fittings.
+**Revision 3 requires a matching full kit.** It does not mate with legacy panels, straps, or 40 mm BCD adapters. Select **Legacy two-bolt straps** for old designs. Changing dish geometry, petal count, rear style, or joint generation requires regenerating the matching fittings.
 
 The redesign adds bolts and local material. The load path is intended to reduce dependence on friction at narrow straps; no numerical strength improvement or load rating is claimed. Print one joint to establish clearance and check physical fit before committing to a full dish. Do not coat mating sockets before testing them.
 

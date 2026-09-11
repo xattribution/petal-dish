@@ -1,4 +1,4 @@
-// PETAL parametric geometry kernel, version 2.1
+// PETAL parametric geometry kernel, version 2.2
 // Units: millimetres. Front surface z = r*r / (4*f).
 // Custom center interface: 120 mm OD, 30 mm center bore, four M4
 // clearance windows on a 60 mm keyed / 40 mm legacy bolt circle. Custom interface.
@@ -120,14 +120,14 @@ function ring_phase(n,j)=joint_style&&stagger_rings?(j%2)*180/n:0;
 function ring_bolt_span()=adaptive_joints||stagger_rings?7:8;
 function jstation(n,k,j,q=0)=let(w=(diameter/2-45)/k,b0=45+j*w,b1=b0+w,nl=joint_style&&(adaptive_joints||stagger_rings),lo=nl?max(j>0?b0+16:62,16*n/PI):(j>0?b0+2:62),hi=b1-(nl&&j<k-1?16:2),count=joint_style&&adaptive_joints?max(1,ceil((hi-lo)/connector_spacing)):1,cell=(hi-lo)/count)[lo+(q+.5)*cell,min(9,cell/2-6),b0,b1,count];
 function radial_angles(n,k,j)=!joint_style?[0]:let(r=45+(j+1)*(diameter/2-45)/k,h=180/n,width=stagger_rings?h:2*h,bases=stagger_rings?[-h/2,h/2]:[0],count=adaptive_joints?max(1,ceil(r*width*PI/180/connector_spacing)):1)[for(b=bases,i=[0:count-1])b+((i+.5)/count-.5)*width];
-function jcenters(n,k,j)=let(t=jstation(n,k,j),h=180/n)concat([for(q=[0:t[4]-1])let(u=jstation(n,k,j,q))for(r=[u[0]-u[1],u[0]+u[1]],sg=[-1,1])[r,sg*(h-8/r*180/PI)]],j==0?[[52.5,0]]:[for(a=radial_angles(n,k,j-1),sg=[-1,1])[t[2]+8,a+sg*ring_bolt_span()/t[2]*180/PI]],j<k-1?[for(a=radial_angles(n,k,j),sg=[-1,1])[t[3]-8,a+sg*ring_bolt_span()/t[3]*180/PI]]:[]);
+function jcenters(n,k,j)=let(t=jstation(n,k,j),h=180/n)concat([for(q=[0:t[4]-1])let(u=jstation(n,k,j,q))for(r=[u[0]],sg=[-1,1])[r,sg*(h-8/r*180/PI)]],j==0?[[52.5,0]]:[for(a=radial_angles(n,k,j-1),sg=[-1,1])[t[2]+8,a+sg*ring_bolt_span()/t[2]*180/PI]],j<k-1?[for(a=radial_angles(n,k,j),sg=[-1,1])[t[3]-8,a+sg*ring_bolt_span()/t[3]*180/PI]]:[]);
 function jboxes(cs,w)=[for(c=cs)hh(c[0],c[1],w)];
 function jfit(n,k)=min([for(j=[0:k-1])let(t=jstation(n,k,j),s=legacy_tilespec(n,k,j),ps=jboxes(jcenters(n,k,j),12))t[1]>=5&&len([for(b=ps)if(b[0]<s[0]+.5||b[1]>s[1]-.5||b[2]<s[2]+.001*180/PI||b[3]>s[3]-.001*180/PI)1])==0&&len([for(i=[0:len(ps)-1],u=[0:len(ps)-1])if(i<u&&min(ps[i][1],ps[u][1])>max(ps[i][0],ps[u][0])+.001&&min(ps[i][3],ps[u][3])>max(ps[i][2],ps[u][2])+.001*180/PI)1])==0?1:0])==1;
 function jpanel(n,k,j)=let(s=legacy_tilespec(n,k,j))[s[0],s[1],s[2],s[3],jboxes(jcenters(n,k,j),4.6),0,thickness,5,n,k,j];
-function side(j,q=0)=joint_style?let(t=jstation(N,K,j,q),r=t[0],d=t[1])[r-d-6,r+d+6,-14/(r-d)*180/PI,14/(r-d)*180/PI,[],0,4.5,6,N,K,j,q]:legacy_side(j);
+function side(j,q=0)=joint_style?let(t=jstation(N,K,j,q),r=t[0],d=t[1])[r-6,r+6,-14/r*180/PI,14/r*180/PI,[],0,4.5,6,N,K,j,q]:legacy_side(j);
 function radial(j,q=0)=joint_style?let(r=45+(j+1)*W)[r-14,r+14,(-ring_bolt_span()/r-6/(r-8))*180/PI,(ring_bolt_span()/r+6/(r-8))*180/PI,[],0,4.5,7,N,K,j,q]:legacy_radial(j);
 function rear()=joint_style?[15,60,-180/N,360-180/N,[],0,6,8,N,K,0]:legacy_rear();
-function jc(s)=smode(s)==5?jcenters(s[8],s[9],s[10]):smode(s)==6?let(t=jstation(s[8],s[9],s[10],s[11]))[for(r=[t[0]-t[1],t[0]+t[1]],sg=[-1,1])[r,sg*8/r*180/PI]]:smode(s)==7?let(r=45+(s[10]+1)*(diameter/2-45)/s[9])[for(rr=[r-8,r+8],sg=[-1,1])[rr,sg*ring_bolt_span()/r*180/PI]]:[for(i=[0:s[8]-1])[52.5,i*360/s[8]]];
+function jc(s)=smode(s)==5?jcenters(s[8],s[9],s[10]):smode(s)==6?let(t=jstation(s[8],s[9],s[10],s[11]))[for(r=[t[0]],sg=[-1,1])[r,sg*8/r*180/PI]]:smode(s)==7?let(r=45+(s[10]+1)*(diameter/2-45)/s[9])[for(rr=[r-8,r+8],sg=[-1,1])[rr,sg*ring_bolt_span()/r*180/PI]]:[for(i=[0:s[8]-1])[52.5,i*360/s[8]]];
 function jholes(s)=concat(jboxes(jc(s),4.6),smode(s)==8?[for(i=[0:3])hh(30,45+i*90)]:[]);
 function jallboxes(s)=concat(jholes(s),jboxes(jc(s),smode(s)==5?8+2*joint_clearance:8),smode(s)==5?jboxes(jc(s),12):[]);
 function jalpha(s)=radial_angles(s[8],s[9],s[10])[s[11]];

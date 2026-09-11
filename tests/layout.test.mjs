@@ -6,7 +6,7 @@ for(const cfg of [{diameter:800},{diameter:800,rearStyle:1},{diameter:600,rows:3
  for(const [id,inst]of m.instances.entries())if(inst.part.kind==='panel')for(const[r,a]of inst.part.spec.centers){const k=key(r,a+inst.a);assert(!holes.has(k),'Panel holes must be distinct');holes.set(k,{id,row:inst.part.row});}
  for(const inst of m.instances.filter(i=>i.part.kind==='bridge'||i.part.id==='hub-rear')){
   const touched=new Map();for(const[r,a]of inst.part.spec.centers){const match=holes.get(key(r,a+inst.a));assert(match,`${inst.part.id}: locating tongue has no matching panel socket`);touched.set(match.id,match);}
-  if(inst.part.kind==='bridge')assert.equal(touched.size,2,'Each saddle joins exactly two panels');
+  if(inst.part.kind==='bridge'){assert.equal(touched.size,2,'Each saddle joins exactly two panels');assert.equal(inst.part.spec.holes.length,inst.part.id.startsWith('side-')?2:4,'Side joints use two bolts; ring joints use four');}
   if(inst.part.id.startsWith('ring-bridge')){const pair=[...touched.values()].sort((a,b)=>a.row-b.row);assert.equal(pair[1].row-pair[0].row,1);const k=pair[0].id+':'+pair[1].row;if(!graph.has(k))graph.set(k,new Set());graph.get(k).add(pair[1].id);}
  }
  if(m.p.staggerRings){for(const neighbors of graph.values())assert.equal(neighbors.size,2,'Staggered panel must connect to both outer neighbors');for(let j=1;j<rows;j++)assert(Math.abs(m.ringPhases[j]-m.ringPhases[j-1])>1e-8);}else assert(m.ringPhases.every(x=>x===0));

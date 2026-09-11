@@ -10,7 +10,7 @@ for(const cfg of [{},{rearStyle:1},{diameter:800,rearStyle:1},{diameter:600,rows
  for(const[x,y]of points){const a=lookup(x,y);if(a.length<2)continue;const X=c*x-s*y,Y=s*x+c*y,theta=Math.atan2(Y,X);
  for(let row=0;row<rays.length;row++){const phase=m.ringPhases[row],i=Math.round((theta-phase)/(2*Math.PI/n)),rot=i*2*Math.PI/n+phase,u=Math.cos(rot)*X+Math.sin(rot)*Y,v=-Math.sin(rot)*X+Math.cos(rot)*Y,b=rays[row](u,v);if(b.length<2)continue;const gap=b[0]-a.at(-1);assert(gap>=-.002,`${part.id} collision ${gap} at ${x},${y}`);minGap=Math.min(minGap,gap);samples++;}}
  }
- assert(samples>100);assert.equal(m.bolts,n+4*m.parts.filter(p=>p.kind==='bridge').reduce((s,p)=>s+p.qty,0));assert(jointsFit(m.p,n,k));
+ assert(samples>100);assert.equal(m.bolts,n+m.parts.filter(p=>p.kind==='bridge').reduce((s,p)=>s+p.qty*(p.id.startsWith('side-')?2:4),0));assert(jointsFit(m.p,n,k));
  for(const p of panels){assert.equal(p.spec.centers.length,keyCenters(m.p,n,k,p.row).length);for(const[r,a]of p.spec.centers){const x=(r+3)*Math.cos(a),y=(r+3)*Math.sin(a),zs=rays[p.row](x,y);assert(zs.length>=2);const rear=p.spec.backFn(x,y);assert(zs[0]>=rear-.401,'Socket must stop below the original shell');}}
  console.log('PASS keyed mating meshes',cfg,'samples',samples,'minimum gap',minGap);
 }
