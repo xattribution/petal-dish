@@ -1,4 +1,4 @@
-# PETAL — Parametric Dish Studio
+# PETAL — Parametric Expeditionary Tactical Aperture Lab
 
 A dependency-free parabolic dish generator with a 3D assembly preview, procedural STL export, editable OpenSCAD source, and a single-file offline edition.
 
@@ -7,6 +7,18 @@ A dependency-free parabolic dish generator with a 3D assembly preview, procedura
 Download [dist/petal-offline.html](dist/petal-offline.html) and open the downloaded file in a browser. No installation, server, CDN, or connection is required. For development, serve `dist/` with any static HTTP server. All geometry and downloads are generated locally in the browser.
 
 Set dish diameter, focal ratio, rear construction, joint system, and printer volume. Inspect the assembly, exploded view, rear view, or oriented print parts. Export individual STLs or a ZIP containing all unique parts, quantities, OpenSCAD source, parameters, and assembly instructions.
+
+## Staggered rings and adaptive fasteners (2.1)
+
+Alternate rings can rotate by **half a petal**, or `180 / petal_count` degrees. An eight-petal layout uses 22.5°, a ten-petal layout 18°. A fixed 90° rotation would leave seams aligned for some petal counts. The new layout interrupts continuous radial seams while keeping the same parabolic surface.
+
+Each petal overlaps two neighbors in the next ring. Four-bolt saddles connect both overlaps. Faceted-back saddles follow the actual orientations of both adjoining rear faces; they are not merely rotated copies of aligned fittings. Identical curved-back ring saddles share one STL with the required quantity.
+
+**Adaptive connectors** add saddles along long side seams and long ring overlaps. The default target spacing is **150 mm**, adjustable from 60–180 mm. Smaller spacing increases hardware count. Placement reserves room for the center hub and neighboring fittings, and rejects overlapping sockets. This is a construction rule based on geometry, not a structural or wind-load calculation.
+
+The app reports ring offsets, saddle count and assembly bolts. Exported manifests include every part's assembly rotations and its OpenSCAD part/ring/station selection. Side saddle stations are numbered from center toward rim; ring saddle stations run counterclockwise within an inner petal. In OpenSCAD, select the one-based **station** to render each required fitting.
+
+Turn off both staggering and adaptive connectors to reproduce the preceding keyed layout. Legacy two-bolt straps remain aligned and use their original placement. Changing these settings requires regenerating matching panels and fittings. Staggering is intended to improve load distribution, but no physical strength improvement has been measured.
 
 ## Revision 2: keyed joints and indexed hub
 
@@ -47,11 +59,11 @@ Saddles and the revised rear hub have flat printing bases. The front clamp and l
 | `dist/app.js` | Controls, generation and downloads |
 | `scripts/pack-offline.mjs` | Rebuilds the single-file offline edition |
 
-After editing sources, run `node scripts/pack-offline.mjs`. Open exported `petal.scad`, choose a part and one-based ring, render with F6, then export STL. Set sectors/rows to zero to repeat automatic segmentation.
+After editing sources, run `node scripts/pack-offline.mjs`. Open exported `petal.scad`, choose a part, one-based ring and saddle station, render with F6, then export STL. Set sectors/rows to zero to repeat automatic segmentation.
 
 ## Verification and limits
 
-Run `npm test` for mesh, facet, mating and support-clearance checks. Tests cover small and large dishes, rectangular beds, both rear styles, legacy compatibility, and fit extremes. They check closed topology, winding, nondegenerate faces, printer bounds, actual-mesh joint separation, socket depth, support clearance, and STL counts. Representative browser exports and actual OpenSCAD renders were compared for bounding boxes and volume, including a supported panel and multi-ring fittings.
+Run `npm test` for mesh, facet, mating, connection-graph and support-clearance checks. Tests cover small and large dishes, rectangular beds, both rear styles, legacy compatibility, and fit extremes. They check closed topology, winding, nondegenerate faces, printer bounds, actual-mesh joint separation, socket depth, support clearance, and STL counts. Representative browser exports and actual OpenSCAD renders were compared for bounding boxes and volume, including a supported panel and multi-ring fittings.
 
 No physical printing, assembly testing, load testing, wind rating, or reflector-performance testing has been performed. Browser interaction and optional WebMCP registration have not been runtime-tested. The polymer shell has seams, openings and protruding fasteners; reflective finish, feed, feed support, electronics, and mount adapter are separate. There are no frequency-specific optimizations or RF performance estimates. Larger dishes may require additional bracing.
 
