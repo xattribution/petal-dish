@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/geometry.test.mjs && node tests/facets.test.mjs && node tests/joints.test.mjs && node tests/layout.test.mjs && node tests/plates.test.mjs && node tests/support-clearance.test.mjs"
+    "test": "node tests/geometry.test.mjs && node tests/facets.test.mjs && node tests/joints.test.mjs && node tests/layout.test.mjs && node tests/plates.test.mjs && node tests/hardware.test.mjs && node tests/support-clearance.test.mjs"
   }
 }

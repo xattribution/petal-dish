@@ -1,47 +1,53 @@
 # PETAL — Parametric Expeditionary Tactical Aperture Lab
 
-A dependency-free parabolic dish generator with a 3D assembly preview, procedural STL export, editable OpenSCAD source, and a single-file offline edition.
+A browser-based parabolic dish generator with printer-aware segmentation, a 3D assembly view, procedural STL exports, editable OpenSCAD, and a single-file offline edition.
 
-Download [dist/petal-offline.html](dist/petal-offline.html) and open it directly in a browser. The app runs locally without a server. The hosted workspace uses the same geometry and export code.
+Download [dist/petal-offline.html](dist/petal-offline.html) and open it directly in a browser. The hosted app uses the same geometry and exports.
 
-## Recessed plates (2.3)
+## Captured hub and real hardware (3.0)
 
-The default interface uses plain bolt holes and shallow seats for the whole connector end. There are no raised docking pads, per-hole keys, or projecting tongues. Seats are 0.35 mm deep with adjustable edge clearance. A 1.6 mm shell retains 1.25 mm vertical wall at a seat, excluding the bolt opening.
+All bolt bores are round, Ø4.6 mm for M4 through-bolts. The default recessed plates and rear hub have hexagonal nut pockets: nominal 7 mm nuts plus twice the fit-clearance setting, 7.4 mm across flats by default. Pockets have at least 3.4 mm depth and a horizontal nut bearing face with at least 2 mm supporting material. Hold nuts in place until their bolts engage; pockets prevent rotation rather than retaining loose nuts upside down.
 
-Same-ring connectors use two M4 bolts, one per petal. Between-ring connectors use four bolts, two per petal. The backing plate underside is a plane fitted to the local dish angle, with at least 3.2 mm thickness normal to that plane. STL exports rotate this face onto the print bed. Contact faces follow the actual curved or faceted rear surface. The hub retains its flat mounting face, 60 mm four-M4 bolt circle, and 30 mm opening.
+The center now captures the petal roots mechanically:
 
-Interface revision 4 requires matching panels, connectors and hub parts. Do not mix with earlier raised-key designs. The 60 mm mount adapter pattern is unchanged. The alternate legacy strap style retains its 40 mm mount pattern and two-bolt straps.
+- Root lips drop into a matching concentric groove in the rear hub.
+- Interrupted sections provide indexing stops against circumferential sliding.
+- A front cap overlaps recessed root shoulders and traps them axially.
+- The cap's annular pilot enters a second concentric channel in the rear hub.
+- Its exposed face follows the same parabola as the dish; reinforcement sits underneath.
+
+Root shoulders are deep enough for recessed screw heads and at least a 3 mm root web. The lip is 2 mm deep. The root rear profile blends back into the normal panel by radius 66 mm. The cap and rear hub retain a Ø30 opening and four M4 mount positions on a 60 mm bolt circle. Matching holes through the cap keep these mounting positions accessible.
+
+The cap uses M4 ISO 7380-1 button-head screws, with heads no larger than Ø8 × 2.2 mm, in Ø8.4 counterbores. Counterbore floors sit at least 2.4 mm below the lowest surrounding front surface. Standard tall socket-cap heads do not fit. Choose screw lengths from exported grip dimensions, nut height, washers where applicable, and mount-adapter thickness. See the exported assembly guide for hardware dimensions and references.
+
+**Interface revision 5 needs a complete matching set.** Earlier hubs, retaining rings and root profiles do not mate. The external 60 mm mount pattern is unchanged. The legacy strap option retains its 40 mm mount pattern and pressure-clamped hub, now with round bores.
 
 ## Layout and connectors
 
-Stagger rings is an independent Layout control available with either connection style. Alternating rings rotate by half a petal: `180 / petal_count` degrees. Turning staggering off aligns them. Joint style does not enable or disable staggering. Automatic printer-fit segmentation may select different petal counts for different constructions; set explicit petals and rings to fix segmentation.
+Staggering is independent of connector style. Alternate rings rotate by half a petal, `180 / petal_count` degrees. A staggered petal overlaps two neighbors in the adjacent ring. Connectors stay inside those two-panel overlaps; three-panel junction plates are not included.
 
-Each staggered panel overlaps two neighbors in the adjacent ring. Connectors lie within those overlaps and join two panels; they do not straddle three-panel junctions. Faceted ring connectors are fitted to both adjoining rear faces. The legacy style also generates matching staggered holes and fitted connectors.
+Default side plates use two bolts, one per petal. Between-ring plates use four, two per petal. Shallow 0.35 mm footprint seats replace individual locating keys along the panel seams. Sloped plate backs export rotated flat for printing; local depth accommodates the nut pockets. Adaptive spacing adds connectors along long seams. Spacing defaults to 150 mm and is a geometric placement rule, not a structural calculation.
 
-Adaptive connector spacing adds connectors along long seams in the recessed-plate system. Target spacing defaults to 150 mm, adjustable from 60–180 mm. Smaller spacing adds hardware. This is a geometric placement rule, not a structural calculation. Changes to geometry, spacing, or staggering require matching regenerated parts.
+Set explicit petal and ring counts to fix segmentation. Automatic printer fitting may choose different counts when construction changes. Regenerate matching parts after changing geometry, spacing or staggering.
 
-## Printing
+## Printing and assembly
 
-The front follows `z = r² / (4f)`, where `f = diameter × f/D`. Choose a curved rear or two rear faces with a 10–15° change in slope. Thickness is vertical; faceted corners may be thicker. CAD volume assumes solid material and is not a filament estimate.
+The front follows `z = r² / (4f)`, where `f = diameter × f/D`. Choose curved backs or two rear faces with a 10–15° slope change. Thickness is vertical; faceted corners and captured roots may be thicker. Seam seats remove 0.35 mm locally, leaving 1.25 mm from the minimum 1.6 mm shell. CAD volume is not a filament estimate.
 
-Automatic orientation prefers 60° for recessed plates, faceted backs, or built-in supports, then tries other diagonal angles. Legacy curved shells without supports retain low-profile automatic orientation. Bed rotations are checked in 15° steps. This is a fit heuristic, not a print-strength simulation.
+Automatic petal orientation prefers diagonal printing for the default construction. Optional breakaway ribs follow the actual underside. Preserve all supported shells in their original positions. Inspect root lips, nut-pocket roofs, recesses and the cap pilot in the slicer. The cap has curved faces and may require generated supports; built-in ribs apply to petals only.
 
-Optional breakaway ribs follow the panel underside with adjustable contact gap, ridge width and spacing. Preserve supported STL shells in their exported positions. Inspect slicer layers before disabling generated supports. Check the shallow seats, bolt holes and plate contact faces; test one joint before printing a complete kit.
+Test one panel, connector and hub fit with actual hardware before printing the entire kit. Place rear nuts, seat indexed petal lips, lower the cap into its pilot channel, start root screws loosely, then assemble outer rings and plates. Tighten gradually without forcing misaligned parts. Fit the rear adapter after placing its nuts. The exported guide includes quantities, hardware, grip lengths, part orientations and assembly order.
 
-Exports include STLs, quantities, hardware totals, editable OpenSCAD, parameters, assembly rotations and a print guide. Grip lengths exclude washers, nuts and thread engagement. Sloped connector backs change hardware seating: check washer contact and actual fit before tightening.
+## Source and checks
 
-## Source
-
-- `dist/geometry.js`: geometry, segmentation, support meshes and STL primitives
-- `dist/kernel.scad`: matching OpenSCAD geometry
+- `dist/geometry.js`: meshes, segmentation, print orientation, supports and STL generation
+- `dist/kernel.scad`: matching parametric OpenSCAD geometry
 - `dist/exports.js`: ZIP, parameters and assembly guide
-- `dist/app.js`, `dist/viewer.js`: interface and WebGL preview
-- `scripts/pack-offline.mjs`: standalone HTML packer
+- `dist/app.js`, `dist/viewer.js`: controls and preview
+- `scripts/pack-offline.mjs`: rebuild the offline HTML
 
-After editing, run `node scripts/pack-offline.mjs`. In exported OpenSCAD select the part, one-based ring and connector station, render with F6, then export STL.
+Run `node scripts/pack-offline.mjs` after changes. In exported OpenSCAD select the part, one-based ring and connector station, render with F6, then export STL.
 
-## Verification
+`npm test` checks closed topology, winding, printer bounds, mating surfaces, independent staggering, bore mapping, round-shaft clearance, hex-pocket bearing faces, root grooves, indexing stops, pilot clearance, flush cap faces and support separation. Representative OpenSCAD exports are compared with JavaScript dimensions and volume.
 
-Run `npm test` for topology, winding, printer bounds, faceted surfaces, actual mesh mating, shallow-seat depth, connector-to-panel hole mapping, independent staggering, planar print bases and support clearance. Representative OpenSCAD panel and connector renders are compared with JavaScript dimensions and volume.
-
-Physical printing, assembly, strength, creep and wind loads remain untested. Conductive finish, feed, feed support, electronics and mount adapters are separate. No frequency-specific optimization or RF performance estimates are provided.
+Physical printing, assembly, creep, strength and wind loading remain untested. No RF performance estimates or frequency-specific optimization are provided. Reflective finish, feed, feed support, electronics and mount adapters are separate.
