@@ -1,4 +1,4 @@
-# PETAL 4.0 — modular printed reflector
+# PETAL 4.1 — modular printed reflector
 
 A browser-based parabolic reflector generator with printer-aware segmentation, a 3D assembly view, STL kits and a standalone offline app.
 
@@ -67,3 +67,16 @@ All current OpenSCAD exports are exact mesh snapshots with assembly/part selecti
 Run `npm test` for topology, winding, bed fit, actual mesh mating, hardware cavities, supports, connection mapping, coupons and instructions. Run `npm run test:scad` with OpenSCAD installed to verify representative exports. Run `npm run build` to refresh the offline edition. After `npm ci`, run `npm run test:ui` for the DOM-level app check (no WebGL rendering). Run `npm run docs` to regenerate the default assembly and reflector guides.
 
 The design has not yet been physically printed, load-tested or RF-tested. Mesh checks and section-property comparisons do not establish allowable wind, torque, temperature, life or antenna gain.
+
+## 4.1 — feed supports and manual aiming
+
+Enable **Feed / secondary support** to generate three- or four-leg mounts for smooth 1/4-inch metal rods. Prime-focus mode uses an explicit feed phase-center offset. Experimental Cassegrain mode generates a hyperbolic secondary, checks the return aperture and reports its electrical size warning. The kit adds reinforced mounting petals, saddles/backers, locking clevises and rod clamps, an open carrier, `FEED-SUPPORT.md` and `RODS.csv`. Actual RF feeds and feed-specific adapters are separate. Defaults keep the accessory off.
+
+- [Optics, calculations and limits](docs/FEED-OPTICS.md)
+- [Manual geared-head adapter and bench mounting instructions](docs/MANUAL-AIMING.md)
+- [Separate aiming-mount CAD](cad/manual-aiming-mount.scad) and [prototype/reference STLs](cad/STL/)
+- [Default prime-focus support preview](docs/feed-support.png)
+
+The aiming design adapts a **purchased metal geared head**; it does not include printed drive gears. The center passage stays open. Revision-9 seam/hub geometry remains unchanged when support is off; mount petals and accessory fittings must be regenerated together.
+
+`npm test` includes feed geometry/optics tests. `npm run build:feed` regenerates invariant fitting meshes using Python and OpenSCAD; then run `npm run build`. `python scripts/check-feed-fit.py` performs sampled interference checks (requires numpy, trimesh, rtree and scipy). `scripts/render-accessories.py` creates the geometry illustrations (also requires matplotlib). No physical load or RF performance rating is supplied.

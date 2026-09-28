@@ -28,7 +28,7 @@ Keep perforations off for the baseline article. Conductive mesh must be chosen f
 
 ## Feed and alignment
 
-This configuration has focal length 168.00 mm from the parabola vertex, dish depth 59.52 mm, and rim half-angle 61.53 degrees as seen from the focus. The vertex is the extrapolated center of the parabola, not the rear hub surface or rim plane. Place the feed phase center at the focus and match its illumination to that rim angle. Provide rigid, adjustable axial/lateral positioning and polarization adjustment. Route and strain-relieve the cable so it cannot move the feed. Feed and support parts are not included.
+This configuration has focal length 168.00 mm from the parabola vertex, dish depth 59.52 mm, and rim half-angle 61.53 degrees as seen from the focus. The vertex is the extrapolated center of the parabola, not the rear hub surface or rim plane. Place the feed phase center at the focus and match its illumination to that rim angle. Provide rigid, adjustable axial/lateral positioning and polarization adjustment. Route and strain-relieve the cable so it cannot move the feed. Enable the optional rod support to generate mounting parts and rod cuts. The RF feed is not supplied.
 
 Choose an operating band before setting surface tolerances. As an engineering starting budget, allocate no more than wavelength/50 RMS to structural/assembly error, then account separately for finish, feed and pointing. This is a proposed test criterion, not a verified capability. Use the shortest wavelength in a band. Measure at several azimuths and elevations; systematic seam steps and defocus need attention beyond a single RMS number.
 

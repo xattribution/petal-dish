@@ -1,0 +1,4 @@
+leg,stock,diameter_mm,pivot_distance_mm,eye_to_mouth_each_mm,engagement_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,lower_pivot_z_mm,upper_pivot_z_mm
+1,smooth metal rod,6.35,121.044,44,22,77.044,3.0332,0.000,79.287,146.000
+2,smooth metal rod,6.35,121.044,44,22,77.044,3.0332,120.000,79.287,146.000
+3,smooth metal rod,6.35,121.044,44,22,77.044,3.0332,240.000,79.287,146.000
