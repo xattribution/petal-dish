@@ -57,3 +57,16 @@ Physical printing, assembly, creep, strength and wind loading remain untested. N
 ## Engineering scope
 
 Revision 7 reinforces joint geometry and makes alignment less dependent on screw force. It does not establish a strength rating or justify reducing the number of fasteners. Keep the existing fastener count until representative joints and the assembled dish have been physically tested. Use washers on petal fasteners, start every screw by hand, and tighten progressively. Visible panel dimpling or pocket deformation is a failed assembly check, not a signal to tighten further.
+
+
+## Optional construction and shared beds (3.3)
+
+All new options are off by default:
+
+- **Perforate petal fields:** 6 mm round voids, procedurally spaced with at least 14 mm center clearance from petal edges and clear zones around roots, seats and fastening pockets. Density is capped by increasing pitch on larger petals. Inspect the roofs and supports in your slicer. Perforations remove reflector surface; no RF performance claim is made.
+- **Pack copies onto shared beds:** rotates finished parts about the bed normal in 15° steps, preserves print tilt, includes breakaway supports, and leaves 6 mm between bounding boxes. The layout view shows every copy on its assigned bed. The ZIP includes `PACKED/plate-N.stl` and placement metadata. Print either packed beds or the individual quantities, not both. Allow for slicer-generated supports and brims; the packer only knows the exported geometry. This is conservative packing rather than optimal polygon nesting.
+- **Fastening:** original front screws with round bores and rear nuts; rear screws with recessed front hex nuts; or rear screws into blind heat-set inserts. The two new styles have round rear button-head recesses. Selecting a new style requires a complete regenerated kit, including the hub and cap (revision 8). Recessed nuts still leave a visible pocket; only the insert option closes the hardware holes on the front.
+
+The default insert reference is [ruthex RX-M4x8.1](https://www.ruthex.de/en/collections/gewindeeinsatze/products/ruthex-gewindeeinsatz-m4-50-stuck-rx-m4x8-1-messing-gewindebuchsen): 5.6 mm installation hole, at least 9.1 mm cavity, and at least 2 mm front skin. Hole diameter and minimum cavity depth can be adjusted. Heat-set holes are not standardized across suppliers. Print the actual joint coupon with your PCTG or ASA/ABS and verify insertion depth and screw length first. Blind insert bosses add material behind the face; this style is heavier than through-bolting.
+
+Perforated or alternative-fastener configurations export `petal-snapshot.scad`, an exact mesh snapshot with an assembly/part selector. Change dimensions in PETAL and regenerate this file. The original configuration continues to export editable parametric OpenSCAD. Packed beds are exported as STL.

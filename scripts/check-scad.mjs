@@ -22,7 +22,7 @@ function readSTL(file){
  return {v,f};
 }
 try{
- for(const [cfg,id,part] of [[{},'panel-1','panel'],[{},'side-bridge-1','side-bridge'],[{diameter:600,rows:3,rearStyle:1,connectorSpacing:80},'side-bridge-1','side-bridge'],[{diameter:800},'ring-bridge-1','ring-bridge']]){
+ for(const [cfg,id,part] of [[{},'panel-1','panel'],[{},'side-bridge-1','side-bridge'],[{diameter:600,rows:3,rearStyle:1,connectorSpacing:80},'side-bridge-1','side-bridge'],[{diameter:800},'ring-bridge-1','ring-bridge'],[{perforate:1},'panel-1','panel-1'],[{fastenerStyle:2},'panel-1','panel-1'],[{fastenerStyle:1},'hub-clamp','hub-clamp']]){
   const m=build({...defaults,...cfg}),expected=m.parts.find(p=>p.id===id).output;
   const input=path.join(dir,'check.scad'),output=path.join(dir,'check.stl');
   fs.writeFileSync(input,scadSource(m,kernel).replace('part = "assembly"',`part = "${part}"`));

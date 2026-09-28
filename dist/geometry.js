@@ -1,8 +1,8 @@
 /* PETAL geometry kernel — millimetres; no external dependencies. */
-export const defaults={diameter:400,fd:0.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:0.4,resolution:5,sectors:0,rows:0,supports:0,printAngle:-1,ribCount:3,contactGap:0.2,contactWidth:0.6,ribPitch:10,rearStyle:0,facetAngle:12,jointStyle:1,jointClearance:0.2,adaptiveJoints:1,connectorSpacing:150,staggerRings:1};
-export const limits={diameter:[180,1200],fd:[0.25,0.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[0.2,1],resolution:[2,10],sectors:[0,32],rows:[0,12],supports:[0,1],printAngle:[-1,70],ribCount:[2,5],contactGap:[0.1,0.4],contactWidth:[0.4,0.8],ribPitch:[6,20],rearStyle:[0,1],facetAngle:[10,15],jointStyle:[0,1],jointClearance:[0.1,0.4],adaptiveJoints:[0,1],connectorSpacing:[60,180],staggerRings:[0,1]};
+export const defaults={diameter:400,fd:0.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:0.4,resolution:5,sectors:0,rows:0,supports:0,printAngle:-1,ribCount:3,contactGap:0.2,contactWidth:0.6,ribPitch:10,rearStyle:0,facetAngle:12,jointStyle:1,jointClearance:0.2,adaptiveJoints:1,connectorSpacing:150,staggerRings:1,perforate:0,packPlates:0,fastenerStyle:0,insertDiameter:5.6,insertDepth:9.1};
+export const limits={diameter:[180,1200],fd:[0.25,0.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[0.2,1],resolution:[2,10],sectors:[0,32],rows:[0,12],supports:[0,1],printAngle:[-1,70],ribCount:[2,5],contactGap:[0.1,0.4],contactWidth:[0.4,0.8],ribPitch:[6,20],rearStyle:[0,1],facetAngle:[10,15],jointStyle:[0,1],jointClearance:[0.1,0.4],adaptiveJoints:[0,1],connectorSpacing:[60,180],staggerRings:[0,1],perforate:[0,1],packPlates:[0,1],fastenerStyle:[0,2],insertDiameter:[4.8,6.5],insertDepth:[9.1,12]};
 const PI=Math.PI,TAU=2*PI;
-export function validate(p){for(const [k,[a,b]]of Object.entries(limits)){if(!Number.isFinite(p[k])||p[k]<a||p[k]>b)throw Error(`${k} must be between ${a} and ${b}.`);}if(p.sectors!==0&&(p.sectors<6||p.sectors%2))throw Error('Petals must be automatic or an even number from 6 to 32.');if(!Number.isInteger(p.rows))throw Error('Ring count must be a whole number.');if(![0,1].includes(p.supports)||!Number.isInteger(p.ribCount))throw Error('Choose on/off supports and a whole number of ribs.');if(p.printAngle!==-1&&p.printAngle!==0&&p.printAngle<45)throw Error('Choose automatic, low profile, or a 45–70° print angle.');if(p.supports&&p.printAngle===0)throw Error('Rib supports are designed for angled petals. Choose automatic or 45–70°.');if(![0,1].includes(p.rearStyle))throw Error('Choose curved or two-facet rear.');if(p.rearStyle&&p.printAngle===0)throw Error('The faceted rear uses diagonal printing. Choose automatic or 45–70°.');if(![0,1].includes(p.jointStyle))throw Error("Choose legacy or keyed joints.");if(![0,1].includes(p.adaptiveJoints)||![0,1].includes(p.staggerRings))throw Error("Choose on/off adaptive connectors and ring staggering.");return p;}
+export function validate(p){if(![0,1].includes(p.perforate)||![0,1].includes(p.packPlates)||![0,1,2].includes(p.fastenerStyle))throw Error('Choose valid perforation, packing and fastener options.');if(p.fastenerStyle&&!p.jointStyle)throw Error('Front nuts and blind inserts require recessed plates.');for(const [k,[a,b]]of Object.entries(limits)){if(!Number.isFinite(p[k])||p[k]<a||p[k]>b)throw Error(`${k} must be between ${a} and ${b}.`);}if(p.sectors!==0&&(p.sectors<6||p.sectors%2))throw Error('Petals must be automatic or an even number from 6 to 32.');if(!Number.isInteger(p.rows))throw Error('Ring count must be a whole number.');if(![0,1].includes(p.supports)||!Number.isInteger(p.ribCount))throw Error('Choose on/off supports and a whole number of ribs.');if(p.printAngle!==-1&&p.printAngle!==0&&p.printAngle<45)throw Error('Choose automatic, low profile, or a 45–70° print angle.');if(p.supports&&p.printAngle===0)throw Error('Rib supports are designed for angled petals. Choose automatic or 45–70°.');if(![0,1].includes(p.rearStyle))throw Error('Choose curved or two-facet rear.');if(p.rearStyle&&p.printAngle===0)throw Error('The faceted rear uses diagonal printing. Choose automatic or 45–70°.');if(![0,1].includes(p.jointStyle))throw Error("Choose legacy or keyed joints.");if(![0,1].includes(p.adaptiveJoints)||![0,1].includes(p.staggerRings))throw Error("Choose on/off adaptive connectors and ring staggering.");return p;}
 export const zAt=(r,p)=>r*r/(4*p.diameter*p.fd);
 // Preserve the specified wall at seams and fasteners while removing material
 // from the broad, lightly loaded field of a curved petal.
@@ -46,7 +46,7 @@ export function patch(spec,p){
 }
 export function bounds(mesh){const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];const used=new Set(mesh.f.flat());for(const i of used)for(let k=0;k<3;k++){min[k]=Math.min(min[k],mesh.v[i][k]);max[k]=Math.max(max[k],mesh.v[i][k]);}return{min,max,size:max.map((x,k)=>x-min[k])};}
 export function printMesh(mesh,tilt=0){const c=Math.cos(tilt),s=Math.sin(tilt);let m={v:mesh.v.map(([x,y,z])=>[c*x+s*z,y,-s*x+c*z]),f:mesh.f};const b=bounds(m);m.v=m.v.map(v=>v.map((x,k)=>x-(k===2?b.min[k]:(b.min[k]+b.max[k])/2)));return m;}
-export function tileSpec(p,n,rows,j){if(p.jointStyle)return keyedPanelSpec(p,n,rows,j);const R=p.diameter/2,w=(R-45)/rows,b0=45+j*w,b1=45+(j+1)*w,half=PI/n,rm=b0+w*.65;const holes=[hole(rm,-half+8/rm),hole(rm,half-8/rm)];if(j===0)holes.push(hole(52.5,0));else for(const a of radialStations(p,n,rows,j-1))holes.push(hole(b0+8,a));if(j<rows-1)for(const a of radialStations(p,n,rows,j))holes.push(hole(b1-8,a));const spec={r0:b0+(j? p.gap/2:0),r1:b1-(j<rows-1?p.gap/2:0),a0:-half+p.gap/(2*b0),a1:half-p.gap/(2*b0),holes};if(p.rearStyle){spec.facet=facetData(spec,p);spec.backFn=x=>facetZ(x,spec.facet);spec.creaseLines=[[1,0,spec.facet[1]]];}return spec;}
+export function tileSpec(p,n,rows,j){if(p.jointStyle)return keyedPanelSpec(p,n,rows,j);const R=p.diameter/2,w=(R-45)/rows,b0=45+j*w,b1=45+(j+1)*w,half=PI/n,rm=b0+w*.65;const holes=[hole(rm,-half+8/rm),hole(rm,half-8/rm)];if(j===0)holes.push(hole(52.5,0));else for(const a of radialStations(p,n,rows,j-1))holes.push(hole(b0+8,a));if(j<rows-1)for(const a of radialStations(p,n,rows,j))holes.push(hole(b1-8,a));const spec={r0:b0+(j? p.gap/2:0),r1:b1-(j<rows-1?p.gap/2:0),a0:-half+p.gap/(2*b0),a1:half-p.gap/(2*b0),holes};if(p.rearStyle){spec.facet=facetData(spec,p);spec.backFn=x=>facetZ(x,spec.facet);spec.creaseLines=[[1,0,spec.facet[1]]];}if(p.perforate){spec.perforations=perforationHoles(spec,p);spec.holes.push(...spec.perforations);}return spec;}
 export const SUPPORT_LIFT=5.6;
 export function rotateBed(mesh,degrees){const c=Math.cos(degrees*PI/180),s=Math.sin(degrees*PI/180);return{v:mesh.v.map(([x,y,z])=>[c*x-s*y,s*x+c*y,z]),f:mesh.f};}
 export function mergeMeshes(meshes){const v=[],f=[];for(const mesh of meshes){const off=v.length;for(const point of mesh.v)v.push(point);for(const face of mesh.f)f.push(face.map(i=>i+off));}return{v,f};}
@@ -90,7 +90,7 @@ export function build(p){const layout=plan(p),{n,rows}=layout,parts=[],instances
  instance(add('hub-rear',p.jointStyle?'Rear hub · 60 mm BCD':'Rear hub · 40 mm BCD',hubSpec(p,n,rows,rootH,mountH),1,'hub',-1));
  instance(add('hub-clamp',p.jointStyle?'Flush retaining ring':'Front clamp ring',p.jointStyle?capturedClampSpec(p,n,rootH):{r0:43,r1:60,a0:-PI/n,a1:TAU-PI/n,holes:rootH,offset:3.4,thickness:3.2},1,'hub',-1));
  for(const part of parts)if((p.rearStyle||p.jointStyle)&&(part.kind==='bridge'||part.id==='hub-rear')){const floor=bounds(part.mesh).min[2],grips=part.spec.holes.filter(h=>part.id!=='hub-rear'||Math.abs((h.r0+h.r1)/2-52.5)<.01).map(h=>{const r=(h.r0+h.r1)/2,a=(h.a0+h.a1)/2,[mx,my,c]=part.spec.floorPlane||[0,0,floor];if(p.jointStyle&&part.spec.nutSeats){const idx=part.spec.holes.indexOf(h),front=part.id==='hub-rear'?zAt(r-4.2,p)-2.4:zAt(r,p);return front-part.spec.nutSeats[idx];}return zAt(r,p)+(part.id==='hub-rear'?3.4:0)-(mx*r*Math.cos(a)+my*r*Math.sin(a)+c);});part.gripRange=[Math.min(...grips),Math.max(...grips)];}
- const bolts=n+parts.filter(p=>p.kind==='bridge').reduce((sum,p)=>sum+p.qty*p.spec.holes.length,0);return{p:{...p},layout,parts,instances,bolts,ringPhases:Array.from({length:rows},(_,j)=>ringPhase(p,n,j)),depth:p.diameter/(16*p.fd),focal:p.diameter*p.fd};
+ const bolts=n+parts.filter(p=>p.kind==='bridge').reduce((sum,p)=>sum+p.qty*p.spec.holes.length,0);const result={p:{...p},layout,parts,instances,bolts,ringPhases:Array.from({length:rows},(_,j)=>ringPhase(p,n,j)),depth:p.diameter/(16*p.fd),focal:p.diameter*p.fd};if(p.fastenerStyle)rearHardwareSchedule(result);result.plates=p.packPlates?packParts(parts,p):[];return result;
 }
 export function binarySTL(mesh){const ab=new ArrayBuffer(84+mesh.f.length*50),d=new DataView(ab);new Uint8Array(ab,0,80).set(new TextEncoder().encode('PETAL / millimetres / procedural mesh'));d.setUint32(80,mesh.f.length,true);let k=84;for(const face of mesh.f){const [a,b,c]=face.map(i=>mesh.v[i]),u=b.map((x,i)=>x-a[i]),v=c.map((x,i)=>x-a[i]);let norm=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],len=Math.hypot(...norm);norm=norm.map(x=>x/(len||1));for(const x of [...norm,...a,...b,...c]){d.setFloat32(k,x,true);k+=4;}d.setUint16(k,0,true);k+=2;}return ab;}
 export function volume(mesh){let sum=0;for(const [i,j,k]of mesh.f){const a=mesh.v[i],b=mesh.v[j],c=mesh.v[k];sum+=a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]);}return sum/6;}
@@ -108,7 +108,7 @@ export function radialStations(p,n,rows,j){if(!p.jointStyle)return p.staggerRing
 export function keyCenters(p,n,rows,j){const {b0,b1,count}=jointStations(p,n,rows,j),h=PI/n,centers=[];for(let k=0;k<count;k++){const{rm,span}=jointStations(p,n,rows,j,k);for(const r of [rm])for(const sign of [-1,1])centers.push([r,sign*(h-8/r)]);}if(j===0)centers.push([52.5,0]);else for(const a of p.staggerRings?[0]:radialStations(p,n,rows,j-1))for(const sign of [-1,1])centers.push([b0+8,a+sign*ringBoltSpan(p)/b0]);if(j<rows-1){if(p.staggerRings)for(const sign of [-1,1])centers.push([b1-8,sign*(h-ringBoltSpan(p)/b1)]);else for(const a of radialStations(p,n,rows,j))for(const sign of [-1,1])centers.push([b1-8,a+sign*ringBoltSpan(p)/b1]);}return centers;}
 export function jointsFit(p,n,rows){for(let j=0;j<rows;j++){const t=jointStations(p,n,rows,j);if(t.span<0)return false;const spec=tileSpec({...p,jointStyle:0},n,rows,j),pads=keyCenters(p,n,rows,j).map(([r,a])=>rectAt(r,a,12,12));for(const b of pads)if(b.r0<spec.r0+.5||b.r1>spec.r1-.5||b.a0<spec.a0+.001||b.a1>spec.a1-.001)return false;for(let i=0;i<pads.length;i++)for(let k=i+1;k<pads.length;k++){const a=pads[i],b=pads[k];if(Math.min(a.r1,b.r1)>Math.max(a.r0,b.r0)+.001&&Math.min(a.a1,b.a1)>Math.max(a.a0,b.a0)+.001)return false;}}return true;}
 export function seatBoxes(p,n,rows,j){const h=PI/n,t=jointStations(p,n,rows,j),c=p.jointClearance,out=[];for(let k=0;k<t.count;k++){const r=jointStations(p,n,rows,j,k).rm;for(const sign of [-1,1])out.push({r0:r-JOINT.plateHalf-c,r1:r+JOINT.plateHalf+c,a0:sign>0?h-(JOINT.plateReach+c)/r:-h-c/r,a1:sign>0?h+c/r:-h+(JOINT.plateReach+c)/r});}for(const [boundary,ring,inner]of [[t.b0,j-1,true],[t.b1,j,false]]){if(inner?j===0:j===rows-1)continue;const half=ringBoltSpan(p)/boundary+JOINT.plateHalf/(boundary-8)+c/boundary;for(const a of p.staggerRings?(inner?[0]:[-h,h]):radialStations(p,n,rows,ring))out.push({r0:inner?boundary-c:boundary-JOINT.plateReach-c,r1:inner?boundary+JOINT.plateReach+c:boundary+c,a0:a-half,a1:a+half});}return out;}
-export const clampDepth=p=>4.4+zAt(56.7,p)-zAt(48.3,p);
+export const clampDepth=p=>(p.fastenerStyle===2?p.insertDepth+2.8:p.fastenerStyle===1?6:4.4)+zAt(56.7,p)-zAt(48.3,p);
 // Revision 7: deep locating seats supported by a blended rear reinforcement.
 export const JOINT={seatDepth:1,plateHalf:7.5,plateReach:15.5,bearingWall:2.8,minPanelWall:2.8};
 function seatBlend(seats,x,y){
@@ -119,12 +119,12 @@ function seatBlend(seats,x,y){
 function seatGrid(seats){return seats.map(b=>({...b,r0:b.r0-4,r1:b.r1+4,a0:b.a0-4/b.r0,a1:b.a1+4/b.r0}));}
 export const HUB={shoulder:3,rootEnd:60.2,taperEnd:66,lipInner:45,lipOuter:47,lipDepth:2,pilotInner:39,pilotOuter:42};
 function rootLip(n,clear=0){return [{r0:45-clear,r1:47+clear,a0:-PI,a1:PI}];}
-export function keyedPanelSpec(p,n,rows,j){const spec=tileSpec({...p,jointStyle:0},n,rows,j),centers=keyCenters(p,n,rows,j),seats=seatBoxes(p,n,rows,j),holes=centers.map(([r,a])=>hole(r,a));const T=clampDepth(p),original=(x,y)=>{const nominal=spec.facet?facetZ(x,spec.facet):zAt(Math.hypot(x,y),p)-p.thickness,bare=spec.facet?nominal:zAt(Math.hypot(x,y),p)-panelWall(p,spec,x,y,centers),blend=seatBlend(seats,x,y);return bare*(1-blend)+nominal*blend-blend*(JOINT.seatDepth-.35+Math.max(0,JOINT.minPanelWall-p.thickness));},front=(x,y)=>zAt(Math.hypot(x,y),p),rear=(x,y)=>{const r=Math.hypot(x,y);if(j||r>=66)return original(x,y);const z=front(x,y)-T-Math.max(3,p.thickness),t=Math.max(0,(r-60.2)/5.8);return z*(1-t)+original(x,y)*t;};if(j)return {...spec,holes,centers,seats,backFn:rear,levels:[rear,(x,y)=>rear(x,y)+JOINT.seatDepth,front],layers:[{exclude:seats,holes},{holes}],gridBoxes:[...seats,...seatGrid(seats),...holes]};const lip=rootLip(n),notch={r0:44,r1:48,a0:-1.5/46,a1:1.5/46},recess={r0:0,r1:60.2,a0:-PI,a1:PI};return {...spec,holes,centers,seats,rootLip:lip,backFn:rear,extraR:[47,60.2,66].filter(r=>r>spec.r0&&r<spec.r1),levels:[(x,y)=>rear(x,y)-2,rear,(x,y)=>rear(x,y)+JOINT.seatDepth,(x,y)=>Math.hypot(x,y)<=60.200001?front(x,y)-T:(rear(x,y)+JOINT.seatDepth+front(x,y))/2,front],layers:[{regions:lip,exclude:[notch],holes},{exclude:seats,holes},{holes},{exclude:[recess],holes}],gridBoxes:[...seats,...seatGrid(seats),...holes,...lip,notch,recess]};}
+function baseKeyedPanelSpec(p,n,rows,j){const spec=tileSpec({...p,jointStyle:0},n,rows,j),centers=keyCenters(p,n,rows,j),seats=seatBoxes(p,n,rows,j),holes=centers.map(([r,a])=>hole(r,a));const T=clampDepth(p),original=(x,y)=>{const nominal=spec.facet?facetZ(x,spec.facet):zAt(Math.hypot(x,y),p)-p.thickness,bare=spec.facet?nominal:zAt(Math.hypot(x,y),p)-panelWall(p,spec,x,y,centers),blend=seatBlend(seats,x,y);return bare*(1-blend)+nominal*blend-blend*(JOINT.seatDepth-.35+Math.max(0,fastenerWall(p)-p.thickness));},front=(x,y)=>zAt(Math.hypot(x,y),p),rear=(x,y)=>{const r=Math.hypot(x,y);if(j||r>=66)return original(x,y);const z=front(x,y)-T-Math.max(3,p.thickness),t=Math.max(0,(r-60.2)/5.8);return z*(1-t)+original(x,y)*t;};if(j)return {...spec,holes,centers,seats,backFn:rear,levels:[rear,(x,y)=>rear(x,y)+JOINT.seatDepth,front],layers:[{exclude:seats,holes},{holes}],gridBoxes:[...seats,...seatGrid(seats),...holes]};const lip=rootLip(n),notch={r0:44,r1:48,a0:-1.5/46,a1:1.5/46},recess={r0:0,r1:60.2,a0:-PI,a1:PI};return {...spec,holes,centers,seats,rootLip:lip,backFn:rear,extraR:[47,60.2,66].filter(r=>r>spec.r0&&r<spec.r1),levels:[(x,y)=>rear(x,y)-2,rear,(x,y)=>rear(x,y)+JOINT.seatDepth,(x,y)=>Math.hypot(x,y)<=60.200001?front(x,y)-T:(rear(x,y)+JOINT.seatDepth+front(x,y))/2,front],layers:[{regions:lip,exclude:[notch],holes},{exclude:seats,holes},{holes},{exclude:[recess],holes}],gridBoxes:[...seats,...seatGrid(seats),...holes,...lip,notch,recess]};}
 function shoulderSpec(spec,p,centers,base){const holes=centers.map(([r,a])=>hole(r,a)),nuts=holes.map(h=>nutPocket(h,7+2*p.jointClearance)),r=(spec.r0+spec.r1)/2,y=r*Math.sin(Math.min(Math.abs(spec.a0),Math.abs(spec.a1))),slope=spec.station===undefined?[0,0]:[(base(spec.r1,0)-base(spec.r0,0))/(spec.r1-spec.r0),(base(r,y)-base(r,-y))/(2*y)];const seats=nuts.map(h=>{const x=h.r*Math.cos(h.a),y=h.r*Math.sin(h.a),rad=h.w/2;return Math.min(...Array.from({length:12},(_,i)=>base(x+rad*Math.cos(i*PI/6),y+rad*Math.sin(i*PI/6))))-JOINT.bearingWall;});const seat=(x,y)=>{let best=Infinity,z=0;for(let i=0;i<nuts.length;i++){const h=nuts[i],d=(x-h.r*Math.cos(h.a))**2+(y-h.r*Math.sin(h.a))**2;if(d<best){best=d;z=seats[i];}}return Math.min(z,base(x,y)-.5);};return {...spec,floorSlope:slope,holes,centers,nuts,nutSeats:seats,baseFn:base,levels:[null,seat,base],floorDepth:3.4,layers:[{holes:nuts},{holes}],gridBoxes:[...holes,...nuts]};}
-export function keyedSideSpec(p,n,rows,j,station=0){const {rm,span}=jointStations(p,n,rows,j,station),half=PI/n,sp=tileSpec({...p,jointStyle:0},n,rows,j),centers=[];for(const r of [rm])for(const sign of [-1,1])centers.push([r,sign*8/r]);const c=Math.cos(half),s=Math.sin(half),rear=(x,y)=>p.rearStyle?facetZ(c*x+s*Math.abs(y),sp.facet):zAt(Math.hypot(x,y),p)-p.thickness;const lines=p.rearStyle?[[0,1,0],[c,s,sp.facet[1]],[c,-s,sp.facet[1]]]:[];return shoulderSpec({station,r0:rm-JOINT.plateHalf,r1:rm+JOINT.plateHalf,a0:-JOINT.plateReach/rm,a1:JOINT.plateReach/rm,creaseLines:lines},p,centers,(x,y)=>rear(x,y)-Math.max(0,JOINT.minPanelWall-p.thickness)+.35-.2);}
-export function keyedRadialSpec(p,n,rows,j,station=0){const r=45+(j+1)*(p.diameter/2-45)/rows,a=tileSpec({...p,jointStyle:0},n,rows,j),b=tileSpec({...p,jointStyle:0},n,rows,j+1),alpha=radialStations(p,n,rows,j)[station],beta=alpha-(p.staggerRings?Math.sign(alpha)*PI/n:0),ca=Math.cos(alpha),sa=Math.sin(alpha),cb=Math.cos(beta),sb=Math.sin(beta),centers=[];for(const rr of [r-8,r+8])for(const sign of [-1,1])centers.push([rr,sign*ringBoltSpan(p)/r]);const rear=(x,y)=>{if(!p.rearStyle)return zAt(Math.hypot(x,y),p)-p.thickness;const t=Math.max(0,Math.min(1,(Math.hypot(x,y)-r+p.gap/2)/p.gap));return (1-t)*facetZ(p.staggerRings?ca*x+sa*Math.abs(y):ca*x-sa*y,a.facet)+t*facetZ(cb*x-sb*y,b.facet);};return shoulderSpec({station,ringOffset:alpha,outerOffset:beta,r0:r-JOINT.plateReach,r1:r+JOINT.plateReach,a0:-ringBoltSpan(p)/r-JOINT.plateHalf/(r-8),a1:ringBoltSpan(p)/r+JOINT.plateHalf/(r-8),extraR:[r-p.gap/2,r,r+p.gap/2],creaseLines:p.rearStyle?[...(p.staggerRings?[[0,1,0],[ca,sa,a.facet[1]]]:[]),[ca,-sa,a.facet[1]],[cb,-sb,b.facet[1]]]:[]},p,centers,(x,y)=>rear(x,y)-Math.max(0,JOINT.minPanelWall-p.thickness)+.35-.2);}
-export function keyedHubSpec(p,n,rows,rootH){const T=clampDepth(p),B=T+Math.max(3,p.thickness),top=(x,y)=>zAt(Math.hypot(x,y),p),holes=[...rootH,...Array.from({length:4},(_,i)=>hole(30,PI/4+i*TAU/4))],c=p.jointClearance,all={r0:0,r1:100,a0:-PI/n,a1:TAU-PI/n},central={...all,r1:45-c},pilot={...all,r0:39-c,r1:42+c},grooves=Array.from({length:n},(_,i)=>[-1,1].map(sign=>({r0:45-c,r1:47+c,a0:i*TAU/n+(sign>0?(1.5-c)/46:-PI/n),a1:i*TAU/n+(sign>0?PI/n:-(1.5-c)/46)}))).flat();const bottom=top(15,0)-B-8,nuts=holes.map(h=>nutPocket(h,7+2*p.jointClearance)),seat=bottom+3.4;return {r0:15,r1:60,a0:-PI/n,a1:TAU-PI/n,holes,centers:rootH.map(h=>[h.r,h.a]),nuts,nutSeats:nuts.map(()=>seat),baseFn:(x,y)=>top(x,y)-B-.2,floorPlane:[0,0,bottom],levels:[()=>bottom,()=>seat,(x,y)=>top(x,y)-B-2.2,(x,y)=>top(x,y)-B-.2,(x,y)=>top(x,y)-T-2.2,(x,y)=>top(x,y)-T],layers:[{holes:nuts},{holes},{exclude:grooves,holes},{regions:[central],holes},{regions:[central],exclude:[pilot],holes}],gridBoxes:[...holes,...nuts,...grooves,central,pilot]};}
-export function capturedClampSpec(p,n,rootH){const T=clampDepth(p),top=(x,y)=>zAt(Math.hypot(x,y),p),pilot={r0:39,r1:42,a0:-PI/n,a1:TAU-PI/n},holes=[...rootH,...Array.from({length:4},(_,i)=>hole(30,PI/4+i*TAU/4))],heads=holes.map(h=>hole(h.r,h.a,8.4)),headSeats=heads.map(h=>zAt(h.r-4.2,p)-2.4),seat=(x,y)=>{let best=Infinity,z=0;for(let i=0;i<heads.length;i++){const h=heads[i],d=(x-h.r*Math.cos(h.a))**2+(y-h.r*Math.sin(h.a))**2;if(d<best){best=d;z=headSeats[i];}}return Math.min(top(x,y)-.2,Math.max(top(x,y)-T+.2,z));};return {r0:15,r1:60,a0:-PI/n,a1:TAU-PI/n,holes,heads,headSeats,levels:[(x,y)=>top(x,y)-T-2,(x,y)=>top(x,y)-T,seat,top],layers:[{regions:[pilot],holes},{holes},{holes:heads}],gridBoxes:[...holes,...heads,pilot]};}
+function baseKeyedSideSpec(p,n,rows,j,station=0){const {rm,span}=jointStations(p,n,rows,j,station),half=PI/n,sp=tileSpec({...p,jointStyle:0},n,rows,j),centers=[];for(const r of [rm])for(const sign of [-1,1])centers.push([r,sign*8/r]);const c=Math.cos(half),s=Math.sin(half),rear=(x,y)=>p.rearStyle?facetZ(c*x+s*Math.abs(y),sp.facet):zAt(Math.hypot(x,y),p)-p.thickness;const lines=p.rearStyle?[[0,1,0],[c,s,sp.facet[1]],[c,-s,sp.facet[1]]]:[];return shoulderSpec({station,r0:rm-JOINT.plateHalf,r1:rm+JOINT.plateHalf,a0:-JOINT.plateReach/rm,a1:JOINT.plateReach/rm,creaseLines:lines},p,centers,(x,y)=>rear(x,y)-Math.max(0,fastenerWall(p)-p.thickness)+.35-.2);}
+function baseKeyedRadialSpec(p,n,rows,j,station=0){const r=45+(j+1)*(p.diameter/2-45)/rows,a=tileSpec({...p,jointStyle:0},n,rows,j),b=tileSpec({...p,jointStyle:0},n,rows,j+1),alpha=radialStations(p,n,rows,j)[station],beta=alpha-(p.staggerRings?Math.sign(alpha)*PI/n:0),ca=Math.cos(alpha),sa=Math.sin(alpha),cb=Math.cos(beta),sb=Math.sin(beta),centers=[];for(const rr of [r-8,r+8])for(const sign of [-1,1])centers.push([rr,sign*ringBoltSpan(p)/r]);const rear=(x,y)=>{if(!p.rearStyle)return zAt(Math.hypot(x,y),p)-p.thickness;const t=Math.max(0,Math.min(1,(Math.hypot(x,y)-r+p.gap/2)/p.gap));return (1-t)*facetZ(p.staggerRings?ca*x+sa*Math.abs(y):ca*x-sa*y,a.facet)+t*facetZ(cb*x-sb*y,b.facet);};return shoulderSpec({station,ringOffset:alpha,outerOffset:beta,r0:r-JOINT.plateReach,r1:r+JOINT.plateReach,a0:-ringBoltSpan(p)/r-JOINT.plateHalf/(r-8),a1:ringBoltSpan(p)/r+JOINT.plateHalf/(r-8),extraR:[r-p.gap/2,r,r+p.gap/2],creaseLines:p.rearStyle?[...(p.staggerRings?[[0,1,0],[ca,sa,a.facet[1]]]:[]),[ca,-sa,a.facet[1]],[cb,-sb,b.facet[1]]]:[]},p,centers,(x,y)=>rear(x,y)-Math.max(0,fastenerWall(p)-p.thickness)+.35-.2);}
+function baseKeyedHubSpec(p,n,rows,rootH){const T=clampDepth(p),B=T+Math.max(3,p.thickness),top=(x,y)=>zAt(Math.hypot(x,y),p),holes=[...rootH,...Array.from({length:4},(_,i)=>hole(30,PI/4+i*TAU/4))],c=p.jointClearance,all={r0:0,r1:100,a0:-PI/n,a1:TAU-PI/n},central={...all,r1:45-c},pilot={...all,r0:39-c,r1:42+c},grooves=Array.from({length:n},(_,i)=>[-1,1].map(sign=>({r0:45-c,r1:47+c,a0:i*TAU/n+(sign>0?(1.5-c)/46:-PI/n),a1:i*TAU/n+(sign>0?PI/n:-(1.5-c)/46)}))).flat();const bottom=top(15,0)-B-8,nuts=holes.map(h=>nutPocket(h,7+2*p.jointClearance)),seat=bottom+3.4;return {r0:15,r1:60,a0:-PI/n,a1:TAU-PI/n,holes,centers:rootH.map(h=>[h.r,h.a]),nuts,nutSeats:nuts.map(()=>seat),baseFn:(x,y)=>top(x,y)-B-.2,floorPlane:[0,0,bottom],levels:[()=>bottom,()=>seat,(x,y)=>top(x,y)-B-2.2,(x,y)=>top(x,y)-B-.2,(x,y)=>top(x,y)-T-2.2,(x,y)=>top(x,y)-T],layers:[{holes:nuts},{holes},{exclude:grooves,holes},{regions:[central],holes},{regions:[central],exclude:[pilot],holes}],gridBoxes:[...holes,...nuts,...grooves,central,pilot]};}
+function baseCapturedClampSpec(p,n,rootH){const T=clampDepth(p),top=(x,y)=>zAt(Math.hypot(x,y),p),pilot={r0:39,r1:42,a0:-PI/n,a1:TAU-PI/n},holes=[...rootH,...Array.from({length:4},(_,i)=>hole(30,PI/4+i*TAU/4))],heads=holes.map(h=>hole(h.r,h.a,8.4)),headSeats=heads.map(h=>zAt(h.r-4.2,p)-2.4),seat=(x,y)=>{let best=Infinity,z=0;for(let i=0;i<heads.length;i++){const h=heads[i],d=(x-h.r*Math.cos(h.a))**2+(y-h.r*Math.sin(h.a))**2;if(d<best){best=d;z=headSeats[i];}}return Math.min(top(x,y)-.2,Math.max(top(x,y)-T+.2,z));};return {r0:15,r1:60,a0:-PI/n,a1:TAU-PI/n,holes,heads,headSeats,levels:[(x,y)=>top(x,y)-T-2,(x,y)=>top(x,y)-T,seat,top],layers:[{regions:[pilot],holes},{holes},{holes:heads}],gridBoxes:[...holes,...heads,pilot]};}
 // Boundary mesh of occupied polar cells, with shared vertices across stepped
 // socket/pad levels. No overlapping shells or post-export boolean repair.
 export function layeredPatch(spec,p){const boxes=spec.gridBoxes||[],rr=unique([...spaced(spec.r0,spec.r1,Math.max(1,Math.ceil((spec.r1-spec.r0)/p.resolution))),...(spec.extraR||[]),...boxes.flatMap(h=>boreCuts(h,'r')).filter(r=>r>spec.r0&&r<spec.r1)]),aa=unique([...spaced(spec.a0,spec.a1,Math.max(2,Math.ceil((spec.a1-spec.a0)*spec.r1/p.resolution))),...boxes.flatMap(h=>boreCuts(h,'a')).filter(a=>a>spec.a0&&a<spec.a1)]),nr=rr.length,na=aa.length,full=Math.abs(spec.a1-spec.a0-TAU)<1e-7,nc=full?na-1:na,nl=spec.layers.length,id=(i,j,l)=>l*nr*nc+i*nc+(j%nc),groups=boreGroups(boxes),v=[];
@@ -169,4 +169,113 @@ export function connectionCoupon(model){
   return {id:sign<0?'coupon-right':'coupon-left',mesh,output,spec,assemblyRotation:sign<0?TAU/model.layout.n:0};
  });
  return [...coupons,{id:'coupon-plate',mesh:plate.mesh,output:plate.print,spec:plate.spec,assemblyRotation:PI/model.layout.n}];
+}
+
+// Extra depth includes front-face slope across the pocket and a bearing wall.
+function fastenerWall(p){return p.fastenerStyle===1?2.8+3.6+(7+2*p.jointClearance)/Math.cos(PI/6)/(4*p.fd):p.fastenerStyle===2?2.8+p.insertDepth+p.insertDiameter/(4*p.fd):JOINT.minPanelWall;}
+export function perforationHoles(spec,p){
+ if(!p.perforate)return [];
+ const area=(spec.r1**2-spec.r0**2)*(spec.a1-spec.a0)/2,pitch=Math.max(18,Math.sqrt(area/48)),out=[];
+ for(let row=0,r=Math.max(84,spec.r0+14);r<=spec.r1-14;r+=pitch,row++){
+  const step=pitch/r;
+  for(let a=spec.a0+14/r+(row%2)*step/2;a<=spec.a1-14/r;a+=step){
+   const x=r*Math.cos(a),y=r*Math.sin(a);
+   if((spec.holes||[]).some(h=>Math.hypot(x-h.r*Math.cos(h.a),y-h.r*Math.sin(h.a))<18))continue;
+   if((spec.seats||[]).some(b=>r>b.r0-10&&r<b.r1+10&&a>b.a0-10/r&&a<b.a1+10/r))continue;
+   out.push(hole(r,a,6));
+  }
+ }
+ return out;
+}
+export function keyedPanelSpec(p,n,rows,j){
+ const spec=baseKeyedPanelSpec(p,n,rows,j),vents=perforationHoles(spec,p);
+ const seam=spec.holes.filter(h=>j||h.r>60.3),root=spec.holes.filter(h=>!j&&h.r<=60.3);
+ if(p.fastenerStyle){
+  const pockets=seam.map(h=>p.fastenerStyle===1?nutPocket(h,7+2*p.jointClearance):hole(h.r,h.a,p.insertDiameter));
+  const old=spec.levels,front=old.at(-1),low=old.at(-2),under=old.at(-3);
+  const floor=(x,y)=>{
+   const h=pockets.reduce((best,h)=>!best||Math.hypot(x-h.r*Math.cos(h.a),y-h.r*Math.sin(h.a))<Math.hypot(x-best.r*Math.cos(best.a),y-best.r*Math.sin(best.a))?h:best,null);
+   const desired=h?zAt(h.r-h.w/2,p)-(p.fastenerStyle===1?3.6:2):front(x,y)-2;
+   return Math.max(under(x,y)+.4,Math.min(front(x,y)-.4,desired));
+  };
+  // This boundary is internal outside the root shoulder. Keep it below the
+  // pocket floor even on steep dishes, without moving the root capture face.
+  const start=(x,y)=>!j&&Math.hypot(x,y)<=60.200001?low(x,y):Math.min(low(x,y),floor(x,y)-.2);
+  spec.levels=[...old.slice(0,-2),start,floor,front];
+  const through=p.fastenerStyle===2?[...root,...pockets]:spec.holes;
+  spec.layers=spec.layers.map(layer=>({...layer,holes:through}));
+  const last=spec.layers.at(-1);
+  spec.layers.push({...last,holes:p.fastenerStyle===2?root:[...root,...pockets]});
+  spec.gridBoxes.push(...pockets);spec.pockets=pockets;spec.pocketFloor=floor;
+ }
+ if(vents.length){spec.layers=spec.layers.map(layer=>({...layer,holes:[...(layer.holes||[]),...vents]}));spec.gridBoxes.push(...vents);}
+ spec.perforations=vents;
+ return spec;
+}
+function rearScrewPlate(spec,p){
+ if(p.fastenerStyle){const heads=spec.holes.map(h=>hole(h.r,h.a,8.4));spec.layers=spec.layers.map((layer,i)=>({...layer,holes:i===0?heads:spec.holes}));spec.gridBoxes=spec.gridBoxes.filter(b=>!spec.nuts.includes(b));spec.gridBoxes.push(...heads);spec.rearHeadSeats=spec.nutSeats;spec.rearHeads=heads;delete spec.nuts;delete spec.nutSeats;}
+ return spec;
+}
+export function keyedSideSpec(p,n,rows,j,station=0){return rearScrewPlate(baseKeyedSideSpec(p,n,rows,j,station),p);}
+export function keyedRadialSpec(p,n,rows,j,station=0){return rearScrewPlate(baseKeyedRadialSpec(p,n,rows,j,station),p);}
+export function keyedHubSpec(p,n,rows,rootH){return rearScrewPlate(baseKeyedHubSpec(p,n,rows,rootH),p);}
+export function capturedClampSpec(p,n,rootH){
+ const spec=baseCapturedClampSpec(p,n,rootH);
+ if(!p.fastenerStyle)return spec;
+ const pockets=spec.holes.map(h=>p.fastenerStyle===1?nutPocket(h,7+2*p.jointClearance):hole(h.r,h.a,p.insertDiameter));
+ const front=spec.levels.at(-1),bottom=spec.levels[1];
+ const floor=(x,y)=>{const h=pockets.reduce((best,h)=>!best||Math.hypot(x-h.r*Math.cos(h.a),y-h.r*Math.sin(h.a))<Math.hypot(x-best.r*Math.cos(best.a),y-best.r*Math.sin(best.a))?h:best,null);return Math.max(bottom(x,y)+.4,Math.min(front(x,y)-.4,zAt(h.r-h.w/2,p)-(p.fastenerStyle===1?3.6:2)));};
+ spec.levels[2]=floor;
+ spec.layers=spec.layers.map((layer,i)=>({...layer,holes:p.fastenerStyle===2?(i===2?[]:pockets):(i===2?pockets:spec.holes)}));
+ spec.gridBoxes=spec.gridBoxes.filter(b=>!spec.heads.includes(b));spec.gridBoxes.push(...pockets);
+ spec.pockets=pockets;spec.pocketFloor=floor;delete spec.heads;delete spec.headSeats;
+ return spec;
+}
+
+// Conservative rectangular packing: rotated bounds include all built-in
+// supports. Six millimetres between bounds leaves room for separate brims.
+export function packParts(parts,p){
+ const W=p.bedX-2*p.margin,H=p.bedY-2*p.margin,gap=6,plates=[];
+ const options=new Map(parts.map(part=>[part,Array.from({length:12},(_,i)=>{const yaw=i*15,b=bounds(rotateBed(part.output,yaw));return{yaw,b,w:b.size[0]+gap,h:b.size[1]+gap};}).filter(o=>o.w<=W+gap+1e-6&&o.h<=H+gap+1e-6)]));
+ const items=parts.flatMap(part=>Array.from({length:part.qty},()=>part)).sort((a,b)=>Math.max(...b.dim.slice(0,2))-Math.max(...a.dim.slice(0,2)));
+ for(const part of items){
+  let best;
+  for(let bi=0;bi<=plates.length;bi++){
+   const free=bi===plates.length?[{x:0,y:0,w:W+gap,h:H+gap}]:plates[bi].free;
+   for(let fi=0;fi<free.length;fi++)for(const o of options.get(part)){
+    const r=free[fi];if(o.w>r.w+1e-6||o.h>r.h+1e-6)continue;
+    const score=bi*1e9+(r.w*r.h-o.w*o.h)+Math.min(r.w-o.w,r.h-o.h);
+    if(!best||score<best.score)best={bi,fi,o,r,score};
+   }
+   if(best)break;
+  }
+  if(!best)throw Error('No packed plate fits '+part.name);
+  const {bi,fi,o,r}=best;if(bi===plates.length)plates.push({free:[r],placements:[]});
+  const plate=plates[bi];plate.free.splice(fi,1);
+  if(r.w-o.w>1e-6)plate.free.push({x:r.x+o.w,y:r.y,w:r.w-o.w,h:r.h});
+  if(r.h-o.h>1e-6)plate.free.push({x:r.x,y:r.y+o.h,w:o.w,h:r.h-o.h});
+  plate.placements.push({part,yaw:o.yaw,x:r.x-W/2-o.b.min[0],y:r.y-H/2-o.b.min[1],bounds:[r.x,r.y,o.w-gap,o.h-gap]});
+ }
+ return plates.map(({placements})=>({placements}));
+}
+export function packedPlateMesh(plate){return mergeMeshes(plate.placements.map(({part,yaw,x,y})=>{const mesh=rotateBed(part.output,yaw);return{v:mesh.v.map(v=>[v[0]+x,v[1]+y,v[2]]),f:mesh.f};}));}
+
+
+function rearHardwareSchedule(model){
+ const key=(x,y)=>[x,y].map(v=>v.toFixed(4)).join(','),targets=new Map();
+ for(const inst of model.instances.filter(i=>i.part.kind==='panel'))for(const h of inst.part.spec.pockets||[]){const a=h.a+inst.a;targets.set(key(h.r*Math.cos(a),h.r*Math.sin(a)),{spec:inst.part.spec,h});}
+ const cap=model.parts.find(p=>p.id==='hub-clamp');
+ for(const part of model.parts.filter(p=>p.kind==='bridge'||p.id==='hub-rear')){
+  const angle=model.instances.find(i=>i.part===part).a,grips=[],limits=[];
+  for(let i=0;i<part.spec.holes.length;i++){
+   const h=part.spec.holes[i],target=part.id==='hub-rear'?{spec:cap.spec,h}:targets.get(key(h.r*Math.cos(h.a+angle),h.r*Math.sin(h.a+angle)));
+   if(!target)throw Error('Rear screw has no matching front fastening pocket.');
+   const {spec,h:dest}=target,x=dest.r*Math.cos(dest.a),y=dest.r*Math.sin(dest.a),seat=part.spec.rearHeadSeats[i];
+   const entry=part.id==='hub-rear'?spec.levels[1](x,y):spec.backFn(x,y)+JOINT.seatDepth;
+   grips.push((model.p.fastenerStyle===2?entry:spec.pocketFloor(x,y))-seat);
+   limits.push(model.p.fastenerStyle===2?spec.pocketFloor(x,y)-seat-1:zAt(dest.r,model.p)-seat-.2);
+  }
+  part.gripRange=[Math.min(...grips),Math.max(...grips)];
+  part.maxScrewLengthRange=[Math.min(...limits),Math.max(...limits)];
+ }
 }
