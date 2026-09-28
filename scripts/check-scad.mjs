@@ -7,7 +7,7 @@ import {spawnSync} from 'node:child_process';
 import {build,defaults,volume,bounds} from '../dist/geometry.js';
 import {scadSource} from '../dist/exports.js';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'petal-scad-'));
-const kernel=fs.readFileSync(new URL('../dist/kernel.scad',import.meta.url),'utf8');
+const kernel='';
 function readSTL(file){
  const b=fs.readFileSync(file),count=b.readUInt32LE(80),v=[],f=[],ids=new Map();
  assert.equal(b.length,84+50*count,'Binary STL byte count');
@@ -22,7 +22,7 @@ function readSTL(file){
  return {v,f};
 }
 try{
- for(const [cfg,id,part] of [[{},'panel-1','panel'],[{},'side-bridge-1','side-bridge'],[{diameter:600,rows:3,rearStyle:1,connectorSpacing:80},'side-bridge-1','side-bridge'],[{diameter:800},'ring-bridge-1','ring-bridge'],[{perforate:1},'panel-1','panel-1'],[{fastenerStyle:2},'panel-1','panel-1'],[{fastenerStyle:1},'hub-clamp','hub-clamp']]){
+ for(const [cfg,id,part] of [[{},'panel-1','panel-1'],[{},'side-bridge-1','side-bridge-1'],[{diameter:600,rows:3,rearStyle:1,connectorSpacing:80},'side-bridge-1','side-bridge-1'],[{diameter:800},'ring-bridge-1','ring-bridge-1'],[{perforate:1},'panel-1','panel-1'],[{fastenerStyle:2},'panel-1','panel-1'],[{fastenerStyle:1},'hub-clamp','hub-clamp']]){
   const m=build({...defaults,...cfg}),expected=m.parts.find(p=>p.id===id).output;
   const input=path.join(dir,'check.scad'),output=path.join(dir,'check.stl');
   fs.writeFileSync(input,scadSource(m,kernel).replace('part = "assembly"',`part = "${part}"`));

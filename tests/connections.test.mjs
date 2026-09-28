@@ -34,7 +34,7 @@ for(const cfg of [{},{rearStyle:1},{diameter:180,thickness:1.6,jointClearance:.4
   const x=h.r*Math.cos(h.a),y=h.r*Math.sin(h.a),i=s.nuts.indexOf(h);
   assert(s.baseFn(x,y)-s.nutSeats[i]>=JOINT.bearingWall,'Plate nut bearing wall');
  }
- assert.equal(manifest(m).interface.revision,7);
+ assert.equal(manifest(m).interface.revision,9);
  console.log('PASS reinforced plate margins and printable joint coupon',cfg);
 }
 const m=build(defaults),archive=await kit(m,'// test kernel').arrayBuffer();

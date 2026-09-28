@@ -1,72 +1,69 @@
-# PETAL — Parametric Expeditionary Tactical Aperture Lab
+# PETAL 4.0 — modular printed reflector
 
-A browser-based parabolic dish generator with printer-aware segmentation, a 3D assembly view, procedural STL exports, editable OpenSCAD, and a single-file offline edition.
+A browser-based parabolic reflector generator with printer-aware segmentation, a 3D assembly view, STL kits and a standalone offline app.
 
-Download [dist/petal-offline.html](dist/petal-offline.html) and open it directly in a browser. The hosted app uses the same geometry and exports.
+Open `dist/index.html` through a local web server, or open [the offline edition](dist/petal-offline.html) directly. **The printed plastic needs a conductive front surface and a suitable feed to function as an RF reflector.**
 
-## Reinforced connections (3.2)
+## Start here
 
-All bolt bores are round, Ø4.6 mm for M4 through-bolts. The default recessed plates and rear hub have hexagonal nut pockets: nominal 7 mm nuts plus twice the fit-clearance setting, 7.4 mm across flats by default. Pockets have at least 3.4 mm depth and a horizontal nut bearing face with at least 2.8 mm supporting material in seam plates (2 mm in the hub). Hold nuts in place until their bolts engage; pockets prevent rotation rather than retaining loose nuts upside down.
+Use the default 400 mm curved-shell configuration for the first test article. Permanent rear ribs and sacrificial supports are on; perforations are off. Export the kit and follow its mode-specific `ASSEMBLY.md`, `HARDWARE.csv`, `REFLECTOR.md` and `INSPECTION.csv`. The app's Print notes are generated from the same instructions as the kit.
 
-The center now captures the petal roots mechanically:
+Print the small FIT_TEST joint first, then one complete petal and the center assembly. A coupon cannot establish full-petal warping or assembled dish stiffness. See [the test-article procedure](docs/TEST_ARTICLE.md).
 
-- Root lips drop into a matching concentric groove in the rear hub.
-- Interrupted sections provide indexing stops against circumferential sliding.
-- A front cap overlaps recessed root shoulders and traps them axially.
-- The cap's annular pilot enters a second concentric channel in the rear hub.
-- Its exposed face follows the same parabola as the dish; reinforcement sits underneath.
+## Revision 9 structure and joints
 
-Root shoulders are deep enough for recessed screw heads and at least a 3 mm root web. The lip is 2 mm deep. The root rear profile blends back into the normal panel by radius 66 mm. The cap and rear hub retain a Ø30 opening and four M4 mount positions on a 60 mm bolt circle. Matching holes through the cap keep these mounting positions accessible.
+- The recommended ribbed shell retains the selected field thickness, rather than thinning it to 75%. Blended rear ribs reinforce its boundaries and radial centerline. These are permanent structure, distinct from the removable print supports.
+- Rear locating plates enter 2 mm seats. Curved-shell panels and plates share matching flat tangent datums, eliminating the previous intentional 0.2 mm clamp gap. Faceted backs retain 0.05 mm relief.
+- Same-ring seats have 0.30 mm additional radial relief per side, while the seam-normal locating clearance remains adjustable. Bolt clearance still limits actual motion. Nut fit has its own setting and no longer changes the plate or root fit.
+- Removable plates permit assembling and aligning a complete ring before tightening. Continuous interlocking tongues were not selected because they can trap the final petal and accumulate shrinkage errors around a closed ring.
+- The rear hub is 2 mm thicker than revision 8. This improves the geometric bearing section but does not qualify the mount for wind or creep loads.
 
-The cap uses M4 ISO 7380-1 button-head screws, with heads no larger than Ø8 × 2.2 mm, in Ø8.4 counterbores. Counterbore floors sit at least 2.4 mm below the lowest surrounding front surface. Standard tall socket-cap heads do not fit. Choose screw lengths from exported grip dimensions, nut height, washers where applicable, and mount-adapter thickness. See the exported assembly guide for hardware dimensions and references.
+**Regenerate the entire kit. Revision-9 parts are not to be mixed with earlier panels, plates, hubs or caps.** Keep one parameter set and material/process for a test assembly.
 
-**Interface revision 7 widens all seam plates and adds reinforced locating seats.** Regenerate panels and all seam plates together. Revision-5 and revision-6 hubs and caps remain compatible; earlier hubs, retaining rings and root profiles do not mate. The external 60 mm mount pattern is unchanged. The legacy strap option retains its 40 mm mount pattern and pressure-clamped hub, now with round bores.
+This revision deliberately trades more printed material for section depth and shape retention. It is not a demonstrated load-capacity improvement. See [engineering decisions and limits](docs/ENGINEERING.md).
 
-## Layout and connectors
+## Hardware modes
 
-Staggering is independent of connector style. Alternate rings rotate by half a petal, `180 / petal_count` degrees. A staggered petal overlaps two neighbors in the adjacent ring. Recessed junction plates sit at inner-ring seams: one bolt in each of two inner petals and two bolts in one outer petal. Each boundary uses one plate per inner seam. Aligned rings and legacy straps retain overlap connectors.
+| Mode | Assembly | Front surface |
+|---|---|---|
+| Round through holes | Front screws, rear nuts | Exposed seam screw heads/washers; recessed cap heads |
+| Front hex pockets | Rear screws, recessed front nuts | Open nut recesses; tips must stay recessed |
+| Blind heat-set inserts | Rear screws into M4 inserts installed before assembly | Closed hardware holes |
 
-Default side plates use two bolts, one per petal. Between-ring plates use four, two per petal. Plates enter 1 mm footprint seats, with 0.8 mm nominal engagement before tightening. Rear reinforcement blends out over 4 mm; at least 2.45 mm nominal panel wall remains below a seat. Plate ends are 3 mm wider to protect the nut pockets. Sloped plate backs export rotated flat for printing; local depth accommodates the nut pockets. Adaptive spacing adds connectors along long seams. Spacing defaults to 150 mm and is a geometric placement rule, not a structural calculation.
+Recessed screw heads must fit **Ø8 × 2.2 mm**. Nominal M4 nuts are **7 mm across flats × 3.2 mm high**. Pockets prevent rotation; removable tape holds loose nuts during assembly.
 
-Set explicit petal and ring counts to fix segmentation. Automatic printer fitting may choose different counts when construction changes. Regenerate matching parts after changing geometry, spacing or staggering.
+The insert reference remains Ruthex RX-M4×8.1, with a modeled 5.6 mm hole and minimum 9.1 mm cavity. The flat front end of the insert is located 1 mm behind the cavity roof; the insert mouth can be recessed below the sloped rear surface. Use the exported depth information and a guided depth stop. Verify front-face distortion and actual screw engagement on a coupon.
 
-## Printing and assembly
+`HARDWARE.csv` selects nominal stock screw lengths per hole position and quantity, with explicit engagement and front-clearance allowances. A custom-length flag must be resolved rather than rounded upward. The four mounting screws require the actual external adapter stack and are intentionally not assigned guessed lengths. The adapter, feed support and compression limiters are not supplied.
 
-The front follows `z = r² / (4f)`, where `f = diameter × f/D`. Choose curved backs or two rear faces with a 10–15° slope change. Thickness is vertical; faceted corners and captured roots may be thicker. Reinforced seam seats retain at least 2.45 mm nominal panel wall independently of the 1.6 mm minimum field shell. CAD volume is not a filament estimate.
+## Printing
 
-Curved keyed petals now use a graded wall: the chosen thickness remains at the seams and within 10.3 mm of bolt centers; the broad field eases to 75% of that thickness, with a 1.6 mm floor. The transition spans 12 mm, so the default 2.4 mm shell reaches 1.8 mm away from its joints. Revision-7 seats have additional rear reinforcement. The front parabola and root capture remain the reference surfaces; both curved and faceted backs carry the local seat reinforcement. This reduces CAD material volume without claiming a verified strength rating; slice a sample and test stiffness and wind loading before relying on a full dish.
+Automatic placement prefers a supported 45° nominal petal tilt and penalizes steeper segmentation candidates. It can choose additional petals to avoid a tall, steep print. It is a geometric heuristic, not a measured print-time or strength optimizer. Manual orientations remain available.
 
-Automatic petal orientation prefers diagonal printing for the default construction. Optional breakaway ribs follow the actual underside. Preserve all supported shells in their original positions. Inspect root lips, nut-pocket roofs, recesses and the cap pilot in the slicer. The cap has curved faces and may require generated supports; built-in ribs apply to petals only.
+Windowed breakaway ribs retain continuous feet and contact ridges, with 4 mm pillars on 12 mm centers and short openings. Inspect the resulting bridges, root lips, pockets and cap in the slicer. Keep supported STL shells together. Built-in supports do not cover the hub/cap or guarantee every local overhang.
 
-The ZIP now includes three small FIT_TEST STLs cropped from the actual side joint. Print them in the intended PCTG or ASA/ABS with the final slicer settings, then dry-fit the full hub and a ring junction before printing the entire kit. Preload nuts into the rear pockets and temporarily retain them with removable tape while starting the screws. Place rear nuts, seat indexed petal lips, lower the cap into its pilot channel, start root screws loosely, then assemble outer rings and plates. Tighten gradually without forcing misaligned parts. Fit the rear adapter after placing its nuts. The exported guide includes quantities, hardware, grip lengths, part orientations and assembly order.
+Optional shared-bed packing preserves tilt and includes built-in supports. It uses bounding rectangles and 6 mm separation. Slicer-generated supports, wider brims and sequential-print toolhead clearance require separate checks. Print either packed beds or individual quantities, not both.
 
-## Source and checks
+ASA is the preferred outdoor starting material with controlled enclosed printing. PCTG is useful for fit/handling prototypes, subject to warm-load validation. Use the filament manufacturer's settings, dry material, and inspect wall/solid-boss toolpaths. [Reflector and material guidance](docs/REFLECTOR.md) includes manufacturer references and conductive finishing options.
 
-- `dist/geometry.js`: meshes, segmentation, print orientation, supports and STL generation
-- `dist/kernel.scad`: matching parametric OpenSCAD geometry
-- `dist/exports.js`: ZIP, parameters and assembly guide
-- `dist/app.js`, `dist/viewer.js`: controls and preview
-- `scripts/pack-offline.mjs`: rebuild the offline HTML
+## RF finishing
 
-Run `node scripts/pack-offline.mjs` after changes. In exported OpenSCAD select the part, one-based ring and connector station, render with F6, then export STL.
+For the first article, use thin aluminum foil tape with specified conductive adhesive, such as 3M 1170; 3M 1181 copper tape is a heavier alternative. Narrow strips accommodate the compound curve better than one large sheet. Keep joints uncoated, assemble first, and bridge seams afterward with removable conductive tape without tensioning the petals. Check adhesion, continuity and profile after finishing.
 
-`npm test` checks closed topology, winding, printer bounds, mating surfaces, independent staggering, bore mapping, round-shaft clearance, hex-pocket bearing faces, root grooves, indexing stops, pilot clearance, flush cap faces and support separation. Run `npm run test:scad` with OpenSCAD installed to render representative exports and compare their dimensions and volume with JavaScript.
+Specified silver or silver-coated-copper coatings are alternatives, but need substrate compatibility, film-thickness and resistance checks. Metallic craft paint and carbon-filled filament are not equivalent. Coating examples are not validated PETAL RF finishes.
 
-Physical printing, assembly, creep, strength and wind loading remain untested. No RF performance estimates or frequency-specific optimization are provided. Reflective finish, feed, feed support, electronics and mount adapters are separate.
+Feed phase center, polarization, illumination and support stiffness must match the selected band and focal ratio. Perforations remain an experimental option; they are not necessary for the first article and do not imply a wind-load or RF improvement.
 
-## Engineering scope
+## Code and validation
 
-Revision 7 reinforces joint geometry and makes alignment less dependent on screw force. It does not establish a strength rating or justify reducing the number of fasteners. Keep the existing fastener count until representative joints and the assembled dish have been physically tested. Use washers on petal fasteners, start every screw by hand, and tighten progressively. Visible panel dimpling or pocket deformation is a failed assembly check, not a signal to tighten further.
+- `dist/geometry.js`: the authoritative mesh generator, layout, permanent structure, supports, hardware schedule and STL generation.
+- `dist/exports.js`: shared user instructions, reflective finish guide, manifest and ZIP/OpenSCAD snapshot exports.
+- `dist/app.js`, `dist/viewer.js`: controls and preview.
+- `scripts/pack-offline.mjs`: rebuild the standalone edition.
+- `archive/kernel-revision-7.scad`: historical parametric source only; **not revision-9 geometry**.
 
+All current OpenSCAD exports are exact mesh snapshots with assembly/part selection. Adjust dimensions in PETAL and regenerate. This avoids silently exporting a second, stale geometry implementation.
 
-## Optional construction and shared beds (3.3)
+Run `npm test` for topology, winding, bed fit, actual mesh mating, hardware cavities, supports, connection mapping, coupons and instructions. Run `npm run test:scad` with OpenSCAD installed to verify representative exports. Run `npm run build` to refresh the offline edition. After `npm ci`, run `npm run test:ui` for the DOM-level app check (no WebGL rendering). Run `npm run docs` to regenerate the default assembly and reflector guides.
 
-All new options are off by default:
-
-- **Perforate petal fields:** 6 mm round voids, procedurally spaced with at least 14 mm center clearance from petal edges and clear zones around roots, seats and fastening pockets. Density is capped by increasing pitch on larger petals. Inspect the roofs and supports in your slicer. Perforations remove reflector surface; no RF performance claim is made.
-- **Pack copies onto shared beds:** rotates finished parts about the bed normal in 15° steps, preserves print tilt, includes breakaway supports, and leaves 6 mm between bounding boxes. The layout view shows every copy on its assigned bed. The ZIP includes `PACKED/plate-N.stl` and placement metadata. Print either packed beds or the individual quantities, not both. Allow for slicer-generated supports and brims; the packer only knows the exported geometry. This is conservative packing rather than optimal polygon nesting.
-- **Fastening:** original front screws with round bores and rear nuts; rear screws with recessed front hex nuts; or rear screws into blind heat-set inserts. The two new styles have round rear button-head recesses. Selecting a new style requires a complete regenerated kit, including the hub and cap (revision 8). Recessed nuts still leave a visible pocket; only the insert option closes the hardware holes on the front.
-
-The default insert reference is [ruthex RX-M4x8.1](https://www.ruthex.de/en/collections/gewindeeinsatze/products/ruthex-gewindeeinsatz-m4-50-stuck-rx-m4x8-1-messing-gewindebuchsen): 5.6 mm installation hole, at least 9.1 mm cavity, and at least 2 mm front skin. Hole diameter and minimum cavity depth can be adjusted. Heat-set holes are not standardized across suppliers. Print the actual joint coupon with your PCTG or ASA/ABS and verify insertion depth and screw length first. Blind insert bosses add material behind the face; this style is heavier than through-bolting.
-
-Perforated or alternative-fastener configurations export `petal-snapshot.scad`, an exact mesh snapshot with an assembly/part selector. Change dimensions in PETAL and regenerate this file. The original configuration continues to export editable parametric OpenSCAD. Packed beds are exported as STL.
+The design has not yet been physically printed, load-tested or RF-tested. Mesh checks and section-property comparisons do not establish allowable wind, torque, temperature, life or antenna gain.
