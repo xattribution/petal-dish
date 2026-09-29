@@ -1,60 +1,29 @@
-# PETAL 4.2 — print and assembly
+# PETAL 5.0 — print and assembly
 
-## Before printing
+## New interface · print a test first
 
-PETAL 4.2 · 400 mm · 6 petals × 1 rings. Revision 9: regenerate the entire kit. Earlier interface revisions do not match. Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.
+PETAL 5.0 uses integral flanges and one rear hub, interface revision 10. Do not mix older petals, saddles, caps or hubs with this kit. The first article is a geometric prototype, not a validated antenna or outdoor load-bearing structure. Start with two copies of FIT_TEST/seam-strip-print-two.stl in their exported orientations. These are sections of the real petal, including both flange edges, one screw position and the locating key. They intentionally retain the petal width so the upper flange prints in the same orientation as the full part. They do not test full-length warping or the hub.
 
-## Material and slicing
+## Materials and side printing
 
-ASA is the preferred outdoor starting material if your enclosed printer produces dimensionally stable parts. PCTG is useful for fit and handling prototypes; verify warm-load creep before outdoor service. ABS needs UV protection. Use dry filament and the manufacturer’s profile. A 0.4 mm nozzle, 0.2 mm layers and 4–5 walls are starting points, not a qualified process. Make hardware bosses, plates and hub bearing regions locally solid with modifiers. Keep the continuous skin fully filled; inspect the actual toolpaths.
+Use dry PETG for an indoor fit article; use ASA for outdoor trials only with a controlled enclosure and a verified material profile. PLA can establish fit but is a poor choice for a warm, sunlit dish. Start with a 0.4 mm nozzle, 0.2 mm layers and at least four perimeters; preview thin walls and use locally solid flange pads and insert bosses. Exported petals stand on their flat radial flange; the curved underside is sideways. A full-depth upper-flange gusset, ramped inner end and bed-connected root boss reduce broad unsupported projections. Curved is the default. Optional small tangent-plane underside facets add material without changing the RF face. Add a 3–6 mm brim for full petals and check adhesion. Packed copies have 6 mm between bounding boxes: limit individual brims to 3 mm or disable packing. Avoid sequential-by-object printing unless the slicer confirms toolhead clearance. The upper flange, bores and key recesses still require layer-preview inspection; pointed roofs reduce unsupported spans but are not a universal support-free guarantee. Use localized supports if your slicer/material requires them. Hub prints flat rear down.
 
-## Permanent rear structure
+## Fit and inserts
 
-The recommended construction keeps the selected field thickness rather than thinning it to 75%. Up to 4 mm-deep rear ribs reinforce petal boundaries and the radial centerline, with blended shoulders and clearance around joint seats. They increase CAD volume; they are intended to improve shape retention, not to establish a load rating. Do not remove these ribs as if they were supports.
+Remove first-layer flare only from mating edges. Keys have 0.20 mm clearance per side; nut pockets have 5.80 mm across flats before their printable roof extension. Nuts should slide in and remain rotationally retained. Test the real M3 hardware before printing the whole dish. Root and hub pockets are Ø5.60 × 7 mm for short M4 inserts, maximum 6 mm long, seated 0.5 mm below the entry. Insert pilot requirements depend on the exact insert and filament: verify the supplier specification and use an insert scrap before installation. Heat-set while supporting the boss, never by loading the RF face. Let it cool fully. Do not substitute the previous 8.1 mm inserts. The face above every root and mount insert stays closed.
 
-## Orientation and supports
+## Assembly without pulling in warp
 
-Ring 1: 45° nominal tilt, 45° bed rotation, 134.5 mm tall. Automatic placement tries 45° first and penalizes steeper layouts; it is a fit/height heuristic, not a slicer optimization. Keep each supported STL as one multipart object with all shells in place. Breakaway ribs are sacrificial; the permanent rear ribs belong to the petal. Windowed support webs use 4 mm pillars on 12 mm centers and bridges up to 8 mm; inspect their bridge toolpaths as well as root lips, hole roofs and the cap pilot. Built-in supports cover petals only. Use layer-by-layer printing, not sequential-by-object printing. Print one full petal before filling beds.
+If petals are segmented, join each radial strip first using its integral cross-flanges. Then bring complete petals together by sliding radially inward from outside the rim; the short tapered keys enter as the edges approach. Keep all screws loose. The final petal also approaches radially; do not try to snap it into a closed ring from the front. Keys locate and flange pads establish contact; bolts retain. Place the shape in a measured support jig, check seam steps, then lightly snug opposite seams in several passes. Install the rear hub after the petal ring closes freely. Never use bolts to bend a warped petal until its seam disappears. Reprint or correct the process if keys bind, pads do not seat or the final petal needs force. Full-length flanges increase stiffness but thermal shrinkage and accumulated print error still require measurement.
 
-## Fit without forcing
+## Hardware and access
 
-Plate seats are 2 mm deep with 0.20 mm clearance per side. Same-ring seats have an additional 0.30 mm radial relief per side; screw clearance still limits total motion. Nut clearance is independent: pockets are 7.40 mm across flats. Matching flat tangent seats locate the curved-shell panels without closing an intentional axial gap. Remove burrs and elephant foot only. A plate must seat by hand with the seam open. Do not clamp a warped petal flat or use screws to pull holes into alignment. Check scale and shrinkage on a full petal if coupons fit but the ring will not close.
+Use M3 × 12 socket-head seam screws, one 0.5 mm washer under each head and ordinary 5.5 mm AF / 2.4 mm tall M3 nuts in the male flange pockets. Insert from the female flange side, access from behind the dish. Verify tool access before fitting rods. M4 × 12 root screws use one 1 mm washer through the 6 mm hub into the petal inserts, nominal 5 mm entry. The external mount retains a clear 30 mm center hole and four blind M4 inserts on a 60 mm bolt circle; select mount screw length from the actual adapter stack, targeting 4–5 mm entry. The old adapter may need shorter screws with this hub. No qualified torque is specified: snug by hand and stop if plastic compresses, whitening appears, or a seam moves. Recheck after a warm hold; printed plastic creeps.
 
-## Hardware for this mode
+## RF surface and accuracy
 
-Bolts enter from the FRONT into rear nuts. Temporarily tape rear nuts in place, keeping tape clear of bearing faces. Cap/root screws require button heads no larger than Ø8 × 2.2 mm and no washers in the recess. Seam screw selections allow a 1 mm washer; check actual washer thickness and contact on the curved face. Stop if a washer rocks, tilts the screw or dimples the panel; the front-hex mode provides flat nut-bearing seats.
+Apply continuous conductive foil or a specified conductive coating; see REFLECTOR.md for preparation and source references. Keep keys, flange pads, insert pilots and bores clean. Align before bridging seams with removable foil strips. The parabola focus is 168.00 mm from the extrapolated vertex, not from the hub back. Frequency does not move that geometric focus. Feed phase-center position, illumination, surface error and pointing determine RF performance. Mesh spacing is a geometric approximation too: reduce it for short wavelengths and measure the final coated dish. No calculated focal point or closed STL establishes measured gain.
 
-## Nominal screw purchase list
+## Inspection before a full article
 
-12 × M4 × 16 mm; 6 × M4 × 22 mm. Four mount screws are additional and require the adapter dimensions. Length is measured under the head. Use HARDWARE.csv for position, allowance, washer and insert depth details. Verify against the printed coupon before buying the complete set.
-
-## Assembly without accumulated distortion
-
-Support the dish face-up on a padded cradle without flattening its parabola. Seat indexed roots in the rear hub, then place the front cap. Start all root screws loosely. Add an entire ring with the listed stagger offset, fitting rear plates loosely; do not finish one seam before the ring closes. Inspect opposite seams and the rim before tightening. Snug opposing joints in small alternating passes, then recheck the profile. Leave the designed gaps open. If a plate rocks or a seam requires force, stop and identify the mismatched or warped part. Removable rear plates avoid trapping the last petal in a closed ring of tongues.
-
-## Mount and clamp load
-
-Use the 60 mm mounting bolt circle and a rigid external adapter that supports the hub broadly while leaving root screws accessible. A separate prototype geared-head adapter is provided in the repository (cad/manual-aiming-mount.scad), outside this dish ZIP. At the four mounting positions, a rear backing plate needs external washers/nuts behind the adapter; do not trap nuts in the hub pockets and assume they clamp that adapter. Do not use generic steel-joint M4 torque tables. Hand-snug for the test article and stop at visible deformation. Recheck after a warm hold and assembly cycles. Inserts do not prevent creep of the surrounding plastic. Large/outdoor builds need a verified backing structure or properly designed compression limiters; this hub has no wind rating.
-
-## Make it an RF reflector
-
-Bare printing plastic is not the intended RF reflector. For a first article, use thin aluminum foil tape with a specified conductive adhesive, such as 3M 1170, in narrow strips on the FRONT face. Copper tape such as 3M 1181 is an alternative but adds mass. Test adhesion on a scrap of the actual filament. Fit and measure the dish before coating; keep metal and adhesive off joint datums, nut seats, roots and bores. Coat petals individually, then bridge assembled seams with removable conductive tape. Do not tension the tape to pull seams together. The exported REFLECTOR.md covers conductive paints, finishing, continuity checks and the feed.
-
-## Acceptance checks
-
-The part must fit before tightening and retain its profile after tightening. Use INSPECTION.csv for nominal front heights; check several azimuths, seam steps and rim runout, then repeat after disassembly and a warm hold. Record material, drying, orientation, slicer profile and hardware. Stop for cracks, whitening, pocket deformation, insert movement or permanent profile change. Final surface tolerance depends on operating frequency. Shape, printability, stiffness, creep and RF gain still require the test article.
-
-## Screw schedule
-
-HARDWARE.csv gives one row per unique hole position and the quantity across repeated parts. Radius and azimuth refer to the part in assembly orientation before its listed ring/sector rotation. Lengths are measured under the head. Seams and roots have nominal stock selections with a 0.2 mm nut-engagement / 0.4 mm insert-engagement allowance; verify the real print and hardware before buying the complete set. Blind inserts assume 8.1 mm length, at least 4 mm thread engagement and a 1 mm roof reserve plus allowance. No listed length means source/cut a suitable screw, not round upward. Mount lengths remain unresolved until the adapter is specified.
-
-## Files and offsets
-
-- panel-1: 6 copies; 158.4 × 158.4 × 134.5 mm
-- side-bridge-1: 6 copies; 21.3 × 32.6 × 10.5 mm
-- hub-rear: 1 copies; 120.0 × 120.0 × 15.7 mm
-- hub-clamp: 1 copies; 120.0 × 120.0 × 10.8 mm
-
-Ring offsets: 1: 0.00°.
-
-petal-snapshot.scad is an exact assembly/part mesh snapshot. Change parameters in PETAL and regenerate; this file is not an editable parametric kernel.
+Record seam steps and dish profile before tightening, after tightening, at several elevations, and after thermal settling. A key that fits a coupon does not prove a full petal will stay true. Check insert pull-out, screw bearing, flange-root cracking, nut retention and tool access on the test parts. Test repeated assembly and mark screws/rods to reveal movement. Wind, water, UV, creep and transport loads are not qualified. Keep a foil-covered dish away from direct sunlight during handling because it can concentrate heat.

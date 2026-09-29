@@ -3,13 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/geometry.test.mjs && node tests/facets.test.mjs && node tests/joints.test.mjs && node tests/layout.test.mjs && node tests/plates.test.mjs && node tests/hardware.test.mjs && node tests/support-clearance.test.mjs && node tests/panel-wall.test.mjs && node tests/connections.test.mjs && node tests/options.test.mjs && node tests/options-mating.test.mjs && node tests/engineering.test.mjs && node tests/feed.test.mjs",
+    "test": "node tests/structure.test.mjs && node tests/feed.test.mjs",
     "test:scad": "node scripts/check-scad.mjs",
     "build": "node scripts/pack-offline.mjs",
     "test:ui": "npm run build && node scripts/check-ui.cjs",
     "docs": "node scripts/build-docs.mjs"
   },
   "devDependencies": {
-    "jsdom": "30.1.1"
+    "jsdom": "30.1.1",
+    "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "manifold-3d": "3.5.4"
   }
 }

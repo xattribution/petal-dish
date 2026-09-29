@@ -1,4 +1,4 @@
-# Compact feed support and frequency sizing — PETAL 4.2
+# Compact feed support and frequency sizing — PETAL 5.0
 
 ![Actual generated geometry](feed-support.png)
 
@@ -6,11 +6,11 @@
 
 The revision-1 clevises, pivot pins, long rod ends and broad carrier arms have been replaced by **small bolted rim shoes, slim rear backers, long metal rods and one round puck**. The puck body is 52 mm across; its short integrated sockets extend beyond that diameter. Each shoe has a 20 × 28 mm footprint and a 3 mm curved sole with an integral socket-root boss. Socket axes are generated at the calculated rod angle. There are no adjustable hinges to lock.
 
-The shoe follows the parabola with a small manufacturing clearance. Its backer follows a tangent datum, avoiding a deep flat wedge across the curved petal. The local reinforced mounting area uses paired M3 through holes near the rim. This is the bolted attachment option: no friction-only snap latch is relied on for sustained load. Revision-2 mount petals and accessories must be regenerated together; they do not fit the revision-1 accessory holes. The dish seam/hub interface remains revision 9.
+The shoe follows the parabola with a small manufacturing clearance. Its backer follows a tangent datum, avoiding a deep flat wedge across the curved petal. The local reinforced mounting area uses paired M3 through holes near the rim. This is the bolted attachment option: no friction-only snap latch is relied on for sustained load. Regenerate the mount petals and accessories together. PETAL 5.0 uses dish seam/hub interface revision 10; previous dish parts are incompatible.
 
 Three rods use the fewest parts. Four rods are available, with the fourth fitted last without preload. Compatible equal-angle petal segmentation is still required; changing between three and four rods can require regenerating the entire matching dish/hub.
 
-For the default 400 mm three-rod example, solid printed CAD volume (excluding sacrificial supports, rods and hardware) is 604.57 cm³ without the accessory, 662.21 cm³ with prime-focus support, and 687.93 cm³ with the secondary. Prime-focus accessory volume falls from 400.74 cm³ in revision 1 to 57.64 cm³: about **86% less printed support material**. Nominal rods are 198.50 mm for prime focus and 201.21 mm for the example secondary. These are CAD volumes, not measured print weights.
+For the default 400 mm three-rod example, solid printed CAD volume (excluding rods and hardware) is 580.28 cm³ without the accessory, 641.91 cm³ with prime-focus support, and 667.63 cm³ with the example secondary. Nominal rods are 198.50 mm for prime focus and 201.21 mm for the example secondary. These are CAD volumes, not measured print weights.
 
 ## Frequency is an input, not a complete antenna design
 
