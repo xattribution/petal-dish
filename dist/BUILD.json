@@ -1,0 +1,13 @@
+{
+  "version": "5.1",
+  "build": "f079ff064391",
+  "interface": 10,
+  "offline_file": "petal-5.1-offline.html",
+  "files": {
+    "index.html": "926357d74bd8a3807bf967a6ce07032bc4f9352c96560b10405b079c246c4c48",
+    "app.bundle.js": "6a5e5b9a8169dc1c8cd9607977ce6face4e9a4204d14c2a46cb89720a450f51b",
+    "style.css": "b914978a5dde7b5bc8495b7994a5dfff3845f9507538ff5bafc9335faf898743",
+    "petal-5.1-offline.html": "d67796e40ab4f347c082d9ff7b6af5c011a1a40cf4dcdc595f607d67c56a51b1",
+    "petal-offline.html": "7daf8e839f3399b7f816eb434ba40948cb3533ed0d41c1375284820e087b4bbd"
+  }
+}

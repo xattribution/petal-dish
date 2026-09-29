@@ -1,10 +1,16 @@
-# PETAL 5.0 — integral-flange reflector prototype
+# PETAL 5.1 — integral-flange reflector prototype
 
 A browser/offline generator for a segmented parabolic dish, with an assembly viewer, side-oriented STLs, shared-bed packing and frequency-aware metal-rod feed supports.
 
-Open [the standalone app](dist/petal-offline.html) directly, or serve `dist/` locally. The app includes its solid-modeling kernel and works without a network connection.
+Open [the standalone app](dist/petal-5.1-offline.html) directly, or serve `dist/` locally. The app includes its solid-modeling kernel and works without a network connection.
 
 **Start with the two seam test strips in the exported ZIP, then one full petal.** This version is an unprinted engineering prototype. A closed STL is not a print-process, load or RF qualification.
+
+## Self-host / illustrated PDF
+
+Use [the one-shot Linux installer](docs/SELF-HOSTING.md) to serve on port **56302** or a port you choose. It installs the web server and requirements, verifies the build, and creates a boot-persistent service. While this PR is unmerged, select `--ref codex/integral-flange-petals`; `main` still contains the older generator.
+
+Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exploded views, print-orientation part catalog, counts, hardware, instructions, finishing guidance and optional rod cuts. The **Assembly manual PDF** button downloads it separately. All of this works offline. The header shows **5.1 / build ID / flange joints** so an old downloaded file is easy to identify.
 
 ## Simpler assembly
 
@@ -44,6 +50,6 @@ npm run docs
 npm run build
 ```
 
-`dist/geometry.js` builds structural solids, `mesh.js` supplies mesh/packing/export utilities, and `solid.js` owns Manifold WASM lifetimes. `feed.js` retains the optics and feed fittings. `exports.js` is the source for generated instructions. `app.bundle.js` and `petal-offline.html` are reproducible build outputs.
+`dist/geometry.js` builds structural solids, `mesh.js` supplies mesh/packing/export utilities, and `solid.js` owns Manifold WASM lifetimes. `feed.js` retains the optics and feed fittings. `exports.js` is the source for generated instructions. `app.bundle.js` and `petal-5.1-offline.html` are reproducible build outputs.
 
 Legacy straps, recessed seam plates, through-face seam fastener modes, perforations, two-facet bulk backs and sacrificial support modes have been removed. Git history preserves earlier implementations; they are not shipped in the current generator.

@@ -7,13 +7,16 @@
     "test:scad": "node scripts/check-scad.mjs",
     "build": "node scripts/pack-offline.mjs",
     "test:ui": "npm run build && node scripts/check-ui.cjs",
-    "docs": "node scripts/build-docs.mjs"
+    "docs": "node scripts/build-docs.mjs",
+    "test:pdf": "node tests/manual.test.mjs && python3 scripts/check-pdf.py",
+    "test:hosting": "python3 scripts/check-hosting.py"
   },
   "devDependencies": {
-    "jsdom": "30.1.1",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "jsdom": "30.1.1"
   },
   "dependencies": {
+    "jspdf": "4.2.1",
     "manifold-3d": "3.5.4"
   }
 }
