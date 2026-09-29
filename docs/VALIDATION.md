@@ -26,3 +26,17 @@ The geometry/interface remains revision 10. The app now identifies version 5.1 a
 PDF fixtures cover the default dish, a 600 mm four-rod prime-focus dish with facets, and a 24 GHz secondary configuration. Tests check actual part filenames/quantities, frequency-dependent rod cuts, text bounds, text visibility after page breaks, and a readable ASSEMBLY.pdf inside the ZIP. Rendered pages were visually reviewed. Views use the generated triangle meshes and are illustrative, not dimensioned drawings; exploded separation is not an assembly motion path. Offline DOM tests also activate the PDF button and verify the downloaded PDF header and filename.
 
 The installer-generated configuration was exercised with the official checksum-verified Caddy binary on ports 56302 and 56303: every hosted asset matched BUILD.json, cache revalidation headers were present, and missing routes returned 404. Installer argument validation and Bash syntax checks passed. Package-manager installation and boot-time systemd execution were not run on this workspace; the script targets the documented systemd distributions and preserves an existing PETAL installation on startup/health-check failure.
+
+## 5.2 staggered rings, mount bores and plate overrides
+
+Interface revision 11 restores half-petal staggering by default for multi-ring dishes. Both sides share the same 2n-sided polygon at each ring boundary; each outer panel meets two inner neighbors. Cross-ring flanges overlap at their common vertex and use no projecting keys. Aligned segmentation remains selectable. Flat-side print orientation and the central Ø30 mm passage remain unchanged.
+
+The central mount offers blind inserts or four Ø4.6 mm full-depth bores with Ø10 mm flat front washer seats. Root inserts remain blind. Hardware quantities and generated instructions reflect the selection.
+
+Manual plate arrangements preserve copy identity, plate number, X/Y and in-plane yaw. Validation rejects missing/duplicate copies, nonfinite coordinates, out-of-volume placement and less than 6 mm between bounding boxes. Pending edits block exports. Accepted placements reach the STL plates, PLATES.csv, manifest and PDF; model/printer changes reset them. Overrides are session-local.
+
+Validation covers 15 structural configurations, including aligned and staggered two-ring dishes, a three-ring dish and through-bolt hubs. Tests check closed/wound topology, one connected solid per part, print bounds, sampled radial insertion against actual phased neighbors, pilots and roofs, coupons and packing. Separate ring tests check paired cross-ring bore centers and axes, half-petal seam offsets, and three/four-rod registration. Plate tests exercise copy coverage, reassignment, yaw, collision/volume rejection and manifest metadata. Offline UI tests exercise the new controls, apply/reject/reset behavior and PDF download. PDF fixtures include a staggered, faceted 600 mm four-rod dish with the through-hole hub.
+
+These are geometry/software checks. Print a three-panel staggered junction and verify alignment, tool access and side-print overhangs before committing to all rings. No measured strength improvement, slicer toolpath, wind/creep rating or RF performance is established.
+
+Independent trimesh reload of 36 structural binary STLs confirmed watertight, consistently wound, connected positive-volume solids. Mesh cleanup now cancels coincident opposite triangle pairs, collapses sub-resolution connected edges, and refuses unresolved topology rather than exporting a broken seam.

@@ -57,6 +57,7 @@ export function packParts(parts,p){
   if(r.h-o.h>1e-6)plate.free.push({x:r.x,y:r.y+o.h,w:o.w,h:r.h-o.h});
   plate.placements.push({part,yaw:o.yaw,x:r.x-W/2-o.b.min[0],y:r.y-H/2-o.b.min[1],bounds:[r.x,r.y,o.w-gap,o.h-gap]});
  }
+ const copies=new Map();for(const plate of plates)for(const x of plate.placements){const i=(copies.get(x.part.id)||0)+1;copies.set(x.part.id,i);x.copy=`${x.part.id}:${i}`;}
  return plates.map(({placements})=>({placements}));
 }
 export function packedPlateMesh(plate){return mergeMeshes(plate.placements.map(({part,yaw,x,y})=>{const mesh=rotateBed(part.output,yaw);return{v:mesh.v.map(v=>[v[0]+x,v[1]+y,v[2]]),f:mesh.f};}));}
@@ -68,20 +69,50 @@ export function layeredPatch(spec,p){const boxes=spec.gridBoxes||[],rr=unique([.
 // Crease intersections can land within numerical noise of a bore-grid vertex.
 // Weld those coincident points before repairing flat triangles; otherwise a
 // vanishing edge can cause an endless split/repair cycle.
-export function compactMesh(mesh){
+export function compactMesh(mesh,precision=1e6){
  const used=new Map(),positions=new Map(),v=[];
- const f=mesh.f.map(face=>face.map(i=>{
+ let f=mesh.f.map(face=>face.map(i=>{
   if(!used.has(i)){
-   const point=mesh.v[i],key=point.map(x=>Math.round(x*1e6)).join(',');
+   const point=mesh.v[i],key=point.map(x=>Math.round(x*precision)).join(',');
    if(!positions.has(key)){positions.set(key,v.length);v.push(point);}
    used.set(i,positions.get(key));
   }
   return used.get(i);
  })).filter(face=>new Set(face).size===3);
- return repairFlatTriangles({v,f});
+ // Collapse sub-resolution connected edges across quantization-cell boundaries.
+ const parent=v.map((_,i)=>i),root=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+ for(const face of f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3];if(Math.hypot(...v[a].map((x,k)=>x-v[b][k]))<.00001)parent[root(b)]=root(a);}
+ f=f.map(face=>face.map(root)).filter(face=>new Set(face).size===3);
+ try{const repaired=repairFlatTriangles({v,f}),pairs=new Map(),drop=new Set();
+ // Float32 Boolean seams can leave coincident, oppositely wound zero-volume
+ // triangle pairs. Cancel both, preserving the surrounding closed surface.
+ repaired.f.forEach((face,i)=>{const key=[...face].sort((a,b)=>a-b).join(':');if(pairs.has(key)){const j=pairs.get(key),other=repaired.f[j],k=other.indexOf(face[0]);if(other[(k+1)%3]===face[2]){drop.add(i);drop.add(j);pairs.delete(key);}}else pairs.set(key,i);});
+ const result={v:repaired.v,f:repaired.f.filter((_,i)=>!drop.has(i))},edges=new Map();
+ for(const face of result.f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3],key=Math.min(a,b)+':'+Math.max(a,b),e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);}
+ if([...edges.values()].some(([count,winding])=>count!==2||winding!==0))throw Error('Mesh has an unresolved seam. Change mesh spacing or segmentation and regenerate; no printable export was produced.');
+ return result;}catch(e){if(precision===1e6)return compactMesh(mesh,1e5);throw e;}
 }
 function repairFlatTriangles(mesh){const {v}=mesh,f=[...mesh.f],edges=new Map(),key=(a,b)=>Math.min(a,b)+':'+Math.max(a,b),add=(face,i)=>{for(let j=0;j<3;j++){const k=key(face[j],face[(j+1)%3]);if(!edges.has(k))edges.set(k,new Set());edges.get(k).add(i);}},remove=(face,i)=>{for(let j=0;j<3;j++)edges.get(key(face[j],face[(j+1)%3]))?.delete(i);},area=face=>{const [a,b,c]=face.map(i=>v[i]),u=b.map((x,k)=>x-a[k]),w=c.map((x,k)=>x-a[k]);return Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]);};f.forEach(add);const queue=f.map((_,i)=>i);for(let q=0;q<queue.length;q++){const i=queue[q],face=f[i];if(!face||area(face)>1e-9)continue;if(q>mesh.f.length*4)throw Error("Mesh repair did not converge. Change the mesh spacing and regenerate.");let j=0,dist=-1;for(let k=0;k<3;k++){const d=v[face[k]].reduce((s,x,t)=>s+(x-v[face[(k+1)%3]][t])**2,0);if(d>dist){dist=d;j=k;}}const a=face[j],b=face[(j+1)%3],mid=face[(j+2)%3],adj=[...edges.get(key(a,b))].find(k=>k!==i&&f[k]);if(adj===undefined)throw Error('Cannot repair collapsed mesh edge');const other=f[adj],k=other.findIndex((x,k)=>key(x,other[(k+1)%3])===key(a,b)),u=other[k],w=other[(k+1)%3],tip=other[(k+2)%3];remove(face,i);remove(other,adj);f[i]=null;f[adj]=[u,mid,tip];add(f[adj],adj);const ni=f.length;f.push([mid,w,tip]);add(f[ni],ni);queue.push(adj,ni);}return {v,f:f.filter(Boolean)};}
 // Exact triangle slices produce a piecewise-linear support envelope, including
 // shallow rear seats. X breakpoints preserve the actual underside profile.
 
 const inRect=(r,a,h)=>r>h.r0&&r<h.r1&&a>h.a0&&a<h.a1;
+
+// Manual overrides retain a stable identity for every physical copy. Coordinates
+// are the output mesh origin relative to the bed centre; only in-plane yaw changes.
+export function plateRows(plates){return plates.flatMap((plate,i)=>plate.placements.map(x=>({copy:x.copy,part:x.part.id,plate:i+1,x:x.x,y:x.y,yaw:x.yaw})));}
+export function manualPlates(parts,p,rows){
+ const expected=new Map(parts.flatMap(part=>Array.from({length:part.qty},(_,i)=>[`${part.id}:${i+1}`,part]))),seen=new Set(),plates=[];
+ if(!Array.isArray(rows)||rows.length!==expected.size)throw Error('Every printed copy must appear exactly once.');
+ for(const r of rows){const part=expected.get(r.copy);if(!part||seen.has(r.copy))throw Error('Unknown or duplicate printed copy.');seen.add(r.copy);
+  if(!Number.isInteger(r.plate)||r.plate<1||r.plate>expected.size)throw Error('Plate number must be from 1 to '+expected.size+'.');
+  if(![r.x,r.y,r.yaw].every(Number.isFinite))throw Error('Placement coordinates and rotation must be finite numbers.');
+  const yaw=((r.yaw%360)+360)%360,b=bounds(rotateBed(part.output,yaw)),W=p.bedX-2*p.margin,H=p.bedY-2*p.margin,x=b.min[0]+r.x+W/2,y=b.min[1]+r.y+H/2,w=b.size[0],h=b.size[1];
+  if(x<-.00001||y<-.00001||x+w>W+.00001||y+h>H+.00001||b.max[2]>p.bedZ-2+.00001)throw Error(`${r.copy} is outside the usable print volume on plate ${r.plate}.`);
+  const plate=plates[r.plate-1]??(plates[r.plate-1]={placements:[]});
+  for(const q of plate.placements){const[X,Y,A,B]=q.bounds;if(!(x>=X+A+5.99999||X>=x+w+5.99999||y>=Y+B+5.99999||Y>=y+h+5.99999))throw Error(`${r.copy} overlaps the 6 mm clearance of ${q.copy} on plate ${r.plate}.`);}
+  plate.placements.push({part,copy:r.copy,yaw,x:r.x,y:r.y,bounds:[x,y,w,h]});
+ }
+ // Keep intentional empty plates so the requested plate numbers remain stable.
+ return Array.from({length:plates.length},(_,i)=>plates[i]||{placements:[]});
+}

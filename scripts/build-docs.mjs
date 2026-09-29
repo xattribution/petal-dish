@@ -6,6 +6,6 @@ const m=build(defaults);
 fs.mkdirSync('docs',{recursive:true});
 fs.writeFileSync('docs/DEFAULT-ASSEMBLY.md',guide(m));
 fs.writeFileSync('docs/REFLECTOR.md',reflectorGuide(m));
-console.log('Generated default revision-10 assembly and reflector guides.');
+console.log('Generated default revision-11 assembly and reflector guides.');
 
 for(const feedMode of [1,2]){const f=build({...defaults,feedMode}),name=feedMode===1?'PRIME':'CASSEGRAIN';fs.writeFileSync('docs/DEFAULT-'+name+'-SUPPORT.md',feedGuide(f));fs.writeFileSync('docs/DEFAULT-'+name+'-RODS.csv',rodCSV(f));fs.writeFileSync('docs/DEFAULT-'+name+'-HARDWARE.csv',feedHardwareCSV(f));}

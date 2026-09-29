@@ -1,8 +1,8 @@
-# PETAL 5.0 — print and assembly
+# PETAL 5.2 — print and assembly
 
 ## New interface · print a test first
 
-PETAL 5.0 uses integral flanges and one rear hub, interface revision 10. Do not mix older petals, saddles, caps or hubs with this kit. The first article is a geometric prototype, not a validated antenna or outdoor load-bearing structure. Start with two copies of FIT_TEST/seam-strip-print-two.stl in their exported orientations. These are sections of the real petal, including both flange edges, one screw position and the locating key. They intentionally retain the petal width so the upper flange prints in the same orientation as the full part. They do not test full-length warping or the hub.
+PETAL uses integral flanges and one rear hub, interface revision 11. Do not mix older petals, saddles, caps or hubs with this kit. The first article is a geometric prototype, not a validated antenna or outdoor load-bearing structure. Start with two copies of FIT_TEST/seam-strip-print-two.stl in their exported orientations. These are sections of the real petal, including both flange edges, one screw position and the locating key. They intentionally retain the petal width so the upper flange prints in the same orientation as the full part. They do not test full-length warping or the hub.
 
 ## Materials and side printing
 
@@ -10,11 +10,11 @@ Use dry PETG for an indoor fit article; use ASA for outdoor trials only with a c
 
 ## Fit and inserts
 
-Remove first-layer flare only from mating edges. Keys have 0.20 mm clearance per side; nut pockets have 5.80 mm across flats before their printable roof extension. Nuts should slide in and remain rotationally retained. Test the real M3 hardware before printing the whole dish. Root and hub pockets are Ø5.60 × 7 mm for short M4 inserts, maximum 6 mm long, seated 0.5 mm below the entry. Insert pilot requirements depend on the exact insert and filament: verify the supplier specification and use an insert scrap before installation. Heat-set while supporting the boss, never by loading the RF face. Let it cool fully. Do not substitute the previous 8.1 mm inserts. The face above every root and mount insert stays closed.
+Remove first-layer flare only from mating edges. Keys have 0.20 mm clearance per side; nut pockets have 5.80 mm across flats before their printable roof extension. Nuts should slide in and remain rotationally retained. Test the real M3 hardware before printing the whole dish. Root pockets and hub pockets are Ø5.60 × 7 mm for short M4 inserts, maximum 6 mm long, seated 0.5 mm below the entry. Insert pilot requirements depend on the exact insert and filament: verify the supplier specification and use an insert scrap before installation. Heat-set while supporting the boss, never by loading the RF face. Let it cool fully. Do not substitute the previous 8.1 mm inserts. The face above every root and mount insert stays closed.
 
 ## Assembly without pulling in warp
 
-If petals are segmented, join each radial strip first using its integral cross-flanges. Then bring complete petals together by sliding radially inward from outside the rim; the short tapered keys enter as the edges approach. Keep all screws loose. The final petal also approaches radially; do not try to snap it into a closed ring from the front. Keys locate and flange pads establish contact; bolts retain. Place the shape in a measured support jig, check seam steps, then lightly snug opposite seams in several passes. Install the rear hub after the petal ring closes freely. Never use bolts to bend a warped petal until its seam disappears. Reprint or correct the process if keys bind, pads do not seat or the final petal needs force. Full-length flanges increase stiffness but thermal shrinkage and accumulated print error still require measurement.
+If petals are segmented, join each radial strip first using its integral cross-flanges. Then bring complete petals together by sliding radially inward from outside the rim;  the short tapered keys enter as the edges approach. Keep all screws loose. The final petal also approaches radially; do not try to snap it into a closed ring from the front. Keys locate and flange pads establish contact; bolts retain. Place the shape in a measured support jig, check seam steps, then lightly snug opposite seams in several passes. Install the rear hub after the petal ring closes freely. Never use bolts to bend a warped petal until its seam disappears. Reprint or correct the process if keys bind, pads do not seat or the final petal needs force. Full-length flanges increase stiffness but thermal shrinkage and accumulated print error still require measurement.
 
 ## Hardware and access
 

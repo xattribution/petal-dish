@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/structure.test.mjs && node tests/feed.test.mjs",
+    "test": "node tests/structure.test.mjs && node tests/feed.test.mjs && node tests/plates.test.mjs && node tests/rings.test.mjs",
     "test:scad": "node scripts/check-scad.mjs",
     "build": "node scripts/pack-offline.mjs",
     "test:ui": "npm run build && node scripts/check-ui.cjs",

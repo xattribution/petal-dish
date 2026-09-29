@@ -1,13 +1,13 @@
 {
-  "version": "5.1",
-  "build": "f079ff064391",
-  "interface": 10,
-  "offline_file": "petal-5.1-offline.html",
+  "version": "5.2",
+  "build": "1f7e49e06560",
+  "interface": 11,
+  "offline_file": "petal-5.2-offline.html",
   "files": {
-    "index.html": "926357d74bd8a3807bf967a6ce07032bc4f9352c96560b10405b079c246c4c48",
-    "app.bundle.js": "6a5e5b9a8169dc1c8cd9607977ce6face4e9a4204d14c2a46cb89720a450f51b",
-    "style.css": "b914978a5dde7b5bc8495b7994a5dfff3845f9507538ff5bafc9335faf898743",
-    "petal-5.1-offline.html": "d67796e40ab4f347c082d9ff7b6af5c011a1a40cf4dcdc595f607d67c56a51b1",
-    "petal-offline.html": "7daf8e839f3399b7f816eb434ba40948cb3533ed0d41c1375284820e087b4bbd"
+    "index.html": "9c6e59d697fb89d143d8b4a2072d2fde8aa6b3d1448543a0687841b443749fc9",
+    "app.bundle.js": "72c8fe26f388c7ac24482408f24ad76507c6a1714a80d7d6a0ca3f89e581f55a",
+    "style.css": "e340d8127a0a5cb6c406a96076355d6e79c7930b206d2cf303f996a1dc23ec95",
+    "petal-5.2-offline.html": "96e16ea4ef8052ca3ee01d5530f2ef4e3841805c28aab96b28dc1245622b2ba1",
+    "petal-offline.html": "8b69079af97e3a4e293aace2b43711951ddcbcc2abe0bb18383e21532d2cc6f5"
   }
 }
