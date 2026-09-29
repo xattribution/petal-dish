@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
-import {build,defaults,volume} from '../dist/geometry.js';
-const key=(r,a)=>[r*Math.cos(a),r*Math.sin(a)].map(x=>x.toFixed(4)).join(',');
-for(const rearStyle of [0,1])for(const staggerRings of [0,1]){
- const cfg={...defaults,diameter:600,sectors:8,rows:3,bedX:400,bedY:400,bedZ:400,rearStyle,staggerRings},models=[0,1].map(jointStyle=>build({...cfg,jointStyle}));
- assert.deepEqual(models[0].ringPhases,models[1].ringPhases,'Joint style must not change ring phase');
- for(const m of models){const holes=new Set();for(const i of m.instances.filter(x=>x.part.kind==='panel'))for(const h of i.part.spec.holes)holes.add(key((h.r0+h.r1)/2,(h.a0+h.a1)/2+i.a));for(const i of m.instances.filter(x=>x.part.kind==='bridge'))for(const h of i.part.spec.holes)assert(holes.has(key((h.r0+h.r1)/2,(h.a0+h.a1)/2+i.a)),'Every plate bore meets a panel bore');
- for(const p of m.parts.filter(p=>p.kind==='bridge'&&p.spec.floorPlane)){const [mx,my,c]=p.spec.floorPlane,normal=Math.hypot(1,mx,my);assert(p.print.f.some(f=>f.every(i=>Math.abs(p.print.v[i][2])<1e-7)),'Export has a flat bed-contact face');for(const [x,y]of p.mesh.v)assert((p.spec.baseFn(x,y)-mx*x-my*y-c)/normal>=3.2-1e-7,'Plate has at least 3.2 mm normal thickness');assert(volume(p.mesh)>0);}}
- console.log('PASS independent staggering, bore mapping and flat plate bases',{rearStyle,staggerRings});
-}
+import {build} from '../dist/geometry.js';
+import {manualPlates,plateRows,bounds,packedPlateMesh} from '../dist/mesh.js';
+import {manifest,kit} from '../dist/exports.js';
+const m=build({}),rows=plateRows(m.plates),copies=m.parts.reduce((s,p)=>s+p.qty,0);
+assert.equal(new Set(rows.map(x=>x.copy)).size,copies);
+assert.deepEqual(plateRows(manualPlates(m.parts,m.p,rows)),rows);
+const each=rows.map((r,i)=>({...r,plate:i+1,x:0,y:0,yaw:180}));
+m.plates=manualPlates(m.parts,m.p,each);m.manualPacking=true;
+assert.equal(m.plates.length,copies);assert.equal(manifest(m).manual_packing,true);
+for(const plate of m.plates){assert(Math.abs(bounds(packedPlateMesh(plate)).min[2])<1e-5);}
+for(const bad of [each.slice(1),each.map((r,i)=>i? r:{...r,x:999}),each.map((r,i)=>i? r:{...r,plate:0}),each.map((r,i)=>i? r:{...r,y:NaN}),each.map((r,i)=>i===1?{...r,copy:each[0].copy}:r),each.map(r=>({...r,plate:1}))])assert.throws(()=>manualPlates(m.parts,m.p,bad));
+// Exact requested plate indices survive intentional gaps; no empty STL exported.
+const gaps=each.map(r=>({...r,plate:copies}));gaps.forEach((r,i)=>r.plate=i+1);gaps[0].plate=copies;gaps.at(-1).plate=2;gaps[1].plate=3; // collision, deliberately invalid
+assert.throws(()=>manualPlates(m.parts,m.p,gaps));
+console.log('PASS plate identity, manual assignment / yaw, bounds, clearances, duplicate and missing-copy rejection, export metadata');

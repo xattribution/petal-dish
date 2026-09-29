@@ -1,86 +1,59 @@
-# PETAL 4.2 — modular printed reflector
+# PETAL 5.2 — integral-flange reflector prototype
 
-A browser-based parabolic reflector generator with printer-aware segmentation, a 3D assembly view, STL kits and a standalone offline app.
+A browser/offline generator for a segmented parabolic dish, with an assembly viewer, side-oriented STLs, shared-bed packing and frequency-aware metal-rod feed supports.
 
-Open `dist/index.html` through a local web server, or open [the offline edition](dist/petal-offline.html) directly. **The printed plastic needs a conductive front surface and a suitable feed to function as an RF reflector.**
+Open [the standalone app](dist/petal-5.2-offline.html) directly, or serve `dist/` locally. The app includes its solid-modeling kernel and works without a network connection.
 
-## Start here
+**Start with the two seam test strips in the exported ZIP, then one full petal.** This version is an unprinted engineering prototype. A closed STL is not a print-process, load or RF qualification.
 
-Use the default 400 mm curved-shell configuration for the first test article. Permanent rear ribs and sacrificial supports are on; perforations are off. Export the kit and follow its mode-specific `ASSEMBLY.md`, `HARDWARE.csv`, `REFLECTOR.md` and `INSPECTION.csv`. The app's Print notes are generated from the same instructions as the kit.
+## Self-host / illustrated PDF
 
-Print the small FIT_TEST joint first, then one complete petal and the center assembly. A coupon cannot establish full-petal warping or assembled dish stiffness. See [the test-article procedure](docs/TEST_ARTICLE.md).
+Use [the one-shot Linux installer](docs/SELF-HOSTING.md) to serve on port **56302** or a port you choose. It installs the web server and requirements, verifies the build, and creates a boot-persistent service. While this PR is unmerged, select `--ref codex/integral-flange-petals`; `main` still contains the older generator.
 
-## Revision 9 structure and joints
+Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exploded views, print-orientation part catalog, counts, hardware, instructions, finishing guidance and optional rod cuts. The **Assembly manual PDF** button downloads it separately. All of this works offline. The header shows **5.2 / build ID / flange joints** so an old downloaded file is easy to identify.
 
-- The recommended ribbed shell retains the selected field thickness, rather than thinning it to 75%. Blended rear ribs reinforce its boundaries and radial centerline. These are permanent structure, distinct from the removable print supports.
-- Rear locating plates enter 2 mm seats. Curved-shell panels and plates share matching flat tangent datums, eliminating the previous intentional 0.2 mm clamp gap. Faceted backs retain 0.05 mm relief.
-- Same-ring seats have 0.30 mm additional radial relief per side, while the seam-normal locating clearance remains adjustable. Bolt clearance still limits actual motion. Nut fit has its own setting and no longer changes the plate or root fit.
-- Removable plates permit assembling and aligning a complete ring before tightening. Continuous interlocking tongues were not selected because they can trap the final petal and accumulate shrinkage errors around a closed ring.
-- The rear hub is 2 mm thicker than revision 8. This improves the geometric bearing section but does not qualify the mount for wind or creep loads.
+## Simpler assembly
 
-**Regenerate the entire kit. Revision-9 parts are not to be mixed with earlier panels, plates, hubs or caps.** Keep one parameter set and material/process for a test assembly.
+- Integral underside flanges replace separate seam brackets. Sideways M3 bolts and captive nuts stay behind the RF surface.
+- Short tapered keys locate neighboring petals while allowing radial insertion, including the final petal. Screws retain seated datums; they must not pull warp out of the shell.
+- One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD: blind heat-set inserts or full through holes with front washer seats. Root screws also enter blind inserts, keeping the reflecting face closed.
+- Petals print on a flat radial flange. Curved undersides are the default; optional small tangent-plane facets add little material and preserve the front parabola.
+- Larger dishes default to staggered rings with half-petal offsets and three-panel junctions. Shared polygon boundaries use integral cross-flanges; turn staggering off for aligned strips. The planner rejects layouts without space for joints or the printer.
+- Default 400 mm dish: six petals and one hub, two unique printed parts. Optional feed fittings add parts. This is a geometric simplification, not a demonstrated strength rating.
 
-This revision deliberately trades more printed material for section depth and shape retention. It is not a demonstrated load-capacity improvement. See [engineering decisions and limits](docs/ENGINEERING.md).
+**Interface revision 11 requires a complete regenerated kit.** Previous petals, seam saddles, front caps and hubs are incompatible. Short M4 inserts (maximum 6 mm long) replace the former long inserts. Check the separate aiming adapter's screw lengths against the new blind hub before use.
 
-## Hardware modes
+## Arrange plates
 
-| Mode | Assembly | Front surface |
-|---|---|---|
-| Round through holes | Front screws, rear nuts | Exposed seam screw heads/washers; recessed cap heads |
-| Front hex pockets | Rear screws, recessed front nuts | Open nut recesses; tips must stay recessed |
-| Blind heat-set inserts | Rear screws into M4 inserts installed before assembly | Closed hardware holes |
+Under Side printing, open **Arrange print plates**. Assign each physical copy to a numbered plate, set X/Y from bed center and rotation on the bed, then Apply arrangement. The exported side-print orientation is preserved. Bounds and 6 mm clearance are checked before accepting changes. Reset automatic packing restores the planner. Shape/printer changes reset overrides; unapplied edits block exports. Plate STLs, PLATES.csv, parameters.json and the PDF carry the accepted arrangement. Overrides apply to this session/export; reloading starts a new arrangement. Empty plate numbers are retained but have no STL.
 
-Recessed screw heads must fit **Ø8 × 2.2 mm**. Nominal M4 nuts are **7 mm across flats × 3.2 mm high**. Pockets prevent rotation; removable tape holds loose nuts during assembly.
+## Print and assemble
 
-The insert reference remains Ruthex RX-M4×8.1, with a modeled 5.6 mm hole and minimum 9.1 mm cavity. The flat front end of the insert is located 1 mm behind the cavity roof; the insert mouth can be recessed below the sloped rear surface. Use the exported depth information and a guided depth stop. Verify front-face distortion and actual screw engagement on a coupon.
+Read the kit's `ASSEMBLY.md`, `HARDWARE.csv` and `REFLECTOR.md`; the app's Print notes use the same source. Keep exported orientations. Add a brim and inspect every layer around flange roots, pointed bore roofs and keys. No disposable supports are generated; local slicer supports may still be needed. Shared beds leave 6 mm between part bounds, permitting at most 3 mm individual brims. Print either packed beds or individual quantities, not both.
 
-`HARDWARE.csv` selects nominal stock screw lengths per hole position and quantity, with explicit engagement and front-clearance allowances. A custom-length flag must be resolved rather than rounded upward. The four mounting screws require the actual external adapter stack and are intentionally not assigned guessed lengths. The adapter, feed support and compression limiters are not supplied.
+PETG is a practical indoor fit-test material. ASA is an outdoor starting point with a controlled enclosure and thermal/creep testing. Four perimeters and locally solid pads are starting settings, not a strength guarantee. See [the test procedure](docs/TEST_ARTICLE.md) and [engineering limits](docs/ENGINEERING.md).
 
-## Printing
+Use M3 × 12 seam screws, 0.5 mm head washers and ordinary M3 nuts. Root screws are M4 × 12 with 1 mm washers. Insert dimensions must match the actual supplier and filament. The generated schedule specifies quantities; external mount screw length depends on the adapter stack.
 
-Automatic placement prefers a supported 45° nominal petal tilt and penalizes steeper segmentation candidates. It can choose additional petals to avoid a tall, steep print. It is a geometric heuristic, not a measured print-time or strength optimizer. Manual orientations remain available.
+## RF finish and feed supports
 
-Windowed breakaway ribs retain continuous feet and contact ridges, with 4 mm pillars on 12 mm centers and short openings. Inspect the resulting bridges, root lips, pockets and cap in the slicer. Keep supported STL shells together. Built-in supports do not cover the hub/cap or guarantee every local overhang.
+Printed plastic needs a conductive surface and an appropriate RF feed. Thin aluminum foil tape with specified conductive adhesive is the baseline finishing approach; copper foil or a specified conductive coating are alternatives. Mask joints, align first and bridge seams afterward without tensioning the dish. Ordinary metallic paint is not evidence of adequate conductivity. See [REFLECTOR.md](docs/REFLECTOR.md) for preparation and source references.
 
-Optional shared-bed packing preserves tilt and includes built-in supports. It uses bounding rectangles and 6 mm separation. Slicer-generated supports, wider brims and sequential-print toolhead clearance require separate checks. Print either packed beds or individual quantities, not both.
+Optional three/four-rod supports retain compact bolted rim shoes and a round puck. Smooth solid aluminum rod defaults to 6.35 mm (1/4 inch); generated socket angles and `RODS.csv` give the actual cuts. Frequency informs accuracy budgets, rod screening and experimental Cassegrain secondary sizing. A fixed parabola's focal point does not move with frequency. Prime-focus offsets require the actual feed phase center. See [FEED-OPTICS.md](docs/FEED-OPTICS.md).
 
-ASA is the preferred outdoor starting material with controlled enclosed printing. PCTG is useful for fit/handling prototypes, subject to warm-load validation. Use the filament manufacturer's settings, dry material, and inspect wall/solid-boss toolpaths. [Reflector and material guidance](docs/REFLECTOR.md) includes manufacturer references and conductive finishing options.
+The separate [manual aiming adapter](docs/MANUAL-AIMING.md) remains in `cad/`. Its interface and actual hardware stack require a physical fit check with this hub.
 
-## RF finishing
+## Develop and validate
 
-For the first article, use thin aluminum foil tape with specified conductive adhesive, such as 3M 1170; 3M 1181 copper tape is a heavier alternative. Narrow strips accommodate the compound curve better than one large sheet. Keep joints uncoated, assemble first, and bridge seams afterward with removable conductive tape without tensioning the petals. Check adhesion, continuity and profile after finishing.
+```sh
+npm ci
+npm test
+npm run test:ui
+npm run test:scad   # requires OpenSCAD
+npm run docs
+npm run build
+```
 
-Specified silver or silver-coated-copper coatings are alternatives, but need substrate compatibility, film-thickness and resistance checks. Metallic craft paint and carbon-filled filament are not equivalent. Coating examples are not validated PETAL RF finishes.
+`dist/geometry.js` builds structural solids, `mesh.js` supplies mesh/packing/export utilities, and `solid.js` owns Manifold WASM lifetimes. `feed.js` retains the optics and feed fittings. `exports.js` is the source for generated instructions. `app.bundle.js` and `petal-5.2-offline.html` are reproducible build outputs.
 
-Feed phase center, polarization, illumination and support stiffness must match the selected band and focal ratio. Perforations remain an experimental option; they are not necessary for the first article and do not imply a wind-load or RF improvement.
-
-## Code and validation
-
-- `dist/geometry.js`: the authoritative mesh generator, layout, permanent structure, supports, hardware schedule and STL generation.
-- `dist/exports.js`: shared user instructions, reflective finish guide, manifest and ZIP/OpenSCAD snapshot exports.
-- `dist/app.js`, `dist/viewer.js`: controls and preview.
-- `scripts/pack-offline.mjs`: rebuild the standalone edition.
-- `archive/kernel-revision-7.scad`: historical parametric source only; **not revision-9 geometry**.
-
-All current OpenSCAD exports are exact mesh snapshots with assembly/part selection. Adjust dimensions in PETAL and regenerate. This avoids silently exporting a second, stale geometry implementation.
-
-Run `npm test` for topology, winding, bed fit, actual mesh mating, hardware cavities, supports, connection mapping, coupons and instructions. Run `npm run test:scad` with OpenSCAD installed to verify representative exports. Run `npm run build` to refresh the offline edition. After `npm ci`, run `npm run test:ui` for the DOM-level app check (no WebGL rendering). Run `npm run docs` to regenerate the default assembly and reflector guides.
-
-The design has not yet been physically printed, load-tested or RF-tested. Mesh checks and section-property comparisons do not establish allowable wind, torque, temperature, life or antenna gain.
-
-## 4.2 — compact, frequency-aware rod supports
-
-Enable **Feed / secondary support** for three/four long smooth metal rods, small bolted rim shoes and one compact round puck. The old hinges and broad carrier arms have been removed. Default stock remains 1/4-inch (6.35 mm) solid aluminum; optional automatic stock selection uses span, payload and a frequency-dependent deflection screen. Defaults keep the accessory off.
-
-Enter frequency for wavelength-based secondary sizing and accuracy guidance. Automatic Cassegrain sizing solves the secondary position and then recomputes rod angles, cuts and clearance standoff. Prime focus uses the actual feed phase offset in mm, or wavelengths for a known scalable feed. Frequency alone does not move an unchanged parabola's focus. Invalid oversized secondary combinations are rejected; actual RF feeds and feed-specific adapters remain separate.
-
-- [Optics, calculations, assembly and limits](docs/FEED-OPTICS.md)
-- [Actual generated support preview](docs/feed-support.png)
-- [Manual geared-head adapter instructions](docs/MANUAL-AIMING.md)
-- [Separate aiming-mount CAD](cad/manual-aiming-mount.scad) and [prototype/reference STLs](cad/STL/)
-
-The separate aiming design still adapts a purchased metal geared head, keeping the center passage open. Support accessory revision 2 replaces revision 1 and requires regenerated mount petals and fittings. The dish seam/hub interface remains revision 9. Changing segmentation requires the complete matching dish/hub.
-
-The ZIP includes `FEED-SUPPORT.md`, `RODS.csv` and `FEED-HARDWARE.csv`. `npm test` checks geometry and optics; `npm run test:scad` compares snapshot meshes; `npm run test:ui` checks offline DOM behavior. `python scripts/check-feed-fit.py` samples assembled interference (numpy, trimesh, rtree, scipy); `python scripts/render-accessories.py` renders the actual meshes (also matplotlib). `npm run build` bundles the fully offline generator. Fittings are generated procedurally in JavaScript, including their computed socket angles; no invariant accessory STL templates are used.
-
-The design remains an unprinted prototype with no payload, wind or RF-performance rating. Test one fitting set, then alignment/slip/warm-creep behavior before a full build.
+Legacy straps, recessed seam plates, through-face seam fastener modes, perforations, two-facet bulk backs and sacrificial support modes have been removed. Git history preserves earlier implementations; they are not shipped in the current generator.

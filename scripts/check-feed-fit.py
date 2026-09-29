@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import trimesh
 root=Path(__file__).resolve().parents[1]
-pairs=[('panel-1-feed','feed-rim-shoe'),('panel-1-feed','feed-backer'),('secondary-reflector','feed-puck')]
+pairs=[('petal-1-mount','feed-rim-shoe'),('petal-1-mount','feed-backer'),('secondary-reflector','feed-puck')]
 for cfg in [dict(feedMode=1),dict(feedMode=2),dict(feedMode=1,fd=.65),dict(feedMode=1,frequencyGHz=20,rodDiameter=0),dict(feedMode=1,rodDiameter=4),dict(feedMode=1,rodDiameter=8)]:
     code="import{build,defaults}from'./dist/geometry.js';let m=build({...defaults,..."+json.dumps(cfg)+"});console.log(JSON.stringify(m.parts.map(p=>({id:p.id,mesh:p.mesh}))));"
     data=json.loads(subprocess.check_output(['node','--input-type=module','-e',code],cwd=root))

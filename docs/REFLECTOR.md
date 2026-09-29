@@ -11,9 +11,9 @@ Sources: https://www.3m.com/3M/en_US/p/d/b5005158003/ and https://www.3m.com/3M/
 1. Print an adhesion/coating scrap from the actual filament. Check the tape and any primer after a warm hold and gentle peel. Do not assume adhesion to an injection-molded plastic transfers to a printed surface.
 2. Dry-fit, mark and measure the uncoated assembly. Complete heat-setting before applying the conductive finish. Lightly remove burrs; do not sand the parabola into a different shape.
 3. Apply narrow strips to each front petal, burnishing gently from the center outward. Start around 10–20 mm strip width and reduce it where compound curvature causes wrinkles. Avoid stretching foil tight across gaps or unsupported holes. Keep overlaps small and consistent; record their height if operating at short wavelengths.
-4. Mask root grooves, plate seats, bearing faces and bores. Cover the front cap with the same finish, preserving access to hardware. Do not bridge a pocket with foil that a screw will tear during service.
+4. Mask flange datums, keys, bearing faces and bores. Cover the central hub front with the same finish. Do not bridge a pocket with foil that a screw will tear during service.
 5. Assemble and align first. Bridge seams with removable strips afterward, without pulling petals together. Remove these strips before disassembly. Do not use a continuous skin as an alignment clamp.
-6. With power disconnected, check foil-to-foil continuity across strips, cap and seams at many points. Compare against the meter’s shorted-lead baseline; intermittent or unexpectedly high resistance needs investigation. DC continuity is a useful workmanship check, not proof of RF efficiency.
+6. With power disconnected, check foil-to-foil continuity across strips, hub and seams at many points. Compare against the meter’s shorted-lead baseline; intermittent or unexpectedly high resistance needs investigation. DC continuity is a useful workmanship check, not proof of RF efficiency.
 7. Recheck surface shape, adhesion and continuity after thermal cycling and repeated assembly. Corrosion, water ingress and differential expansion require an outdoor finishing plan. Do not assume a generic clearcoat is RF-neutral or compatible with the tape. Keep a specular foil-covered dish pointed away from the Sun during handling; concentrated sunlight near the focus can heat the feed or fixture.
 
 ## Conductive paints
@@ -24,7 +24,7 @@ Sources: https://mgchemicals.com/products/conductive-paint/conductive-acrylic-pa
 
 ## Perforations and mesh
 
-Keep perforations off for the baseline article. Conductive mesh must be chosen for the intended wavelength; openings, wire size, conductivity and surface accuracy all matter. Do not equate percent open area with gain loss. A continuous foil covering over printed holes needs support against sagging and will largely block airflow. Reference: https://www.gmrt.ncra.tifr.res.in/doc/WEBLF/LFRA/node173.html
+This version has no perforation mode. Conductive mesh must be chosen for the intended wavelength; openings, wire size, conductivity and surface accuracy all matter. Do not equate percent open area with gain loss. A continuous foil covering over printed holes needs support against sagging and will largely block airflow. Reference: https://www.gmrt.ncra.tifr.res.in/doc/WEBLF/LFRA/node173.html
 
 ## Feed and alignment
 

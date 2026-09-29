@@ -1,3 +1,5 @@
+> PETAL 5.0 compatibility: the 60 mm bolt circle remains, but the hub now has 7 mm blind pockets for short M4 inserts. Select screws for 4–5 mm entry after the actual adapter/washer stack. Do not reuse previous screw lengths without checking.
+
 # Manual aiming mount — prototype revision 1
 
 ## Recommended first build
@@ -17,7 +19,7 @@ Sources:
 
 `cad/manual-aiming-mount.scad` is separate from the dish generator. Select `part`, set `printing=true` and export. Default-size STLs are in `cad/STL/`.
 
-- **Hub ring:** Ø94 outside / Ø34 through opening / 10 mm thickness; four Ø4.6 holes at 45°, 135°, 225°, 315° on the existing 60 mm bolt circle. Its front contacts the flat rear hub. This design is for revision-9 keyed hubs, not the legacy 40 mm pattern.
+- **Hub ring:** Ø94 outside / Ø34 through opening / 10 mm thickness; four Ø4.6 holes at 45°, 135°, 225°, 315° on the existing 60 mm bolt circle. Its front contacts the flat rear hub. This matches the revision-10 bolt circle; the new blind inserts require checking the actual screw stack.
 - **Cradle:** another 10 mm annular bearing section, two broadly filleted side struts, and a 100 × 90 × 16 mm foot. The center opening remains Ø34 throughout the adapter, leaving the dish's Ø30 opening accessible. It does not place a pivot shaft, central mounting bolt or gear across that opening.
 - **Top interface:** a real 3/8-16 nut in the foot, nominal 14.8 mm across-flats pocket. Do not cut threads in printed plastic. Use the head's genuine quick-release plate and latch, not a printed substitute. The adapter relies on the plate's clamped friction surface; mark it and test for rotation/slip.
 - **Bench plate:** 150 × 150 × 6 mm, center Ø9.9 hole and four Ø8.6 holes on a 120 × 120 mm square. Fabricate in aluminum or steel; the STL is a machining/drill reference, not a recommendation to print the permanent load-bearing bench plate. Bolt the four corners to a rigid bench/pedestal. Choose the 3/8-16 center bolt so it engages the actual head fully without bottoming. Account for washers and plate thickness.
@@ -27,8 +29,8 @@ The 3/8-inch hardware is imperial UNC; M10 and M8 are not substitutes. The four 
 ## Assembly and access
 
 1. Assemble and align the complete dish first. Check the rear hub is flat at the adapter contact area. Keep foil, adhesive and burrs off that datum.
-2. Add hub ring and cradle using the **four existing mount positions**, not the root screws. Together they add 20 mm to the rear stack. Use flat washers and real nuts as appropriate for the selected dish hardware mode. Select screw lengths against the actual stack and the existing front skin/nut/insert limits; the generator's unresolved mount lengths are not a shopping list for this adapter.
-3. In front-screw mode, external nuts behind the cradle are necessary; nuts trapped ahead of it do not clamp it. In rear-screw modes, the new head bearing face is behind the cradle: do not simply use the previous short screws. For blind inserts, verify engagement and that tips cannot contact the cavity roof.
+2. Add hub ring and cradle using the **four existing mount positions**, not the root screws. Together they add 20 mm to the rear stack. Use flat washers and the blind inserts in the hub. Select screw lengths against the actual stack and insert limits; the generator's unresolved mount lengths are not a shopping list for this adapter.
+3. Revision-10 hubs use rear screws into blind M4 inserts. Measure the complete adapter/washer stack and select screw length for 4–5 mm entry into the hub. Never reuse the previous through-bolt stack or bottom a screw in a 7 mm pocket.
 4. Attach the genuine geared-head plate to the captive 3/8 nut. Check nut seating, full engagement, clearance, latch capture and twist resistance. The approximately 7.5 mm plastic floor below the nut pocket needs a broad metal plate/washer contact; test for creep or add a metal foot reinforcement before sustained use.
 5. Bolt the head to the bench plate, then install the dish. Balance the assembly where the head's plate permits. Route coax through the clear hub or along a feed rod with a flexible service loop. The port is open, but arbitrary feed bodies/connectors are not guaranteed to fit.
 

@@ -1,10 +1,10 @@
 # PETAL compact rod support · cassegrain
 
-Accessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface remains revision 9. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
+Accessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface is revision 11; regenerate the entire matching kit. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
 
 ## Small parts, long metal rods
 
-3 × Ø6.35 mm smooth SOLID aluminum rods; nominal cut 201.21 mm each. No threaded rod. Tubing needs a separate crush-resistant clamp and stiffness calculation. The selected outer petals have compact paired M3 mounting holes near the rim; shoes bolt on, with a small rear backer. These holes remain through holes in all seam-fastener modes. There is no printed snap latch to carry sustained load. Use the supplied mount petals, not holes drilled blindly into an existing rib.
+3 × Ø6.35 mm smooth SOLID aluminum rods; nominal cut 201.21 mm each. No threaded rod. Tubing needs a separate crush-resistant clamp and stiffness calculation. The selected outer petals have compact paired M3 mounting holes near the rim; shoes bolt on, with a small rear backer. These optional rim mounting holes remain through holes. There is no printed snap latch to carry sustained load. Use the supplied mount petals, not holes drilled blindly into an existing rib.
 
 Socket axes are generated at 35.18° above the dish plane. Socket end-to-end span 209.21 mm; each mouth is 22 mm from its blind end, with 18 mm nominal engagement. Cut = span − 2×(22−18). Deburr and mark 18 mm insertion; keep 16–19 mm engagement (at least 1 mm clearance above the bore floor at maximum insertion). Trial-fit long stock and trim; do not force rods against blind ends. RODS.csv contains actual positions, angle, diameter and cuts.
 
