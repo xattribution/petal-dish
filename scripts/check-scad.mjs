@@ -22,7 +22,7 @@ function readSTL(file){
  return {v,f};
 }
 try{
- for(const [cfg,id,part] of [[{},'panel-1','panel-1'],[{},'side-bridge-1','side-bridge-1'],[{diameter:600,rows:3,rearStyle:1,connectorSpacing:80},'side-bridge-1','side-bridge-1'],[{diameter:800},'ring-bridge-1','ring-bridge-1'],[{perforate:1},'panel-1','panel-1'],[{fastenerStyle:2},'panel-1','panel-1'],[{fastenerStyle:1},'hub-clamp','hub-clamp'],[{feedMode:1},'panel-1-feed','panel-1-feed'],[{feedMode:2},'secondary-reflector','secondary-reflector'],[{feedMode:1},'feed-lower-rod-end','feed-lower-rod-end']]){
+ for(const [cfg,id,part] of [[{},'panel-1','panel-1'],[{},'side-bridge-1','side-bridge-1'],[{diameter:600,rows:3,rearStyle:1,connectorSpacing:80},'side-bridge-1','side-bridge-1'],[{diameter:800},'ring-bridge-1','ring-bridge-1'],[{perforate:1},'panel-1','panel-1'],[{fastenerStyle:2},'panel-1','panel-1'],[{fastenerStyle:1},'hub-clamp','hub-clamp'],[{feedMode:1},'panel-1-feed','panel-1-feed'],[{feedMode:2},'secondary-reflector','secondary-reflector'],[{feedMode:1},'feed-rim-shoe','feed-rim-shoe']]){
   const m=build({...defaults,...cfg}),expected=m.parts.find(p=>p.id===id).output;
   const input=path.join(dir,'check.scad'),output=path.join(dir,'check.stl');
   fs.writeFileSync(input,scadSource(m,kernel).replace('part = "assembly"',`part = "${part}"`));

@@ -1,4 +1,4 @@
-leg,stock,diameter_mm,pivot_distance_mm,eye_to_mouth_each_mm,engagement_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,lower_pivot_z_mm,upper_pivot_z_mm
-1,smooth metal rod,6.35,121.044,44,22,77.044,3.0332,0.000,79.287,146.000
-2,smooth metal rod,6.35,121.044,44,22,77.044,3.0332,120.000,79.287,146.000
-3,smooth metal rod,6.35,121.044,44,22,77.044,3.0332,240.000,79.287,146.000
+leg,stock,diameter_mm,socket_end_span_mm,engagement_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_end_z_mm,upper_end_z_mm
+1,smooth solid aluminum,6.35,206.500,18,198.500,7.8150,0.000,34.097,60.236,176.000
+2,smooth solid aluminum,6.35,206.500,18,198.500,7.8150,120.000,34.097,60.236,176.000
+3,smooth solid aluminum,6.35,206.500,18,198.500,7.8150,240.000,34.097,60.236,176.000

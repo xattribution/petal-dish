@@ -1,8 +1,8 @@
-# PETAL 4.1 — print and assembly
+# PETAL 4.2 — print and assembly
 
 ## Before printing
 
-PETAL 4.1 · 400 mm · 6 petals × 1 rings. Revision 9: regenerate the entire kit. Earlier interface revisions do not match. Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.
+PETAL 4.2 · 400 mm · 6 petals × 1 rings. Revision 9: regenerate the entire kit. Earlier interface revisions do not match. Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.
 
 ## Material and slicing
 

@@ -6,11 +6,15 @@ from pathlib import Path
 import numpy as np
 import trimesh
 root=Path(__file__).resolve().parents[1]
-pairs=[('feed-lower-clevis','feed-lower-rod-end'),('feed-upper-clevis','feed-upper-rod-end'),('secondary-reflector','feed-upper-clevis'),('secondary-reflector','feed-upper-rod-end'),('feed-saddle','feed-lower-clevis'),('feed-carrier','feed-upper-clevis'),('feed-carrier','feed-upper-rod-end'),('panel-1-feed','feed-backer'),('panel-1-feed','feed-saddle')]
-for cfg in [dict(feedMode=1),dict(feedMode=2),dict(feedMode=1,fd=.65)]:
+pairs=[('panel-1-feed','feed-rim-shoe'),('panel-1-feed','feed-backer'),('secondary-reflector','feed-puck')]
+for cfg in [dict(feedMode=1),dict(feedMode=2),dict(feedMode=1,fd=.65),dict(feedMode=1,frequencyGHz=20,rodDiameter=0),dict(feedMode=1,rodDiameter=4),dict(feedMode=1,rodDiameter=8)]:
     code="import{build,defaults}from'./dist/geometry.js';let m=build({...defaults,..."+json.dumps(cfg)+"});console.log(JSON.stringify(m.parts.map(p=>({id:p.id,mesh:p.mesh}))));"
     data=json.loads(subprocess.check_output(['node','--input-type=module','-e',code],cwd=root))
     parts={p['id']:trimesh.Trimesh(p['mesh']['v'],p['mesh']['f'],process=False) for p in data}
+    for name,part in parts.items():
+        if name.startswith('feed-') or name=='secondary-reflector':
+            assert part.is_watertight and part.is_winding_consistent,(cfg,name,'mesh topology')
+            assert len(part.split(only_watertight=False))==1,(cfg,name,'disconnected solid')
     for a,b in pairs:
         if a not in parts:continue
         A,B=parts[a],parts[b];worst=0;n=0

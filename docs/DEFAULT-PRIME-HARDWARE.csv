@@ -1,9 +1,5 @@
 item,specification,quantity,grip_mm,note
-"lower-foot screw","M4 × 55","6","45.702","Two 1 mm washers, 3.2 mm nut, minimum two threads beyond nut; verify actual stack"
-"upper-foot screw","M4 × 20","6","","Two 1 mm washers and plain M4 nut"
-"rod-clamp screw","M4 × 16","6","","Plain M4 nut in 7.5 mm AF pocket; no washer allowance"
-"pivot screw","M5 × 30","6","","Two 1 mm washers and M5 prevailing-torque nut; lock pivot after alignment"
-"M4 nut","M4 / 7 mm AF / 3.2 mm tall","18","","Foot and rod-clamp positions"
-"M4 washer","1 mm thick","24","","Both sides of each foot fastener"
-"M5 nut","prevailing-torque / verify actual height","6","","Pivot locking"
-"M5 washer","1 mm thick","12","","Both sides of each pivot"
+"rim-foot screw","M3 × 20","6","13.660","Install from rear; two 0.5 mm washers and M3 nut. Check access/stack before tightening."
+"rod-retention screw","M3 × 10","6","","Real M3 nut in side pocket; rounded screw tip against solid rod. Slip-test; do not crush tubing."
+"M3 nut","5.5 mm AF / 2.4 mm height","12","","Rim and socket retention; pocket allows 5.8 mm AF"
+"M3 washer","0.5 mm thick","12","","Both faces of each rim bolt"

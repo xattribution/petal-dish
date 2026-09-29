@@ -1,30 +1,33 @@
-# PETAL rod support · prime-focus
+# PETAL compact rod support · prime-focus
 
-Experimental accessory revision 1. Regenerate the mount petals and all feed-support parts together. The seam/hub interface remains revision 9. If the chosen rod count changes the petal/ring segmentation, regenerate the entire dish including its hub and plates. Four rods cannot be added at equal petal-center spacing to the default six-petal dish. Rods and fasteners are purchased, not printed.
+Accessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface remains revision 9. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
 
-## Layout and rod cuts
+## Small parts, long metal rods
 
-3 equally spaced supports. The generator selects a petal count divisible by 3; only the named mount petals receive reinforced pads and two extra through holes. Install them at the azimuths in RODS.csv. These local accessory holes remain through holes even when the dish seam hardware uses blind inserts. Mount feet cover them.
+3 × Ø6.35 mm smooth SOLID aluminum rods; nominal cut 198.50 mm each. No threaded rod. Tubing needs a separate crush-resistant clamp and stiffness calculation. The selected outer petals have compact paired M3 mounting holes near the rim; shoes bolt on, with a small rear backer. These holes remain through holes in all seam-fastener modes. There is no printed snap latch to carry sustained load. Use the supplied mount petals, not holes drilled blindly into an existing rib.
 
-Use smooth 6.35 mm (1/4 inch) metal rod, preferably aluminum for the initial lightweight indoor article. This fitting is NOT for 1/4-20 threaded rod. Deburr the ends. Cut 3 rods nominally 77.04 mm (3.0332 inch). Cut slightly long for trial assembly and trim to the measured fit; do not force an oversize rod between locked pivots.
+Socket axes are generated at 34.10° above the dish plane. Socket end-to-end span 206.50 mm; each mouth is 22 mm from its blind end, with 18 mm nominal engagement. Cut = span − 2×(22−18). Deburr and mark 18 mm insertion; keep 16–19 mm engagement (at least 1 mm clearance above the bore floor at maximum insertion). Trial-fit long stock and trim; do not force rods against blind ends. RODS.csv contains actual positions, angle, diameter and cuts.
 
-Pivot-center span = 121.04 mm. Each printed rod end places its mouth 44 mm from the pin center. Cut = span − 2×44 + 2×22. Mark 22 mm nominal insertion at each end; retain 18–26 mm engagement and at least 2 mm bottom clearance. The ±4 mm per-end range is assembly adjustment, not a substitute for recalculating a different feed. The lower/upper pivots are at z=79.29 / 146.00 mm, measured from the extrapolated dish vertex.
+## Assembly and printing
 
-## Hardware and assembly
+Print one shoe and the puck first. Nominal diametral rod clearance is 0.35 mm; adjust it after a fit coupon/test socket, not by forcing the rod. Shoes export on their side; puck exports top-face down. Inspect socket bores, nut cavities and screw channels in the slicer and support horizontal roofs as required. Ream gently to a sliding fit. Backers print flat. PETG is a practical indoor fit-test material; ASA is preferable for outdoor UV exposure with an enclosed printer. Neither removes polymer creep: qualify at actual temperature/load. Use at least four perimeters and locally solid socket/boss walls, not an infill percentage as a strength guarantee.
 
-Per leg: two smooth-rod split clamps; two M5×30 pivot screws, four M5 washers and two M5 prevailing-torque nuts; two M4×16 clamp screws and two M4 nuts (7 mm AF); two M4×20 upper-foot screws, washers and nuts. Lower-foot screws: 6 × M4 × 55, nominal grip 45.70 mm plus two 1 mm washers, nut and protruding threads. The flat upper/lower datums make the total grip equal at the two positions even though the saddle and petal thicknesses vary. Verify actual printed stacks before buying the set. FEED-HARDWARE.csv lists support hardware separately from the dish hardware. No printed threads. Start with fit checks of the 6.7 mm socket, 5.4 mm pivot bore and nut pocket.
+Install rear backer → mount petal → rim shoe. Use M3 hardware in FEED-HARDWARE.csv, separate from dish bolts. The two shoe bolts are alongside the rod socket; tighten before fitting rods. Fit real M3 nuts into the side-loading hex pockets; a small retaining dab of adhesive may hold the nut during assembly, but keep the threads and rod bore clean. M3×10 radial screws retain smooth solid rods. Rounded tips reduce gouging; do not substitute hollow tubing without a revised clamp. Mark rods to reveal slip. No printed threads.
 
-Rear backer → reinforced petal → curved saddle → clevis. Keep the saddle face clean of foil/glue. Use the paired screws, not a single bolt through an unsupported shell. Place the carrier with the 40 mm center opening above the dish; its clevises face downward. The four M4 holes on a 56 mm bolt circle are an adapter interface, not a universal feed standard. Design a short feed-specific adapter once its dimensions and phase center are known.
+Support the puck with an independent height/centering jig, slide all rods freely into place and tighten progressively. For four rods, fit the fourth last at zero preload. Never use screws to pull a distorted petal or puck into position. Measure center/height/tilt before and after tightening, after changing elevation, and after warm soaking. Strain-relieve the feed cable along a rod. The compact puck has 3 M3 adapter bores on 24 mm BCD, halfway between rods, and a 12 mm cable opening. This is a PETAL interface, not a universal RF feed flange. Feed-specific adapter and fasteners are not included.
 
-Keep pivot pins and rod clamps loose during alignment. Set carrier center, height and tilt with an independent jig, then tighten progressively. Lock the pivot faces after alignment: these are positioning hinges, not free-running ball joints. With four legs, fit the fourth last at zero preload. Never use the fourth rod to bend the petals into place. Recheck shape after every tightening step and after changing elevation. Strain-relieve coax along one rod with an axis service loop.
+## Frequency and optical meaning
 
-## Optical meaning
+Frequency is unknown; enter it to enable wavelength-based dimensions and accuracy guidance.
 
-Place the feed PHASE CENTER at z=168.00 mm, not its mouth or mounting flange. Carrier lower face z=168.00 mm; entered phase offset 0.00 mm is signed from that lower face along +z (away from the primary). Thus phase center = carrier face + offset. A zero offset is only a datum placeholder until the actual feed is specified. The feed points toward the main dish.
+Frequency alone does not move the focus of a fixed parabola. Prime focus remains f = D × f/D = 168.000 mm. A phase-center offset can be entered in mm or wavelengths ONLY when supported by the chosen feed design; scaling a generic unknown feed is not valid. The puck lower-face datum is z=168.000 mm; phase-center offset is 0.000 mm along +z.
 
-- Support rods and the carrier scatter/block RF; no gain or wind rating is implied.
-- The rod-end pivots are locked after alignment. Do not leave a freely hinged structure.
+Place the actual feed PHASE CENTER at the focus, not automatically its mouth or flange. A zero offset remains unverified. The feed points toward the main dish.
 
-The long rods are not printable parts and are shown only as reference lines in the viewer. Print clevises base-down and carriers flat; rod clamps are exported on their side so the eye-to-socket load path lies mainly in the layer plane. Inspect/support the horizontal rod bore and split-clamp roofs in the slicer. Print the saddle on its flat face; the secondary is back-down, with slicer support under the central blind-hole roofs if needed. Verify the reflective surface after support removal.
+Auto rod sizing screens 4, 5, 6, 6.35 and 8 mm SOLID aluminum using E=69 GPa and a deliberately conservative single cantilever with the entire entered 100 g payload applied transversely over the exposed span: δ=FL³/(3EI). Selected-rod result 0.255 mm. Include feed/secondary, puck, adapter and cable loads in the payload input; wind, joint compliance, resonance and creep are excluded. This is not an allowable-load calculation or an RF guarantee. Manual diameter overrides retain an over-budget warning.
 
-Test one leg before a full set: fit, clamp slip, pin locking, creep and repeated assembly. Then verify carrier movement under light lateral/axial load at several dish elevations. No supported payload, wind speed, or continuous-service temperature is assigned.
+- Prototype: no wind, payload or RF performance rating. Small radial screws require physical slip and warm-creep tests.
+- Frequency unspecified: wavelength-dependent dimensions and RF tolerances are unavailable.
+- Zero phase-center offset is a placeholder; specify the actual feed datum.
+
+Coat the dish-facing secondary surface with continuous bonded aluminum/copper foil or a verified conductive coating; ordinary metallic paint is not sufficient evidence of RF conductivity. Keep datums, bores and the boss back clean. Surface seams/wrinkles count toward the RF error budget. Test one assembled leg for slip and creep, then the complete assembly at several elevations before committing to a full outdoor installation.
