@@ -15,7 +15,7 @@ form section{padding:17px 0;border-bottom:1px solid var(--line)}.eyebrow{font-we
 <body>
 <header class="app-header">
 <a class="brand" href="#" aria-label="PETAL home" title="Parametric Expeditionary Tactical Aperture Lab"><svg viewBox="0 0 42 42" aria-hidden="true"><path d="M5 10Q21 46 37 10M21 9v26"/></svg><span>PETAL</span></a>
-<span class="app-name">Aperture Lab · 4.0</span>
+<span class="app-name">Aperture Lab · 4.2</span>
 <nav class="header-actions" aria-label="Workspace panels"><button id="design-toggle" class="panel-toggle" aria-controls="design-panel" aria-expanded="false">Design</button><button id="parts-toggle" class="panel-toggle" aria-controls="parts-panel" aria-expanded="false">Parts</button><button id="guide-toggle" aria-haspopup="dialog" aria-controls="guide" aria-expanded="false">Print notes</button></nav>
 </header>
 <main class="workspace">
@@ -27,6 +27,7 @@ form section{padding:17px 0;border-bottom:1px solid var(--line)}.eyebrow{font-we
 <label class="support-toggle"><input type="checkbox" id="structuralRibs" name="structuralRibs" checked>Structural rear ribs · recommended</label><label class="support-toggle"><input type="checkbox" id="perforate" name="perforate">Perforations · experimental</label><details class="profile-details"><summary>Cross-section</summary><svg id="profile" class="profile" viewBox="0 0 260 115" role="img" aria-label="Dish cross-section and focal point"></svg></details>
 </section>
 <section><div class="eyebrow">Joints</div><label for="jointStyle">Connection system<select id="jointStyle" name="jointStyle"><option value="1" selected>Datum plates · revision 9</option><option value="0">Legacy straps</option></select></label><div class="field"><label for="fastenerStyle">Fastening</label><select id="fastenerStyle" name="fastenerStyle"><option value="0">Round through holes · front screws</option><option value="1">Front hex nut pockets · rear screws</option><option value="2">Blind M4 inserts · flush front</option></select></div><div id="insert-settings" hidden><p class="print-result">Ruthex M4 × 8.1 mm reference. Test the coupon in your material.</p><div class="double"><label for="insertDiameter">Insert hole · mm<input id="insertDiameter" name="insertDiameter" type="number" min="4.8" max="6.5" step="0.1" value="5.6"></label><label for="insertDepth">Minimum cavity · mm<input id="insertDepth" name="insertDepth" type="number" min="9.1" max="12" step="0.1" value="9.1"></label></div></div><div id="joint-settings"><label class="support-toggle" for="adaptiveJoints"><input type="checkbox" id="adaptiveJoints" name="adaptiveJoints" checked>Adaptive connectors</label><div id="spacing-settings"><label for="connectorSpacing" title="Smaller spacing adds same-ring connectors and aligned ring plates. Staggered ring plates stay at seam junctions. A placement rule, not a load rating.">Connector spacing · mm<input id="connectorSpacing" name="connectorSpacing" type="number" min="60" max="180" step="5" value="150"></label></div><p class="print-result" id="joint-result" aria-live="polite"></p><label for="jointClearance">Seat clearance / side · mm<input id="jointClearance" name="jointClearance" type="number" min="0.1" max="0.4" step="0.05" value="0.2"></label><label for="nutClearance">Nut clearance / side · mm<input id="nutClearance" name="nutClearance" type="number" min="0.1" max="0.4" step="0.05" value="0.2"></label></div></section>
+<section><div class="eyebrow">Feed / secondary support</div><label for="feedMode">Optical layout<select id="feedMode"><option value="0">No rod support</option><option value="1">Prime-focus feed</option><option value="2">Cassegrain secondary · experimental</option></select></label><div id="feed-settings" hidden><label for="frequencyGHz">Frequency · GHz (0 = unknown)<input id="frequencyGHz" type="number" min="0" max="100" step="0.1" value="0"></label><label for="rodDiameter">Solid aluminum rod diameter<select id="rodDiameter"><option value="0">Auto · deflection screening</option><option value="4">4 mm</option><option value="5">5 mm</option><option value="6">6 mm</option><option value="6.35" selected>6.35 mm · 1/4 inch</option><option value="8">8 mm</option></select></label><label for="rodClearance">Socket diametral clearance · mm<input id="rodClearance" type="number" min="0.15" max="0.7" step="0.05" value="0.35"></label><label for="feedPayload">Total supported payload · g<input id="feedPayload" type="number" min="1" max="2000" value="100"></label><label for="feedLegs">Rod count<select id="feedLegs"><option value="3">3 rods · minimum hardware</option><option value="4">4 rods · align without preload</option></select></label><div id="prime-settings"><label for="phaseUnits">Phase offset units<select id="phaseUnits"><option value="0">mm · actual feed datum</option><option value="1">wavelengths · known scalable feed</option></select></label><label for="phaseOffset" title="Signed distance from carrier lower face to the feed phase center, along the dish axis away from the dish.">Phase-center offset<input id="phaseOffset" type="number" min="-150" max="150" step="0.5" value="0"></label><p class="hint">Use the feed’s actual phase center; zero is a placeholder.</p></div><div id="secondary-settings" hidden><label for="autoSecondary">Secondary sizing<select id="autoSecondary"><option value="1">From frequency when specified</option><option value="0">Manual geometric experiment</option></select></label><label for="secondaryWaves">Target secondary diameter · wavelengths<input id="secondaryWaves" type="number" min="2" max="10" step="0.5" value="4"></label><label for="secondaryPosition">Manual vertex / focus (also used if frequency unknown)<input id="secondaryPosition" type="number" min="0.6" max="0.95" step="0.01" value="0.82"></label><label for="backFocus">Rear feed focus z · mm<input id="backFocus" type="number" min="-200" max="-5" step="1" value="-20"></label><p class="hint">Geometric prototype. Secondary size, diffraction and rear-feed clearance require RF validation.</p></div><p id="feed-result" class="print-result" aria-live="polite"></p><p class="hint">Small bolted rim shoes, long metal rods and one round puck. Frequency sizes the secondary and sets screening tolerances; feed geometry sets the phase offset. RF feed not included.</p></div></section>
 <section><div class="eyebrow">Printer</div><label class="sr-only" for="bedPreset">Printer volume preset</label><select id="bedPreset"><option value="220,220,250">220 × 220 × 250 mm</option><option value="256,256,256">256 × 256 × 256 mm</option><option value="300,300,300">300 × 300 × 300 mm</option><option value="350,350,350">350 × 350 × 350 mm</option><option value="custom">Custom volume</option></select>
 <div class="triple"><label for="bedX">Width<input id="bedX" name="bedX" type="number" min="140" max="1000" value="220"></label><label for="bedY">Depth<input id="bedY" name="bedY" type="number" min="140" max="1000" value="220"></label><label for="bedZ">Height<input id="bedZ" name="bedZ" type="number" min="60" max="1000" value="250"></label></div>
 </section>
@@ -57,11 +58,738 @@ form section{padding:17px 0;border-bottom:1px solid var(--line)}.eyebrow{font-we
 </main>
 <button id="panel-shade" tabindex="-1" aria-label="Close panel" hidden></button>
 <dialog id="guide" class="guide" aria-labelledby="guide-title"><div class="guide-head"><h2 id="guide-title">Print & assembly</h2><button id="guide-close" aria-label="Close print notes" autofocus>×</button></div><div class="guide-content" id="guide-content" aria-live="polite"></div></dialog>
-<script>/* PETAL geometry kernel — millimetres; no external dependencies. */
-const defaults={diameter:400,fd:0.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:0.4,resolution:5,sectors:0,rows:0,supports:1,printAngle:-1,ribCount:3,contactGap:0.2,contactWidth:0.6,ribPitch:10,rearStyle:0,facetAngle:12,jointStyle:1,jointClearance:0.2,nutClearance:0.2,adaptiveJoints:1,connectorSpacing:150,staggerRings:1,structuralRibs:1,perforate:0,packPlates:0,fastenerStyle:0,insertDiameter:5.6,insertDepth:9.1};
-const limits={diameter:[180,1200],fd:[0.25,0.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[0.2,1],resolution:[2,10],sectors:[0,32],rows:[0,12],supports:[0,1],printAngle:[-1,70],ribCount:[2,5],contactGap:[0.1,0.4],contactWidth:[0.4,0.8],ribPitch:[6,20],rearStyle:[0,1],facetAngle:[10,15],jointStyle:[0,1],jointClearance:[0.1,0.4],nutClearance:[0.1,0.4],adaptiveJoints:[0,1],connectorSpacing:[60,180],staggerRings:[0,1],structuralRibs:[0,1],perforate:[0,1],packPlates:[0,1],fastenerStyle:[0,2],insertDiameter:[4.8,6.5],insertDepth:[9.1,12]};
+<script>/*
+Copyright (c) 2011 Evan Wallace (http://madebyevan.com/)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+*/
+// Constructive Solid Geometry (CSG) is a modeling technique that uses Boolean
+// operations like union and intersection to combine 3D solids. This library
+// implements CSG operations on meshes elegantly and concisely using BSP trees,
+// and is meant to serve as an easily understandable implementation of the
+// algorithm. All edge cases involving overlapping coplanar polygons in both
+// solids are correctly handled.
+//
+// Example usage:
+//
+//     var cube = CSG.cube();
+//     var sphere = CSG.sphere({ radius: 1.3 });
+//     var polygons = cube.subtract(sphere).toPolygons();
+//
+// ## Implementation Details
+//
+// All CSG operations are implemented in terms of two functions, `clipTo()` and
+// `invert()`, which remove parts of a BSP tree inside another BSP tree and swap
+// solid and empty space, respectively. To find the union of `a` and `b`, we
+// want to remove everything in `a` inside `b` and everything in `b` inside `a`,
+// then combine polygons from `a` and `b` into one solid:
+//
+//     a.clipTo(b);
+//     b.clipTo(a);
+//     a.build(b.allPolygons());
+//
+// The only tricky part is handling overlapping coplanar polygons in both trees.
+// The code above keeps both copies, but we need to keep them in one tree and
+// remove them in the other tree. To remove them from `b` we can clip the
+// inverse of `b` against `a`. The code for union now looks like this:
+//
+//     a.clipTo(b);
+//     b.clipTo(a);
+//     b.invert();
+//     b.clipTo(a);
+//     b.invert();
+//     a.build(b.allPolygons());
+//
+// Subtraction and intersection naturally follow from set operations. If
+// union is `A | B`, subtraction is `A - B = ~(~A | B)` and intersection is
+// `A & B = ~(~A | ~B)` where `~` is the complement operator.
+//
+// ## License
+//
+// Copyright (c) 2011 Evan Wallace (http://madebyevan.com/), under the MIT license.
+
+// # class CSG
+
+// Holds a binary space partition tree representing a 3D solid. Two solids can
+// be combined using the `union()`, `subtract()`, and `intersect()` methods.
+
+var CSG = function() {
+  this.polygons = [];
+};
+
+// Construct a CSG solid from a list of `CSG.Polygon` instances.
+CSG.fromPolygons = function(polygons) {
+  var csg = new CSG();
+  csg.polygons = polygons;
+  return csg;
+};
+
+CSG.prototype = {
+  clone: function() {
+    var csg = new CSG();
+    csg.polygons = this.polygons.map(function(p) { return p.clone(); });
+    return csg;
+  },
+
+  toPolygons: function() {
+    return this.polygons;
+  },
+
+  // Return a new CSG solid representing space in either this solid or in the
+  // solid `csg`. Neither this solid nor the solid `csg` are modified.
+  //
+  //     A.union(B)
+  //
+  //     +-------+            +-------+
+  //     |       |            |       |
+  //     |   A   |            |       |
+  //     |    +--+----+   =   |       +----+
+  //     +----+--+    |       +----+       |
+  //          |   B   |            |       |
+  //          |       |            |       |
+  //          +-------+            +-------+
+  //
+  union: function(csg) {
+    var a = new CSG.Node(this.clone().polygons);
+    var b = new CSG.Node(csg.clone().polygons);
+    a.clipTo(b);
+    b.clipTo(a);
+    b.invert();
+    b.clipTo(a);
+    b.invert();
+    a.build(b.allPolygons());
+    return CSG.fromPolygons(a.allPolygons());
+  },
+
+  // Return a new CSG solid representing space in this solid but not in the
+  // solid `csg`. Neither this solid nor the solid `csg` are modified.
+  //
+  //     A.subtract(B)
+  //
+  //     +-------+            +-------+
+  //     |       |            |       |
+  //     |   A   |            |       |
+  //     |    +--+----+   =   |    +--+
+  //     +----+--+    |       +----+
+  //          |   B   |
+  //          |       |
+  //          +-------+
+  //
+  subtract: function(csg) {
+    var a = new CSG.Node(this.clone().polygons);
+    var b = new CSG.Node(csg.clone().polygons);
+    a.invert();
+    a.clipTo(b);
+    b.clipTo(a);
+    b.invert();
+    b.clipTo(a);
+    b.invert();
+    a.build(b.allPolygons());
+    a.invert();
+    return CSG.fromPolygons(a.allPolygons());
+  },
+
+  // Return a new CSG solid representing space both this solid and in the
+  // solid `csg`. Neither this solid nor the solid `csg` are modified.
+  //
+  //     A.intersect(B)
+  //
+  //     +-------+
+  //     |       |
+  //     |   A   |
+  //     |    +--+----+   =   +--+
+  //     +----+--+    |       +--+
+  //          |   B   |
+  //          |       |
+  //          +-------+
+  //
+  intersect: function(csg) {
+    var a = new CSG.Node(this.clone().polygons);
+    var b = new CSG.Node(csg.clone().polygons);
+    a.invert();
+    b.clipTo(a);
+    b.invert();
+    a.clipTo(b);
+    b.clipTo(a);
+    a.build(b.allPolygons());
+    a.invert();
+    return CSG.fromPolygons(a.allPolygons());
+  },
+
+  // Return a new CSG solid with solid and empty space switched. This solid is
+  // not modified.
+  inverse: function() {
+    var csg = this.clone();
+    csg.polygons.map(function(p) { p.flip(); });
+    return csg;
+  }
+};
+
+// Construct an axis-aligned solid cuboid. Optional parameters are `center` and
+// `radius`, which default to `[0, 0, 0]` and `[1, 1, 1]`. The radius can be
+// specified using a single number or a list of three numbers, one for each axis.
+//
+// Example code:
+//
+//     var cube = CSG.cube({
+//       center: [0, 0, 0],
+//       radius: 1
+//     });
+CSG.cube = function(options) {
+  options = options || {};
+  var c = new CSG.Vector(options.center || [0, 0, 0]);
+  var r = !options.radius ? [1, 1, 1] : options.radius.length ?
+           options.radius : [options.radius, options.radius, options.radius];
+  return CSG.fromPolygons([
+    [[0, 4, 6, 2], [-1, 0, 0]],
+    [[1, 3, 7, 5], [+1, 0, 0]],
+    [[0, 1, 5, 4], [0, -1, 0]],
+    [[2, 6, 7, 3], [0, +1, 0]],
+    [[0, 2, 3, 1], [0, 0, -1]],
+    [[4, 5, 7, 6], [0, 0, +1]]
+  ].map(function(info) {
+    return new CSG.Polygon(info[0].map(function(i) {
+      var pos = new CSG.Vector(
+        c.x + r[0] * (2 * !!(i & 1) - 1),
+        c.y + r[1] * (2 * !!(i & 2) - 1),
+        c.z + r[2] * (2 * !!(i & 4) - 1)
+      );
+      return new CSG.Vertex(pos, new CSG.Vector(info[1]));
+    }));
+  }));
+};
+
+// Construct a solid sphere. Optional parameters are `center`, `radius`,
+// `slices`, and `stacks`, which default to `[0, 0, 0]`, `1`, `16`, and `8`.
+// The `slices` and `stacks` parameters control the tessellation along the
+// longitude and latitude directions.
+//
+// Example usage:
+//
+//     var sphere = CSG.sphere({
+//       center: [0, 0, 0],
+//       radius: 1,
+//       slices: 16,
+//       stacks: 8
+//     });
+CSG.sphere = function(options) {
+  options = options || {};
+  var c = new CSG.Vector(options.center || [0, 0, 0]);
+  var r = options.radius || 1;
+  var slices = options.slices || 16;
+  var stacks = options.stacks || 8;
+  var polygons = [], vertices;
+  function vertex(theta, phi) {
+    theta *= Math.PI * 2;
+    phi *= Math.PI;
+    var dir = new CSG.Vector(
+      Math.cos(theta) * Math.sin(phi),
+      Math.cos(phi),
+      Math.sin(theta) * Math.sin(phi)
+    );
+    vertices.push(new CSG.Vertex(c.plus(dir.times(r)), dir));
+  }
+  for (var i = 0; i < slices; i++) {
+    for (var j = 0; j < stacks; j++) {
+      vertices = [];
+      vertex(i / slices, j / stacks);
+      if (j > 0) vertex((i + 1) / slices, j / stacks);
+      if (j < stacks - 1) vertex((i + 1) / slices, (j + 1) / stacks);
+      vertex(i / slices, (j + 1) / stacks);
+      polygons.push(new CSG.Polygon(vertices));
+    }
+  }
+  return CSG.fromPolygons(polygons);
+};
+
+// Construct a solid cylinder. Optional parameters are `start`, `end`,
+// `radius`, and `slices`, which default to `[0, -1, 0]`, `[0, 1, 0]`, `1`, and
+// `16`. The `slices` parameter controls the tessellation.
+//
+// Example usage:
+//
+//     var cylinder = CSG.cylinder({
+//       start: [0, -1, 0],
+//       end: [0, 1, 0],
+//       radius: 1,
+//       slices: 16
+//     });
+CSG.cylinder = function(options) {
+  options = options || {};
+  var s = new CSG.Vector(options.start || [0, -1, 0]);
+  var e = new CSG.Vector(options.end || [0, 1, 0]);
+  var ray = e.minus(s);
+  var r = options.radius || 1;
+  var slices = options.slices || 16;
+  var axisZ = ray.unit(), isY = (Math.abs(axisZ.y) > 0.5);
+  var axisX = new CSG.Vector(isY, !isY, 0).cross(axisZ).unit();
+  var axisY = axisX.cross(axisZ).unit();
+  var start = new CSG.Vertex(s, axisZ.negated());
+  var end = new CSG.Vertex(e, axisZ.unit());
+  var polygons = [];
+  function point(stack, slice, normalBlend) {
+    var angle = slice * Math.PI * 2;
+    var out = axisX.times(Math.cos(angle)).plus(axisY.times(Math.sin(angle)));
+    var pos = s.plus(ray.times(stack)).plus(out.times(r));
+    var normal = out.times(1 - Math.abs(normalBlend)).plus(axisZ.times(normalBlend));
+    return new CSG.Vertex(pos, normal);
+  }
+  for (var i = 0; i < slices; i++) {
+    var t0 = i / slices, t1 = (i + 1) / slices;
+    polygons.push(new CSG.Polygon([start, point(0, t0, -1), point(0, t1, -1)]));
+    polygons.push(new CSG.Polygon([point(0, t1, 0), point(0, t0, 0), point(1, t0, 0), point(1, t1, 0)]));
+    polygons.push(new CSG.Polygon([end, point(1, t1, 1), point(1, t0, 1)]));
+  }
+  return CSG.fromPolygons(polygons);
+};
+
+// # class Vector
+
+// Represents a 3D vector.
+//
+// Example usage:
+//
+//     new CSG.Vector(1, 2, 3);
+//     new CSG.Vector([1, 2, 3]);
+//     new CSG.Vector({ x: 1, y: 2, z: 3 });
+
+CSG.Vector = function(x, y, z) {
+  if (arguments.length == 3) {
+    this.x = x;
+    this.y = y;
+    this.z = z;
+  } else if ('x' in x) {
+    this.x = x.x;
+    this.y = x.y;
+    this.z = x.z;
+  } else {
+    this.x = x[0];
+    this.y = x[1];
+    this.z = x[2];
+  }
+};
+
+CSG.Vector.prototype = {
+  clone: function() {
+    return new CSG.Vector(this.x, this.y, this.z);
+  },
+
+  negated: function() {
+    return new CSG.Vector(-this.x, -this.y, -this.z);
+  },
+
+  plus: function(a) {
+    return new CSG.Vector(this.x + a.x, this.y + a.y, this.z + a.z);
+  },
+
+  minus: function(a) {
+    return new CSG.Vector(this.x - a.x, this.y - a.y, this.z - a.z);
+  },
+
+  times: function(a) {
+    return new CSG.Vector(this.x * a, this.y * a, this.z * a);
+  },
+
+  dividedBy: function(a) {
+    return new CSG.Vector(this.x / a, this.y / a, this.z / a);
+  },
+
+  dot: function(a) {
+    return this.x * a.x + this.y * a.y + this.z * a.z;
+  },
+
+  lerp: function(a, t) {
+    return this.plus(a.minus(this).times(t));
+  },
+
+  length: function() {
+    return Math.sqrt(this.dot(this));
+  },
+
+  unit: function() {
+    return this.dividedBy(this.length());
+  },
+
+  cross: function(a) {
+    return new CSG.Vector(
+      this.y * a.z - this.z * a.y,
+      this.z * a.x - this.x * a.z,
+      this.x * a.y - this.y * a.x
+    );
+  }
+};
+
+// # class Vertex
+
+// Represents a vertex of a polygon. Use your own vertex class instead of this
+// one to provide additional features like texture coordinates and vertex
+// colors. Custom vertex classes need to provide a `pos` property and `clone()`,
+// `flip()`, and `interpolate()` methods that behave analogous to the ones
+// defined by `CSG.Vertex`. This class provides `normal` so convenience
+// functions like `CSG.sphere()` can return a smooth vertex normal, but `normal`
+// is not used anywhere else.
+
+CSG.Vertex = function(pos, normal) {
+  this.pos = new CSG.Vector(pos);
+  this.normal = new CSG.Vector(normal);
+};
+
+CSG.Vertex.prototype = {
+  clone: function() {
+    return new CSG.Vertex(this.pos.clone(), this.normal.clone());
+  },
+
+  // Invert all orientation-specific data (e.g. vertex normal). Called when the
+  // orientation of a polygon is flipped.
+  flip: function() {
+    this.normal = this.normal.negated();
+  },
+
+  // Create a new vertex between this vertex and `other` by linearly
+  // interpolating all properties using a parameter of `t`. Subclasses should
+  // override this to interpolate additional properties.
+  interpolate: function(other, t) {
+    return new CSG.Vertex(
+      this.pos.lerp(other.pos, t),
+      this.normal.lerp(other.normal, t)
+    );
+  }
+};
+
+// # class Plane
+
+// Represents a plane in 3D space.
+
+CSG.Plane = function(normal, w) {
+  this.normal = normal;
+  this.w = w;
+};
+
+// `CSG.Plane.EPSILON` is the tolerance used by `splitPolygon()` to decide if a
+// point is on the plane.
+CSG.Plane.EPSILON = 1e-5;
+
+CSG.Plane.fromPoints = function(a, b, c) {
+  var n = b.minus(a).cross(c.minus(a)).unit();
+  return new CSG.Plane(n, n.dot(a));
+};
+
+CSG.Plane.prototype = {
+  clone: function() {
+    return new CSG.Plane(this.normal.clone(), this.w);
+  },
+
+  flip: function() {
+    this.normal = this.normal.negated();
+    this.w = -this.w;
+  },
+
+  // Split `polygon` by this plane if needed, then put the polygon or polygon
+  // fragments in the appropriate lists. Coplanar polygons go into either
+  // `coplanarFront` or `coplanarBack` depending on their orientation with
+  // respect to this plane. Polygons in front or in back of this plane go into
+  // either `front` or `back`.
+  splitPolygon: function(polygon, coplanarFront, coplanarBack, front, back) {
+    var COPLANAR = 0;
+    var FRONT = 1;
+    var BACK = 2;
+    var SPANNING = 3;
+
+    // Classify each point as well as the entire polygon into one of the above
+    // four classes.
+    var polygonType = 0;
+    var types = [];
+    for (var i = 0; i < polygon.vertices.length; i++) {
+      var t = this.normal.dot(polygon.vertices[i].pos) - this.w;
+      var type = (t < -CSG.Plane.EPSILON) ? BACK : (t > CSG.Plane.EPSILON) ? FRONT : COPLANAR;
+      polygonType |= type;
+      types.push(type);
+    }
+
+    // Put the polygon in the correct list, splitting it when necessary.
+    switch (polygonType) {
+      case COPLANAR:
+        (this.normal.dot(polygon.plane.normal) > 0 ? coplanarFront : coplanarBack).push(polygon);
+        break;
+      case FRONT:
+        front.push(polygon);
+        break;
+      case BACK:
+        back.push(polygon);
+        break;
+      case SPANNING:
+        var f = [], b = [];
+        for (var i = 0; i < polygon.vertices.length; i++) {
+          var j = (i + 1) % polygon.vertices.length;
+          var ti = types[i], tj = types[j];
+          var vi = polygon.vertices[i], vj = polygon.vertices[j];
+          if (ti != BACK) f.push(vi);
+          if (ti != FRONT) b.push(ti != BACK ? vi.clone() : vi);
+          if ((ti | tj) == SPANNING) {
+            var t = (this.w - this.normal.dot(vi.pos)) / this.normal.dot(vj.pos.minus(vi.pos));
+            var v = vi.interpolate(vj, t);
+            f.push(v);
+            b.push(v.clone());
+          }
+        }
+        if (f.length >= 3) front.push(new CSG.Polygon(f, polygon.shared));
+        if (b.length >= 3) back.push(new CSG.Polygon(b, polygon.shared));
+        break;
+    }
+  }
+};
+
+// # class Polygon
+
+// Represents a convex polygon. The vertices used to initialize a polygon must
+// be coplanar and form a convex loop. They do not have to be `CSG.Vertex`
+// instances but they must behave similarly (duck typing can be used for
+// customization).
+//
+// Each convex polygon has a `shared` property, which is shared between all
+// polygons that are clones of each other or were split from the same polygon.
+// This can be used to define per-polygon properties (such as surface color).
+
+CSG.Polygon = function(vertices, shared) {
+  this.vertices = vertices;
+  this.shared = shared;
+  this.plane = CSG.Plane.fromPoints(vertices[0].pos, vertices[1].pos, vertices[2].pos);
+};
+
+CSG.Polygon.prototype = {
+  clone: function() {
+    var vertices = this.vertices.map(function(v) { return v.clone(); });
+    return new CSG.Polygon(vertices, this.shared);
+  },
+
+  flip: function() {
+    this.vertices.reverse().map(function(v) { v.flip(); });
+    this.plane.flip();
+  }
+};
+
+// # class Node
+
+// Holds a node in a BSP tree. A BSP tree is built from a collection of polygons
+// by picking a polygon to split along. That polygon (and all other coplanar
+// polygons) are added directly to that node and the other polygons are added to
+// the front and/or back subtrees. This is not a leafy BSP tree since there is
+// no distinction between internal and leaf nodes.
+
+CSG.Node = function(polygons) {
+  this.plane = null;
+  this.front = null;
+  this.back = null;
+  this.polygons = [];
+  if (polygons) this.build(polygons);
+};
+
+CSG.Node.prototype = {
+  clone: function() {
+    var node = new CSG.Node();
+    node.plane = this.plane && this.plane.clone();
+    node.front = this.front && this.front.clone();
+    node.back = this.back && this.back.clone();
+    node.polygons = this.polygons.map(function(p) { return p.clone(); });
+    return node;
+  },
+
+  // Convert solid space to empty space and empty space to solid space.
+  invert: function() {
+    for (var i = 0; i < this.polygons.length; i++) {
+      this.polygons[i].flip();
+    }
+    this.plane.flip();
+    if (this.front) this.front.invert();
+    if (this.back) this.back.invert();
+    var temp = this.front;
+    this.front = this.back;
+    this.back = temp;
+  },
+
+  // Recursively remove all polygons in `polygons` that are inside this BSP
+  // tree.
+  clipPolygons: function(polygons) {
+    if (!this.plane) return polygons.slice();
+    var front = [], back = [];
+    for (var i = 0; i < polygons.length; i++) {
+      this.plane.splitPolygon(polygons[i], front, back, front, back);
+    }
+    if (this.front) front = this.front.clipPolygons(front);
+    if (this.back) back = this.back.clipPolygons(back);
+    else back = [];
+    return front.concat(back);
+  },
+
+  // Remove all polygons in this BSP tree that are inside the other BSP tree
+  // `bsp`.
+  clipTo: function(bsp) {
+    this.polygons = bsp.clipPolygons(this.polygons);
+    if (this.front) this.front.clipTo(bsp);
+    if (this.back) this.back.clipTo(bsp);
+  },
+
+  // Return a list of all polygons in this BSP tree.
+  allPolygons: function() {
+    var polygons = this.polygons.slice();
+    if (this.front) polygons = polygons.concat(this.front.allPolygons());
+    if (this.back) polygons = polygons.concat(this.back.allPolygons());
+    return polygons;
+  },
+
+  // Build a BSP tree out of `polygons`. When called on an existing tree, the
+  // new polygons are filtered down to the bottom of the tree and become new
+  // nodes there. Each set of polygons is partitioned using the first polygon
+  // (no heuristic is used to pick a good split).
+  build: function(polygons) {
+    if (!polygons.length) return;
+    if (!this.plane) this.plane = polygons[0].plane.clone();
+    var front = [], back = [];
+    for (var i = 0; i < polygons.length; i++) {
+      this.plane.splitPolygon(polygons[i], this.polygons, this.polygons, front, back);
+    }
+    if (front.length) {
+      if (!this.front) this.front = new CSG.Node();
+      this.front.build(front);
+    }
+    if (back.length) {
+      if (!this.back) this.back = new CSG.Node();
+      this.back.build(back);
+    }
+  }
+};
+
+
+
+// BSP output has T junctions. Split every shared edge before triangulation so
+// browser STL exports are conforming meshes, not merely visually closed solids.
+function feedMesh(solid){
+ const v=[],bins=new Map(),eps=1e-5,index=p=>{const q=[p.x,p.y,p.z].map(x=>Math.round(x*1e6)/1e6),cell=q.map(x=>Math.floor(x/eps));for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++){const bucket=bins.get([cell[0]+x,cell[1]+y,cell[2]+z].join(','));for(const i of bucket||[])if(Math.hypot(...q.map((x,k)=>x-v[i][k]))<eps)return i;}const k=cell.join(',');if(!bins.has(k))bins.set(k,[]);bins.get(k).push(v.length);v.push(q);return v.length-1;};
+ const polygons=solid.toPolygons().map(p=>[...new Set(p.vertices.map(v=>index(v.pos)))]),nv=v.length,f=[];
+ for(const poly of polygons){const loop=[];for(let j=0;j<poly.length;j++){const ai=poly[j],bi=poly[(j+1)%poly.length],a=v[ai],b=v[bi],d=b.map((x,k)=>x-a[k]),len=d.reduce((s,x)=>s+x*x,0);if(len<1e-12)continue;const edge=[[0,ai]];for(let i=0;i<nv;i++){if(i===ai||i===bi)continue;const w=v[i];if(w[0]<Math.min(a[0],b[0])-eps||w[0]>Math.max(a[0],b[0])+eps||w[1]<Math.min(a[1],b[1])-eps||w[1]>Math.max(a[1],b[1])+eps||w[2]<Math.min(a[2],b[2])-eps||w[2]>Math.max(a[2],b[2])+eps)continue;const x=w[0]-a[0],y=w[1]-a[1],z=w[2]-a[2],t=(x*d[0]+y*d[1]+z*d[2])/len;if(t>1e-7&&t<1-1e-7&&(x-t*d[0])**2+(y-t*d[1])**2+(z-t*d[2])**2<eps*eps)edge.push([t,i]);}edge.sort((a,b)=>a[0]-b[0]);loop.push(...edge.map(x=>x[1]));}
+ const uniqueLoop=[...new Set(loop)];loop.length=0;loop.push(...uniqueLoop);if(loop.length<3)continue;if(loop.length===3){f.push(loop);continue;}const c=loop.reduce((s,i)=>s.map((x,k)=>x+v[i][k]/loop.length),[0,0,0]),ci=v.length;v.push(c);for(let i=0;i<loop.length;i++){const a=loop[i],b=loop[(i+1)%loop.length];if(a!==b)f.push([ci,a,b]);}}
+ // Collapse sub-0.1-micron Boolean edges after conformity, preserving shared
+ // indices across adjacent polygons. Such slivers cannot survive STL float32.
+ const parent=v.map((_,i)=>i),root=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+ for(const face of f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3];if(Math.hypot(...v[a].map((x,k)=>x-v[b][k]))<1e-4)parent[root(b)]=root(a);}
+ const faces=f.map(face=>face.map(root)).filter(face=>new Set(face).size===3),edges=new Map();
+ for(const face of faces){const[a,b,c]=face.map(i=>v[i]),u=b.map((x,k)=>x-a[k]),w=c.map((x,k)=>x-a[k]);if(Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0])<=1e-9)throw Error('Fitting mesh contains a numerical sliver. Adjust socket clearance slightly and regenerate.');for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3],k=Math.min(a,b)+':'+Math.max(a,b),e=edges.get(k)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(k,e);}}
+ if([...edges.values()].some(([n,w])=>n!==2||w!==0))throw Error('Fitting mesh could not be closed at these parameters. Adjust socket clearance slightly and regenerate.');
+ return{v,f:faces};
+}
+const feedCylinder=(a,b,r,n=20)=>CSG.cylinder({start:a,end:b,radius:r,slices:n});
+const feedBox=(center,radius)=>CSG.cube({center,radius});
+function feedSolid(mesh){return CSG.fromPolygons(mesh.f.map(f=>new CSG.Polygon(f.map(i=>new CSG.Vertex(new CSG.Vector(...mesh.v[i]),new CSG.Vector(0,0,0))))));}
+function feedTransform(solid,fn){return CSG.fromPolygons(solid.toPolygons().map(p=>new CSG.Polygon(p.vertices.map(v=>new CSG.Vertex(new CSG.Vector(...fn([v.pos.x,v.pos.y,v.pos.z])),new CSG.Vector(0,0,0))))));}
+// Compact blind socket with a side-loaded real M3 nut and radial clamping screw.
+// Coordinates: rod axis +Z, screw axis Y. No printed threads or long hinges.
+function feedSocket(diameter,clearance){
+ const ro=diameter/2+2.5;
+ let body=feedCylinder([0,0,0],[0,0,22],ro).union(feedBox([0,ro+1.8,12],[4.6,3.8,4.5]));
+ const cuts=[feedCylinder([0,0,2],[0,0,24],(diameter+clearance)/2),feedCylinder([0,0,12],[0,ro+7,12],1.7,20),feedCylinder([0,ro+.6,12],[0,ro+3.2,12],5.8/Math.sqrt(3),6),feedBox([3,ro+1.9,12],[3,1.3,3.45])];
+ return{body,cuts,ro};
+}
+function feedCurvedFoot(r,half,front,focal){
+ const polys=[],vertex=p=>new CSG.Vertex(new CSG.Vector(...p),new CSG.Vector(0,0,0)),face=p=>polys.push(new CSG.Polygon(p.map(vertex))),n=4,point=(i,j)=>{const x=r-half+2*half*i/n,y=-14+28*j/n;return[x,y,(x*x+y*y)/(4*focal)+.08];},up=p=>[p[0],p[1],p[2]+3];
+ for(let i=0;i<n;i++)for(let j=0;j<n;j++)face([point(i,j+1),point(i+1,j+1),point(i+1,j),point(i,j)]);
+ for(let i=0;i<n;i++)for(let j=0;j<n;j++)face([up(point(i,j)),up(point(i+1,j)),up(point(i+1,j+1)),up(point(i,j+1))]);
+ for(let i=0;i<n;i++){let a=point(i,0),b=point(i+1,0);face([a,b,up(b),up(a)]);a=point(n,i);b=point(n,i+1);face([a,b,up(b),up(a)]);a=point(n-i,n);b=point(n-i-1,n);face([a,b,up(b),up(a)]);a=point(0,n-i);b=point(0,n-i-1);face([a,b,up(b),up(a)]);}
+ return CSG.fromPolygons(polys);
+}
+
+const FEED={engagement:18,minEngagement:16,maxEngagement:19,socketLength:22,endClearance:4,puckRadius:26};
+const FEED_TAU=2*Math.PI;
+const fz=(r,p)=>r*r/(4*p.diameter*p.fd);
+const fhole=(r,a=0,w=3.4)=>({r0:r-w/2,r1:r+w/2,a0:a-w/(2*r),a1:a+w/(2*r),r,a,w,shape:'round'});
+function feedDatum(p){const r=p.diameter/2-11;return{r,front:fz(r,p)+3.08,rear:fz(r,p)-p.thickness-5,slope:r/(2*p.diameter*p.fd),holes:[fhole(r,-10/r),fhole(r,10/r)]};}
+function feedFits(p,n,rows){if(!p.feedMode)return true;if(n%p.feedLegs)return false;const d=feedDatum(p),r0=45+(rows-1)*(p.diameter/2-45)/rows;return d.r-15>Math.max(78,r0+8)&&d.r*Math.sin(Math.PI/n)>27;}
+function addFeedPad(spec,p){
+ const d=feedDatum(p),oldBack=spec.backFn,oldLevels=[...spec.levels];
+ const weight=(x,y)=>{const q=Math.max(Math.abs(Math.hypot(x,y)-d.r)-10,Math.abs(y)-14,0),t=Math.min(1,q/4);return 1-t*t*(3-2*t);};
+ const delta=(x,y)=>Math.max(0,oldBack(x,y)-(d.rear+d.slope*(x-d.r)))*weight(x,y);
+ spec.backFn=(x,y)=>oldBack(x,y)-delta(x,y);spec.levels=oldLevels.map((fn,i)=>i===oldLevels.length-1?fn:(x,y)=>fn(x,y)-delta(x,y));
+ spec.feedHoles=d.holes;spec.feedDatum=d;spec.layers=spec.layers.map(layer=>({...layer,holes:[...(layer.holes||[]),...d.holes]}));spec.gridBoxes.push(...d.holes,...[10,14].map(t=>({r0:d.r-t,r1:d.r+t,a0:-t/d.r,a1:t/d.r})));spec.extraR=[...(spec.extraR||[]),d.r-10,d.r,d.r+10];return spec;
+}
+function hyperbola(p,ratio){
+ const f=p.diameter*p.fd,g=p.backFocus,zv=f*ratio,zc=(f+g)/2,c=(f-g)/2,a=zv-zc,b2=c*c-a*a;
+ if(!(g<0&&a>0&&a<c&&b2>0))throw Error('Secondary vertex must lie between the two-focus midpoint and primary focus.');
+ const surface=r=>zc+a*Math.sqrt(1+r*r/b2),R=p.diameter/2,depth=fz(R,p);let lo=0,hi=R;for(let i=0;i<70;i++){const r=(lo+hi)/2;if(surface(r)<f+(depth-f)*r/R)lo=r;else hi=r;}
+ const intercept=(lo+hi)/2,radius=intercept*1.04,edgeZ=surface(radius),backZ=zv+10,returnRadius=intercept*(fz(60,p)-g)/(surface(intercept)-g);
+ return{primaryFocus:f,backFocus:g,vertex:zv,center:zc,c,a,b2,interceptRadius:intercept,radius,edgeZ,backZ,returnRadius,surface,ratio};
+}
+function cassegrainGeometry(p){
+ let s,target=null;if(p.autoSecondary&&p.frequencyGHz>0){target=Math.max(56,p.secondaryWaves*299.792458/p.frequencyGHz);if(target>p.diameter*.25)throw Error('Requested wavelength-sized secondary exceeds 25% of dish diameter. Use prime focus, a larger dish, or manual secondary geometry for an explicitly experimental layout.');let lo=Math.max(.5001,(p.diameter*p.fd+p.backFocus)/(2*p.diameter*p.fd)+.001),hi=.98;for(let i=0;i<60;i++){const mid=(lo+hi)/2;if(hyperbola(p,mid).radius*2>target)lo=mid;else hi=mid;}s=hyperbola(p,(lo+hi)/2);}else s=hyperbola(p,p.secondaryPosition);
+ if(s.radius<28-1e-7||s.radius>p.diameter*.125+1e-7)throw Error('Secondary must be at least 56 mm across and no more than 25% of the dish diameter for this compact support.');
+ if(s.returnRadius>13.5)throw Error('Returned ray bundle does not clear the 30 mm hub with 1.5 mm radial margin. Move the rear focus toward the vertex.');
+ return{...s,targetDiameter:target};
+}
+function feedGeometry(p,layout){
+ if(!p.feedMode)return null;const d=feedDatum(p),lambda=p.frequencyGHz>0?299.792458/p.frequencyGHz:null,secondary=p.feedMode===2?cassegrainGeometry(p):null;
+ const offset=p.feedMode!==1?0:p.phaseUnits===1?(lambda===null?NaN:p.phaseOffset*lambda):p.phaseOffset;if(!Number.isFinite(offset))throw Error('Enter a frequency for a phase-center offset specified in wavelengths.');
+ const lowerZ=d.front+4,topRadius=18;
+ const requiredFace=secondary?lowerZ+(secondary.edgeZ+10-lowerZ)*(d.r-topRadius)/(d.r-secondary.radius-7)-8:0;
+ const stemHeight=secondary?Math.max(10,5*Math.ceil((requiredFace-secondary.backZ)/5)):0;
+ const carrierFace=secondary?secondary.backZ+stemHeight:p.diameter*p.fd-offset,upperZ=carrierFace+8;
+ const distance=Math.hypot(d.r-topRadius,upperZ-lowerZ),cut=distance-2*FEED.endClearance;
+ if(upperZ-lowerZ<15||distance<60||cut>600)throw Error('Rod geometry is outside the compact fitting envelope: require at least 15 mm rise, 60 mm span and at most 600 mm cut.');
+ // Conservative single-rod cantilever screening, NOT a full truss/load model.
+ // E=69 GPa; full entered payload acts transversely on one rod; 1 mm or lambda/50 target.
+ const targetDeflection=Math.min(1,lambda===null?1:lambda/50),load=p.feedPayload/1000*9.80665,L=distance-44;
+ const deflection=diameter=>load*L**3/(3*69000*(Math.PI*diameter**4/64));
+ const diameter=p.rodDiameter||[4,5,6,6.35,8].find(d=>deflection(d)<=targetDeflection);
+ if(!diameter)throw Error('No 4–8 mm solid aluminum rod meets the screening deflection budget. Reduce payload/span or engineer a tubular support.');
+ const phase=p.staggerRings?((layout.rows-1)%2)*Math.PI/layout.n:0,legs=Array.from({length:p.feedLegs},(_,i)=>{const angle=phase+i*FEED_TAU/p.feedLegs;return{number:i+1,angle,lower:[d.r*Math.cos(angle),d.r*Math.sin(angle),lowerZ],upper:[topRadius*Math.cos(angle),topRadius*Math.sin(angle),upperZ],pivotDistance:distance,cutLength:cut};});
+ if(secondary){const rr=secondary.radius+diameter/2+1,z=lowerZ+(upperZ-lowerZ)*(d.r-rr)/(d.r-topRadius);if(z<secondary.edgeZ+3+diameter/2+1)throw Error('Rod path crowds the secondary edge. Change secondary position, rear focus or dish geometry.');}
+ const warnings=['Prototype: no wind, payload or RF performance rating. Small radial screws require physical slip and warm-creep tests.'];
+ if(p.feedLegs===4)warnings.push('Fit the fourth rod last without preload; never use it to pull a warped petal into alignment.');
+ if(!lambda)warnings.push('Frequency unspecified: wavelength-dependent dimensions and RF tolerances are unavailable.');
+ if(p.feedMode===1&&offset===0)warnings.push('Zero phase-center offset is a placeholder; specify the actual feed datum.');
+ if(deflection(diameter)>targetDeflection)warnings.push('Selected rod exceeds the conservative deflection screening budget; use larger stock or reduce payload.');
+ if(secondary){warnings.push('Hyperbolic ray geometry is not electromagnetic validation. A frequency-specific rear feed remains required.');if(lambda&&2*secondary.radius/lambda<5)warnings.push('Secondary is below five wavelengths: diffraction requires full-wave or hybrid electromagnetic analysis.');}
+ return{mode:p.feedMode===1?'prime-focus':'cassegrain',legs,datum:d,carrierFace,upperZ,lowerZ,cutLength:cut,pivotDistance:distance,rodAngle:Math.atan2(upperZ-lowerZ,d.r-topRadius)*180/Math.PI,phase,secondary,stemHeight,offset,rodDiameter:diameter,lambda,targetDeflection,screenDeflection:deflection(diameter),surfaceRmsBudget:lambda?lambda/40:null,warnings};
+}
+const transform=(mesh,fn)=>({v:mesh.v.map(fn),f:mesh.f});
+const flip=mesh=>transform(mesh,([x,y,z])=>[x,-y,-z]);
+function socketFrame(A,B,azimuth=0){const dx=B[0]-A[0],dz=B[2]-A[2],L=Math.hypot(dx,dz),u=dx/L,w=dz/L;return([x,y,z])=>{const X=A[0]+w*x+u*z,Y=A[1]+y;return[Math.cos(azimuth)*X-Math.sin(azimuth)*Y,Math.sin(azimuth)*X+Math.cos(azimuth)*Y,A[2]-u*x+w*z];};}
+function appendFeedParts(m,api){
+ if(!m.p.feedMode)return;const{patch,printMesh,bounds}=api,p=m.p,g=feedGeometry(p,m.layout),d=g.datum;m.feed=g;
+ const add=(id,name,mesh,qty,angles=[0],printing=null)=>{const pm=printing||printMesh(mesh),dim=bounds(pm).size;if(dim[0]>p.bedX-2*p.margin||dim[1]>p.bedY-2*p.margin||dim[2]>p.bedZ-2)throw Error(name+' does not fit the print volume.');const part={id,name,mesh,print:pm,output:pm,supportMeshes:[],dim,qty,kind:'feed',row:-1,angle:0,bedRotation:0,spec:{holes:[]}};m.parts.push(part);for(const a of angles)m.instances.push({part,a});return part;};
+ const angles=g.legs.map(x=>x.angle),box={r0:d.r-10,r1:d.r+10,a0:-14/d.r,a1:14/d.r,holes:d.holes};
+ const low=[d.r,0,g.lowerZ],high=[18,0,g.upperZ],socket=feedSocket(g.rodDiameter,p.rodClearance),frame=socketFrame(low,high);
+ let shoe=feedCurvedFoot(d.r,10,d.front+3,p.diameter*p.fd).union(feedCylinder([d.r,0,fz(d.r+5,p)+.15],[d.r,0,d.front+8],5,20)).union(feedTransform(socket.body,frame));for(const c of socket.cuts)shoe=shoe.subtract(feedTransform(c,frame));
+ // Feet screws pass through the socket union too. Use underside counters-free M3 bolts.
+ for(const h of d.holes)shoe=shoe.subtract(feedCylinder([h.r*Math.cos(h.a),h.r*Math.sin(h.a),d.rear-5],[h.r*Math.cos(h.a),h.r*Math.sin(h.a),d.front+22],1.7,24));
+ const shoeMesh=feedMesh(shoe);add('feed-rim-shoe','Feed · compact bolted rim shoe',shoeMesh,p.feedLegs,angles,printMesh(transform(shoeMesh,([x,y,z])=>[x,z,-y])));
+ const backer=patch({...box,topFn:(x)=>d.rear+d.slope*(x-d.r)-.08,backFn:(x)=>d.rear+d.slope*(x-d.r)-3.08},p);add('feed-backer','Feed · slim rim backer',backer,p.feedLegs,angles,printMesh(backer,Math.atan(d.slope)));
+ let puck=feedCylinder([0,0,g.carrierFace],[0,0,g.carrierFace+16],FEED.puckRadius,32),cuts=[];
+ if(g.secondary)puck=puck.union(feedCylinder([0,0,g.secondary.backZ],[0,0,g.carrierFace+1],9,32));
+ for(const a of angles){const fn=socketFrame(high,low,a);puck=puck.union(feedTransform(socket.body,fn));cuts.push(...socket.cuts.map(c=>feedTransform(c,fn)));}
+ cuts.push(feedCylinder([0,0,g.carrierFace-20],[0,0,g.carrierFace+20],g.secondary?2.3:6,32));
+ for(let i=0;i<p.feedLegs;i++){const a=g.phase+(i+.5)*FEED_TAU/p.feedLegs,x=12*Math.cos(a),y=12*Math.sin(a);cuts.push(feedCylinder([x,y,g.carrierFace-1],[x,y,g.carrierFace+17],1.7,20));}
+ for(const c of cuts)puck=puck.subtract(c);const pm=feedMesh(puck);add('feed-puck','Feed · compact round puck',pm,1,[0],printMesh(flip(pm)));
+ if(g.secondary){const s=g.secondary,back=(x,y)=>{const r=Math.hypot(x,y),t=Math.min(1,Math.max(0,(r-10)/5));return Math.max(s.surface(r)+3,s.backZ*(1-t)+(s.surface(r)+3)*t);};const h={r0:0,r1:2.8,a0:0,a1:FEED_TAU},front=(x,y)=>s.surface(Math.hypot(x,y)),mesh=patch({r0:0,r1:s.radius,a0:0,a1:FEED_TAU,levels:[front,(x,y)=>front(x,y)+.3*(back(x,y)-front(x,y)),back],layers:[{},{holes:[h]}],gridBoxes:[h],extraR:[10,15]},p);add('secondary-reflector','Secondary · 3 mm shell / center boss',mesh,1,[0],printMesh(flip(mesh)));}
+}
+function feedManifest(m){if(!m.feed)return{enabled:false};const g=m.feed,s=g.secondary;return{enabled:true,revision:2,mode:g.mode,legs:m.p.feedLegs,rod_diameter_mm:g.rodDiameter,stock:'smooth solid aluminum rod (screen assumes E = 69 GPa)',cut_length_mm:g.cutLength,socket_end_span_mm:g.pivotDistance,nominal_engagement_each_end_mm:18,engagement_range_mm:[16,19],carrier_lower_face_z_mm:g.carrierFace,phase_center_offset_mm:g.offset,frequency_GHz:m.p.frequencyGHz||null,wavelength_mm:g.lambda,surface_rms_screen_mm:g.surfaceRmsBudget,rod_deflection_screen_mm:g.screenDeflection,rod_deflection_budget_mm:g.targetDeflection,payload_input_g:m.p.feedPayload,puck_body_diameter_mm:52,adapter_bolt_circle_mm:24,adapter_bolts:`${m.p.feedLegs} × M3 midway between rods; feed-specific adapter required`,legs_geometry:g.legs,secondary:s?{primary_focus_z:s.primaryFocus,rear_focus_z:s.backFocus,vertex_z:s.vertex,vertex_ratio:s.ratio,diameter_mm:2*s.radius,target_diameter_mm:s.targetDiameter,front_surface:'z = center + a * sqrt(1 + r^2 / b^2)',center:s.center,a:s.a,b:Math.sqrt(s.b2),back_boss_z:s.backZ,return_bundle_radius_mm:s.returnRadius}:null,hardware:feedHardware(m),warnings:g.warnings};}
+function rodCSV(m){if(!m.feed)return'';return 'leg,stock,diameter_mm,socket_end_span_mm,engagement_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_end_z_mm,upper_end_z_mm\n'+m.feed.legs.map(l=>[l.number,'smooth solid aluminum',m.feed.rodDiameter,l.pivotDistance.toFixed(3),18,l.cutLength.toFixed(3),(l.cutLength/25.4).toFixed(4),(l.angle*180/Math.PI).toFixed(3),m.feed.rodAngle.toFixed(3),l.lower[2].toFixed(3),l.upper[2].toFixed(3)].join(',')).join('\n')+'\n';}
+function feedHardware(m){if(!m.feed)return[];const n=m.p.feedLegs,d=m.feed.datum,grip=d.front-d.rear+3.18,length=[16,20,25,30,35,40,45,50].find(x=>x>=grip+5);if(!length)throw Error('Rim-foot screw stack exceeds M3×50.');return[
+ {item:'rim-foot screw',spec:`M3 × ${length}`,quantity:2*n,grip_mm:grip,note:'Install from rear; two 0.5 mm washers and M3 nut. Check access/stack before tightening.'},
+ {item:'rod-retention screw',spec:'M3 × 10',quantity:2*n,note:'Real M3 nut in side pocket; rounded screw tip against solid rod. Slip-test; do not crush tubing.'},
+ {item:'M3 nut',spec:'5.5 mm AF / 2.4 mm height',quantity:4*n,note:'Rim and socket retention; pocket allows 5.8 mm AF'},
+ {item:'M3 washer',spec:'0.5 mm thick',quantity:4*n,note:'Both faces of each rim bolt'},
+ ...(m.feed.secondary?[{item:'secondary screw',spec:`M4 × ${m.feed.stemHeight+25}`,quantity:1,note:`${m.feed.stemHeight+16} mm puck/stem stack + 4 mm metal washer/spacer stack; nominal 5 mm entry. Verify actual insert/tip clearance.`},{item:'M4 washer',spec:'1 mm thick',quantity:4,note:'4 mm total metal spacer/washer stack under secondary screw'},{item:'secondary insert',spec:'short M4 / maximum 6 mm / compatible with 5.6 mm pilot',quantity:1,note:'7 mm blind pocket; insert 0.5 mm below boss face'}]:[])];}
+function feedHardwareCSV(m){const quote=x=>'"'+String(x??'').replaceAll('"','""')+'"';return 'item,specification,quantity,grip_mm,note\n'+feedHardware(m).map(x=>[x.item,x.spec,x.quantity,x.grip_mm?.toFixed(3),x.note].map(quote).join(',')).join('\n')+'\n';}
+function feedGuide(m){if(!m.feed)return'';const g=m.feed;return `# PETAL compact rod support · ${g.mode}\n\nAccessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface remains revision 9. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.\n\n## Small parts, long metal rods\n\n${m.p.feedLegs} × Ø${g.rodDiameter} mm smooth SOLID aluminum rods; nominal cut ${g.cutLength.toFixed(2)} mm each. No threaded rod. Tubing needs a separate crush-resistant clamp and stiffness calculation. The selected outer petals have compact paired M3 mounting holes near the rim; shoes bolt on, with a small rear backer. These holes remain through holes in all seam-fastener modes. There is no printed snap latch to carry sustained load. Use the supplied mount petals, not holes drilled blindly into an existing rib.\n\nSocket axes are generated at ${g.rodAngle.toFixed(2)}° above the dish plane. Socket end-to-end span ${g.pivotDistance.toFixed(2)} mm; each mouth is 22 mm from its blind end, with 18 mm nominal engagement. Cut = span − 2×(22−18). Deburr and mark 18 mm insertion; keep 16–19 mm engagement (at least 1 mm clearance above the bore floor at maximum insertion). Trial-fit long stock and trim; do not force rods against blind ends. RODS.csv contains actual positions, angle, diameter and cuts.\n\n## Assembly and printing\n\nPrint one shoe and the puck first. Nominal diametral rod clearance is ${m.p.rodClearance.toFixed(2)} mm; adjust it after a fit coupon/test socket, not by forcing the rod. Shoes export on their side; puck exports top-face down. Inspect socket bores, nut cavities and screw channels in the slicer and support horizontal roofs as required. Ream gently to a sliding fit. Backers print flat. PETG is a practical indoor fit-test material; ASA is preferable for outdoor UV exposure with an enclosed printer. Neither removes polymer creep: qualify at actual temperature/load. Use at least four perimeters and locally solid socket/boss walls, not an infill percentage as a strength guarantee.\n\nInstall rear backer → mount petal → rim shoe. Use M3 hardware in FEED-HARDWARE.csv, separate from dish bolts. The two shoe bolts are alongside the rod socket; tighten before fitting rods. Fit real M3 nuts into the side-loading hex pockets; a small retaining dab of adhesive may hold the nut during assembly, but keep the threads and rod bore clean. M3×10 radial screws retain smooth solid rods. Rounded tips reduce gouging; do not substitute hollow tubing without a revised clamp. Mark rods to reveal slip. No printed threads.\n\nSupport the puck with an independent height/centering jig, slide all rods freely into place and tighten progressively. For four rods, fit the fourth last at zero preload. Never use screws to pull a distorted petal or puck into position. Measure center/height/tilt before and after tightening, after changing elevation, and after warm soaking. Strain-relieve the feed cable along a rod. The compact puck has ${m.p.feedLegs} M3 adapter bores on 24 mm BCD, halfway between rods, and ${g.secondary?'a central M4 clearance hole':'a 12 mm cable opening'}. This is a PETAL interface, not a universal RF feed flange. Feed-specific adapter and fasteners are not included.\n\n## Frequency and optical meaning\n\n${g.lambda?`Frequency ${m.p.frequencyGHz} GHz gives wavelength ${g.lambda.toFixed(3)} mm. Surface RMS screening target λ/40 = ${g.surfaceRmsBudget.toFixed(3)} mm, including printing, assembly and metallization errors. This is a design budget, not measured accuracy. The rod screening budget is min(1 mm, λ/50) = ${g.targetDeflection.toFixed(3)} mm.`:'Frequency is unknown; enter it to enable wavelength-based dimensions and accuracy guidance.'}\n\nFrequency alone does not move the focus of a fixed parabola. Prime focus remains f = D × f/D = ${m.focal.toFixed(3)} mm. A phase-center offset can be entered in mm or wavelengths ONLY when supported by the chosen feed design; scaling a generic unknown feed is not valid. The puck lower-face datum is z=${g.carrierFace.toFixed(3)} mm; phase-center offset is ${g.offset.toFixed(3)} mm along +z.\n\n${g.secondary?`The secondary is a convex hyperboloid toward the main dish: vertex z=${g.secondary.vertex.toFixed(3)} mm, diameter ${(2*g.secondary.radius).toFixed(3)} mm, rear focus z=${g.secondary.backFocus.toFixed(3)} mm. Automatic mode targets the entered secondary wavelength count (minimum 56 mm mechanical diameter), solves its position and then recalculates rod lengths and angles. Above 25% dish diameter it rejects the combination; choose prime focus or a larger dish. These are engineering screening limits, not optimized RF dimensions. The 3 mm reflective shell has a central 10 mm boss with one blind Ø5.6×7 mm insert pocket. Install a short M4 insert at least 0.5 mm recessed, maximum 6 mm long; use M4×${g.stemHeight+25} with a 4 mm metal washer/spacer stack through the ${g.stemHeight+16} mm puck/stem stack. Verify actual engagement and leave the reflective face intact. Secondary prints with its boss down; support the surrounding back shell in the slicer. The rear RF feed, phase center, polarization and illumination must be designed separately.`:'Place the actual feed PHASE CENTER at the focus, not automatically its mouth or flange. A zero offset remains unverified. The feed points toward the main dish.'}\n\nAuto rod sizing screens 4, 5, 6, 6.35 and 8 mm SOLID aluminum using E=69 GPa and a deliberately conservative single cantilever with the entire entered ${m.p.feedPayload} g payload applied transversely over the exposed span: δ=FL³/(3EI). Selected-rod result ${g.screenDeflection.toFixed(3)} mm. Include feed/secondary, puck, adapter and cable loads in the payload input; wind, joint compliance, resonance and creep are excluded. This is not an allowable-load calculation or an RF guarantee. Manual diameter overrides retain an over-budget warning.\n\n${g.warnings.map(w=>'- '+w).join('\n')}\n\nCoat the dish-facing secondary surface with continuous bonded aluminum/copper foil or a verified conductive coating; ordinary metallic paint is not sufficient evidence of RF conductivity. Keep datums, bores and the boss back clean. Surface seams/wrinkles count toward the RF error budget. Test one assembled leg for slip and creep, then the complete assembly at several elevations before committing to a full outdoor installation.\n`;}
+
+/* PETAL geometry kernel — millimetres; no external dependencies. */
+const defaults={feedMode:0,feedLegs:3,rodDiameter:6.35,rodClearance:0.35,feedPayload:100,phaseUnits:0,autoSecondary:1,secondaryWaves:4,phaseOffset:0,secondaryPosition:0.82,backFocus:-20,frequencyGHz:0,diameter:400,fd:0.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:0.4,resolution:5,sectors:0,rows:0,supports:1,printAngle:-1,ribCount:3,contactGap:0.2,contactWidth:0.6,ribPitch:10,rearStyle:0,facetAngle:12,jointStyle:1,jointClearance:0.2,nutClearance:0.2,adaptiveJoints:1,connectorSpacing:150,staggerRings:1,structuralRibs:1,perforate:0,packPlates:0,fastenerStyle:0,insertDiameter:5.6,insertDepth:9.1};
+const limits={feedMode:[0,2],feedLegs:[3,4],rodDiameter:[0,8],rodClearance:[0.15,0.7],feedPayload:[1,2000],phaseUnits:[0,1],autoSecondary:[0,1],secondaryWaves:[2,10],phaseOffset:[-150,150],secondaryPosition:[0.6,0.95],backFocus:[-200,-5],frequencyGHz:[0,100],diameter:[180,1200],fd:[0.25,0.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[0.2,1],resolution:[2,10],sectors:[0,32],rows:[0,12],supports:[0,1],printAngle:[-1,70],ribCount:[2,5],contactGap:[0.1,0.4],contactWidth:[0.4,0.8],ribPitch:[6,20],rearStyle:[0,1],facetAngle:[10,15],jointStyle:[0,1],jointClearance:[0.1,0.4],nutClearance:[0.1,0.4],adaptiveJoints:[0,1],connectorSpacing:[60,180],staggerRings:[0,1],structuralRibs:[0,1],perforate:[0,1],packPlates:[0,1],fastenerStyle:[0,2],insertDiameter:[4.8,6.5],insertDepth:[9.1,12]};
 const PI=Math.PI,TAU=2*PI;
-function validate(p){if(![0,1].includes(p.structuralRibs)||![0,1].includes(p.perforate)||![0,1].includes(p.packPlates)||![0,1,2].includes(p.fastenerStyle))throw Error('Choose valid perforation, packing and fastener options.');if(p.fastenerStyle&&!p.jointStyle)throw Error('Front nuts and blind inserts require recessed plates.');for(const [k,[a,b]]of Object.entries(limits)){if(!Number.isFinite(p[k])||p[k]<a||p[k]>b)throw Error(`${k} must be between ${a} and ${b}.`);}if(p.sectors!==0&&(p.sectors<6||p.sectors%2))throw Error('Petals must be automatic or an even number from 6 to 32.');if(!Number.isInteger(p.rows))throw Error('Ring count must be a whole number.');if(![0,1].includes(p.supports)||!Number.isInteger(p.ribCount))throw Error('Choose on/off supports and a whole number of ribs.');if(p.printAngle!==-1&&p.printAngle!==0&&p.printAngle<45)throw Error('Choose automatic, low profile, or a 45–70° print angle.');if(p.supports&&p.printAngle===0)throw Error('Rib supports are designed for angled petals. Choose automatic or 45–70°.');if(![0,1].includes(p.rearStyle))throw Error('Choose curved or two-facet rear.');if(p.rearStyle&&p.printAngle===0)throw Error('The faceted rear uses diagonal printing. Choose automatic or 45–70°.');if(![0,1].includes(p.jointStyle))throw Error("Choose legacy or keyed joints.");if(![0,1].includes(p.adaptiveJoints)||![0,1].includes(p.staggerRings))throw Error("Choose on/off adaptive connectors and ring staggering.");return p;}
+function validate(p){if(![0,4,5,6,6.35,8].includes(p.rodDiameter)||![0,1].includes(p.phaseUnits)||![0,1].includes(p.autoSecondary))throw Error("Choose valid rod stock, phase units and secondary sizing mode.");if(![0,1,2].includes(p.feedMode)||![3,4].includes(p.feedLegs))throw Error('Choose an off / prime-focus / Cassegrain support with three or four rods.');if(p.feedMode&&(!p.jointStyle||p.rearStyle||!p.structuralRibs))throw Error('Rod supports require reinforced curved petals and revision-9 datum joints.');if(p.feedMode&&p.sectors&&p.sectors%p.feedLegs)throw Error('Petal count must be divisible by the rod count. Choose automatic segmentation.');if(![0,1].includes(p.structuralRibs)||![0,1].includes(p.perforate)||![0,1].includes(p.packPlates)||![0,1,2].includes(p.fastenerStyle))throw Error('Choose valid perforation, packing and fastener options.');if(p.fastenerStyle&&!p.jointStyle)throw Error('Front nuts and blind inserts require recessed plates.');for(const [k,[a,b]]of Object.entries(limits)){if(!Number.isFinite(p[k])||p[k]<a||p[k]>b)throw Error(`${k} must be between ${a} and ${b}.`);}if(p.sectors!==0&&(p.sectors<6||p.sectors%2))throw Error('Petals must be automatic or an even number from 6 to 32.');if(!Number.isInteger(p.rows))throw Error('Ring count must be a whole number.');if(![0,1].includes(p.supports)||!Number.isInteger(p.ribCount))throw Error('Choose on/off supports and a whole number of ribs.');if(p.printAngle!==-1&&p.printAngle!==0&&p.printAngle<45)throw Error('Choose automatic, low profile, or a 45–70° print angle.');if(p.supports&&p.printAngle===0)throw Error('Rib supports are designed for angled petals. Choose automatic or 45–70°.');if(![0,1].includes(p.rearStyle))throw Error('Choose curved or two-facet rear.');if(p.rearStyle&&p.printAngle===0)throw Error('The faceted rear uses diagonal printing. Choose automatic or 45–70°.');if(![0,1].includes(p.jointStyle))throw Error("Choose legacy or keyed joints.");if(![0,1].includes(p.adaptiveJoints)||![0,1].includes(p.staggerRings))throw Error("Choose on/off adaptive connectors and ring staggering.");return p;}
 const zAt=(r,p)=>r*r/(4*p.diameter*p.fd);
 // Preserve the specified wall at seams and fasteners while removing material
 // from the broad, lightly loaded field of a curved petal.
@@ -116,7 +844,7 @@ function choosePrint(spec,p){const base=Math.atan((spec.r0+spec.r1)/(4*p.diamete
  for(const angle of angles){const vs=envelopePoints(spec,p,base-angle*PI/180);let best=null;for(const yaw of angle===0?[0,90]:[0,15,30,45,60,75,90]){const c=Math.cos(yaw*PI/180),s=Math.sin(yaw*PI/180),d=vertexBounds(vs.map(([x,y,z])=>[c*x-s*y,s*x+c*y,z]));if(p.supports){d[0]+=8;d[1]+=8;d[2]+=SUPPORT_LIFT;}if(d[0]>p.bedX-2*p.margin||d[1]>p.bedY-2*p.margin||d[2]>p.bedZ-2)continue;const score=d[0]*d[1]+yaw*.001;if(!best||score<best.score)best={angle,yaw,tilt:base-angle*PI/180,dim:d,score};}if(best)return best;
  }return null;
 }
-function plan(p){validate(p);if(!fits([120,120,18],p))throw Error('The 120 mm center clamp needs more usable bed space. Reduce the edge margin or increase the bed size.');let best=null;const ns=p.sectors?[p.sectors]:spaced(6,32,13),rs=p.rows?[p.rows]:spaced(1,12,11);for(const rows of rs){if((p.diameter/2-45)/rows<40)continue;for(const n of ns){const score=n*rows+rows*.15+n*.001;if(best&&score>=best.score)continue;if(p.jointStyle&&!jointsFit(p,n,rows))continue;let largest=0,ok=true;const choices=[];for(let j=0;j<rows;j++){const choice=choosePrint(tileSpec(p,n,rows,j),p);if(!choice){ok=false;break;}choices.push(choice);largest=Math.max(largest,...choice.dim);}if(ok){const effective=score*(1+.025*Math.max(0,...choices.map(c=>c.angle-45)));if(!best||effective<best.score)best={n,rows,score:effective,largest,choices};}}}if(!best)throw Error('No assembly fits these print settings. Try automatic angle / segmentation, more height, or a smaller dish. Connector seats also need space between neighboring joints; try fewer petals with more rings or the legacy interface.');return best;}
+function plan(p){validate(p);if(!fits([120,120,18],p))throw Error('The 120 mm center clamp needs more usable bed space. Reduce the edge margin or increase the bed size.');let best=null;const ns=p.sectors?[p.sectors]:spaced(6,32,13),rs=p.rows?[p.rows]:spaced(1,12,11);for(const rows of rs){if((p.diameter/2-45)/rows<40)continue;for(const n of ns){if(!feedFits(p,n,rows))continue;const score=n*rows+rows*.15+n*.001;if(best&&score>=best.score)continue;if(p.jointStyle&&!jointsFit(p,n,rows))continue;let largest=0,ok=true;const choices=[];for(let j=0;j<rows;j++){const choice=choosePrint(tileSpec(p,n,rows,j),p);if(!choice){ok=false;break;}choices.push(choice);largest=Math.max(largest,...choice.dim);}if(ok){const effective=score*(1+.025*Math.max(0,...choices.map(c=>c.angle-45)));if(!best||effective<best.score)best={n,rows,score:effective,largest,choices};}}}if(!best&&p.feedMode)throw Error('No rod-support layout fits: use automatic segmentation, fewer rings, a larger bed or a larger dish. Reinforced mount pads need wide outer petals.');if(!best)throw Error('No assembly fits these print settings. Try automatic angle / segmentation, more height, or a smaller dish. Connector seats also need space between neighboring joints; try fewer petals with more rings or the legacy interface.');return best;}
 function makeRibs(spec,p,tilt,rawBounds,raw){if(p.jointStyle)return keyedRibs(spec,p,raw,rawBounds);const c=Math.cos(tilt),s=Math.sin(tilt),focal=p.diameter*p.fd,cx=(rawBounds.min[0]+rawBounds.max[0])/2,zmin=rawBounds.min[2],tip=spec.r0*Math.sin(spec.a1),ys=spaced(-tip,tip,p.ribCount-1),foot=Math.min(8,2*tip/(p.ribCount-1)*.75),ribWidth=1.2;
  const domains=y=>{if(Math.abs(y)>=spec.r1)return null;const lo=Math.max(Math.sqrt(Math.max(0,spec.r0**2-y*y)),Math.abs(y)/Math.tan(spec.a1)),hi=Math.sqrt(spec.r1**2-y*y);if(hi<=lo)return null;const tx=x=>c*x+s*(spec.facet?facetZ(x,spec.facet):(x*x+y*y)/(4*focal)-p.thickness)-cx;return [tx(lo),tx(hi)];};
  const underside=(x,y)=>{const dom=domains(y);if(!dom||x<dom[0]-1e-7||x>dom[1]+1e-7)return Infinity;if(spec.facet){const d=spec.facet,hinge=c*d[1]+s*d[0]-cx,m=x<=hinge?d[2]:d[3],xx=(x+cx-s*(d[0]-m*d[1]))/(c+s*m);return -s*xx+c*facetZ(xx,d)-zmin+SUPPORT_LIFT;}const A=s/(4*focal),B=c,C=s*(y*y/(4*focal)-p.thickness)-(x+cx),disc=B*B-4*A*C;if(disc<0)return Infinity;const xx=Math.abs(A)<1e-12?-C/B:-2*C/(B+Math.sqrt(disc));return -s*xx+c*((xx*xx+y*y)/(4*focal)-p.thickness)-zmin+SUPPORT_LIFT;};
@@ -136,7 +864,7 @@ function build(p){const layout=plan(p),{n,rows}=layout,parts=[],instances=[],ste
  const output=supportMeshes.length?mergeMeshes([pm,...supportMeshes]):pm,dim=bounds(output).size;const sampledThickness=spec.facet?mesh.v.map(([x,y])=>zAt(Math.hypot(x,y),p)-facetZ(x,spec.facet)):[];const part={id,name,spec,qty,kind,row,tilt,angle,bedRotation,mesh,print:pm,output,supportMeshes,dim,wallRange:sampledThickness.length?sampledThickness.reduce(([lo,hi],x)=>[Math.min(lo,x),Math.max(hi,x)],[Infinity,-Infinity]):null};if(dim[0]>p.bedX-2*p.margin+.001||dim[1]>p.bedY-2*p.margin+.001||dim[2]>p.bedZ-2+.001)throw Error(`${name}, including its supports, does not fit the usable print volume.`);parts.push(part);return part;};
  const instance=(part,a=0)=>instances.push({part,a});
  for(let j=0;j<rows;j++){
-  const phase=ringPhase(p,n,j),spec=tileSpec(p,n,rows,j),part=add(`panel-${j+1}`,`Panel · ring ${j+1}`,spec,n,'panel',j);for(let i=0;i<n;i++)instance(part,i*step+phase);
+  const phase=ringPhase(p,n,j),mounted=Boolean(p.feedMode&&j===rows-1),spec=tileSpec(mounted?{...p,feedMode:0}:p,n,rows,j),part=add(`panel-${j+1}`,`Panel · ring ${j+1}`,spec,mounted?n-p.feedLegs:n,'panel',j);const mountPart=mounted?add(`panel-${j+1}-feed`,`Mount panel · ring ${j+1}`,tileSpec(p,n,rows,j),p.feedLegs,'panel',j):null;for(let i=0;i<n;i++)instance(mounted&&i%(n/p.feedLegs)===0?mountPart:part,i*step+phase);
   const count=p.jointStyle?jointStations(p,n,rows,j).count:1;for(let k=0;k<count;k++){const rm=45+j*w+w*.65,side=add(`side-bridge-${j+1}${k?'-'+(k+1):''}`,`${p.jointStyle?"Side plate":"Side bridge"} · ring ${j+1}${count>1?' / '+(k+1):''}`,sideSpec(p,n,rows,j,k),n,'bridge',j,(p.rearStyle||p.jointStyle)?0:Math.atan(rm/(2*p.diameter*p.fd)));for(let i=0;i<n;i++)instance(side,(i+.5)*step+phase);}
   if(j<rows-1){const r=45+(j+1)*w,angles=radialStations(p,n,rows,j),distinct=p.rearStyle?angles.length:1;for(let k=0;k<distinct;k++){const rad=add(`ring-bridge-${j+1}${k?'-'+(k+1):''}`,`${p.jointStyle?(p.staggerRings?"Junction plate":"Ring plate"):"Ring bridge"} · ${j+1}–${j+2}${distinct>1?' / '+(k+1):''}`,radialSpec(p,n,rows,j,k),n*(distinct===1?angles.length:1),'bridge',j,(p.rearStyle||p.jointStyle)?0:Math.atan(r/(2*p.diameter*p.fd)));for(let i=0;i<n;i++)for(const a of distinct===1?angles:[angles[k]])instance(rad,i*step+phase+a);}}
  }
@@ -144,7 +872,7 @@ function build(p){const layout=plan(p),{n,rows}=layout,parts=[],instances=[],ste
  instance(add('hub-rear',p.jointStyle?'Rear hub · 60 mm BCD':'Rear hub · 40 mm BCD',hubSpec(p,n,rows,rootH,mountH),1,'hub',-1));
  instance(add('hub-clamp',p.jointStyle?'Flush retaining ring':'Front clamp ring',p.jointStyle?capturedClampSpec(p,n,rootH):{r0:43,r1:60,a0:-PI/n,a1:TAU-PI/n,holes:rootH,offset:3.4,thickness:3.2},1,'hub',-1));
  for(const part of parts)if((p.rearStyle||p.jointStyle)&&(part.kind==='bridge'||part.id==='hub-rear')){const floor=bounds(part.mesh).min[2],grips=part.spec.holes.filter(h=>part.id!=='hub-rear'||Math.abs((h.r0+h.r1)/2-52.5)<.01).map(h=>{const r=(h.r0+h.r1)/2,a=(h.a0+h.a1)/2,[mx,my,c]=part.spec.floorPlane||[0,0,floor];if(p.jointStyle&&part.spec.nutSeats){const idx=part.spec.holes.indexOf(h),front=part.id==='hub-rear'?zAt(r-4.2,p)-2.4:zAt(r,p);return front-part.spec.nutSeats[idx];}return zAt(r,p)+(part.id==='hub-rear'?3.4:0)-(mx*r*Math.cos(a)+my*r*Math.sin(a)+c);});part.gripRange=[Math.min(...grips),Math.max(...grips)];}
- const bolts=n+parts.filter(p=>p.kind==='bridge').reduce((sum,p)=>sum+p.qty*p.spec.holes.length,0);const result={p:{...p},layout,parts,instances,bolts,ringPhases:Array.from({length:rows},(_,j)=>ringPhase(p,n,j)),depth:p.diameter/(16*p.fd),focal:p.diameter*p.fd};if(p.fastenerStyle)rearHardwareSchedule(result);result.plates=p.packPlates?packParts(parts,p):[];return result;
+ const bolts=n+parts.filter(p=>p.kind==='bridge').reduce((sum,p)=>sum+p.qty*p.spec.holes.length,0);const result={p:{...p},layout,parts,instances,bolts,ringPhases:Array.from({length:rows},(_,j)=>ringPhase(p,n,j)),depth:p.diameter/(16*p.fd),focal:p.diameter*p.fd};if(p.fastenerStyle)rearHardwareSchedule(result);appendFeedParts(result,{patch,printMesh,bounds});result.plates=p.packPlates?packParts(parts,p):[];return result;
 }
 function binarySTL(mesh){const ab=new ArrayBuffer(84+mesh.f.length*50),d=new DataView(ab);new Uint8Array(ab,0,80).set(new TextEncoder().encode('PETAL / millimetres / procedural mesh'));d.setUint32(80,mesh.f.length,true);let k=84;for(const face of mesh.f){const [a,b,c]=face.map(i=>mesh.v[i]),u=b.map((x,i)=>x-a[i]),v=c.map((x,i)=>x-a[i]);let norm=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],len=Math.hypot(...norm);norm=norm.map(x=>x/(len||1));for(const x of [...norm,...a,...b,...c]){d.setFloat32(k,x,true);k+=4;}d.setUint16(k,0,true);k+=2;}return ab;}
 function volume(mesh){let sum=0;for(const [i,j,k]of mesh.f){const a=mesh.v[i],b=mesh.v[j],c=mesh.v[k];sum+=a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]);}return sum/6;}
@@ -245,7 +973,8 @@ function perforationHoles(spec,p){
 function keyedPanelSpec(p,n,rows,j){
  const spec=baseKeyedPanelSpec(p,n,rows,j);
  if(p.structuralRibs){spec.extraR=unique([...(spec.extraR||[]),...spaced(spec.r0,spec.r1,Math.ceil((spec.r1-spec.r0)/2))]);spec.gridBoxes.push(...structuralGrid(spec));}
- const vents=perforationHoles(spec,p);
+ if(p.feedMode&&j===rows-1)addFeedPad(spec,p);
+ const vents=perforationHoles(spec,p).filter(h=>!spec.feedDatum||Math.abs(h.r-spec.feedDatum.r)>22||Math.abs(h.r*Math.sin(h.a))>20);
  const seam=spec.holes.filter(h=>j||h.r>60.3),root=spec.holes.filter(h=>!j&&h.r<=60.3);
  if(p.fastenerStyle){
   const pockets=seam.map(h=>p.fastenerStyle===1?nutPocket(h,7+2*p.nutClearance):hole(h.r,h.a,p.insertDiameter));
@@ -266,6 +995,7 @@ function keyedPanelSpec(p,n,rows,j){
   spec.gridBoxes.push(...pockets);spec.pockets=pockets;spec.pocketFloor=floor;
  }
  if(vents.length){spec.layers=spec.layers.map(layer=>({...layer,holes:[...(layer.holes||[]),...vents]}));spec.gridBoxes.push(...vents);}
+ if(spec.feedHoles)spec.layers=spec.layers.map(layer=>({...layer,holes:[...(layer.holes||[]).filter(h=>!spec.feedHoles.includes(h)),...spec.feedHoles]}));
  spec.perforations=vents;
  return spec;
 }
@@ -457,14 +1187,15 @@ class Viewer{
  let items=packing?m.plates.flatMap((plate,i)=>plate.placements.map((placement,j)=>({part:placement.part,a:placement.yaw*Math.PI/180,i,placement,first:j===0}))):this.mode==='layout'?m.parts.flatMap((part,i)=>[{part,a:0,i},...part.supportMeshes.map(mesh=>({part,a:0,i,supportMesh:mesh}))]):m.instances;
  const bedCount=packing?m.plates.length:m.parts.length,cols=Math.ceil(Math.sqrt(bedCount)),cell=Math.max(m.p.bedX,m.p.bedY)+24;
  this.extent=this.mode==='layout'?cell*Math.max(cols,Math.ceil(bedCount/cols)):m.p.diameter*(this.mode==='exploded'?1.3:1);
- for(const item of items){const {part,a}=item,c=Math.cos(a),s=Math.sin(a),layout=this.mode==='layout',ex=this.mode==='exploded'?this.explode:0,mesh=item.supportMesh||(layout?(packing?part.output:part.print):part.mesh);let tr=[0,0,0];if(layout)tr=[(item.i%cols-(cols-1)/2)*cell,(Math.floor(item.i/cols)-(Math.ceil(bedCount/cols)-1)/2)*cell,0];else if(part.kind==='hub')tr=[0,0,(part.id==='hub-clamp'?1:-1)*ex*50];else tr=[c*ex*m.p.diameter*.12,s*ex*m.p.diameter*.12,part.kind==='bridge'?-ex*40:ex*(part.row+1)*12];
+ for(const item of items){const {part,a}=item,c=Math.cos(a),s=Math.sin(a),layout=this.mode==='layout',ex=this.mode==='exploded'?this.explode:0,mesh=item.supportMesh||(layout?(packing?part.output:part.print):part.mesh);let tr=[0,0,0];if(layout)tr=[(item.i%cols-(cols-1)/2)*cell,(Math.floor(item.i/cols)-(Math.ceil(bedCount/cols)-1)/2)*cell,0];else if(part.kind==='feed')tr=[0,0,ex*30];else if(part.kind==='hub')tr=[0,0,(part.id==='hub-clamp'?1:-1)*ex*50];else tr=[c*ex*m.p.diameter*.12,s*ex*m.p.diameter*.12,part.kind==='bridge'?-ex*40:ex*(part.row+1)*12];
  const bedOffset=[...tr];if(layout&&packing){tr[0]+=item.placement.x;tr[1]+=item.placement.y;}
  const V=mesh.v.map(([x,y,z])=>[c*x-s*y+tr[0],s*x+c*y+tr[1],z+tr[2]]),positions=[],normals=[],edges=[];
  for(const f of mesh.f){const [a,b,c]=f.map(i=>V[i]),u=b.map((x,k)=>x-a[k]),v=c.map((x,k)=>x-a[k]),n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],l=Math.hypot(...n)||1;positions.push(...a,...b,...c);for(let k=0;k<3;k++)normals.push(...n.map(x=>x/l));if(this.wire)edges.push(...a,...b,...b,...c,...c,...a);}
- let color=item.supportMesh?[.90,.43,.30]:part.kind==='panel'?(part.row%2?[.48,.63,.85]:[.72,.73,.76]):part.kind==='hub'?[.88,.65,.34]:[.46,.48,.54];if(this.selected&&part.id!==this.selected)color=color.map(x=>x*.55);if(this.selected===part.id&&!item.supportMesh)color=[.60,.76,1];add(positions,normals,color);if(this.wire)add(edges,new Array(edges.length).fill(0),[.10,.10,.12],true);
+ let color=item.supportMesh?[.90,.43,.30]:part.kind==='panel'?(part.row%2?[.48,.63,.85]:[.72,.73,.76]):part.kind==='hub'?[.88,.65,.34]:part.kind==='feed'?[.42,.70,.62]:[.46,.48,.54];if(this.selected&&part.id!==this.selected)color=color.map(x=>x*.55);if(this.selected===part.id&&!item.supportMesh)color=[.60,.76,1];add(positions,normals,color);if(this.wire)add(edges,new Array(edges.length).fill(0),[.10,.10,.12],true);
  if(layout&&!item.supportMesh&&(!packing||item.first)){const x=m.p.bedX/2,y=m.p.bedY/2,points=[[-x,-y], [x,-y],[x,y],[-x,y]],ev=[];for(let k=0;k<4;k++)for(const v of [points[k],points[(k+1)%4]])ev.push(v[0]+bedOffset[0],v[1]+bedOffset[1],-1);add(ev,new Array(ev.length).fill(0),[.3,.3,.34],true);}
  }
- if(this.mode!=='layout'){const r=m.p.diameter*.65,step=m.p.diameter/10,grid=[];for(let v=-r;v<=r;v+=step)grid.push(-r,v,-18,r,v,-18,v,-r,-18,v,r,-18);add(grid,new Array(grid.length).fill(0),[.13,.13,.15],true);if(this.focus){const f=m.focal,h=m.p.diameter*.015,lines=[-h,0,f,h,0,f,0,-h,f,0,h,f,0,0,f-h,0,0,f+h];for(let z=0;z<f;z+=f/24)lines.push(0,0,z,0,0,z+f/48);add(lines,new Array(lines.length).fill(0),[1,.7,.3],true);this.extent=Math.max(this.extent,f*1.65);}}
+ if(this.mode!=='layout'){if(m.feed&&this.mode==='assembled'){const rods=[];for(const l of m.feed.legs)rods.push(...l.lower,...l.upper);add(rods,new Array(rods.length).fill(0),[.4,.85,.72],true);this.extent=Math.max(this.extent,m.feed.carrierFace*1.7);}
+ const r=m.p.diameter*.65,step=m.p.diameter/10,grid=[];for(let v=-r;v<=r;v+=step)grid.push(-r,v,-18,r,v,-18,v,-r,-18,v,r,-18);add(grid,new Array(grid.length).fill(0),[.13,.13,.15],true);if(this.focus){const f=m.focal,h=m.p.diameter*.015,lines=[-h,0,f,h,0,f,0,-h,f,0,h,f,0,0,f-h,0,0,f+h];for(let z=0;z<f;z+=f/24)lines.push(0,0,z,0,0,z+f/48);add(lines,new Array(lines.length).fill(0),[1,.7,.3],true);this.extent=Math.max(this.extent,f*1.65);}}
  this.draw();}
  draw(){const gl=this.gl;if(!this.model)return;const rect=this.canvas.getBoundingClientRect(),dpr=Math.min(2,window.devicePixelRatio||1),w=Math.max(1,Math.round(rect.width*dpr)),h=Math.max(1,Math.round(rect.height*dpr));if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}gl.viewport(0,0,w,h);gl.clearColor(.031,.031,.035,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.useProgram(this.program);gl.uniform1f(this.loc.yaw,this.yaw);gl.uniform1f(this.loc.pitch,this.pitch);gl.uniform1f(this.loc.scale,this.extent*.66/this.zoom*Math.max(1,h/w));gl.uniform1f(this.loc.aspect,w/h);gl.uniform1f(this.loc.centerZ,this.mode==='layout'?0:this.model.depth/2);gl.enableVertexAttribArray(this.pos);gl.enableVertexAttribArray(this.norm);for(const o of this.objects){gl.bindBuffer(gl.ARRAY_BUFFER,o.p);gl.vertexAttribPointer(this.pos,3,gl.FLOAT,false,0,0);gl.bindBuffer(gl.ARRAY_BUFFER,o.n);gl.vertexAttribPointer(this.norm,3,gl.FLOAT,false,0,0);gl.uniform3fv(this.loc.color,o.color);gl.uniform1f(this.loc.unlit,o.lines?1:0);gl.drawArrays(o.lines?gl.LINES:gl.TRIANGLES,0,o.count);}}
 }
@@ -486,18 +1217,18 @@ function scadSource(m,kernel){
 
 function manifest(m){
  const p=m.p,schedule=hardwareSchedule(m);
- return {generator:'PETAL 4.0',units:'mm',parameters:p,interface:{revision:p.jointStyle?9:1,fastening:['front screws / rear nuts','rear screws / front hex nuts','rear screws / blind M4 inserts'][p.fastenerStyle],seat_depth_mm:p.jointStyle?JOINT.seatDepth:0,seat_clearance_per_side_mm:p.jointClearance,side_seat_radial_relief_per_side_mm:.3,nut_pocket_across_flats_mm:7+2*p.nutClearance,datum:p.rearStyle?'faceted surface with 0.05 mm axial relief':'matching tangent planes; no nominal axial clamp gap',rear_mount_bolt_circle_mm:p.jointStyle?60:40,center_opening_mm:30,hub_outer_diameter_mm:120},segmentation:{petals:m.layout.n,rings:m.layout.rows,ring_offsets_degrees:m.ringPhases.map(a=>a*180/Math.PI)},focal_length:m.focal,dish_depth:m.depth,feed_rim_half_angle_degrees:2*Math.atan(1/(4*p.fd))*180/Math.PI,assembly_bolts:m.bolts,mount_bolts:4,heat_set_inserts:p.fastenerStyle===2?m.bolts+4:0,total_nuts:p.fastenerStyle===2?0:m.bolts+4,hardware_schedule:schedule,openscad_format:'exact mesh snapshot; change dimensions in PETAL and regenerate',perforations:{enabled:Boolean(p.perforate),diameter_mm:6,quantity:m.parts.reduce((n,x)=>n+(x.spec.perforations?.length||0)*x.qty,0)},structural_ribs:{enabled:Boolean(p.structuralRibs&&p.jointStyle),maximum_depth_mm:4,crown_width_mm:6,shoulder_width_mm:4},parts:m.parts.map(part=>({file:`${part.id}${part.supportMeshes.length?'_supported':''}_qty-${part.qty}.stl`,quantity:part.qty,dimensions_mm:part.dim,solid_volume_cm3:volume(part.mesh)/1000,support_volume_cm3:part.supportMeshes.reduce((s,x)=>s+volume(x),0)/1000,print_angle_degrees:part.angle,bed_rotation_degrees:part.bedRotation,assembly_rotations_degrees:m.instances.filter(i=>i.part===part).map(i=>i.a*180/Math.PI)})),packed_plates:m.plates.map((plate,i)=>({file:`PACKED/plate-${i+1}.stl`,placements:plate.placements.map(({part,yaw,x,y})=>({part:part.id,rotation_degrees:yaw,x_mm:x,y_mm:y}))})),notes:['Revision 9 requires a regenerated complete kit. Do not mix previous panels, plates, hubs or caps.','Geometric checks are not load, print-process or RF validation.','Mount hardware requires the external adapter stack; do not buy from an assumed mount screw length.','Use the full ASSEMBLY.md, REFLECTOR.md and INSPECTION.csv.']};
+ return {generator:'PETAL 4.2',feed_support:feedManifest(m),units:'mm',parameters:p,interface:{revision:p.jointStyle?9:1,fastening:['front screws / rear nuts','rear screws / front hex nuts','rear screws / blind M4 inserts'][p.fastenerStyle],seat_depth_mm:p.jointStyle?JOINT.seatDepth:0,seat_clearance_per_side_mm:p.jointClearance,side_seat_radial_relief_per_side_mm:.3,nut_pocket_across_flats_mm:7+2*p.nutClearance,datum:p.rearStyle?'faceted surface with 0.05 mm axial relief':'matching tangent planes; no nominal axial clamp gap',rear_mount_bolt_circle_mm:p.jointStyle?60:40,center_opening_mm:30,hub_outer_diameter_mm:120},segmentation:{petals:m.layout.n,rings:m.layout.rows,ring_offsets_degrees:m.ringPhases.map(a=>a*180/Math.PI)},focal_length:m.focal,dish_depth:m.depth,feed_rim_half_angle_degrees:2*Math.atan(1/(4*p.fd))*180/Math.PI,assembly_bolts:m.bolts,assembly_bolts_scope:'dish shell and hub only; support hardware is separate',mount_bolts:4,heat_set_inserts:p.fastenerStyle===2?m.bolts+4:0,total_nuts:p.fastenerStyle===2?0:m.bolts+4,hardware_schedule:schedule,openscad_format:'exact mesh snapshot; change dimensions in PETAL and regenerate',perforations:{enabled:Boolean(p.perforate),diameter_mm:6,quantity:m.parts.reduce((n,x)=>n+(x.spec.perforations?.length||0)*x.qty,0)},structural_ribs:{enabled:Boolean(p.structuralRibs&&p.jointStyle),maximum_depth_mm:4,crown_width_mm:6,shoulder_width_mm:4},parts:m.parts.map(part=>({file:`${part.id}${part.supportMeshes.length?'_supported':''}_qty-${part.qty}.stl`,quantity:part.qty,dimensions_mm:part.dim,solid_volume_cm3:volume(part.mesh)/1000,support_volume_cm3:part.supportMeshes.reduce((s,x)=>s+volume(x),0)/1000,print_angle_degrees:part.angle,bed_rotation_degrees:part.bedRotation,assembly_rotations_degrees:m.instances.filter(i=>i.part===part).map(i=>i.a*180/Math.PI)})),packed_plates:m.plates.map((plate,i)=>({file:`PACKED/plate-${i+1}.stl`,placements:plate.placements.map(({part,yaw,x,y})=>({part:part.id,rotation_degrees:yaw,x_mm:x,y_mm:y}))})),notes:['Revision 9 requires a regenerated complete kit. Do not mix previous panels, plates, hubs or caps.','Geometric checks are not load, print-process or RF validation.','Mount hardware requires the external adapter stack; do not buy from an assumed mount screw length.','Use the full ASSEMBLY.md, REFLECTOR.md and INSPECTION.csv.']};
 }
 
 function guideSections(m){
  const p=m.p,mode=p.fastenerStyle,sections=[
- {title:'Before printing',body:`PETAL 4.0 · ${p.diameter} mm · ${m.layout.n} petals × ${m.layout.rows} rings. ${p.jointStyle?'Revision 9: regenerate the entire kit. Earlier interface revisions do not match.':'Legacy straps are a comparison option; the revised locating seats and structural ribs require recessed plates.'} Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.`},
+ {title:'Before printing',body:`PETAL 4.2 · ${p.diameter} mm · ${m.layout.n} petals × ${m.layout.rows} rings. ${p.jointStyle?'Revision 9: regenerate the entire kit. Earlier interface revisions do not match.':'Legacy straps are a comparison option; the revised locating seats and structural ribs require recessed plates.'} Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.`},
  {title:'Material and slicing',body:'ASA is the preferred outdoor starting material if your enclosed printer produces dimensionally stable parts. PCTG is useful for fit and handling prototypes; verify warm-load creep before outdoor service. ABS needs UV protection. Use dry filament and the manufacturer’s profile. A 0.4 mm nozzle, 0.2 mm layers and 4–5 walls are starting points, not a qualified process. Make hardware bosses, plates and hub bearing regions locally solid with modifiers. Keep the continuous skin fully filled; inspect the actual toolpaths.'},
  {title:'Orientation and supports',body:`${m.parts.filter(x=>x.kind==='panel').map(x=>`Ring ${x.row+1}: ${x.angle}° nominal tilt, ${x.bedRotation}° bed rotation, ${x.dim[2].toFixed(1)} mm tall`).join('. ')}. Automatic placement tries 45° first and penalizes steeper layouts; it is a fit/height heuristic, not a slicer optimization. ${p.supports?'Keep each supported STL as one multipart object with all shells in place. Breakaway ribs are sacrificial; the permanent rear ribs belong to the petal.':'Built-in supports are OFF: add suitable slicer supports and adhesion aids before printing.'} Windowed support webs use 4 mm pillars on 12 mm centers and bridges up to 8 mm; inspect their bridge toolpaths as well as root lips, hole roofs and the cap pilot. Built-in supports cover petals only. Use layer-by-layer printing, not sequential-by-object printing. Print one full petal before filling beds.`},
  {title:'Fit without forcing',body:`${p.jointStyle?`Plate seats are 2 mm deep with ${p.jointClearance.toFixed(2)} mm clearance per side. Same-ring seats have an additional 0.30 mm radial relief per side; screw clearance still limits total motion. Nut clearance is independent: pockets are ${(7+2*p.nutClearance).toFixed(2)} mm across flats. ${p.rearStyle?'Faceted backs retain 0.05 mm nominal axial relief.':'Matching flat tangent seats locate the curved-shell panels without closing an intentional axial gap.'}`:'Use matching legacy straps and check both bore positions.'} Remove burrs and elephant foot only. A plate must seat by hand with the seam open. Do not clamp a warped petal flat or use screws to pull holes into alignment. Check scale and shrinkage on a full petal if coupons fit but the ring will not close.`},
  {title:'Hardware for this mode',body:mode===2?`Rear-installed M4 screws into blind inserts. Reference: Ruthex RX-M4×8.1; ${p.insertDiameter.toFixed(2)} mm modeled bore, minimum ${p.insertDepth.toFixed(2)} mm cavity. The front remains closed with at least 2 mm skin. Install before assembly using a guided tool and depth stop. The insert’s front end stays 1 mm from the cavity roof; its rear end can be recessed below the sloped mouth. HARDWARE.csv gives the per-position recess depth for all insert positions. Do not try to make every insert flush with a sloping mouth. The schedule also gives mount-insert recess depths, independently of the unresolved adapter screw lengths. Compare face shape before and after installation. Rear heads must fit Ø8 × 2.2 mm; no washers inside these recesses.`:mode===1?'Place nominal M4 nuts (7 mm across flats, 3.2 mm tall) in the FRONT hex pockets. Bolts enter from behind; use button heads no larger than Ø8 × 2.2 mm. The pockets stop rotation but do not latch loose nuts: hold them with removable tape until screws engage. Keep tape out of bearing faces. Check full nut engagement and that screw tips stay below the reflector face. Do not add washers inside recesses.':'Bolts enter from the FRONT into rear nuts. Temporarily tape rear nuts in place, keeping tape clear of bearing faces. Cap/root screws require button heads no larger than Ø8 × 2.2 mm and no washers in the recess. Seam screw selections allow a 1 mm washer; check actual washer thickness and contact on the curved face. Stop if a washer rocks, tilts the screw or dimples the panel; the front-hex mode provides flat nut-bearing seats.'},
  {title:'Assembly without accumulated distortion',body:'Support the dish face-up on a padded cradle without flattening its parabola. Seat indexed roots in the rear hub, then place the front cap. Start all root screws loosely. Add an entire ring with the listed stagger offset, fitting rear plates loosely; do not finish one seam before the ring closes. Inspect opposite seams and the rim before tightening. Snug opposing joints in small alternating passes, then recheck the profile. Leave the designed gaps open. If a plate rocks or a seam requires force, stop and identify the mismatched or warped part. Removable rear plates avoid trapping the last petal in a closed ring of tongues.'},
- {title:'Mount and clamp load',body:`Use the ${p.jointStyle?60:40} mm mounting bolt circle and a rigid external adapter that supports the hub broadly while leaving root screws accessible. The adapter is not supplied. ${mode===0?'At the four mounting positions, a rear backing plate needs external washers/nuts behind the adapter; do not trap nuts in the hub pockets and assume they clamp that adapter.':'Mount screws enter through the rear adapter; measure its actual bearing face and stack.'} Do not use generic steel-joint M4 torque tables. Hand-snug for the test article and stop at visible deformation. Recheck after a warm hold and assembly cycles. Inserts do not prevent creep of the surrounding plastic. Large/outdoor builds need a verified backing structure or properly designed compression limiters; this hub has no wind rating.`},
+ {title:'Mount and clamp load',body:`Use the ${p.jointStyle?60:40} mm mounting bolt circle and a rigid external adapter that supports the hub broadly while leaving root screws accessible. A separate prototype geared-head adapter is provided in the repository (cad/manual-aiming-mount.scad), outside this dish ZIP. ${mode===0?'At the four mounting positions, a rear backing plate needs external washers/nuts behind the adapter; do not trap nuts in the hub pockets and assume they clamp that adapter.':'Mount screws enter through the rear adapter; measure its actual bearing face and stack.'} Do not use generic steel-joint M4 torque tables. Hand-snug for the test article and stop at visible deformation. Recheck after a warm hold and assembly cycles. Inserts do not prevent creep of the surrounding plastic. Large/outdoor builds need a verified backing structure or properly designed compression limiters; this hub has no wind rating.`},
  {title:'Make it an RF reflector',body:'Bare printing plastic is not the intended RF reflector. For a first article, use thin aluminum foil tape with a specified conductive adhesive, such as 3M 1170, in narrow strips on the FRONT face. Copper tape such as 3M 1181 is an alternative but adds mass. Test adhesion on a scrap of the actual filament. Fit and measure the dish before coating; keep metal and adhesive off joint datums, nut seats, roots and bores. Coat petals individually, then bridge assembled seams with removable conductive tape. Do not tension the tape to pull seams together. The exported REFLECTOR.md covers conductive paints, finishing, continuity checks and the feed.'},
  {title:'Acceptance checks',body:'The part must fit before tightening and retain its profile after tightening. Use INSPECTION.csv for nominal front heights; check several azimuths, seam steps and rim runout, then repeat after disassembly and a warm hold. Record material, drying, orientation, slicer profile and hardware. Stop for cracks, whitening, pocket deformation, insert movement or permanent profile change. Final surface tolerance depends on operating frequency. Shape, printability, stiffness, creep and RF gain still require the test article.'}
  ];
@@ -508,6 +1239,7 @@ function guideSections(m){
   sections.find(s=>s.title==='Hardware for this mode').body='Legacy straps use M4 through bolts, washers and loose nuts. There are no front/rear captive pockets in this mode. Measure the actual grip, washer stack and nut engagement; the automatic screw schedule applies only to revision-9 plates.';
   sections.find(s=>s.title==='Assembly without accumulated distortion').body='Support the dish without flattening it. Start the legacy center clamp loosely, add the complete ring with loose straps, align opposite seams and snug gradually. Legacy straps do not provide the revised datum seats or indexed roots. Never use screw force to close a warped seam.';
  }
+ if(m.feed)sections.push({title:'Rod support and optical layout',body:feedGuide(m).split('## Small parts, long metal rods')[1].split('## Assembly')[0].trim()+' Read FEED-SUPPORT.md and RODS.csv in the kit for the full setup and hardware instructions. '+m.feed.warnings.join(' ')});
  return sections;
 }
 function hardwareCSV(m){
@@ -519,7 +1251,7 @@ function inspectionCSV(m){
  for(let i=0;i<=20;i++){const r=m.p.diameter*i/40,z=r*r/(4*m.focal);rows.push([r,z,m.depth-z].map(x=>x.toFixed(3)).join(','));}
  return rows.join('\n')+'\n';
 }
-function guide(m){return '# PETAL 4.0 — print and assembly\n\n'+guideSections(m).map(s=>'## '+s.title+'\n\n'+s.body).join('\n\n')+'\n\n## Screw schedule\n\nHARDWARE.csv gives one row per unique hole position and the quantity across repeated parts. Radius and azimuth refer to the part in assembly orientation before its listed ring/sector rotation. Lengths are measured under the head. Seams and roots have nominal stock selections with a 0.2 mm nut-engagement / 0.4 mm insert-engagement allowance; verify the real print and hardware before buying the complete set. Blind inserts assume 8.1 mm length, at least 4 mm thread engagement and a 1 mm roof reserve plus allowance. No listed length means source/cut a suitable screw, not round upward. Mount lengths remain unresolved until the adapter is specified.\n\n## Files and offsets\n\n'+m.parts.map(p=>`- ${p.id}: ${p.qty} copies; ${p.dim.map(x=>x.toFixed(1)).join(' × ')} mm`).join('\n')+'\n\nRing offsets: '+m.ringPhases.map((a,i)=>`${i+1}: ${(a*180/Math.PI).toFixed(2)}°`).join('; ')+'.\n\npetal-snapshot.scad is an exact assembly/part mesh snapshot. Change parameters in PETAL and regenerate; this file is not an editable parametric kernel.\n';}
+function guide(m){return '# PETAL 4.2 — print and assembly\n\n'+guideSections(m).map(s=>'## '+s.title+'\n\n'+s.body).join('\n\n')+'\n\n## Screw schedule\n\nHARDWARE.csv gives one row per unique hole position and the quantity across repeated parts. Radius and azimuth refer to the part in assembly orientation before its listed ring/sector rotation. Lengths are measured under the head. Seams and roots have nominal stock selections with a 0.2 mm nut-engagement / 0.4 mm insert-engagement allowance; verify the real print and hardware before buying the complete set. Blind inserts assume 8.1 mm length, at least 4 mm thread engagement and a 1 mm roof reserve plus allowance. No listed length means source/cut a suitable screw, not round upward. Mount lengths remain unresolved until the adapter is specified.\n\n## Files and offsets\n\n'+m.parts.map(p=>`- ${p.id}: ${p.qty} copies; ${p.dim.map(x=>x.toFixed(1)).join(' × ')} mm`).join('\n')+'\n\nRing offsets: '+m.ringPhases.map((a,i)=>`${i+1}: ${(a*180/Math.PI).toFixed(2)}°`).join('; ')+'.\n\npetal-snapshot.scad is an exact assembly/part mesh snapshot. Change parameters in PETAL and regenerate; this file is not an editable parametric kernel.\n';}
 function couponGuide(m){return '# Side-joint test\n\nPrint coupon-left, coupon-right and coupon-plate once each. Keep their exported orientations and add slicer supports as needed; these cropped coupons do not include built-in supports. The parts reproduce the first side joint. Try the plate without bolts first, then follow the selected hardware mode below. Check seam steps before and after snugging. These coupons do not test full-petal warping, the complete hub or a ring junction.\n\n'+guide(m);}
 
 function reflectorGuide(m){return `# Reflector surface and RF setup
@@ -552,7 +1284,7 @@ Keep perforations off for the baseline article. Conductive mesh must be chosen f
 
 ## Feed and alignment
 
-This configuration has focal length ${m.focal.toFixed(2)} mm from the parabola vertex, dish depth ${m.depth.toFixed(2)} mm, and rim half-angle ${(2*Math.atan(1/(4*m.p.fd))*180/Math.PI).toFixed(2)} degrees as seen from the focus. The vertex is the extrapolated center of the parabola, not the rear hub surface or rim plane. Place the feed phase center at the focus and match its illumination to that rim angle. Provide rigid, adjustable axial/lateral positioning and polarization adjustment. Route and strain-relieve the cable so it cannot move the feed. Feed and support parts are not included.
+This configuration has focal length ${m.focal.toFixed(2)} mm from the parabola vertex, dish depth ${m.depth.toFixed(2)} mm, and rim half-angle ${(2*Math.atan(1/(4*m.p.fd))*180/Math.PI).toFixed(2)} degrees as seen from the focus. The vertex is the extrapolated center of the parabola, not the rear hub surface or rim plane. Place the feed phase center at the focus and match its illumination to that rim angle. Provide rigid, adjustable axial/lateral positioning and polarization adjustment. Route and strain-relieve the cable so it cannot move the feed. ${m.feed?'Support parts and rod cuts are included; see FEED-SUPPORT.md. The RF feed and its specific adapter remain separate.':'Enable the optional rod support to generate mounting parts and rod cuts. The RF feed is not supplied.'}
 
 Choose an operating band before setting surface tolerances. As an engineering starting budget, allocate no more than wavelength/50 RMS to structural/assembly error, then account separately for finish, feed and pointing. This is a proposed test criterion, not a verified capability. Use the shortest wavelength in a band. Measure at several azimuths and elevations; systematic seam steps and defocus need attention beyond a single RMS number.
 
@@ -566,7 +1298,7 @@ Inserts and plastic creep: https://www.spirol.com/resources/white-papers/how-to-
 `;}
 function kit(m,kernel){
  const coupons=connectionCoupon(m);
- return zip([...m.plates.map((plate,i)=>({name:`PACKED/plate-${i+1}.stl`,data:binarySTL(packedPlateMesh(plate))})),...coupons.map(p=>({name:`FIT_TEST/${p.id}.stl`,data:binarySTL(p.output)})),...(coupons.length?[{name:'FIT_TEST/README.md',data:couponGuide(m)}]:[]),...m.parts.map(p=>({name:`STL/${p.id}${p.supportMeshes.length?'_supported':''}_qty-${p.qty}.stl`,data:binarySTL(p.output)})),{name:'petal-snapshot.scad',data:scadSource(m,kernel)},{name:'parameters.json',data:JSON.stringify(manifest(m),null,2)},{name:'ASSEMBLY.md',data:guide(m)},{name:'REFLECTOR.md',data:reflectorGuide(m)},{name:'HARDWARE.csv',data:hardwareCSV(m)},{name:'INSPECTION.csv',data:inspectionCSV(m)}]);
+ return zip([...m.plates.map((plate,i)=>({name:`PACKED/plate-${i+1}.stl`,data:binarySTL(packedPlateMesh(plate))})),...coupons.map(p=>({name:`FIT_TEST/${p.id}.stl`,data:binarySTL(p.output)})),...(coupons.length?[{name:'FIT_TEST/README.md',data:couponGuide(m)}]:[]),...m.parts.map(p=>({name:`STL/${p.id}${p.supportMeshes.length?'_supported':''}_qty-${p.qty}.stl`,data:binarySTL(p.output)})),{name:'petal-snapshot.scad',data:scadSource(m,kernel)},{name:'parameters.json',data:JSON.stringify(manifest(m),null,2)},{name:'ASSEMBLY.md',data:guide(m)},{name:'REFLECTOR.md',data:reflectorGuide(m)},{name:'HARDWARE.csv',data:hardwareCSV(m)},{name:'INSPECTION.csv',data:inspectionCSV(m)},...(m.feed?[{name:'FEED-SUPPORT.md',data:feedGuide(m)},{name:'RODS.csv',data:rodCSV(m)},{name:'FEED-HARDWARE.csv',data:feedHardwareCSV(m)}]:[])]);
 }
 
 const $=id=>document.getElementById(id);let model,viewer,selected='',timer,busy=false,valid=false;
@@ -576,11 +1308,11 @@ try{viewer=new Viewer($('canvas'));}catch(e){$('view-error').hidden=false;$('vie
 function read(){return Object.fromEntries(Object.keys(defaults).map(k=>[k,$(k).type==='checkbox'?Number($(k).checked):$(k).value===''?NaN:Number($(k).value)]));}
 function setFields(p){for(const k in defaults){if($(k).type==='checkbox')$(k).checked=Boolean(p[k]);else $(k).value=p[k];if($(k+'-range'))$(k+'-range').value=p[k];}syncBed();$('facet-settings').hidden=!p.rearStyle;$('rib-settings').hidden=!p.supports;$('joint-settings').hidden=!p.jointStyle;$('spacing-settings').hidden=!p.adaptiveJoints;}
 function syncBed(){const v=[$('bedX').value,$('bedY').value,$('bedZ').value].join(',');$('bedPreset').value=[...$('bedPreset').options].some(o=>o.value===v)?v:'custom';}
-function optionUI(){$('structuralRibs').disabled=!Number($('jointStyle').value);const mode=Number($('fastenerStyle').value);$('insert-settings').hidden=mode!==2;for(const option of $('fastenerStyle').options)option.disabled=Number($('jointStyle').value)===0&&option.value!=='0';}
+function optionUI(){const feed=Number($('feedMode').value);$('feed-settings').hidden=!feed;$('prime-settings').hidden=feed!==1;$('secondary-settings').hidden=feed!==2;$('secondaryPosition').disabled=Boolean(Number($('autoSecondary').value)&&Number($('frequencyGHz').value));$('secondaryWaves').disabled=!Number($('autoSecondary').value);$('structuralRibs').disabled=!Number($('jointStyle').value);const mode=Number($('fastenerStyle').value);$('insert-settings').hidden=mode!==2;for(const option of $('fastenerStyle').options)option.disabled=Number($('jointStyle').value)===0&&option.value!=='0';}
 function buttons(){for(const id of ['export-all','export-scad'])$(id).disabled=!valid||busy;$('export-part').disabled=!valid||busy||!selected;}
 function profile(m){const D=m.p.diameter,f=m.focal,d=m.depth,scale=Math.min(218/D,82/f),cx=130,cy=102;let path='';for(let i=0;i<=60;i++){const x=-D/2+D*i/60,z=x*x/(4*f);path+=`${i?'L':'M'}${(cx+x*scale).toFixed(2)},${(cy-z*scale).toFixed(2)} `;}$('profile').innerHTML=`<line x1="${cx}" y1="12" x2="${cx}" y2="106" stroke="#48484f" stroke-dasharray="3 4"/><path d="${path}" fill="none" stroke="#adc4f4" stroke-width="2"/><circle cx="${cx}" cy="${cy-f*scale}" r="3" fill="#e3b66e"/><text x="${cx+9}" y="${cy-f*scale+4}" fill="#bdbdc7" font-family="monospace" font-size="12">focus</text><text x="8" y="15" fill="#92929f" font-family="monospace" font-size="11">CROSS-SECTION</text>`;}
 function select(id){selected=id===selected?'':id;for(const b of $('parts').children)b.setAttribute('aria-pressed',b.dataset.id===selected?'true':'false');const p=model?.parts.find(x=>x.id===selected);const facts=p?[p.dim.map(x=>x.toFixed(1)).join(' × ')+' mm · '+(volume(p.mesh)/1000).toFixed(1)+' cm³']:[];if(p?.kind==='panel'){if(p.wallRange)facts.push('Wall '+p.wallRange.map(x=>x.toFixed(1)).join('–')+' mm');facts.push('Tilt '+p.angle+'° · bed '+p.bedRotation+'°'+(p.supportMeshes.length?' · '+p.supportMeshes.length+' ribs':''));}else if(p?.gripRange)facts.push('Grip '+p.gripRange.map(x=>x.toFixed(1)).join('–')+' mm');$('selected-info').textContent=p?facts.join('\n'):'Select a part';$('selected-info').title=p?.gripRange?'Grip excludes washers, nuts and thread engagement.':'';if(viewer){viewer.selected=selected;viewer.rebuild();}buttons();}
-function generate(){optionUI();clearTimeout(timer);$('export-status').textContent='';try{const p=validate(read()),next=build(p);const supportChanged=Boolean(model?.p.supports)!==Boolean(p.supports);model=next;valid=true;renderGuide();if(viewer?.mode==='layout')$('view-caption').textContent=p.packPlates?'Packed print beds · all quantities':'Individual print beds';$('packing-result').textContent=p.packPlates?model.plates.length+' shared beds · all quantities · 6 mm spacing':'';$('spacing-settings').hidden=!p.adaptiveJoints;$('joint-result').textContent=p.jointStyle?(model.ringPhases.length>1?'Offsets '+model.ringPhases.map(a=>(a*180/Math.PI).toFixed(1)+'°').join(' / ')+' · ':'')+model.parts.filter(x=>x.kind==='bridge').reduce((s,x)=>s+x.qty,0)+' saddles':'';$('joint-settings').hidden=!p.jointStyle;$('hardware-type').textContent=p.fastenerStyle===2?'M4 rear screws · blind inserts':p.fastenerStyle===1?'M4 rear screws · front hex nuts':p.jointStyle?'M4 bolts · rear hex nut pockets':'M4 bolts · washers and loose nuts';$('mount-pattern').textContent='4 × M4 / '+(p.jointStyle?60:40)+' mm BCD';$('facet-settings').hidden=!p.rearStyle;$('rib-settings').hidden=!p.supports;$('support-legend').hidden=!p.supports;$('print-result').textContent=model.parts.filter(x=>x.kind==='panel').map(x=>`R${x.row+1} · tilt ${x.angle}° · bed ${x.bedRotation}°${p.supports?' · '+x.supportMeshes.length+' ribs':''}`).join(' · ');$('error').hidden=true;$('fit-badge').textContent='Fits bed';$('fit-badge').classList.remove('bad');$('model-title').textContent=`${p.diameter} / ${model.layout.n}P${model.layout.rows>1?' × '+model.layout.rows+'R':''}`;$('depth-stat').innerHTML=`${model.depth.toFixed(1)} <small>mm</small>`;$('focal-stat').innerHTML=`${model.focal.toFixed(1)} <small>mm</small>`;$('count-stat').innerHTML=`${model.parts.reduce((s,p)=>s+p.qty,0)} <small>/ ${model.parts.length} unique</small>`;$('volume-stat').innerHTML=`${(model.parts.reduce((s,p)=>s+volume(p.mesh)*p.qty,0)/1000).toFixed(0)} <small>cm³</small>`;$('bolts').textContent=model.bolts;$('parts').replaceChildren(...model.parts.map(p=>{const b=document.createElement('button');b.className='part-row '+p.kind;b.dataset.id=p.id;b.setAttribute('aria-pressed','false');b.innerHTML=`<span class="part-swatch" aria-hidden="true"></span><span class="part-name">${p.name}<small>${p.dim.map(x=>x.toFixed(1)).join(' × ')} mm</small></span><span class="qty">×${p.qty}</span>`;b.onclick=()=>select(p.id);return b;}));selected='';if(viewer){if(supportChanged&&viewer.mode==='layout')viewer.pitch=(p.supports||p.rearStyle||p.jointStyle) ? 0.85 : 0.25;viewer.selected='';viewer.setModel(model);}profile(model);$('selected-info').textContent='Select a part';buttons();return model;}catch(e){valid=false;$('error').hidden=false;$('error').textContent=e.message+(model?' Preview shows the last valid model.':'');$('fit-badge').textContent='Needs adjustment';$('fit-badge').classList.add('bad');buttons();return null;}}
+function generate(){optionUI();clearTimeout(timer);$('export-status').textContent='';try{const p=validate(read()),next=build(p);const supportChanged=Boolean(model?.p.supports)!==Boolean(p.supports);model=next;valid=true;renderGuide();$('feed-result').textContent=model.feed?`${p.feedLegs} rods Ø${model.feed.rodDiameter} × ${model.feed.cutLength.toFixed(1)} mm · ${model.feed.rodAngle.toFixed(1)}° · puck z ${model.feed.carrierFace.toFixed(1)} mm`+(model.feed.secondary?` · secondary Ø${(2*model.feed.secondary.radius).toFixed(1)} mm`:'')+(model.feed.lambda?` · λ ${model.feed.lambda.toFixed(2)} mm · surface RMS target ${model.feed.surfaceRmsBudget.toFixed(3)} mm`:''):'';if(viewer?.mode==='layout')$('view-caption').textContent=p.packPlates?'Packed print beds · all quantities':'Individual print beds';$('packing-result').textContent=p.packPlates?model.plates.length+' shared beds · all quantities · 6 mm spacing':'';$('spacing-settings').hidden=!p.adaptiveJoints;$('joint-result').textContent=p.jointStyle?(model.ringPhases.length>1?'Offsets '+model.ringPhases.map(a=>(a*180/Math.PI).toFixed(1)+'°').join(' / ')+' · ':'')+model.parts.filter(x=>x.kind==='bridge').reduce((s,x)=>s+x.qty,0)+' saddles':'';$('joint-settings').hidden=!p.jointStyle;$('hardware-type').textContent=p.fastenerStyle===2?'M4 rear screws · blind inserts':p.fastenerStyle===1?'M4 rear screws · front hex nuts':p.jointStyle?'M4 bolts · rear hex nut pockets':'M4 bolts · washers and loose nuts';if(p.feedMode)$('hardware-type').textContent+=' · Rod support adds M3 hardware (secondary: M4): see FEED-HARDWARE.csv';$('mount-pattern').textContent='4 × M4 / '+(p.jointStyle?60:40)+' mm BCD';$('facet-settings').hidden=!p.rearStyle;$('rib-settings').hidden=!p.supports;$('support-legend').hidden=!p.supports;$('print-result').textContent=model.parts.filter(x=>x.kind==='panel').map(x=>`R${x.row+1} · tilt ${x.angle}° · bed ${x.bedRotation}°${p.supports?' · '+x.supportMeshes.length+' ribs':''}`).join(' · ');$('error').hidden=true;$('fit-badge').textContent='Fits bed';$('fit-badge').classList.remove('bad');$('model-title').textContent=`${p.diameter} / ${model.layout.n}P${model.layout.rows>1?' × '+model.layout.rows+'R':''}`;$('depth-stat').innerHTML=`${model.depth.toFixed(1)} <small>mm</small>`;$('focal-stat').innerHTML=`${model.focal.toFixed(1)} <small>mm</small>`;$('count-stat').innerHTML=`${model.parts.reduce((s,p)=>s+p.qty,0)} <small>/ ${model.parts.length} unique</small>`;$('volume-stat').innerHTML=`${(model.parts.reduce((s,p)=>s+volume(p.mesh)*p.qty,0)/1000).toFixed(0)} <small>cm³</small>`;$('bolts').textContent=model.bolts;$('parts').replaceChildren(...model.parts.map(p=>{const b=document.createElement('button');b.className='part-row '+p.kind;b.dataset.id=p.id;b.setAttribute('aria-pressed','false');b.innerHTML=`<span class="part-swatch" aria-hidden="true"></span><span class="part-name">${p.name}<small>${p.dim.map(x=>x.toFixed(1)).join(' × ')} mm</small></span><span class="qty">×${p.qty}</span>`;b.onclick=()=>select(p.id);return b;}));selected='';if(viewer){if(supportChanged&&viewer.mode==='layout')viewer.pitch=(p.supports||p.rearStyle||p.jointStyle) ? 0.85 : 0.25;viewer.selected='';viewer.setModel(model);}profile(model);$('selected-info').textContent='Select a part';buttons();return model;}catch(e){valid=false;$('error').hidden=false;$('error').textContent=e.message+(model?' Preview shows the last valid model.':'');$('fit-badge').textContent='Needs adjustment';$('fit-badge').classList.add('bad');buttons();return null;}}
 function schedule(){valid=false;buttons();clearTimeout(timer);timer=setTimeout(generate,260);}
 $('parameters').addEventListener('submit',e=>e.preventDefault());for(const k in defaults){$(k).addEventListener('input',()=>{if($(k+'-range'))$(k+'-range').value=$(k).value;if(k.startsWith('bed'))syncBed();if(k==='adaptiveJoints')$('spacing-settings').hidden=!$('adaptiveJoints').checked;if(k==='jointStyle'){$('joint-settings').hidden=!Number($('jointStyle').value);if(!Number($('jointStyle').value))$('fastenerStyle').value='0';}optionUI();if(k==='rearStyle'){$('facet-settings').hidden=!Number($('rearStyle').value);if(Number($('rearStyle').value)&&Number($('printAngle').value)===0)$('printAngle').value='-1';}if(k==='supports'){$('rib-settings').hidden=!$('supports').checked;if($('supports').checked)document.querySelector('[data-view=layout]').click();}schedule();});if($(k+'-range'))$(k+'-range').addEventListener('input',()=>{$(k).value=$(k+'-range').value;schedule();});}
 $('bedPreset').addEventListener('change',()=>{if($('bedPreset').value==='custom')return;const [x,y,z]=$('bedPreset').value.split(',');$('bedX').value=x;$('bedY').value=y;$('bedZ').value=z;generate();});$('reset').onclick=()=>{setFields(defaults);generate();};$('home').onclick=()=>viewer?.reset();

@@ -1,8 +1,8 @@
-# PETAL 4.0 — print and assembly
+# PETAL 4.2 — print and assembly
 
 ## Before printing
 
-PETAL 4.0 · 400 mm · 6 petals × 1 rings. Revision 9: regenerate the entire kit. Earlier interface revisions do not match. Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.
+PETAL 4.2 · 400 mm · 6 petals × 1 rings. Revision 9: regenerate the entire kit. Earlier interface revisions do not match. Start with the three FIT_TEST pieces, then one full petal and the hub. Perforations are experimental and unnecessary for the baseline test.
 
 ## Material and slicing
 
@@ -34,7 +34,7 @@ Support the dish face-up on a padded cradle without flattening its parabola. Sea
 
 ## Mount and clamp load
 
-Use the 60 mm mounting bolt circle and a rigid external adapter that supports the hub broadly while leaving root screws accessible. The adapter is not supplied. At the four mounting positions, a rear backing plate needs external washers/nuts behind the adapter; do not trap nuts in the hub pockets and assume they clamp that adapter. Do not use generic steel-joint M4 torque tables. Hand-snug for the test article and stop at visible deformation. Recheck after a warm hold and assembly cycles. Inserts do not prevent creep of the surrounding plastic. Large/outdoor builds need a verified backing structure or properly designed compression limiters; this hub has no wind rating.
+Use the 60 mm mounting bolt circle and a rigid external adapter that supports the hub broadly while leaving root screws accessible. A separate prototype geared-head adapter is provided in the repository (cad/manual-aiming-mount.scad), outside this dish ZIP. At the four mounting positions, a rear backing plate needs external washers/nuts behind the adapter; do not trap nuts in the hub pockets and assume they clamp that adapter. Do not use generic steel-joint M4 torque tables. Hand-snug for the test article and stop at visible deformation. Recheck after a warm hold and assembly cycles. Inserts do not prevent creep of the surrounding plastic. Large/outdoor builds need a verified backing structure or properly designed compression limiters; this hub has no wind rating.
 
 ## Make it an RF reflector
 

@@ -1,4 +1,4 @@
-# PETAL 4.0 — modular printed reflector
+# PETAL 4.2 — modular printed reflector
 
 A browser-based parabolic reflector generator with printer-aware segmentation, a 3D assembly view, STL kits and a standalone offline app.
 
@@ -67,3 +67,20 @@ All current OpenSCAD exports are exact mesh snapshots with assembly/part selecti
 Run `npm test` for topology, winding, bed fit, actual mesh mating, hardware cavities, supports, connection mapping, coupons and instructions. Run `npm run test:scad` with OpenSCAD installed to verify representative exports. Run `npm run build` to refresh the offline edition. After `npm ci`, run `npm run test:ui` for the DOM-level app check (no WebGL rendering). Run `npm run docs` to regenerate the default assembly and reflector guides.
 
 The design has not yet been physically printed, load-tested or RF-tested. Mesh checks and section-property comparisons do not establish allowable wind, torque, temperature, life or antenna gain.
+
+## 4.2 — compact, frequency-aware rod supports
+
+Enable **Feed / secondary support** for three/four long smooth metal rods, small bolted rim shoes and one compact round puck. The old hinges and broad carrier arms have been removed. Default stock remains 1/4-inch (6.35 mm) solid aluminum; optional automatic stock selection uses span, payload and a frequency-dependent deflection screen. Defaults keep the accessory off.
+
+Enter frequency for wavelength-based secondary sizing and accuracy guidance. Automatic Cassegrain sizing solves the secondary position and then recomputes rod angles, cuts and clearance standoff. Prime focus uses the actual feed phase offset in mm, or wavelengths for a known scalable feed. Frequency alone does not move an unchanged parabola's focus. Invalid oversized secondary combinations are rejected; actual RF feeds and feed-specific adapters remain separate.
+
+- [Optics, calculations, assembly and limits](docs/FEED-OPTICS.md)
+- [Actual generated support preview](docs/feed-support.png)
+- [Manual geared-head adapter instructions](docs/MANUAL-AIMING.md)
+- [Separate aiming-mount CAD](cad/manual-aiming-mount.scad) and [prototype/reference STLs](cad/STL/)
+
+The separate aiming design still adapts a purchased metal geared head, keeping the center passage open. Support accessory revision 2 replaces revision 1 and requires regenerated mount petals and fittings. The dish seam/hub interface remains revision 9. Changing segmentation requires the complete matching dish/hub.
+
+The ZIP includes `FEED-SUPPORT.md`, `RODS.csv` and `FEED-HARDWARE.csv`. `npm test` checks geometry and optics; `npm run test:scad` compares snapshot meshes; `npm run test:ui` checks offline DOM behavior. `python scripts/check-feed-fit.py` samples assembled interference (numpy, trimesh, rtree, scipy); `python scripts/render-accessories.py` renders the actual meshes (also matplotlib). `npm run build` bundles the fully offline generator. Fittings are generated procedurally in JavaScript, including their computed socket angles; no invariant accessory STL templates are used.
+
+The design remains an unprinted prototype with no payload, wind or RF-performance rating. Test one fitting set, then alignment/slip/warm-creep behavior before a full build.
