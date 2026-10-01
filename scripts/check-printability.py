@@ -7,6 +7,7 @@ Usage: python3 scripts/check-printability.py part1.stl [part2.stl ...]
 import sys, numpy as np, trimesh
 
 LIMIT = np.cos(np.radians(45)) + 0.01   # n_z below -LIMIT means steeper than ~44.4°
+NOISE = 0.05                             # mm² per connected region: tessellation slivers below slicer resolution
 ok = True
 for path in sys.argv[1:]:
     m = trimesh.load(path)
@@ -27,9 +28,12 @@ for path in sys.argv[1:]:
             regions.append((a[comp].sum(), span, pts.mean(0)))
         regions.sort(key=lambda r: -r[0])
     name = path.split('/')[-1]
-    status = "PASS" if not bad.any() else "FAIL"
-    ok &= not bad.any()
-    print(f"{status} {name}: {a[bad].sum():.0f} mm² steeper than 45° ({a[flat].sum():.0f} mm² flat ceilings), {len(regions)} regions")
-    for area, span, ctr in regions[:6]:
+    real = [r for r in regions if r[0] >= NOISE]
+    noise = len(regions) - len(real)
+    status = "PASS" if not real else "FAIL"
+    ok &= not real
+    print(f"{status} {name}: {sum(r[0] for r in real):.1f} mm² steeper than 45° ({a[flat].sum():.1f} mm² flat ceilings) in {len(real)} regions"
+          + (f"; ignored {noise} sliver regions < {NOISE} mm² ({sum(r[0] for r in regions if r[0] < NOISE):.2f} mm² total)" if noise else ""))
+    for area, span, ctr in real[:6]:
         print(f"     {area:7.1f} mm²  span {span[0]:5.1f} x {span[1]:5.1f} x {span[2]:4.1f}  at ({ctr[0]:.0f}, {ctr[1]:.0f}, z={ctr[2]:.0f})")
 print("ALL PASS" if ok else "OVERHANGS FOUND")
