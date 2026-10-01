@@ -33,24 +33,25 @@ Interface revision 11 restores half-petal staggering by default for multi-ring d
 
 The central mount offers blind inserts or four Ø4.6 mm full-depth bores with Ø10 mm flat front washer seats. Root inserts remain blind. Hardware quantities and generated instructions reflect the selection.
 
-## Revision 12: through bolts, flat seats, flat hub
+## Revision 12: flat seats, fastener options, flat hub
 
-Revision 12 makes three changes.
+Revision 12 makes these changes.
 
-- **Through bolts by default.** One option now covers both the petal roots and the mount, and it defaults to through bolts and nuts.
-  - Each root gets a Ø4.5 mm teardrop bore and a Ø9.6 mm recessed flat seat in the front.
-  - Inserts remain selectable.
+- **Separate root and mount fastener options.**
+  - Roots default to blind heat-set inserts, so the reflecting face stays closed. The through-bolt option gives each root a Ø4.5 mm teardrop bore and a Ø9.6 mm recessed flat seat in the front.
+  - The hub mount defaults to through bolts and nuts; inserts are an option.
 - **Flat seam seats.** The captive hex pockets are gone.
   - Each seam bolt clamps between two Ø10 mm flat seats square to the bolt.
   - The seats are cut through the gussets only, never the shell, and never through a neighbor's bolt pad.
-- **Flat hub front.** The hub front is flat at the petal-root height.
+- **Flat hub front by default.** It sits at the petal-root height; a curved front that follows the dish is an option.
+- **Ring seams** use the same flange and flat-seat system as the seams between petals.
 
 The tests check, in every structural configuration:
 - each seam bore is clear;
 - a washer and nut envelope fits on each side;
 - the seat has backing;
-- the root through bore and seat are clear, and the seat floor is solid;
-- the hub front is flat;
+- in insert mode, the root pilot is clear with a closed roof; in through mode, the bore and seat are clear and the seat floor is solid;
+- the hub front is flat, or follows the dish when curved;
 - the mount seats are open.
 
 The upper (male) flange seat faces downward in print. Up to 8 petals it stays within 45°. With more petals it becomes a short overhang about 10 mm across.

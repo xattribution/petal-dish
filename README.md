@@ -16,16 +16,17 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
 
 - Integral underside flanges replace separate seam brackets. Sideways M3 bolts clamp between flat seats on both flanges, with loose nuts. All hardware stays behind the RF surface.
 - Short tapered keys locate neighboring petals while allowing radial insertion, including the final petal. Screws retain seated datums; they must not pull warp out of the shell.
-- One rear hub with a flat front, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD.
-- Through bolts and nuts are the default for the roots and the mount, so no heat-set inserts are needed. Root heads sit in recessed flat seats in the front. Blind heat-set inserts remain an option, and they keep the reflecting face closed.
+- One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is flat by default; a curved front that follows the dish is an option.
+- Petal roots attach to the hub with blind heat-set inserts by default, so nothing pokes through the reflecting face. Through bolts in recessed front seats are an option.
+- The hub attaches to its mount with M4 through bolts and nuts by default; inserts are an option.
 - Petals print on a flat radial flange. Curved undersides are the default; optional small tangent-plane facets add little material and preserve the front parabola.
 - Larger dishes default to staggered rings with half-petal offsets and three-panel junctions. Shared polygon boundaries use integral cross-flanges; turn staggering off for aligned strips. The planner rejects layouts without space for joints or the printer.
 - Default 400 mm dish: six petals and one hub, two unique printed parts. Optional feed fittings add parts. This is a geometric simplification, not a demonstrated strength rating.
 
 **Interface revision 12 requires a complete regenerated kit.** Revision 12 changes three things:
 - flat seam seats replace the captive nut pockets;
-- through-bolted roots are the default;
-- the hub front is flat.
+- the hub mount uses through bolts by default;
+- the hub front is flat by default.
 
 Do not mix its petals or hub with revision 11 parts.
 
@@ -41,7 +42,7 @@ PETG is a practical indoor fit-test material. ASA is an outdoor starting point w
 
 Hardware by default:
 - **Seams:** M3 × 16 socket heads, with a 0.5 mm washer under the head and under the nut, and ordinary M3 nuts.
-- **Roots:** M4 × 20 socket heads from the front, with washers and nuts on the hub rear.
+- **Roots:** M4 × 12 from the hub rear into short heat-set inserts (maximum 6 mm long), with 1 mm washers.
 - **Mount:** M4 through bolts. Use 18 mm plus your adapter thickness.
 
 The generated schedule gives quantities. If you choose inserts, their pilot must match the actual supplier and filament.
