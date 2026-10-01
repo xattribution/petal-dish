@@ -22,7 +22,7 @@ Use M3 × 16 socket-head seam screws with a 0.5 mm washer under the head and und
 
 ## RF surface and accuracy
 
-Apply continuous conductive foil or a specified conductive coating; see REFLECTOR.md for preparation and source references. Keep flange seats, detent recesses and bores clean. Align before bridging seams with removable foil strips. The parabola focus is 168.00 mm from the extrapolated vertex, not from the hub back. Frequency does not move that geometric focus. Feed phase-center position, illumination, surface error and pointing determine RF performance. Mesh spacing is a geometric approximation too: reduce it for short wavelengths and measure the final coated dish. No calculated focal point or closed STL establishes measured gain.
+Apply continuous conductive foil or a specified conductive coating; see REFLECTOR.md for preparation and source references. Keep flange seats, detent grooves and bores clean. Align before bridging seams with removable foil strips. The parabola focus is 168.00 mm from the extrapolated vertex, not from the hub back. Frequency does not move that geometric focus. Feed phase-center position, illumination, surface error and pointing determine RF performance. Mesh spacing is a geometric approximation too: reduce it for short wavelengths and measure the final coated dish. No calculated focal point or closed STL establishes measured gain.
 
 ## Inspection before a full article
 
