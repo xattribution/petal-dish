@@ -1,13 +1,13 @@
 {
   "version": "5.2",
-  "build": "be398dfc52b0",
+  "build": "efd8ca0fc79c",
   "interface": 11,
   "offline_file": "petal-5.2-offline.html",
   "files": {
-    "index.html": "d8262b485d5a6ab57e18b78b5b0d740f3c42c92c5326cf8d050de95aaeb0abfc",
-    "app.bundle.js": "9baa4d8bc9ecc0dd7066d64b2ebad5ba237ea98b3c44cc76a6b0a7af37401fd9",
+    "index.html": "26a269b6fe896259f577f3b46778cf4345d516478d73109102b96da6dcda3723",
+    "app.bundle.js": "bd133ca8c9decf8b8f06de5b24f73d2c7f6c253c27264abd0dad4bdf4a5f7066",
     "style.css": "e340d8127a0a5cb6c406a96076355d6e79c7930b206d2cf303f996a1dc23ec95",
-    "petal-5.2-offline.html": "56b481076518d4a1457a4698b4e4d0c9068802c8015626620edc12dda3442d97",
+    "petal-5.2-offline.html": "52d81e115e9e9a9e6d3e76ce06b37b79448f6e438e199805ffa41e3ad734042d",
     "petal-offline.html": "8b69079af97e3a4e293aace2b43711951ddcbcc2abe0bb18383e21532d2cc6f5"
   }
 }

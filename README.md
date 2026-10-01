@@ -16,9 +16,9 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
 
 - Integral underside flanges replace separate seam brackets. Seams are fastened one of three ways, all behind the RF surface:
   - **M3 bolts** (default): each bolt clamps between flat seats on both flanges, with a loose nut.
-  - **Snap clips**: solid printed blocks snap straight up over both flanges from behind; a lip on each jaw hooks the top of the pads. No hardware; pry off with a flat screwdriver.
+  - **Snap clips**: solid printed blocks snap straight up over both flanges from behind; a tooth on each jaw drops into a notch across the pad. Tooth depth is a setting, and the notch follows it. No hardware; spring a jaw with a flat screwdriver to remove one.
   - **Both**: every station has the bolt hole and the clip recess, so each one takes either.
-- Short tapered keys locate neighboring petals while allowing radial insertion, including the final petal. Screws retain seated datums; they must not pull warp out of the shell.
+- Petals meet on flat mating faces with no keys, so every petal, including the last, slides in radially. The bolts or clips line the petals up and hold them; they must not pull warp out of the shell.
 - One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is flat by default; a curved front that follows the dish is an option.
 - Petal roots attach to the hub with blind heat-set inserts by default, so nothing pokes through the reflecting face. Through bolts in recessed front seats are an option.
 - The hub attaches to its mount with M4 through bolts and nuts by default; inserts are an option.
@@ -39,7 +39,7 @@ Under Side printing, open **Arrange print plates**. Assign each physical copy to
 
 ## Print and assemble
 
-Read the kit's `ASSEMBLY.md`, `HARDWARE.csv` and `REFLECTOR.md`; the app's Print notes use the same source. Keep exported orientations. Add a brim and inspect every layer around flange roots, pointed bore roofs and keys. No disposable supports are generated; local slicer supports may still be needed. Shared beds leave 6 mm between part bounds, permitting at most 3 mm individual brims. Print either packed beds or individual quantities, not both.
+Read the kit's `ASSEMBLY.md`, `HARDWARE.csv` and `REFLECTOR.md`; the app's Print notes use the same source. Keep exported orientations. Add a brim and inspect every layer around flange roots, pointed bore roofs and clip notches. No disposable supports are generated; local slicer supports may still be needed. Shared beds leave 6 mm between part bounds, permitting at most 3 mm individual brims. Print either packed beds or individual quantities, not both.
 
 PETG is a practical indoor fit-test material. ASA is an outdoor starting point with a controlled enclosure and thermal/creep testing. Four perimeters and locally solid pads are starting settings, not a strength guarantee. See [the test procedure](docs/TEST_ARTICLE.md) and [engineering limits](docs/ENGINEERING.md).
 

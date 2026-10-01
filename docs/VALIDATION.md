@@ -45,15 +45,17 @@ Revision 12 makes these changes.
   - The seats are cut through the gussets only, never the shell, and never through a neighbor's bolt pad.
 - **Flat hub front by default.** It sits at the petal-root height; a curved front that follows the dish is an option.
 - **Ring seams** use the same flange and flat-seat system as the seams between petals.
+- **Flat mating faces.** The alignment keys are gone; bolts or clips align the petals.
 - **Snap-clip seams (option).** Seams can use printed clips instead of bolts, or offer both at every station.
 
   ![Section through a clip station, the station itself, and the clip as printed](seam-clip.png)
 
-  - The clip is a solid trapezoid block with a channel, 10 mm wide along the seam, printed standing on its wide base so every face is 45° or steeper. It snaps straight up over both flange pads: the jaws taper from 4 mm at the channel floor to 2.5 mm at the top, and a 0.3 mm, 45° lip on each jaw hooks the pad's chamfered top edge. The pad's bottom edge is chamfered as a lead-in.
-  - Each station gets a slot through the gusset for the jaw and lip. The slot's down-facing side wall and the pad ends are tilted to 45° or better in print.
+  - The clip is a solid trapezoid block with a channel, 10 mm wide along the seam, printed standing on its wide base. It snaps straight up over both flange pads; the jaws taper from 4 mm at the channel floor to 2.5 mm at the top.
+  - Each jaw has a tooth that drops into a notch across the pad face. The tooth's underside is a flat ledge (the catch) and its top is 45° (the lead-in). Tooth depth is a setting (0.3–2 mm, default 1 mm); the notch is cut 0.1 mm larger to match, and the pad's bottom edge gets a lead-in chamfer at least as deep as the tooth.
+  - At each clip station the 45° gusset is cut clean through over the clip width. The slot's down-facing side wall and the pad ends are tilted to 45° or better in print.
   - Where the shell slopes across a clip (toward the rim, and across ring seams), the station sits lower so the jaws and lips clear the shell everywhere.
-  - Clip stations are about twice as dense as bolt stations and stay clear of the keys. Short ring segments get one centered station so the clip stays clear of the corners.
-  - Peak jaw strain while the lip rides over a pad is about 0.9% at the default 0.05 mm squeeze (tapered-cantilever estimate). A solid jaw only flexes a little, so the lip is kept to 0.3 mm to stay within what ASA-GF tolerates. Rough forces in ASA-GF: about 170 N to snap on and about 300 N to pull straight off.
+  - Clip stations are about twice as dense as bolt stations. Short ring segments get one centered station so the clip stays clear of the corners.
+  - Tapered-cantilever estimate of peak jaw strain while the tooth rides over a pad: about 1.2% at 0.3 mm, 1.9% at 0.5 mm and 3.6% at the 1 mm default. Physical testing sets the final tooth depth.
   - The fit test includes clips at three squeeze settings.
 
 The tests check, in every structural configuration:
@@ -63,7 +65,7 @@ The tests check, in every structural configuration:
 - in insert mode, the root pilot is clear with a closed roof; in through mode, the bore and seat are clear and the seat floor is solid;
 - the hub front is flat, or follows the dish when curved;
 - the mount seats are open;
-- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the lips bite the pads.
+- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the teeth bite the notches.
 
 The mount check models clips as a conservative ring 26 mm deep behind the dish. With clips, the simple mount clears from −7.5° to 100° instead of −10°.
 
