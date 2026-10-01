@@ -16,7 +16,7 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
 
 - Integral underside flanges replace separate seam brackets. Seams are fastened one of three ways, all behind the RF surface:
   - **M3 bolts** (default): each bolt clamps between flat seats on both flanges, with a loose nut.
-  - **Snap clips**: solid printed U clips push on from behind and click into V-grooves across the seats. No hardware; pry off with a flat screwdriver.
+  - **Snap clips**: solid printed blocks snap straight up over both flanges from behind; a lip on each jaw hooks the top of the pads. No hardware; pry off with a flat screwdriver.
   - **Both**: every station has the bolt hole and the clip recess, so each one takes either.
 - Short tapered keys locate neighboring petals while allowing radial insertion, including the final petal. Screws retain seated datums; they must not pull warp out of the shell.
 - One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is flat by default; a curved front that follows the dish is an option.

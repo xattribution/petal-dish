@@ -53,9 +53,9 @@ el_wing = place(cyl(13, 12), T([up_out + 6, 0, Z_el]) @ Ry(90))                 
 prof = [(0, zAt(45) - 16), (60, zAt(45) - 16)] + [(r, zAt(r) - 17) for r in range(60, 201, 10)] + [(r, zAt(r)) for r in range(200, -1, -10)]
 dish_mesh = trimesh.creation.revolve(np.array(prof), sections=96)
 dish0 = mani(dish_mesh.copy().apply_transform(T([0, vertex_u, 0]) @ Rx(-90)))
-# with snap clips: a full ring 36 mm deep from r 66 (clips sit only on the seams, so a ring is conservative)
-CLIP_RANGE = (0, EL_RANGE[1])
-profc = [(0, zAt(45) - 16), (60, zAt(45) - 16), (60, zAt(60) - 17), (66, zAt(66) - 17)] + [(r, zAt(r) - 36) for r in range(66, 201, 10)] + [(200, zAt(200) - 36)] + [(r, zAt(r)) for r in range(200, -1, -10)]
+# with snap clips: a full ring 26 mm deep from r 66 (clips sit only on the seams, so a ring is conservative)
+CLIP_RANGE = (-7.5, EL_RANGE[1])
+profc = [(0, zAt(45) - 16), (60, zAt(45) - 16), (60, zAt(60) - 17), (66, zAt(66) - 17)] + [(r, zAt(r) - 26) for r in range(66, 201, 10)] + [(200, zAt(200) - 26)] + [(r, zAt(r)) for r in range(200, -1, -10)]
 dishc = mani(trimesh.creation.revolve(np.array(profc), sections=96).apply_transform(T([0, vertex_u, 0]) @ Rx(-90)))
 def at_el(Mn, th): return place(Mn, T([0, 0, Z_el]) @ Rx(th))
 def contact(a, b, d): return vol(place(a, T(np.array(d) * 0.2)), b) / 0.2
@@ -84,7 +84,7 @@ check(not dc, f"with seam clips: dish clears the yoke and base from {CLIP_RANGE[
 
 # ---- azimuth sweep ----
 bad = []
-for th in (EL_RANGE[0], 0, 45, 90):
+for th in sorted({EL_RANGE[0], CLIP_RANGE[0], 0, 45, 90}):
     mov = yoke + az_head + el_wing + at_el(cradle0 + el_bolt0, th) + at_el(dish0, th)
     for A in range(15, 360, 15):
         v = vol(place(mov, Rz(-A)), base)

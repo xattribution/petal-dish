@@ -47,12 +47,13 @@ Revision 12 makes these changes.
 - **Ring seams** use the same flange and flat-seat system as the seams between petals.
 - **Snap-clip seams (option).** Seams can use printed clips instead of bolts, or offer both at every station.
 
-  ![Snap clip on a seam, the station it clicks into, and the clip as printed](seam-clip.png)
+  ![Section through a clip station, the station itself, and the clip as printed](seam-clip.png)
 
-  - The clip is a solid, blocky U (4 mm arms, 10 mm wide, 5 mm base) printed flat, so its arms flex along the layers. A 45° nub on each arm clicks into a V-groove across the flat seat.
-  - Each station gets a slot down the pad face for the arm. The slot's down-facing side wall and the pad ends are tilted to 45° or better in print.
+  - The clip is a solid trapezoid block with a channel, 10 mm wide along the seam, printed standing on its wide base so every face is 45° or steeper. It snaps straight up over both flange pads: the jaws taper from 4 mm at the channel floor to 2.5 mm at the top, and a 0.3 mm, 45° lip on each jaw hooks the pad's chamfered top edge. The pad's bottom edge is chamfered as a lead-in.
+  - Each station gets a slot through the gusset for the jaw and lip. The slot's down-facing side wall and the pad ends are tilted to 45° or better in print.
+  - Where the shell slopes across a clip (toward the rim, and across ring seams), the station sits lower so the jaws and lips clear the shell everywhere.
   - Clip stations are about twice as dense as bolt stations and stay clear of the keys. Short ring segments get one centered station so the clip stays clear of the corners.
-  - Estimated arm strain while the nub rides over the pad is about 0.8% at the default 0.2 mm squeeze, a cantilever estimate for the 20 mm arms. The 0.35 mm nub is kept shallow so beefy arms stay within what ASA-GF tolerates.
+  - Peak jaw strain while the lip rides over a pad is about 0.9% at the default 0.05 mm squeeze (tapered-cantilever estimate). A solid jaw only flexes a little, so the lip is kept to 0.3 mm to stay within what ASA-GF tolerates. Rough forces in ASA-GF: about 170 N to snap on and about 300 N to pull straight off.
   - The fit test includes clips at three squeeze settings.
 
 The tests check, in every structural configuration:
@@ -62,9 +63,9 @@ The tests check, in every structural configuration:
 - in insert mode, the root pilot is clear with a closed roof; in through mode, the bore and seat are clear and the seat floor is solid;
 - the hub front is flat, or follows the dish when curved;
 - the mount seats are open;
-- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the nub bite the groove.
+- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the lips bite the pads.
 
-The mount check models clips as a conservative ring 36 mm deep behind the dish. With clips, the simple mount clears from 0° to 100° instead of −10°.
+The mount check models clips as a conservative ring 26 mm deep behind the dish. With clips, the simple mount clears from −7.5° to 100° instead of −10°.
 
 The upper (male) flange seat faces downward in print. Up to 8 petals it stays within 45°. With more petals it becomes a short overhang about 10 mm across.
 
