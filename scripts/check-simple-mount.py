@@ -6,11 +6,11 @@ import sys, math, numpy as np, trimesh, manifold3d as m3
 
 D = sys.argv[1]
 # ---- parameters (keep in sync with the SCAD) ----
-base_t, rot_t, H, L = 14, 10, 65, 75
+base_t, rot_t, H, L = 14, 10, 73, 75
 rot_z = base_t
 Z_el = rot_z + rot_t + H
-arm_x0, arm_x1, up_x0, up_x1 = 26, 38, 12, 26
-m8_head = 5.5
+arm_x0, arm_x1, up_x0, up_x1 = 30, 42, 10, 30
+el_nut_x = 14
 dish_d, fd = 400, 0.42
 f = dish_d * fd
 zAt = lambda r: r * r / (4 * f)
@@ -41,8 +41,10 @@ cradle0 = place(mani(P["cradle"]), np.linalg.inv(T([0, 0, L]) @ Rx(-90)))       
 cyl = lambda r, h: mani(trimesh.creation.cylinder(radius=r, height=h, sections=48))
 az_bolt = place(cyl(4, 25), T([0, 0, rot_z + rot_t + 1.6 - 12.5]))                      # M8 x 25 down into the base nut
 az_head = place(cyl(8, 9.6), T([0, 0, rot_z + rot_t + 4.8]))                              # washer + socket head in the well
-el_bolt0 = place(cyl(4, 40), T([up_x0 + 1.5 + m8_head + 20, 0, Z_el]) @ Ry(90))           # M8 x 40 from the head pocket
-el_wing = place(cyl(14, 12), T([arm_x1 + 6, 0, Z_el]) @ Ry(90))                           # washer + wing nut, generous
+el_bolt0 = place(cyl(4, 30), T([arm_x1 + 1.6 - 15, 0, Z_el]) @ Ry(90))                   # M8 x 30 wing screw into the nut
+el_nut = place(mani(trimesh.creation.cylinder(radius=13 / math.sqrt(3), height=6.5, sections=6)),
+               T([el_nut_x + 3.25, 0, Z_el]) @ Ry(90))
+el_wing = place(cyl(14, 12), T([arm_x1 + 6, 0, Z_el]) @ Ry(90))                           # washer + wing head, generous
 prof = [(0, zAt(45) - 16), (60, zAt(45) - 16)] + [(r, zAt(r) - 17) for r in range(60, 201, 10)] + [(r, zAt(r)) for r in range(200, -1, -10)]
 dish_mesh = trimesh.creation.revolve(np.array(prof), sections=96)
 dish0 = mani(dish_mesh.copy().apply_transform(T([0, vertex_u, 0]) @ Rx(-90)))
@@ -56,8 +58,8 @@ ca = contact(rot, base, [0, 0, -1])
 check(ov < 0.5 and ca > 3000, f"azimuth: rotator sits flat on the base and turns without overlap ({ov:.2f} mm³); clamp face contact {ca/100:.0f} cm²")
 ce = [contact(at_el(cradle0, th), rot, [-1, 0, 0]) for th in (EL_RANGE[0], 0, 45, EL_RANGE[1])]
 check(min(ce) > 1500, f"elevation: cradle arm sits flat on the upright; clamp face contact {min(ce)/100:.0f}–{max(ce)/100:.0f} cm² over the range")
-v = [vol(az_bolt, base), vol(az_bolt, rot), vol(az_head, rot), vol(el_bolt0, rot)] + [vol(el_bolt0, at_el(cradle0, th)) for th in (EL_RANGE[0], 0, 45, EL_RANGE[1])]
-check(max(v) < 0.5, f"M8 bolts pass through both joints at every angle (max overlap {max(v):.2f} mm³)")
+v = [vol(az_bolt, base), vol(az_bolt, rot), vol(az_head, rot), vol(el_bolt0, rot), vol(el_nut, rot)] + [vol(el_bolt0, at_el(cradle0, th)) for th in (EL_RANGE[0], 0, 45, EL_RANGE[1])]
+check(max(v) < 0.5, f"M8 bolts, elevation nut and azimuth head sit in their holes at every angle (max overlap {max(v):.2f} mm³)")
 
 # ---- elevation travel ----
 fixed = rot + az_head
