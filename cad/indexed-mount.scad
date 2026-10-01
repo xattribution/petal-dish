@@ -1,10 +1,13 @@
-// PETAL indexed alt-az mount, revision 1. Millimeters. Fully printed (ASA-GF), steel pins/bolts.
+// PETAL indexed alt-az mount, revision 2 (print-optimized). Millimeters. Fully printed (ASA-GF), steel pins/bolts.
 // Three parts: column (bench stand), head (azimuth turntable + elevation cheeks),
 // cradle (bolts to the hub's four M4 mount inserts on the 60 mm BCD).
 // Both axes lock with one Ø5 steel pin through a vernier pair of hole rings:
 // the coarse ring has holes every P degrees, the fine ring every P-step degrees,
 // so exactly one hole pair lines up at every multiple of `step`.
 // Frame: Z up, +Y = dish boresight at az 0 / el 0, X = elevation axle. Axle at cradle origin.
+// Print rules: nothing steeper than 45° from vertical, no bridges. Horizontal holes are teardrops
+// roofed at 45° toward print-up (the round part still wraps 270° of the pin). Bed-side edges and
+// hole entries carry an elephant-foot chamfer. Engraving sits only on vertical or top faces.
 
 part = "assembly";   // [assembly,cradle,head,column]
 printing = false;    // true = export orientation (flat on bed)
@@ -40,7 +43,10 @@ cheek_in = ear_out + gap; cheek_t = 12; cheek_out = cheek_in + cheek_t;
 Ri = 50; ear_R = 68; cheek_R = 58;   // elevation pin ring / outer radii
 Ha = 78;                             // head disk top to axle
 head_t = 12; head_R = 78; Ra = 70;   // azimuth disk and pin ring
-flange_t = 14; flange_R = 92; tube_R = 30; foot_R = 98; foot_t = 10;
+flange_t = 16; flange_R = head_R; tube_R = 30; foot_R = 98; foot_t = 10;
+shell = 14;          // column trumpet wall, horizontal thickness
+cone_a = 50;         // trumpet angle from horizontal (40° overhang when printed flange-down)
+efoot = 0.6;         // elephant-foot chamfer on bed-side edges
 
 // ---------- dish envelope (PETAL generator: hub back = zAt(45) - 16 from vertex) ----------
 focal = dish_d * dish_fd;
@@ -49,7 +55,7 @@ vertex_u = L + 16 - zAt(45);
 rim_u = vertex_u + zAt(dish_d/2);
 rim_drop = dish_d/2*cos(el_min) - rim_u*sin(el_min);
 axle_h = rim_drop + 15;
-Hc = max(110, axle_h - Ha - head_t);  // column height (bench to azimuth face)
+Hc = max(135, axle_h - Ha - head_t);  // column height (bench to azimuth face)
 
 echo(str("PETAL-MOUNT step=",step," P=",P," V=",V," NV=",NV," column=",Hc," axle_height=",Hc+head_t+Ha));
 for (k=[0:NV-1]) echo(str("EL_FINE k=",k," angle=",el_fine(k)," label=",k*step));
@@ -65,6 +71,15 @@ module lbl(t, sz) text(t, size=sz, font="DejaVu Sans:style=Bold", halign="center
 module face(side) if (side > 0) children(); else mirror([1,0]) children();
 module ring_label(t, r, a, sz) at(r, a) rotate(a - 90) lbl(t, sz);
 module tick(r0, r1, a, w=0.8) rotate(a) translate([r0, -w/2]) square([r1 - r0, w]);
+// Self-supporting horizontal hole: true circle plus a 45° roof whose apex points along `up`.
+// `up` must be a multiple of 9° so the 45° tangent points land on circle vertices ($fn=40).
+module tdrop(d, up) union() {
+  circle(d=d, $fn=40);
+  rotate(up) polygon([[d/2*cos(45), -d/2*sin(45)], [d/sqrt(2), 0], [d/2*cos(45), d/2*sin(45)]]);
+}
+// Bed-side entry chamfer for a vertical hole whose bed face is at z=0, opening toward +Z.
+module entry(d) translate([0,0,-1]) cylinder(d1=d + 2*efoot + 2, d2=d, h=efoot + 1, $fn=hfn);
+hfn = 40;   // one facet count for every hole and its chamfer, so no sliver ledges form
 
 // ---------- cradle ----------
 module ear_profile() hull() { circle(ear_R); translate([L - 10, -16]) square([10, 32]); }
@@ -73,8 +88,8 @@ module ear(side) {
   difference() {
     uv(x0, ear_t) difference() {
       ear_profile();
-      circle(d=m8, $fn=40);
-      for (j=[0:360/P-1]) at(Ri, P*j) circle(d=hole, $fn=32);
+      tdrop(m8, 180);                                   // print-up is -Y for the cradle
+      for (j=[0:360/P-1]) at(Ri, P*j) tdrop(hole, 180);
     }
     // coarse elevation scale on the outer face, read at the cheek's top notch (world 90°)
     xf = side > 0 ? ear_out - engrave : -ear_out - 1;
@@ -93,11 +108,18 @@ module ear(side) {
 }
 module cradle() difference() {
   union() {
-    translate([0, L - plate_t, 0]) rotate([-90,0,0]) cylinder(r=plate_r, h=plate_t, $fn=120);
+    translate([0, L - plate_t, 0]) rotate([-90,0,0]) {
+      cylinder(r=plate_r, h=plate_t - efoot, $fn=120);
+      translate([0,0,plate_t - efoot]) cylinder(r1=plate_r, r2=plate_r - efoot, h=efoot, $fn=120);
+    }
     ear(1); ear(-1);
   }
-  translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) cylinder(d=port_d, h=plate_t + 2, $fn=96);
-  for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=28);
+  translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) cylinder(d=port_d, h=plate_t + 2, $fn=hfn);
+  for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=hfn);
+  // hub face is the bed face: chamfer port and screw entries
+  for (c=[[0,0,port_d], [bcd_r*cos(45), bcd_r*sin(45), m4], [bcd_r*cos(135), bcd_r*sin(135), m4],
+          [bcd_r*cos(225), bcd_r*sin(225), m4], [bcd_r*cos(315), bcd_r*sin(315), m4]])
+    translate([c[0], L, c[1]]) rotate([90,0,0]) entry(c[2]);
 }
 
 // ---------- head ----------
@@ -107,8 +129,8 @@ module cheek(side) {
   difference() {
     uv(x0, cheek_t) translate([0, Ha]) difference() {
       cheek_profile();
-      circle(d=m8, $fn=40);
-      for (k=[0:NV-1]) at(Ri, el_fine(k)) circle(d=hole, $fn=32);
+      tdrop(m8, 90);
+      for (k=[0:NV-1]) at(Ri, el_fine(k)) tdrop(hole, 90);
       at(cheek_R, 90) polygon([[-2.6, 0.5], [2.6, 0.5], [0, -3.2]]);   // pointer notch
     }
     xf = side > 0 ? cheek_out - engrave : -cheek_out - 1;
@@ -130,15 +152,17 @@ module cheek_fillet(side) {
 }
 module head() difference() {
   union() {
-    translate([0,0,-head_t]) cylinder(r=head_R, h=head_t, $fn=160);
+    translate([0,0,-head_t + efoot]) cylinder(r=head_R, h=head_t - efoot, $fn=160);
+    translate([0,0,-head_t]) cylinder(r1=head_R - efoot, r2=head_R, h=efoot, $fn=160);
     cheek(1); cheek(-1);
     intersection() {
       union() { cheek_fillet(1); cheek_fillet(-1); }
       translate([0,0,-1]) cylinder(r=head_R, h=8, $fn=160);
     }
   }
-  translate([0,0,-head_t-1]) cylinder(d=m8, h=head_t + 2, $fn=40);
-  for (k=[0:NV-1]) atc(Ra, az_fine(k)) translate([0,0,-head_t-1]) cylinder(d=hole, h=head_t + 2, $fn=32);
+  translate([0,0,-head_t-1]) cylinder(d=m8, h=head_t + 2, $fn=hfn);
+  for (k=[0:NV-1]) atc(Ra, az_fine(k)) translate([0,0,-head_t-1]) cylinder(d=hole, h=head_t + 2, $fn=hfn);
+  translate([0,0,-head_t]) { entry(m8); for (k=[0:NV-1]) atc(Ra, az_fine(k)) entry(hole); }
   translate([0,0,-engrave]) linear_extrude(engrave + 1) {
     for (k=[0:NV-1]) atc(Ra - 9, az_fine(k)) rotate(-az_fine(k)) lbl(str(k*step), 3.8);
     tick(head_R - 6, head_R + 1, 90, 1.2);                              // azimuth pointer (front)
@@ -147,32 +171,43 @@ module head() difference() {
 }
 
 // ---------- column ----------
+// Prints flange-down: the azimuth datum comes off the bed, the bolt-head step faces up,
+// and the hollow trumpet base flares at 40° from vertical.
+k_cone = 1/tan(cone_a);
+z_shell = foot_t + (foot_R - tube_R)/k_cone;        // trumpet meets tube
+z_apex  = (foot_R - shell)/k_cone;                  // inner cavity apex
+fil_R = 54;                                         // flange-to-tube 45° fillet
+assert(Hc - flange_t - (fil_R - tube_R) >= z_shell, "column too short for this dish; raise Hc");
+module column_profile() polygon([
+  [0, Hc], [flange_R - efoot, Hc], [flange_R, Hc - efoot], [flange_R, Hc - flange_t],
+  [fil_R, Hc - flange_t], [tube_R, Hc - flange_t - (fil_R - tube_R)], [tube_R, z_shell],
+  [foot_R, foot_t], [foot_R, 0], [foot_R - shell, 0], [0, z_apex]]);
+module rim_text(t, a, z, sz) rotate([0,0,-a]) translate([0, flange_R - engrave, z]) rotate([90,0,180]) linear_extrude(engrave + 1) lbl(t, sz);
 module column() difference() {
-  union() {
-    cylinder(r=foot_R, h=foot_t, $fn=160);
-    translate([0,0,foot_t]) cylinder(r1=70, r2=tube_R, h=40, $fn=120);
-    cylinder(r=tube_R, h=Hc, $fn=96);
-    translate([0,0,Hc - flange_t - (flange_R - tube_R)]) cylinder(r1=tube_R, r2=flange_R, h=flange_R - tube_R, $fn=160);
-    translate([0,0,Hc - flange_t]) cylinder(r=flange_R, h=flange_t, $fn=160);
+  rotate_extrude($fn=180) column_profile();
+  // M8 hex-head bolt pushed up from below; its head bears on the step at Hc-8.
+  translate([0,0,z_apex - 25]) cylinder(r=13.4/2/cos(30), h=Hc - 8 - z_apex + 25, $fn=6);
+  translate([0,0,Hc - 9]) cylinder(d=m8, h=10, $fn=hfn);
+  for (j=[0:360/P-1]) atc(Ra, P*j) translate([0,0,Hc - flange_t - 1]) cylinder(d=hole, h=flange_t + 2, $fn=hfn);
+  // flange top is the bed face when printing
+  translate([0,0,Hc]) mirror([0,0,1]) { entry(m8); for (j=[0:360/P-1]) atc(Ra, P*j) entry(hole); }
+  // bench screws: M5 / #10 countersunk; the 90° countersink is the only roof and it is 45°
+  for (a=[45:90:359]) atc(foot_R - 7, a) {
+    translate([0,0,-1]) cylinder(d=5.5, h=foot_t - 0.5 + 1, $fn=hfn);
+    translate([0,0,foot_t - 0.5]) cylinder(d1=5.5, d2=11, h=2.75, $fn=hfn);
+    translate([0,0,foot_t + 2.25]) cylinder(d=11, h=60, $fn=hfn);
   }
-  // M8 hex-head bolt drops up the hex bore; its head stops against an 8 mm roof.
-  translate([0,0,-1]) cylinder(r=13.4/2/cos(30), h=Hc - 8 + 1, $fn=6);
-  translate([0,0,Hc - 9]) cylinder(d=m8, h=10, $fn=40);
-  for (j=[0:360/P-1]) atc(Ra, P*j) translate([0,0,Hc - 70]) cylinder(d=hole, h=71, $fn=32);
-  for (a=[45:90:359]) atc(86, a) translate([0,0,-1]) cylinder(d=5.5, h=foot_t + 2, $fn=28);
-  translate([0,0,Hc - engrave]) linear_extrude(engrave + 1) {
-    for (j=[0:360/P-1]) {
-      a = P*j;
-      rotate(-a) translate([-0.4, head_R + 1]) square([0.8, 3]);
-      atc(head_R + 8.5, a) rotate(-a) lbl(str(a), 3.6);
-    }
+  // coarse azimuth scale on the flange rim, read at the head disk's front notch
+  for (j=[0:360/P-1]) {
+    rim_text(str(P*j), P*j, Hc - flange_t/2 - 1.5, 4.2);
+    rotate([0,0,-P*j]) translate([-0.45, flange_R - engrave, Hc - 4]) cube([0.9, engrave + 1, 3.2]);
   }
 }
 
 // ---------- output ----------
 if (part == "cradle") { if (printing) translate([0,0,L]) rotate([-90,0,0]) cradle(); else cradle(); }
 if (part == "head")   { if (printing) translate([0,0,head_t]) head(); else head(); }
-if (part == "column") column();
+if (part == "column") { if (printing) translate([0,0,Hc]) rotate([180,0,0]) column(); else column(); }
 if (part == "assembly") {
   color("dimgray") column();
   translate([0,0,Hc + head_t]) rotate([0,0,-az]) {

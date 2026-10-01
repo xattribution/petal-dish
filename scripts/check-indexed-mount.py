@@ -41,7 +41,7 @@ for p, m in parts.items():
 # back to assembly frames (cradle: axle origin; head: disk top Z=0; column: bench Z=0)
 cradle = T(parts["cradle"], np.linalg.inv(tr(0, 0, L) @ rx(-90)))
 head = T(parts["head"], tr(0, 0, -head_t))
-column = parts["column"]
+column = T(parts["column"], np.linalg.inv(tr(0, 0, Hc) @ rx(180)))   # printed flange-down
 
 # ---- vernier math ----
 def wrap(a): return (a + 180) % 360 - 180
