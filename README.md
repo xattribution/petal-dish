@@ -41,7 +41,7 @@ Printed plastic needs a conductive surface and an appropriate RF feed. Thin alum
 
 Optional three/four-rod supports retain compact bolted rim shoes and a round puck. Smooth solid aluminum rod defaults to 6.35 mm (1/4 inch); generated socket angles and `RODS.csv` give the actual cuts. Frequency informs accuracy budgets, rod screening and experimental Cassegrain secondary sizing. A fixed parabola's focal point does not move with frequency. Prime-focus offsets require the actual feed phase center. See [FEED-OPTICS.md](docs/FEED-OPTICS.md).
 
-The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Each axis is clamped flat-on-flat with M8 bolts; loosen, aim, tighten. The separate [manual aiming adapter](docs/MANUAL-AIMING.md) remains in `cad/`. Its interface and actual hardware stack require a physical fit check with this hub.
+The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten. The separate [manual aiming adapter](docs/MANUAL-AIMING.md) remains in `cad/`. Its interface and actual hardware stack require a physical fit check with this hub.
 
 ## Develop and validate
 

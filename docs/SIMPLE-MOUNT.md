@@ -2,25 +2,25 @@
 
 ![Simple mount with a 400 mm PETAL at 20° elevation](simple-mount.png)
 
-Three printed parts. Every joint is two flat faces squeezed together by an M8 bolt: loosen, aim, tighten.
+Three printed parts and one clamp per axis. Each clamp is two flat faces squeezed by one M8 bolt: loosen, aim, tighten.
 
 | | |
 |---|---|
 | Parts | Base, yoke, cradle |
-| Azimuth | 360°. The yoke's disc turns on the base disc |
-| Elevation | −10° to 100°, checked with the dish fitted. The cradle's two cheeks clamp to the outside of the yoke's two cheeks |
-| Scale | Azimuth grooves down the yoke rim, short every 5° and full height every 10°, read at the groove on the base |
+| Azimuth | 360°. The yoke turns on the base; one bolt in the center, tightened with a hex key from above |
+| Elevation | −10° to 100°, checked with the dish fitted. The cradle's cheek clamps against the inside of the yoke's upright, with one wing nut |
+| Scale | Azimuth grooves down the base rim every 5°, wide every 10°, read at the groove on the back of the yoke |
 | Mounting | 4 × M5 flat-head through the base |
 | Supports | None |
 
-## Why it looks like this
+## Design choices
 
-- **Symmetric fork.** It's the layout commercial dish brackets use, with the dish held between two clamped side plates. Both sides carry load and nothing is cantilevered.
-- **Two friction faces on elevation.** Each side has its own bolt, so the grip doubles compared with a single joint.
-- **Flared cheeks.** Each cheek stays straight where it clamps, then flares out on every side into its disc or plate. There are no thin walls meeting at a right angle. FDM parts are several times weaker across layers than along them, so the flares spread that load.
-- **Clamp faces on the bed.** The azimuth faces print against the bed, so they come out flat and smooth.
+- **One adjustment per axis.** Elevation is a single clamp on one side. It's asymmetric on purpose, so there's one wing nut to work instead of two.
+- **Bigger faces to make up for one joint.** Both clamp faces are round, r 35 around the elevation axis. They share about 39 cm² of contact.
+- **Flared, not thin.** The upright and the cheek are straight only where they clamp. Below that they flare out on every side into their plates, so no thin wall meets a plate at a right angle. FDM parts are several times weaker across layers than along them, so the flare spreads that load.
+- **Clamp faces where they print best.** The azimuth faces print against the bed, so they come out flat and smooth.
 
-![Both clamps without the dish](simple-mount-clamps.png)
+![Elevation clamp from the rear](simple-mount-clamps.png)
 
 ## Parts
 
@@ -29,8 +29,8 @@ STLs are in `cad/STL/`, already in print orientation.
 | Part | STL | Prints | Size (mm) |
 |---|---|---|---|
 | Base | `simple-base.stl` | Clamp face down | Ø116 × 14 |
-| Yoke | `simple-yoke.stl` | Disc down, cheeks standing | Ø116 × 107 |
-| Cradle | `simple-cradle.stl` | Hub face down, cheeks standing | Ø94 × 102 |
+| Yoke | `simple-yoke.stl` | Plate down, upright standing | 130 × 116 × 115 |
+| Cradle | `simple-cradle.stl` | Hub face down, cheek standing | Ø94 × 110 |
 
 ![Print orientation](simple-mount-print.png)
 
@@ -46,7 +46,7 @@ STLs are in `cad/STL/`, already in print orientation.
 | Qty | Item | Use |
 |---|---|---|
 | 1 | M8 × 25 socket head, washer, nut | Azimuth. The nut sits in the pocket under the base |
-| 2 | M8 × 30 hex bolt, fender washer (24–30 mm OD), wing nut | Elevation, one per side. The heads sit in hex pockets on the inside of the yoke cheeks |
+| 1 | M8 × 40 hex bolt, fender washer (24–30 mm OD), wing nut | Elevation. The head sits in a hex pocket on the inside of the cradle cheek |
 | 4 | M4 × 16 socket head + washer | Cradle → PETAL hub inserts |
 | 4 | M5 flat-head screw | Base → your stand |
 
@@ -57,21 +57,21 @@ STLs are in `cad/STL/`, already in print orientation.
    - Screw the base down with the 4 × M5 flat-heads.
 2. **Yoke.**
    - Set it on the base.
-   - Drop the M8 × 25 and washer between the cheeks and tighten it into the nut with a 6 mm hex key.
+   - Drop in the M8 × 25 and washer and tighten it into the nut with a 6 mm hex key.
 3. **Cradle on the dish.** 4 × M4 × 16 into the hub inserts.
-4. **Cradle on the yoke.** Lower the cradle cheeks over the yoke cheeks. They slide on with 0.2 mm to spare on each side.
-5. **Elevation bolts.**
-   - From between the yoke cheeks, push an M8 × 30 out through each side so its head drops into the hex pocket. The 36 mm gap just takes the bolt and head; tilt it in.
-   - Add a fender washer and wing nut on the outside.
+4. **Elevation bolt.** Seat the M8 × 40 head in the pocket on the inside of the cradle cheek.
+5. **Cradle on the yoke.**
+   - Slide the bolt out through the upright.
+   - Add the fender washer and wing nut on the outside.
 
 ## Using it
 
 - **Azimuth:**
-  - Loosen the center bolt with a hex key from above, between the cheeks.
-  - Turn the dish, read the rim ticks at the base groove, then tighten.
+  - Loosen the center bolt from above.
+  - Turn the dish, read the rim ticks at the yoke's rear groove, then tighten.
   - The key reaches the bolt with the dish anywhere from −10° to 30°.
 - **Elevation:**
-  - Hold the dish, loosen both wing nuts, set the angle, then tighten both.
+  - Hold the dish, loosen the wing nut, set the angle and tighten.
   - Read the angle with a phone inclinometer on the dish rim or the back of the hub plate.
 - **Clearance:** at −10° the rim hangs 129 mm below the base. Mount the base at least that high.
 
@@ -79,10 +79,10 @@ STLs are in `cad/STL/`, already in print orientation.
 
 - **Elevation:**
   - About 1.2 N·m per kg of dish at the horizon.
-  - The two elevation faces share about 46 cm² of contact.
-  - As a rough estimate, two hand-tight M8s at about 1.5 kN each give about 15 N·m of grip.
+  - As a rough estimate, a hand-tight M8 at about 1.5 kN on the r 35 faces gives about 10 N·m of grip.
+  - If it creeps, swap the wing nut for a hex nut and a wrench.
+- **Off-center load:** the dish sits about 40 mm off the clamp. The single joint carries that sideways moment through the full face and the bolt.
 - **Azimuth:** only wind loads it, over 99 cm² of contact.
-- **More grip:** use hex nuts and a wrench in place of the wing nuts.
 
 ## Validation
 
@@ -92,9 +92,9 @@ It places the STLs with the same transforms as the SCAD and checks:
 - **Bed fit:** closed, single-body meshes that fit the bed.
 - **Clamp contact:**
   - Azimuth: 99 cm².
-  - Elevation: 45–48 cm² across the range.
-- **Hardware:** the bolts, heads and nut sit in their holes and pockets at every angle.
-- **Elevation travel:** −10° to 100°, clear of the yoke and hardware. The first contact is at −20°.
+  - Elevation: 38–40 cm² across the range.
+- **Hardware:** the bolts, head and wing nut sit in their holes and pockets at every angle.
+- **Elevation travel:** −10° to 100°, clear of the yoke and hardware. The first contact is at −22.5°.
 - **Dish clearance:** the dish clears the yoke and base over the same range.
 - **Azimuth sweep:** everything that turns clears the base all the way around, at −10°, 0°, 45° and 90°.
 - **Tool access:** the hex key reaches the azimuth bolt.
