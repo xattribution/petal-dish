@@ -14,7 +14,10 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
 
 ## Simpler assembly
 
-- Integral underside flanges replace separate seam brackets. Sideways M3 bolts clamp between flat seats on both flanges, with loose nuts. All hardware stays behind the RF surface.
+- Integral underside flanges replace separate seam brackets. Seams are fastened one of three ways, all behind the RF surface:
+  - **M3 bolts** (default): each bolt clamps between flat seats on both flanges, with a loose nut.
+  - **Snap clips**: solid printed U clips push on from behind and click into V-grooves across the seats. No hardware; pry off with a flat screwdriver.
+  - **Both**: every station has the bolt hole and the clip recess, so each one takes either.
 - Short tapered keys locate neighboring petals while allowing radial insertion, including the final petal. Screws retain seated datums; they must not pull warp out of the shell.
 - One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is flat by default; a curved front that follows the dish is an option.
 - Petal roots attach to the hub with blind heat-set inserts by default, so nothing pokes through the reflecting face. Through bolts in recessed front seats are an option.
@@ -41,7 +44,7 @@ Read the kit's `ASSEMBLY.md`, `HARDWARE.csv` and `REFLECTOR.md`; the app's Print
 PETG is a practical indoor fit-test material. ASA is an outdoor starting point with a controlled enclosure and thermal/creep testing. Four perimeters and locally solid pads are starting settings, not a strength guarantee. See [the test procedure](docs/TEST_ARTICLE.md) and [engineering limits](docs/ENGINEERING.md).
 
 Hardware by default:
-- **Seams:** M3 × 16 socket heads, with a 0.5 mm washer under the head and under the nut, and ordinary M3 nuts.
+- **Seams:** M3 × 16 socket heads (none with snap clips), with a 0.5 mm washer under the head and under the nut, and ordinary M3 nuts.
 - **Roots:** M4 × 12 from the hub rear into short heat-set inserts (maximum 6 mm long), with 1 mm washers.
 - **Mount:** M4 through bolts. Use 18 mm plus your adapter thickness.
 

@@ -45,6 +45,15 @@ Revision 12 makes these changes.
   - The seats are cut through the gussets only, never the shell, and never through a neighbor's bolt pad.
 - **Flat hub front by default.** It sits at the petal-root height; a curved front that follows the dish is an option.
 - **Ring seams** use the same flange and flat-seat system as the seams between petals.
+- **Snap-clip seams (option).** Seams can use printed clips instead of bolts, or offer both at every station.
+
+  ![Snap clip on a seam, the station it clicks into, and the clip as printed](seam-clip.png)
+
+  - The clip is a solid, blocky U (4 mm arms, 10 mm wide, 5 mm base) printed flat, so its arms flex along the layers. A 45° nub on each arm clicks into a V-groove across the flat seat.
+  - Each station gets a slot down the pad face for the arm. The slot's down-facing side wall and the pad ends are tilted to 45° or better in print.
+  - Clip stations are about twice as dense as bolt stations and stay clear of the keys. Short ring segments get one centered station so the clip stays clear of the corners.
+  - Estimated arm strain while the nub rides over the pad is about 0.8% at the default 0.2 mm squeeze, a cantilever estimate for the 20 mm arms. The 0.35 mm nub is kept shallow so beefy arms stay within what ASA-GF tolerates.
+  - The fit test includes clips at three squeeze settings.
 
 The tests check, in every structural configuration:
 - each seam bore is clear;
@@ -52,7 +61,10 @@ The tests check, in every structural configuration:
 - the seat has backing;
 - in insert mode, the root pilot is clear with a closed roof; in through mode, the bore and seat are clear and the seat floor is solid;
 - the hub front is flat, or follows the dish when curved;
-- the mount seats are open.
+- the mount seats are open;
+- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the nub bite the groove.
+
+The mount check models clips as a conservative ring 36 mm deep behind the dish. With clips, the simple mount clears from 0° to 100° instead of −10°.
 
 The upper (male) flange seat faces downward in print. Up to 8 petals it stays within 45°. With more petals it becomes a short overhang about 10 mm across.
 

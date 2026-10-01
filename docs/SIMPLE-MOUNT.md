@@ -76,6 +76,7 @@ STLs are in `cad/STL/`, already in print orientation.
   - Hold the dish, loosen the wing nut, set the angle and tighten.
   - Read the angle with a phone inclinometer on the dish rim or the back of the hub plate.
 - **Clearance:** at −10° the rim hangs 129 mm below the base. Mount the base at least that high.
+- **With snap-clip seams:** the clips hang about 20 mm farther behind the dish than the flanges. Elevation then clears from 0° to 100°.
 
 ## Loads
 
@@ -97,7 +98,7 @@ It places the STLs with the same transforms as the SCAD and checks:
   - Elevation: 38–40 cm² across the range.
 - **Hardware:** the bolts, head and wing nut sit in their holes and pockets at every angle.
 - **Elevation travel:** −10° to 100°, clear of the yoke and hardware. The first contact is at −22.5°.
-- **Dish clearance:** the dish clears the yoke and base over the same range.
+- **Dish clearance:** the dish clears the yoke and base over the same range. With snap-clip seams, modeled as a ring 36 mm deep behind the dish, it clears from 0° to 100°.
 - **Azimuth sweep:** everything that turns clears the base all the way around, at −10°, 0°, 45° and 90°.
 - **Tool access:** the hex key reaches the azimuth bolt.
 - **Hub interface:** the M4 holes and the Ø34 port are open with straight access from behind, and the root nuts and washers behind the hub are clear.
