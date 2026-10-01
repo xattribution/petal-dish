@@ -2,13 +2,13 @@
 
 ![Simple mount with a 400 mm PETAL at 20° elevation](simple-mount.png)
 
-Three printed parts and two disc-on-disc clamps. Each joint is two flat faces with one M8 bolt through the middle. Loosen, aim, tighten. A 45° wedge braces each upright, which keeps the parts stiff and printable without supports.
+Three printed parts and two disc-on-disc clamps. Each joint is two flat faces with one M8 bolt through the middle. Loosen, aim, tighten. Both moving parts are solid braced shapes: the rotator rises from a wide foot on its disc, and the cradle's brace spreads across the back of the hub plate. That keeps them stiff, and every face prints at 45° or steeper without supports.
 
 | | |
 |---|---|
 | Parts | Base, rotator, cradle |
 | Azimuth | 360°. Rotator disc on the base disc; 2° ticks and labels every 30° |
-| Elevation | −10° to 100°, checked with the dish fitted. The cradle arm clamps to the outer face of the rotator's wedge |
+| Elevation | −10° to 100°, checked with the dish fitted. The cradle arm clamps to the rotator's outer face |
 | Hold | Friction between flat faces, squeezed by one M8 bolt per joint |
 | Mounting | 4 × M5 flat-head through the base |
 | Supports | None. No surface steeper than 45° and no flat ceilings |
@@ -22,8 +22,8 @@ STLs are in `cad/STL/`, already in print orientation.
 | Part | STL | Prints | Size (mm) |
 |---|---|---|---|
 | Base | `simple-base.stl` | Clamp face down | Ø116 × 14 |
-| Rotator | `simple-rotator.stl` | Clamp face down, wedge standing | Ø116 × 105 |
-| Cradle | `simple-cradle.stl` | Hub face down, arm and wedge standing | 94 × 94 × 101 |
+| Rotator | `simple-rotator.stl` | Clamp face down, body standing | Ø116 × 105 |
+| Cradle | `simple-cradle.stl` | Hub face down, arm and brace standing | 94 × 94 × 101 |
 
 ![Print orientation](simple-mount-print.png)
 
@@ -40,7 +40,7 @@ The base and rotator print with their clamp faces on the bed, so those faces com
 
 | Qty | Item | Use |
 |---|---|---|
-| 1 | M8 × 25 socket head + washer, M8 nut | Azimuth. The nut sits in the pocket under the base; the head sits at the bottom of the well in the wedge |
+| 1 | M8 × 25 socket head + washer, M8 nut | Azimuth. The nut sits in the pocket under the base; the head sits at the bottom of the well in the rotator |
 | 1 | M8 × 40 hex bolt, fender washer (24–30 mm OD), wing nut | Elevation. The head sits in a hex pocket inside the rotator; the wing nut goes on the outside of the arm |
 | 4 | M4 × 16 socket head + washer | Cradle → PETAL hub inserts |
 | 4 | M5 flat-head screw | Base → your stand. They sit just below the clamp face |
@@ -52,10 +52,10 @@ The base and rotator print with their clamp faces on the bed, so those faces com
    - Screw the base down with the 4 × M5 flat-heads.
 2. **Rotator.**
    - Set it on the base.
-   - Drop the M8 × 25 and its washer down the well in the wedge.
+   - Drop the M8 × 25 and its washer down the well in the rotator.
    - Thread it into the nut with a long 6 mm hex key.
-3. **Elevation bolt.** Push the M8 × 40 in through the bore in the wedge's sloped face until its head drops into the hex pocket. The thread sticks out of the outer face.
-4. **Cradle on the dish.** 4 × M4 × 16 into the hub inserts. Reach them with a 3 mm key through the holes in the cradle's wedge.
+3. **Elevation bolt.** Push the M8 × 40 in through the bore in the rotator's sloped face until its head drops into the hex pocket. The thread sticks out of the outer face.
+4. **Cradle on the dish.** 4 × M4 × 16 into the hub inserts. Reach them with a 3 mm key through the holes in the cradle's brace.
 5. **Cradle on the rotator.** Slide the arm over the bolt, then add the fender washer and wing nut.
 
 ## Using it
@@ -66,7 +66,7 @@ The base and rotator print with their clamp faces on the bed, so those faces com
   - The key reaches the bolt with the dish anywhere from −10° to 30°. Above that, the cradle covers the well.
 - **Elevation:**
   - Hold the dish, loosen the side wing nut, set the angle and tighten.
-  - Measure the angle with a phone inclinometer on the flat top of the arm and wedge.
+  - Measure the angle with a phone inclinometer on the flat top of the arm.
 - **Clearance:** at −10° the rim hangs 134 mm below the base bottom. Mount the base at least that high.
 
 ## Loads
@@ -85,7 +85,7 @@ The base and rotator print with their clamp faces on the bed, so those faces com
 It places the STLs with the same transforms as the SCAD and checks:
 
 - **Bed fit:** closed, single-body meshes that fit the bed.
-- **Clamp contact:** both pairs of faces sit flat, with 99 cm² in contact on azimuth and 23–24 cm² on elevation across the range.
+- **Clamp contact:** both pairs of faces sit flat, with 99 cm² in contact on azimuth and 23–25 cm² on elevation across the range.
 - **Bolts:** both M8 bolts pass through cleanly at every angle.
 - **Elevation travel:** the cradle tilts from −10° to 100° clear of the rotator and the azimuth bolt. It first touches at −17.5°.
 - **Tool access:** a hex key reaches the azimuth bolt straight down the well from −10° to 30° elevation.

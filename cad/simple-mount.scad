@@ -24,9 +24,10 @@ rot_z = base_t;         // rotator disc bottom = azimuth clamp face
 H = 65;                 // elevation axis above the rotator disc
 Z_el = rot_z + rot_t + H;
 up_x0 = 12; up_x1 = 26; up_w = 24; up_R = 30;   // upright; elevation clamp face on its outer side (x = up_x1)
-wedge_x = -40;          // rotator wedge foot on the disc (keeps the rim scale clear)
+wedge_x = -40;          // rotator foot: x -40..26 inside r 46 (keeps the rim scale clear)
+foot_r = 46;
 arm_x0 = 26; arm_x1 = 38; arm_R = 26;            // cradle arm, clamp face on its inner side (x = arm_x0)
-cw_y = 35;              // cradle wedge stays at y >= 35 so it never meets the upright
+cw_y = 42;              // brace meets the arm at y >= 42 so it clears the rotator down to -17.5°
 L = 75;                 // hub rear face ahead of the elevation axis
 plate_t = 12; plate_r = 47; bcd_r = 30; port_d = 34; m4 = 4.5;
 arm_zb = -20;           // arm foot on the plate: z -20..26 keeps it inside r 47
@@ -73,11 +74,13 @@ module upright2d() hull() {
 module rotator() difference() {
   union() {
     translate([0,0,rot_z]) rotate(1) chamfered_disc(disc_R, rot_t);   // facet corners between the 2° ticks
-    yz(up_x0, up_x1 - up_x0) upright2d();
-    // wedge: from the disc up to the upright, sloped face up
+    // one solid: the upright's round top, braced down to a wide foot on the disc (sloped faces up)
     hull() {
-      yz(up_x0, 0.01) upright2d();
-      translate([wedge_x, -up_w, rot_z + rot_t - 0.01]) cube([1, 2*up_w, 1]);
+      yz(up_x0, up_x1 - up_x0) translate([0, Z_el]) circle(r=up_R, $fn=180);
+      translate([0, 0, rot_z + rot_t - 0.01]) linear_extrude(1) intersection() {
+        circle(r=foot_r, $fn=180);
+        translate([wedge_x, -100]) square([up_x1 - wedge_x, 200]);
+      }
     }
   }
   // azimuth bolt: socket head sits on the disc at the bottom of a well through the wedge
@@ -104,10 +107,13 @@ module cradle() difference() {
       circle(r=arm_R, $fn=180);
       translate([L - plate_t - 1, arm_zb]) square([1.01, arm_R - arm_zb]);
     }
-    // wedge between the plate and the arm's inner side (triangle in plan, same height as the arm)
+    // brace: spreads over the back of the plate (inside r 45) and slopes in to the arm
     hull() {
-      translate([-30, L - plate_t - 0.01, arm_zb]) cube([arm_x0 + 30 + 0.01, 0.01, arm_R - arm_zb]);
-      translate([arm_x0, cw_y, arm_zb]) cube([0.01, L - plate_t - cw_y, arm_R - arm_zb]);
+      translate([0, L - plate_t, 0]) rotate([90,0,0]) linear_extrude(0.01) intersection() {
+        circle(r=45, $fn=180);
+        translate([-30, -100]) square([arm_x0 + 30, 200]);
+      }
+      translate([arm_x0 - 0.01, cw_y, arm_zb]) cube([0.01, L - plate_t - cw_y, arm_R - arm_zb]);
     }
   }
   // elevation bolt along X (teardrop points to print-up, -Y)
