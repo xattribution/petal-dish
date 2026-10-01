@@ -29,13 +29,3 @@ fig.suptitle('PETAL 5.0 — actual default 400 mm support geometry',fontsize=19,
 fig.text(.5,.045,'RF feed and fasteners not shown. Rods are reference lines; these are untested mechanical prototypes.',ha='center',fontsize=10,color='#4b5563')
 fig.subplots_adjust(left=0,right=1,bottom=.12,top=.87,wspace=-.04)
 fig.savefig(root/'docs/feed-support.png',dpi=160);plt.close(fig)
-# Two real printable parts, shown in dish-local coordinates, not a fabricated geared mechanism.
-ring=trimesh.load(root/'cad/STL/hub-ring.stl');ring.vertices[:,2]-=10
-cradle=trimesh.load(root/'cad/STL/cradle.stl');v=cradle.vertices.copy();cradle.vertices=np.column_stack([v[:,0],v[:,2]-100,-v[:,1]])
-fig=plt.figure(figsize=(7,6),facecolor='#f4f5f7');ax=fig.add_subplot(projection='3d');ax.set_facecolor('#f4f5f7')
-# Display x horizontal, -dish-z depth, dish-y up.
-for m,col in [(ring,'#b3a184'),(cradle,'#658fa6')]:
- v=m.vertices;add(ax,np.column_stack([v[:,0],-v[:,2],v[:,1]]),m.faces,col)
-ax.set_xlim(-65,65);ax.set_ylim(-15,95);ax.set_zlim(-105,50);ax.set_box_aspect((130,110,155));ax.view_init(elev=18,azim=-45);ax.set_axis_off();ax.set_title('Open-center geared-head adapter',fontsize=17,pad=10)
-fig.text(.5,.07,'Ø34 clear adapter port · 4 × M4 / 60 mm BCD\nPurchased geared head mounts below the foot; not shown.',ha='center',fontsize=11)
-fig.subplots_adjust(left=0,right=1,bottom=.13,top=.91);fig.savefig(root/'docs/manual-aiming-adapter.png',dpi=160);plt.close(fig)

@@ -5,7 +5,7 @@ const turn=(v,a)=>[Math.cos(a)*v[0]-Math.sin(a)*v[1],Math.sin(a)*v[0]+Math.cos(a
 for(const cfg of [{diameter:600},{diameter:800,rows:3,sectors:8,bedX:300,bedY:300,bedZ:300},{diameter:600,rearStyle:1},{diameter:600,feedMode:1},{diameter:600,feedMode:1,feedLegs:4}]){
  const m=build(cfg),h=Math.PI/m.layout.n;
  for(let row=1;row<m.layout.rows;row++){
- const holes=j=>m.instances.filter(i=>i.part.kind==='panel'&&i.part.row===j).flatMap(i=>i.part.spec.flanges.filter(f=>Math.hypot(...f.frame.o)>1).flatMap(f=>f.stations.map(s=>{const q=[f.frame.o[0]+s*f.frame.e[0],f.frame.o[1]+s*f.frame.e[1],0];q[2]=backZ(q[0],q[1],m.p)-7;return{q:turn(q,i.a),normal:turn([...f.frame.v,0],i.a),r:Math.hypot(...f.frame.o)};})));
+ const holes=j=>m.instances.filter(i=>i.part.kind==='panel'&&i.part.row===j).flatMap(i=>i.part.spec.flanges.filter(f=>Math.hypot(...f.frame.o)>1).flatMap(f=>f.stations.map((s,k)=>{const q=[f.frame.o[0]+s*f.frame.e[0],f.frame.o[1]+s*f.frame.e[1],0];q[2]=f.levels[k];return{q:turn(q,i.a),normal:turn([...f.frame.v,0],i.a),r:Math.hypot(...f.frame.o)};})));
  const a=holes(row-1),b=holes(row),r=Math.max(...a.map(x=>x.r));
  for(const x of a.filter(x=>Math.abs(x.r-r)<.001)){const match=b.filter(y=>distance(x.q,y.q)<.15);assert.equal(match.length,1,'each cross-ring screw has exactly one matching bore');assert(distance(x.normal,match[0].normal.map(v=>-v))<1e-6,'opposed bore axes');}
  // Neighboring radial seams differ by half a sector; no four-panel corner.

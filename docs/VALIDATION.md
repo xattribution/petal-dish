@@ -33,6 +33,48 @@ Interface revision 11 restores half-petal staggering by default for multi-ring d
 
 The central mount offers blind inserts or four Ø4.6 mm full-depth bores with Ø10 mm flat front washer seats. Root inserts remain blind. Hardware quantities and generated instructions reflect the selection.
 
+## Revision 12: flat seats, fastener options, flat hub
+
+Revision 12 makes these changes.
+
+- **Separate root and mount fastener options.**
+  - Roots default to blind heat-set inserts, so the reflecting face stays closed. The through-bolt option gives each root a Ø4.5 mm teardrop bore and a Ø9.6 mm recessed flat seat in the front.
+  - The hub mount defaults to through bolts and nuts; inserts are an option.
+- **Flat seam seats.** The captive hex pockets are gone.
+  - Each seam bolt clamps between two Ø10 mm flat seats square to the bolt.
+  - The seats are cut through the gussets only, never the shell, and never through a neighbor's bolt pad.
+- **Flat hub front by default.** It sits at the petal-root height; a curved front that follows the dish is an option.
+- **Ring seams** use the same flange and flat-seat system as the seams between petals.
+- **Flat mating faces.** The alignment keys are gone; bolts or clips align the petals.
+- **Snap-clip seams (option).** Seams can use printed clips instead of bolts, or offer both at every station.
+
+  ![Section through a clip station, the station itself, and the clip as printed](seam-clip.png)
+
+  - With clips, each flange wall is a uniform 5 mm (no pad blocks), so each petal presents one flat face.
+  - The clip is a solid trapezoid block with a channel, 10 mm wide along the seam, printed standing on its wide base. It snaps straight up over both walls; the jaws taper from 4 mm at the channel floor to 2.5 mm at the top.
+  - Detent: each clip jaw carries a cylindrical bump (R 2.6 mm) straight across its full width, so the clip is a plain extruded profile. It clicks into a cylindrical groove across each wall, 0.1 mm deeper and 0.4 mm wider each side than the clip. Detent depth is a setting (0.3–2 mm, default 1 mm). The wall's bottom edge gets a lead-in chamfer.
+  - Where the shell slopes across a seam (ring seams), the walls are made deeper so the full clip and, with both fasteners, the bolt seat stay on the wall.
+  - Clip spots tilt to follow the shell along the seam, so the jaw tops sit 0.25 mm under the shell. Across ring seams the shell also slopes across the clip, so one side keeps a small gap there.
+  - Two low vertical ridges (1 mm tall) on each wall either side of the clip stop it sliding along the seam or twisting.
+  - At each clip station the 45° gusset is cut clean through over the clip and its ridges; the cut end is tilted to 45° or better in print. On radial seams, clips start past the gusset's inner ramp so the wall is full depth at every clip.
+  - Where the shell slopes across a clip (toward the rim, and across ring seams), the station sits lower so the jaws clear the shell everywhere.
+  - Clip stations are about 40 mm apart (the default dish gets three per seam). Short ring segments get one centered station so the clip stays clear of the corners.
+  - Tapered-cantilever estimate of peak jaw strain while a jaw rides over the bump: about 1.0% at 0.3 mm, 1.6% at 0.5 mm and 3.1% at the 1 mm default. Physical testing sets the final detent depth.
+  - The fit test includes clips at three squeeze settings.
+
+The tests check, in every structural configuration:
+- each seam bore is clear;
+- a washer and nut envelope fits on each side;
+- the seat has backing;
+- in insert mode, the root pilot is clear with a closed roof; in through mode, the bore and seat are clear and the seat floor is solid;
+- the hub front is flat, or follows the dish when curved;
+- the mount seats are open;
+- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the bumps bite the grooves.
+
+The mount check models clips as a conservative ring 26 mm deep behind the dish. With clips, the simple mount clears from −7.5° to 100° instead of −10°.
+
+The upper (male) flange seat faces downward in print. Up to 8 petals it stays within 45°. With more petals it becomes a short overhang about 10 mm across.
+
 Manual plate arrangements preserve copy identity, plate number, X/Y and in-plane yaw. Validation rejects missing/duplicate copies, nonfinite coordinates, out-of-volume placement and less than 6 mm between bounding boxes. Pending edits block exports. Accepted placements reach the STL plates, PLATES.csv, manifest and PDF; model/printer changes reset them. Overrides are session-local.
 
 Validation covers 15 structural configurations, including aligned and staggered two-ring dishes, a three-ring dish and through-bolt hubs. Tests check closed/wound topology, one connected solid per part, print bounds, sampled radial insertion against actual phased neighbors, pilots and roofs, coupons and packing. Separate ring tests check paired cross-ring bore centers and axes, half-petal seam offsets, and three/four-rod registration. Plate tests exercise copy coverage, reassignment, yaw, collision/volume rejection and manifest metadata. Offline UI tests exercise the new controls, apply/reject/reset behavior and PDF download. PDF fixtures include a staggered, faceted 600 mm four-rod dish with the through-hole hub.
