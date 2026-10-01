@@ -41,7 +41,7 @@ Printed plastic needs a conductive surface and an appropriate RF feed. Thin alum
 
 Optional three/four-rod supports retain compact bolted rim shoes and a round puck. Smooth solid aluminum rod defaults to 6.35 mm (1/4 inch); generated socket angles and `RODS.csv` give the actual cuts. Frequency informs accuracy budgets, rod screening and experimental Cassegrain secondary sizing. A fixed parabola's focal point does not move with frequency. Prime-focus offsets require the actual feed phase center. See [FEED-OPTICS.md](docs/FEED-OPTICS.md).
 
-For an all-printed option, the [geared alt-az head](docs/GEARED-MOUNT.md) aims with a self-locking printed worm on each axis, 6° per knob turn (`cad/geared-mount.scad`). It mounts on a printed stand, a 1-1/4" pipe mast or a 3/8-16 tripod. The separate [manual aiming adapter](docs/MANUAL-AIMING.md) remains in `cad/`. Its interface and actual hardware stack require a physical fit check with this hub.
+For an all-printed option, the [geared alt-az head](docs/GEARED-MOUNT.md) aims with a self-locking printed worm on each axis, 6° per knob turn (`cad/geared-mount.scad`). It mounts on a printed stand, a 1-1/4" pipe mast or a 3/8-16 tripod. The [pin-and-screw mount](docs/SCREW-MOUNT.md) has no gears. On each axis a tapered pin drops into a hole every 10°, and a captive printed screw trims ±9° from there, about 2–2.6° per turn (`cad/screw-mount.scad`). Its only metal is the 4 × M4 hub screws. The separate [manual aiming adapter](docs/MANUAL-AIMING.md) remains in `cad/`. Its interface and actual hardware stack require a physical fit check with this hub.
 
 ## Develop and validate
 

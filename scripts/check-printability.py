@@ -37,3 +37,4 @@ for path in sys.argv[1:]:
     for area, span, ctr in real[:6]:
         print(f"     {area:7.1f} mm²  span {span[0]:5.1f} x {span[1]:5.1f} x {span[2]:4.1f}  at ({ctr[0]:.0f}, {ctr[1]:.0f}, z={ctr[2]:.0f})")
 print("ALL PASS" if ok else "OVERHANGS FOUND")
+sys.exit(0 if ok else 1)
