@@ -1,8 +1,9 @@
 // PETAL simple alt-az mount. Millimeters. Three printed parts, two disc-on-disc clamps.
-//   base     - flat disc that screws to your stand; M8 bolt head captured underneath
-//   rotator  - flat disc on the base (azimuth) with an upright carrying the elevation clamp face
-//   cradle   - bolts to the PETAL hub; its arm's flat face clamps against the upright (elevation)
-// Each joint: two flat faces, one M8 bolt through the middle, a fender washer and a wing nut.
+//   base     - flat disc that screws to your stand; M8 nut captured underneath
+//   rotator  - flat disc on the base (azimuth) with a 45° wedge rising to the elevation clamp face
+//   cradle   - bolts to the PETAL hub; its arm, braced by a wedge, clamps flat against the rotator (elevation)
+// Each joint: two flat faces and one M8 bolt through the middle. Azimuth tightens with a hex key
+// down the hole in the wedge; elevation with a wing nut on the outside of the arm.
 // Loosen, aim, tighten. Friction between the faces holds the position.
 // Print rules: nothing steeper than 45° from vertical, no bridges, engraving only on top faces.
 // Frame: Z up, +Y = boresight at az 0 / el 0, elevation axis along X. Base bottom at Z 0.
@@ -18,17 +19,20 @@ efoot = 0.6;            // edge chamfer on faces printed against the bed
 
 // ---------- layout ----------
 disc_R = 58;            // base and rotator discs
-base_t = 12; rot_t = 10;
+base_t = 14; rot_t = 10;
 rot_z = base_t;         // rotator disc bottom = azimuth clamp face
 H = 65;                 // elevation axis above the rotator disc
 Z_el = rot_z + rot_t + H;
-up_x0 = 38; up_x1 = 52; up_w = 24; up_R = 30;   // upright (x faces); elevation clamp face at x = up_x0
-arm_x0 = 26; arm_R = 26;                         // cradle arm x 26..38, clamp disc r 26
+up_x0 = 12; up_x1 = 26; up_w = 24; up_R = 30;   // upright; elevation clamp face on its outer side (x = up_x1)
+wedge_x = -40;          // rotator wedge foot on the disc (keeps the rim scale clear)
+arm_x0 = 26; arm_x1 = 38; arm_R = 26;            // cradle arm, clamp face on its inner side (x = arm_x0)
+cw_y = 35;              // cradle wedge stays at y >= 35 so it never meets the upright
 L = 75;                 // hub rear face ahead of the elevation axis
 plate_t = 12; plate_r = 47; bcd_r = 30; port_d = 34; m4 = 4.5;
 arm_zb = -20;           // arm foot on the plate: z -20..26 keeps it inside r 47
 // M8 hardware
-m8 = 8.5; m8_af = 13.3; m8_head = 6;
+m8 = 8.5; m8_af = 13.3; m8_nut = 7; m8_head = 5.5;
+az_well = 18;           // hex-key well over the azimuth bolt head
 
 // ---------- dish ----------
 focal = dish_d*dish_fd;
@@ -49,8 +53,8 @@ module chamfered_disc(r, t, bottom=true) {
 // ---------- base (modeled upright; prints top face down) ----------
 module base() difference() {
   chamfered_disc(disc_R, base_t, bottom=false);   // top face is the clamp face, printed on the bed
-  // M8 bolt: hex head pocket in the underside, hole up through
-  translate([0,0,-1]) rotate(30) cylinder(r=m8_af/sqrt(3), h=m8_head + 1, $fn=6);
+  // M8 nut pocket in the underside, hole up through
+  translate([0,0,-1]) rotate(30) cylinder(r=m8_af/sqrt(3), h=m8_nut + 1.5, $fn=6);   // nut rides up to z 7.5
   cylinder(d=m8, h=base_t + 1, $fn=hfn);
   // 4 x M5 flat-head, flush with the clamp face (fit them before the rotator goes on)
   for (a=[45:90:359]) rotate(a) translate([44, 0, 0]) {
@@ -62,24 +66,33 @@ module base() difference() {
 }
 
 // ---------- rotator ----------
+module upright2d() hull() {
+  translate([0, Z_el]) circle(r=up_R, $fn=180);
+  translate([-up_w, rot_z + rot_t - 0.01]) square([2*up_w, 1]);
+}
 module rotator() difference() {
   union() {
     translate([0,0,rot_z]) rotate(1) chamfered_disc(disc_R, rot_t);   // facet corners between the 2° ticks
-    // upright: elevation clamp face on its inner side (x = up_x0)
-    yz(up_x0, up_x1 - up_x0) hull() {
-      translate([0, Z_el]) circle(r=up_R, $fn=180);
-      translate([-up_w, rot_z + rot_t - 0.01]) square([2*up_w, 1]);
+    yz(up_x0, up_x1 - up_x0) upright2d();
+    // wedge: from the disc up to the upright, sloped face up
+    hull() {
+      yz(up_x0, 0.01) upright2d();
+      translate([wedge_x, -up_w, rot_z + rot_t - 0.01]) cube([1, 2*up_w, 1]);
     }
   }
+  // azimuth bolt: socket head sits on the disc at the bottom of a well through the wedge
   translate([0,0,rot_z - 1]) cylinder(d=m8, h=rot_t + 2, $fn=hfn);
-  // elevation bolt along X (teardrop points up)
-  translate([up_x0 - 1, 0, Z_el]) rotate([0,90,0]) linear_extrude(up_x1 - up_x0 + 2) tdrop(m8, 180);
-  // azimuth scale: ticks down the rim every 2°, labels every 30° on top (none under the upright).
+  translate([0,0,rot_z + rot_t]) cylinder(d=az_well, h=200, $fn=hfn);
+  // elevation bolt: hex head pocket inside the upright, reached by a bore from the wedge face
+  translate([up_x0 + 1.5 - 100, 0, Z_el]) rotate([0,90,0]) linear_extrude(100) tdrop(16.5, 180);
+  translate([up_x0 + 1.5 - 0.01, 0, Z_el]) rotate([0,90,0]) linear_extrude(m8_head + 0.5) hexroof(m8_af, 180);
+  translate([up_x0, 0, Z_el]) rotate([0,90,0]) linear_extrude(up_x1 - up_x0 + 1) tdrop(m8, 180);
+  // azimuth scale: ticks down the rim every 2°, labels every 30° on top.
   // Azimuth A sits at angle 270 + A, read at the groove on the rear of the base.
   for (a=[0:2:358]) rotate(270 + a) translate([disc_R - (a % 10 == 0 ? 1.2 : engrave), -(a % 10 == 0 ? 0.5 : 0.3), rot_z - 1])
     cube([2, a % 10 == 0 ? 1 : 0.6, rot_t + 2]);
   translate([0,0,rot_z + rot_t - engrave]) linear_extrude(engrave + 1)
-    for (A=[0:30:330]) if (cos(270 + A) < 0.7) rotate(270 + A) translate([disc_R - 7, 0]) rotate(90) lbl(str(A), 4);
+    for (A=[0:30:330]) rotate(270 + A) translate([disc_R - 7, 0]) rotate(90) lbl(str(A), 4);
 }
 
 // ---------- cradle (elevation axis at the origin, el = 0) ----------
@@ -87,17 +100,24 @@ module cradle() difference() {
   union() {
     translate([0, L - plate_t, 0]) rotate([-90,0,0]) cylinder(r=plate_r, h=plate_t, $fn=180);
     // arm: clamp disc around the axis, running forward to the plate; flat top at z = arm_R
-    yz(arm_x0, up_x0 - arm_x0) hull() {
+    yz(arm_x0, arm_x1 - arm_x0) hull() {
       circle(r=arm_R, $fn=180);
       translate([L - plate_t - 1, arm_zb]) square([1.01, arm_R - arm_zb]);
     }
+    // wedge between the plate and the arm's inner side (triangle in plan, same height as the arm)
+    hull() {
+      translate([-30, L - plate_t - 0.01, arm_zb]) cube([arm_x0 + 30 + 0.01, 0.01, arm_R - arm_zb]);
+      translate([arm_x0, cw_y, arm_zb]) cube([0.01, L - plate_t - cw_y, arm_R - arm_zb]);
+    }
   }
-  // elevation bolt: head pocket on the arm's inner face, hole along X (teardrops point to print-up, -Y)
-  translate([arm_x0 - 1, 0, 0]) rotate([0,90,0]) linear_extrude(up_x0 - arm_x0 + 2) tdrop(m8, 270);
-  translate([arm_x0 - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m8_head + 1) hexroof(m8_af, 270);
-  // hub interface: Ø34 port and 4 x M4 on a 60 mm circle
-  translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) cylinder(d=port_d, h=plate_t + 2, $fn=hfn*2);
-  for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=hfn);
+  // elevation bolt along X (teardrop points to print-up, -Y)
+  translate([arm_x0 - 1, 0, 0]) rotate([0,90,0]) linear_extrude(arm_x1 - arm_x0 + 2) tdrop(m8, 270);
+  // hub interface: Ø34 port and 4 x M4 on a 60 mm circle, all open straight through the wedge
+  translate([0, 0, 0]) rotate([-90,0,0]) cylinder(d=port_d, h=L + 1, $fn=hfn*2);
+  for (a=[45:90:359]) translate([bcd_r*cos(a), 0, bcd_r*sin(a)]) rotate([-90,0,0]) {
+    cylinder(d=m4, h=L + 1, $fn=hfn);
+    cylinder(d=9, h=L - plate_t, $fn=hfn);      // head and hex-key access
+  }
   // hub face is printed on the bed: chamfer its edge
   translate([0, L + 0.01, 0]) rotate([90,0,0]) difference() {
     cylinder(r=plate_r + 1, h=efoot + 0.4, $fn=180);
@@ -116,14 +136,13 @@ module wingnut() color("silver") { cylinder(d=24, h=2, $fn=48); translate([0,0,2
 // ---------- output ----------
 if (part == "assembly") {
   color("slategray") base();
-  translate([0,0,m8_head]) bolt(35);
   rotate([0,0,-az]) {
     color("steelblue") rotator();
-    translate([0,0,rot_z + rot_t]) wingnut();
+    translate([0,0,rot_z + rot_t + 1.6]) rotate([180,0,0]) color("silver") { cylinder(d=8, h=25, $fn=24); translate([0,0,-8]) cylinder(d=13, h=8, $fn=24); }
+    translate([up_x0 + 1.5 + m8_head, 0, Z_el]) rotate([0,90,0]) bolt(40);
     translate([0,0,Z_el]) rotate([el,0,0]) {
       color("orange") cradle();
-      translate([arm_x0 + m8_head, 0, 0]) rotate([0,90,0]) bolt(40);
-      translate([up_x1, 0, 0]) rotate([0,90,0]) wingnut();
+      translate([arm_x1, 0, 0]) rotate([0,90,0]) wingnut();
       dish();
     }
   }
