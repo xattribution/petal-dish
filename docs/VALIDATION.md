@@ -50,12 +50,14 @@ Revision 12 makes these changes.
 
   ![Section through a clip station, the station itself, and the clip as printed](seam-clip.png)
 
-  - The clip is a solid trapezoid block with a channel, 10 mm wide along the seam, printed standing on its wide base. It snaps straight up over both flange pads; the jaws taper from 4 mm at the channel floor to 2.5 mm at the top.
-  - Each jaw has a tooth that drops into a notch across the pad face. The tooth's underside is a flat ledge (the catch) and its top is 45° (the lead-in). Tooth depth is a setting (0.3–2 mm, default 1 mm); the notch is cut 0.1 mm larger to match, and the pad's bottom edge gets a lead-in chamfer at least as deep as the tooth.
-  - At each clip station the 45° gusset is cut clean through over the clip width. The slot's down-facing side wall and the pad ends are tilted to 45° or better in print.
-  - Where the shell slopes across a clip (toward the rim, and across ring seams), the station sits lower so the jaws and lips clear the shell everywhere.
-  - Clip stations are about twice as dense as bolt stations. Short ring segments get one centered station so the clip stays clear of the corners.
-  - Tapered-cantilever estimate of peak jaw strain while the tooth rides over a pad: about 1.2% at 0.3 mm, 1.9% at 0.5 mm and 3.6% at the 1 mm default. Physical testing sets the final tooth depth.
+  - With clips, each flange wall is a uniform 5 mm (no pad blocks), so each petal presents one flat face.
+  - The clip is a solid trapezoid block with a channel, 10 mm wide along the seam, printed standing on its wide base. It snaps straight up over both walls; the jaws taper from 4 mm at the channel floor to 2.5 mm at the top.
+  - Detent: a pill-shaped bump (R 3 mm, 8 mm long) on each jaw clicks into a pill recess in each wall. Detent depth is a setting (0.3–2 mm, default 1 mm); the recess is cut 0.1 mm larger, and the wall's bottom edge gets a lead-in chamfer.
+  - Two low vertical ridges (1 mm tall) on each wall either side of the clip stop it sliding along the seam or twisting.
+  - At each clip station the 45° gusset is cut clean through over the clip and its ridges; the cut end is tilted to 45° or better in print. On radial seams, clips start past the gusset's inner ramp so the wall is full depth at every clip.
+  - Where the shell slopes across a clip (toward the rim, and across ring seams), the station sits lower so the jaws clear the shell everywhere.
+  - Clip stations are about 40 mm apart (the default dish gets three per seam). Short ring segments get one centered station so the clip stays clear of the corners.
+  - Tapered-cantilever estimate of peak jaw strain while the bump rides over the wall: about 1.3% at 0.3 mm, 2.0% at 0.5 mm and 3.8% at the 1 mm default. Physical testing sets the final detent depth.
   - The fit test includes clips at three squeeze settings.
 
 The tests check, in every structural configuration:
@@ -65,7 +67,7 @@ The tests check, in every structural configuration:
 - in insert mode, the root pilot is clear with a closed roof; in through mode, the bore and seat are clear and the seat floor is solid;
 - the hub front is flat, or follows the dish when curved;
 - the mount seats are open;
-- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the teeth bite the notches.
+- with clips, each installed clip clears its petal and every other assembled part, including feed parts, and pulling it 1 mm makes the bumps bite the recesses.
 
 The mount check models clips as a conservative ring 26 mm deep behind the dish. With clips, the simple mount clears from −7.5° to 100° instead of −10°.
 
