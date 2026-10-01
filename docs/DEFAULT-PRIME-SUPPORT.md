@@ -1,6 +1,6 @@
 # PETAL compact rod support · prime-focus
 
-Accessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface is revision 11; regenerate the entire matching kit. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
+Accessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface is revision 12; regenerate the entire matching kit. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
 
 ## Small parts, long metal rods
 

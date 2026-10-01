@@ -47,7 +47,7 @@ STLs are in `cad/STL/`, already in print orientation.
 |---|---|---|
 | 1 | M8 × 25 socket head, washer, nut | Azimuth. The nut sits in the pocket under the base |
 | 1 | M8 × 40 hex bolt, fender washer (24–30 mm OD), wing nut | Elevation. The head sits in a hex pocket on the inside of the cradle cheek |
-| 4 | M4 × 16 socket head + washer | Cradle → PETAL hub inserts |
+| 4 | M4 × 30 socket head, 2 washers, nut | Cradle → PETAL hub. Head behind the cradle plate; washer and nut in the seats on the hub front |
 | 4 | M5 flat-head screw | Base → your stand |
 
 ## Assembly
@@ -58,7 +58,9 @@ STLs are in `cad/STL/`, already in print orientation.
 2. **Yoke.**
    - Set it on the base.
    - Drop in the M8 × 25 and washer and tighten it into the nut with a 6 mm hex key.
-3. **Cradle on the dish.** 4 × M4 × 16 into the hub inserts.
+3. **Cradle on the dish.**
+   - Push the 4 × M4 × 30 with washers through the cradle plate from behind, then through the hub.
+   - Put a washer and nut on each in the Ø10 seats on the hub front and tighten.
 4. **Elevation bolt.** Seat the M8 × 40 head in the pocket on the inside of the cradle cheek.
 5. **Cradle on the yoke.**
    - Slide the bolt out through the upright.
@@ -98,7 +100,7 @@ It places the STLs with the same transforms as the SCAD and checks:
 - **Dish clearance:** the dish clears the yoke and base over the same range.
 - **Azimuth sweep:** everything that turns clears the base all the way around, at −10°, 0°, 45° and 90°.
 - **Tool access:** the hex key reaches the azimuth bolt.
-- **Hub interface:** the M4 holes and the Ø34 port are open with straight access from behind, and the root-screw head band is clear.
+- **Hub interface:** the M4 holes and the Ø34 port are open with straight access from behind, and the root nuts and washers behind the hub are clear.
 
 ### `scripts/check-printability.py cad/STL/simple-*.stl`
 All three parts pass: nothing steeper than 45° and no flat ceilings.

@@ -97,7 +97,8 @@ def open_along(mesh, pts, d): return ~mesh.ray.intersects_any(np.array(pts, floa
 ph = [[30 * math.cos(math.radians(a)), L - 30, 30 * math.sin(math.radians(a))] for a in (45, 135, 225, 315)] + [[0, L - 30, 0], [14, L - 30, 0]]
 check(open_along(cr, ph, [0, 1, 0]).all(), "cradle: 4 x M4 on 60 BCD and Ø34 port open, with straight access from behind")
 ang = np.radians(np.arange(0, 360, 2))
-pr = np.array([[r * np.cos(a), L - 2.5, r * np.sin(a)] for a in ang for r in (48.5, 52.5, 56.5)])
-check(not cr.contains(pr).any(), "cradle: root-screw head band (r >= 48) clear")
+# root bolts: M4 washer (Ø9) + nut on the hub's rear face at r 52.5, up to 4.5 mm proud
+pr = np.array([[r * np.cos(a), L - y, r * np.sin(a)] for a in ang for r in (48.2, 52.5, 56.8) for y in (0.5, 2.5, 4.5)])
+check(not cr.contains(pr).any(), "cradle: root nut and washer band (r 48-57, 4.5 mm behind the hub) clear")
 print("ALL PASS" if ok else "SOME CHECKS FAILED")
 sys.exit(0 if ok else 1)

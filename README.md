@@ -14,14 +14,20 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
 
 ## Simpler assembly
 
-- Integral underside flanges replace separate seam brackets. Sideways M3 bolts and captive nuts stay behind the RF surface.
+- Integral underside flanges replace separate seam brackets. Sideways M3 bolts clamp between flat seats on both flanges, with loose nuts. All hardware stays behind the RF surface.
 - Short tapered keys locate neighboring petals while allowing radial insertion, including the final petal. Screws retain seated datums; they must not pull warp out of the shell.
-- One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD: blind heat-set inserts or full through holes with front washer seats. Root screws also enter blind inserts, keeping the reflecting face closed.
+- One rear hub with a flat front, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD.
+- Through bolts and nuts are the default for the roots and the mount, so no heat-set inserts are needed. Root heads sit in recessed flat seats in the front. Blind heat-set inserts remain an option, and they keep the reflecting face closed.
 - Petals print on a flat radial flange. Curved undersides are the default; optional small tangent-plane facets add little material and preserve the front parabola.
 - Larger dishes default to staggered rings with half-petal offsets and three-panel junctions. Shared polygon boundaries use integral cross-flanges; turn staggering off for aligned strips. The planner rejects layouts without space for joints or the printer.
 - Default 400 mm dish: six petals and one hub, two unique printed parts. Optional feed fittings add parts. This is a geometric simplification, not a demonstrated strength rating.
 
-**Interface revision 11 requires a complete regenerated kit.** Previous petals, seam saddles, front caps and hubs are incompatible. Short M4 inserts (maximum 6 mm long) replace the former long inserts. Check the separate aiming adapter's screw lengths against the new blind hub before use.
+**Interface revision 12 requires a complete regenerated kit.** Revision 12 changes three things:
+- flat seam seats replace the captive nut pockets;
+- through-bolted roots are the default;
+- the hub front is flat.
+
+Do not mix its petals or hub with revision 11 parts.
 
 ## Arrange plates
 
@@ -33,7 +39,12 @@ Read the kit's `ASSEMBLY.md`, `HARDWARE.csv` and `REFLECTOR.md`; the app's Print
 
 PETG is a practical indoor fit-test material. ASA is an outdoor starting point with a controlled enclosure and thermal/creep testing. Four perimeters and locally solid pads are starting settings, not a strength guarantee. See [the test procedure](docs/TEST_ARTICLE.md) and [engineering limits](docs/ENGINEERING.md).
 
-Use M3 × 12 seam screws, 0.5 mm head washers and ordinary M3 nuts. Root screws are M4 × 12 with 1 mm washers. Insert dimensions must match the actual supplier and filament. The generated schedule specifies quantities; external mount screw length depends on the adapter stack.
+Hardware by default:
+- **Seams:** M3 × 16 socket heads, with a 0.5 mm washer under the head and under the nut, and ordinary M3 nuts.
+- **Roots:** M4 × 20 socket heads from the front, with washers and nuts on the hub rear.
+- **Mount:** M4 through bolts. Use 18 mm plus your adapter thickness.
+
+The generated schedule gives quantities. If you choose inserts, their pilot must match the actual supplier and filament.
 
 ## RF finish and feed supports
 
@@ -41,7 +52,7 @@ Printed plastic needs a conductive surface and an appropriate RF feed. Thin alum
 
 Optional three/four-rod supports retain compact bolted rim shoes and a round puck. Smooth solid aluminum rod defaults to 6.35 mm (1/4 inch); generated socket angles and `RODS.csv` give the actual cuts. Frequency informs accuracy budgets, rod screening and experimental Cassegrain secondary sizing. A fixed parabola's focal point does not move with frequency. Prime-focus offsets require the actual feed phase center. See [FEED-OPTICS.md](docs/FEED-OPTICS.md).
 
-The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten. The separate [manual aiming adapter](docs/MANUAL-AIMING.md) remains in `cad/`. Its interface and actual hardware stack require a physical fit check with this hub.
+The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten.
 
 ## Develop and validate
 
