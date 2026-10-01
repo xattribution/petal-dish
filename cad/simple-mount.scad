@@ -25,13 +25,13 @@ cap_r = 35;                         // clamp faces: round, r 35 around the eleva
 cr_in = 26; cr_out = 40;            // cradle cheek x 26..40 (clear of the M4 heads, inside the plate)
 up_in = 40; up_out = 60;            // yoke upright x 40..60; clamp face at x = 40
 up_straight = Z_el - cap_r - 3;     // upright is straight above this (the cheek sweeps r <= 35), flared below
-up_foot = [32, 66, 44];             // upright foot on the yoke plate: x 32..66, y ±44 (flares 8 mm on every side)
+up_foot_x = 18;                     // upright flares over the whole yoke plate from x 18 outward, to its edges
 lobe_x = 72; lobe_y = 48;           // yoke plate extends past the disc to carry the upright
 L = 75;                             // hub rear face ahead of the elevation axis
 plate_t = 12; plate_r = 47; bcd_r = 30; port_d = 34; m4 = 4.5;
 cr_mid = 45; cr_mid_z = 24;         // cradle cheek is straight behind y 45, flared in front of it
-// cheek foot on the plate: inside r 44.5 (back chamfer), clear of the M4 heads (r 30 at 45°) and the port
-cr_foot = [[20, -6], [20, 6], [28, 26], [36, 26], [43, 10], [43, -10], [36, -26], [28, -26]];
+// cheek flares over the plate out to its rim (inside the back chamfer), stopping short of the M4 heads at x 24.7
+cr_foot_x = 25.5;
 m8 = 8.5; m8_af = 13.3; m8_nut = 7; m8_head = 5.5;
 
 // ---------- dish ----------
@@ -74,7 +74,10 @@ module upright() {
   }
   hull() {
     translate([up_in, -cap_r, up_straight]) cube([up_out - up_in, 2*cap_r, 0.01]);
-    translate([up_foot[0], -up_foot[2], yoke_z + yoke_t - 0.01]) cube([up_foot[1] - up_foot[0], 2*up_foot[2], 0.01]);
+    translate([0, 0, yoke_z + yoke_t - 0.01]) linear_extrude(0.01) intersection() {
+      offset(delta=-chamf - 0.3) yoke2d();
+      translate([up_foot_x, -200]) square([400, 400]);
+    }
   }
 }
 module yoke() difference() {
@@ -97,7 +100,10 @@ module cradle() difference() {
     }
     hull() {
       translate([cr_in, cr_mid, -cr_mid_z]) cube([cr_out - cr_in, 0.01, 2*cr_mid_z]);
-      translate([0, L - plate_t + 0.01, 0]) rotate([90,0,0]) linear_extrude(0.01) polygon(cr_foot);
+      translate([0, L - plate_t + 0.01, 0]) rotate([90,0,0]) linear_extrude(0.01) intersection() {
+        circle(r=plate_r - chamf - 0.3, $fn=180);
+        translate([cr_foot_x, -100]) square([100, 200]);
+      }
     }
   }
   // elevation bolt: hex head in a pocket on the cheek's inner face (teardrops point to print-up, -Y)

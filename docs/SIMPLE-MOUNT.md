@@ -17,7 +17,7 @@ Three printed parts and one clamp per axis. Each clamp is two flat faces squeeze
 
 - **One adjustment per axis.** Elevation is a single clamp on one side. It's asymmetric on purpose, so there's one wing nut to work instead of two.
 - **Bigger faces to make up for one joint.** Both clamp faces are round, r 35 around the elevation axis. They share about 39 cm² of contact.
-- **Flared, not thin.** The upright and the cheek are straight only where they clamp. Below that they flare out on every side into their plates, so no thin wall meets a plate at a right angle. FDM parts are several times weaker across layers than along them, so the flare spreads that load.
+- **Flared, not thin.** The upright and the cheek are straight only where they clamp. Below that they flare out on every side, all the way to the edges of their plates: the upright across the yoke plate, and the cheek across the hub plate up to the hub screws. No thin wall meets a plate at a right angle. FDM parts are several times weaker across layers than along them, so the flare spreads that load.
 - **Clamp faces where they print best.** The azimuth faces print against the bed, so they come out flat and smooth.
 
 ![Elevation clamp from the rear](simple-mount-clamps.png)
