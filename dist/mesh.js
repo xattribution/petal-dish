@@ -111,6 +111,7 @@ export function manualPlates(parts,p,rows){
   if(x<-.00001||y<-.00001||x+w>W+.00001||y+h>H+.00001||b.max[2]>p.bedZ-2+.00001)throw Error(`${r.copy} is outside the usable print volume on plate ${r.plate}.`);
   const plate=plates[r.plate-1]??(plates[r.plate-1]={placements:[]});
   for(const q of plate.placements){const[X,Y,A,B]=q.bounds;if(!(x>=X+A+5.99999||X>=x+w+5.99999||y>=Y+B+5.99999||Y>=y+h+5.99999))throw Error(`${r.copy} overlaps the 6 mm clearance of ${q.copy} on plate ${r.plate}.`);}
+  if(plate.placements.some(q=>Boolean(q.part.flex)!==Boolean(part.flex)))throw Error(`${r.copy} is a ${part.flex?'TPU':'rigid'} part; keep TPU springs on their own plates.`);
   plate.placements.push({part,copy:r.copy,yaw,x:r.x,y:r.y,bounds:[x,y,w,h]});
  }
  // Keep intentional empty plates so the requested plate numbers remain stable.

@@ -14,7 +14,7 @@
 // World frame: X across the seam (seam plane X = 0, lever on +X), Y toward the shell (Y = 0 at the station
 // level), Z along the seam.
 
-part = "assembly";  // [assembly,lever,bar,keeper,spring,plate]
+part = "assembly";  // [assembly,lever,bar,keeper,spring,plate,installed_lever,installed_bar,installed_keeper,installed_spring]
 closed = true;      // assembly view: handle down (clamped) or up (open)
 $fn = 48;
 
@@ -128,14 +128,23 @@ module print_spring() multmatrix([[0, 1, 0, -hole_y], [0, 0, 1, 0], [1, 0, 0, -x
 
 module lever_world(c) translate([wall + (c ? hf : h_open), hole_y, 0]) rotate([0, 0, c ? 0 : 90]) lever();
 
+// installed poses in the station frame (no mock station); the PETAL generator bundles these for its assembly view
+module installed_lever()  lever_world(closed);
+module installed_bar()    translate([closed ? stroke : 0, 0, 0]) bar();
+module installed_keeper() translate([closed ? stroke : 0, 0, 0]) keeper();
+module installed_spring() { s = closed ? stroke : 0; translate([s + x_pf, 0, 0]) scale([(spring_t - pre - s) / spring_t, 1, 1]) translate([-x_pf, 0, 0]) spring(); }
+
 if (part == "assembly") {
-  s = closed ? stroke : 0;
   station();
-  color("dimgray") lever_world(closed);
-  color("firebrick") translate([s, 0, 0]) bar();
-  color("goldenrod") translate([s, 0, 0]) keeper();
-  color("khaki") translate([s + x_pf, 0, 0]) scale([(spring_t - pre - s) / spring_t, 1, 1]) translate([-x_pf, 0, 0]) spring();
+  color("dimgray") installed_lever();
+  color("firebrick") installed_bar();
+  color("goldenrod") installed_keeper();
+  color("khaki") installed_spring();
 }
+if (part == "installed_lever")  installed_lever();
+if (part == "installed_bar")    installed_bar();
+if (part == "installed_keeper") installed_keeper();
+if (part == "installed_spring") installed_spring();
 if (part == "lever")  print_lever();
 if (part == "bar")    print_bar();
 if (part == "keeper") print_keeper();
