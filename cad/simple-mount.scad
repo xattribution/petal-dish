@@ -48,6 +48,19 @@ cs4_d = 10.0;                       // 90° countersink at the face: M4 head (Ø
 up_screws = [[48, -32], [48, 32], [69, -32], [69, 32]];   // (x, y): two under the upright, two in the foot flange
 ch_x = 33; ch_screws = [-16, 0, 16];                       // cheek: three along z at x = 33
 up_screw_len = yoke_t + ins_len; ch_screw_len = plate_t + ins_len;   // flat-head length includes the head: plate + insert (16, 18)
+// inset joints: each arm ends in a tenon that drops into a matching pocket in its plate, for alignment and shear.
+// The pilots are deepened by the inset, so the screws above keep their length and full insert engagement.
+inset = 2;                          // tenon length = pocket depth
+fit = 0.2;                          // pocket clearance per side
+lead = 0.5;                         // 45° lead-in on the tenon's end edges
+ch_shoulder = 2;                    // the cheek tenon stands 2 mm inside its end face (not on the clamp-face side)
+ch_tz = cr_trim - ch_shoulder;      // tenon half-height at the clamp face (x = 40), 45° out to the inner side
+ch_tenon2d = [for (p = [[cr_in + ch_shoulder, -min(cr_z - ch_shoulder, ch_tz + cr_out - cr_in - ch_shoulder)], [cr_out, -ch_tz],
+                        [cr_out, ch_tz], [cr_in + ch_shoulder, min(cr_z - ch_shoulder, ch_tz + cr_out - cr_in - ch_shoulder)]]) p];   // (x, z)
+// two triangular ribs on the cheek's inner face at the plate end (top and bottom), bearing on the cradle plate;
+// they stay above/below the hub M4 bolt heads (z <= 25.7) and print standing up from the cheek
+rib_z = [28, 32]; rib_h = 9; rib_len = 22;
+up_tenon2d = [[up_in, -up_half], [foot_out, -up_half], [foot_out, up_half], [up_in, up_half]];   // (x, y): the whole upright footprint
 // stand holes (no base): M5 flat-head from the top of the yoke plate, away from the upright
 stand_pts = [[20, -45], [20, 45], [-44, -20], [-44, 20]];
 cs5_d = 12.0; m5 = 5.5;
@@ -105,6 +118,11 @@ module cs_hole(d, cs, depth) {
   translate([0,0,-1]) cylinder(d=cs, h=1.01, $fn=hfn);
   cylinder(d1=cs, d2=d - 0.01, h=(cs - d)/2 + 0.005, $fn=hfn);
 }
+// tenon: a 2D outline extruded inset deep (+Z from z = 0 is the arm side), with a 45° lead-in on the free end
+module tenon(pts) hull() {
+  translate([0,0,-inset]) linear_extrude(0.01) offset(delta=-lead) polygon(pts);
+  translate([0,0,-inset + lead]) linear_extrude(inset - lead + 0.01) polygon(pts);
+}
 module yoke2d() hull() { circle(r=disc_R, $fn=144); translate([0, -lobe_y]) square([lobe_x, 2*lobe_y]); }
 module up2d() hull() { translate([0, Z_el]) circle(r=cap_r); translate([-up_half, top]) square([2*up_half, 0.01]); }
 module cheek2d() hull() { circle(r=cap_r); translate([cr_mid, -cr_z]) square([L - plate_t - cr_mid, 2*cr_z]); }
@@ -133,6 +151,7 @@ module yoke() difference() {
   }
   translate([0,0,yoke_z - 1]) cylinder(d=m8, h=yoke_t + shoulder + 2, $fn=hfn);   // azimuth bolt
   translate([-0.5, -disc_R - 1, yoke_z - 1]) cube([1, 1.6, yoke_t + 2]);          // azimuth pointer groove (rear)
+  translate([0,0,top - inset]) linear_extrude(inset + shoulder + 1) offset(delta=fit) polygon(up_tenon2d);   // pocket for the upright's tenon
   for (s=up_screws) translate([s[0], s[1], yoke_z]) cs_hole(m4, cs4_d, yoke_t + 1); // upright joint, heads under the plate
   if (stand_holes) for (s=stand_pts) translate([s[0], s[1], top]) mirror([0,0,1]) cs_hole(m5, cs5_d, yoke_t + 1);
 }
@@ -141,6 +160,7 @@ module yoke() difference() {
 module upright() difference() {
   union() {
     yzslab(up_in, up_out, up_in) up2d();
+    translate([0,0,top]) tenon(up_tenon2d);                                        // drops into the yoke plate's pocket
     intersection() {                                                             // outer foot flange
       yz(up_out - 0.01, foot_out) up2d();
       xz(200) polygon([[up_out - 0.01, top], [foot_out, top], [foot_out, top + foot_h], [up_out - 0.01, top + foot_h + foot_out - up_out + 0.01]]);
@@ -148,7 +168,7 @@ module upright() difference() {
   }
   translate([up_in - 1, 0, Z_el]) rotate([0,90,0]) cylinder(d=m8, h=up_out - up_in + 2, $fn=hfn);   // elevation bolt
   // inserts: pilots horizontal in print, pointed roofs toward +X (print up)
-  for (s=up_screws) translate([s[0], s[1], top - 0.01]) linear_extrude(ins_deep + 0.01) tdrop(ins_d, 0);
+  for (s=up_screws) translate([s[0], s[1], top - inset - 0.01]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 0);
   if (arc_lock) yz(up_in - 1, up_out + 1) translate([0, Z_el]) arc_slot2d();
 }
 
@@ -159,18 +179,29 @@ module cradle() difference() {
   for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=hfn);
   // cheek joint: flat-heads from the hub face, heads flush (the dish hub bears on this face)
   for (z=ch_screws) translate([ch_x, L, z]) rotate([90,0,0]) cs_hole(m4, cs4_d, plate_t + 1);
+  // pocket for the cheek's tenon: the tenon's end and the cheek's end face both bear on the plate
+  translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) mirror([0,1,0]) linear_extrude(inset + 1) offset(delta=fit) polygon(ch_tenon2d);
 }
 
 // ---------- cheek: bolts onto the back of the cradle plate ----------
 module cheek() difference() {
-  yzslab(cr_in, cr_out, cr_out) cheek2d();
-  // keep the end face inside the plate rim: 45° chamfers on the clamp-face corners near the plate
-  for (s=[-1,1]) halfspace([1, 1, s], [cr_out, L - plate_t, s*cr_trim]);
+  union() {
+    difference() {
+      yzslab(cr_in, cr_out, cr_out) cheek2d();
+      // keep the end face inside the plate rim: 45° chamfers on the clamp-face corners near the plate
+      for (s=[-1,1]) halfspace([1, 1, s], [cr_out, L - plate_t, s*cr_trim]);
+    }
+    // tenon on the end face, flush with the clamp face, dropping into the cradle plate's pocket
+    translate([0, L - plate_t, 0]) rotate([90,0,0]) mirror([0,1,0]) tenon(ch_tenon2d);
+    // ribs: triangles in the XY plane from the inner face (x = cr_in) to the plate face (y = L - plate_t)
+    for (s=[-1,1]) translate([0, 0, s > 0 ? rib_z[0] : -rib_z[1]]) linear_extrude(rib_z[1] - rib_z[0])
+      polygon([[cr_in + 0.01, L - plate_t - rib_len], [cr_in + 0.01, L - plate_t], [cr_in - rib_h, L - plate_t]]);
+  }
   // elevation bolt: hex head in a pocket on the inner face (opens upward in print)
   translate([cr_in - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m8_head + 1) rotate(90) hex(m8_af);
   translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=m8, h=cr_out - cr_in + 2, $fn=hfn);
   // inserts in the end face: pilots horizontal in print, pointed roofs toward -X (print up)
-  for (z=ch_screws) translate([ch_x, L - plate_t + 0.01, z]) rotate([90,0,0]) linear_extrude(ins_deep + 0.01) tdrop(ins_d, 180);
+  for (z=ch_screws) translate([ch_x, L - plate_t + inset + 0.01, z]) rotate([90,0,0]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 180);
   if (arc_lock) translate([0, arc_r*cos(arc_phi), arc_r*sin(arc_phi)]) {
     translate([cr_in - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m6_head + 1) rotate(90) hex(m6_af);
     translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=arc_w, h=cr_out - cr_in + 2, $fn=hfn);
@@ -217,5 +248,6 @@ if (part == "matrices") {
   echo(FRAME = [base_t, yoke_t, Z_el, L, plate_t, cr_in, cr_out, up_in, up_out, cap_r]);
   echo(JOINT = [ins_d, ins_deep, ins_len, cs4_d, up_screw_len, ch_screw_len, len(up_screws), len(ch_screws), ch_x]);
   echo(UP_SCREWS = up_screws); echo(CH_SCREWS = ch_screws); echo(STAND = stand_pts);
+  echo(INSET = [inset, fit, lead, ch_shoulder]); echo(RIBS = [rib_z[0], rib_z[1], rib_h, rib_len]);
   echo(ARC = [arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len]);
 }
