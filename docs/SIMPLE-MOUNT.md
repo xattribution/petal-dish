@@ -37,6 +37,11 @@ The kinematic frame is the same for every option: elevation axis 94 mm above the
 - **One adjustment per axis.** Elevation is a single clamp on one side. It's asymmetric on purpose, so there's one wing nut to work instead of two.
 - **Split arms for print orientation.** The upright and the cheek print lying on their clamp faces. The clamp faces come out flat, both elevation bolt holes and the arc slot are vertical in the print, and the layers run along each arm, the way the dish bends it. The plates print on their bearing faces.
 - **Bolted joints that resist the moment both ways.** The upright stands on the yoke plate on 4 screws: two under the arm itself (x 48) and two in a foot flange on its outer side (x 69), 64 mm apart. The dish's weight tips the upright inward, which loads the flange screws, and anything that tips it outward loads the inner pair. A low shoulder on the plate locates the upright's inner face. The large triangular flare of the one-piece yoke is gone.
+- **Inset joints.** Each arm ends in a 2 mm tenon that drops into a matching pocket in its plate, with 0.2 mm clearance per side and a 0.5 mm lead-in. The tenon locates the arm and carries sideways shear, so the screws only clamp.
+  - The upright's tenon is its whole footprint, foot flange included, and it bears on the pocket floor.
+  - The cheek's tenon stands 2 mm inside its end face on the inner, top and bottom sides, and is flush with the clamp face so it prints without overhang. The tenon end and the end face both bear on the plate.
+  - The insert pilots are 2 mm deeper, so the screws keep their length and full engagement.
+- **Cheek ribs.** Two triangular ribs (9 × 22 mm, 4 mm thick) on the cheek's inner face, top and bottom at the plate end, stiffen the cheek where it meets the plate and bear on it. They clear the hub's M4 bolt heads and stand straight up in print.
 - **Countersunk heads, no bridges.** All joint and stand screws are 90° flat-heads. The countersinks open toward the bed, so their 45° cones print without support where a counterbore would need bridging. The heads finish flush or just below the face: under the yoke plate that is the azimuth bearing face, and on the cradle it is the face the dish hub bears on.
 - **Bigger faces to make up for one joint.** Both elevation arms are round, r 40 around the axis, about 50 cm² of contact.
 - **The cheek end stays inside the plate rim.** Its end face is 14 × 68 mm at the inner edge, with 45° chamfers at the outer corners, so all of it bears on the plate inside the rim chamfer. It clears the four hub bolt heads behind the plate.
@@ -90,7 +95,7 @@ Joint screw lengths are the plate thickness plus the 6 mm insert: the tips stop 
    - Heat-set 4 inserts into the pilots in the bottom of the upright and 3 into the cheek's end face, each flush with its face.
    - Let them cool. Scrape off any raised rim so the mating faces stay flat.
 2. **Upright on the yoke plate.**
-   - Stand the upright on the plate against the locating shoulder.
+   - Drop the upright's tenon into the pocket in the plate, against the locating shoulder.
    - Drive the 4 × M4 × 16 up through the plate from underneath. The heads must finish flush with or below the bottom face.
 3. **Base on the stand** (with the base).
    - Press the M8 nut into the pocket underneath.
@@ -99,7 +104,7 @@ Joint screw lengths are the plate thickness plus the 6 mm insert: the tips stop 
 4. **Yoke on the stand** (without the base).
    - Put the yoke plate, upright already fitted, on a flat stand.
    - Drive the 4 × M5 flat-heads down through its countersinks, heads flush. They are reached from above beside the upright, so do this before the cradle goes on.
-5. **Cheek on the cradle.** Fit the cheek to the back of the cradle plate with the 3 × M4 × 18 from the hub face, heads flush. Do this before the dish hub covers that face.
+5. **Cheek on the cradle.** Drop the cheek's tenon into the pocket in the back of the cradle plate, then fit it with the 3 × M4 × 18 from the hub face, heads flush. Do this before the dish hub covers that face.
 6. **Cradle on the dish.**
    - Push the 4 × M4 × 30 with washers through the cradle plate from behind, then through the hub.
    - Put a washer and nut on each in the Ø10 seats on the hub front and tighten.
@@ -139,7 +144,8 @@ It reads the print transforms from the SCAD, places all eight STLs with them, an
 
 - **Bed fit and printability:** closed, single-body meshes that fit the bed, and an overhang scan: nothing faces down more than 45° from vertical, and no bridges longer than 10 mm.
 - **Joints:**
-  - The upright sits flush on the yoke plate (30 cm²) and the cheek on the cradle plate (6.6 cm²), each face bearing fully.
+  - The upright sits flush on the yoke plate (30 cm²) and the cheek on the cradle plate (6.8 cm², ribs included), each face bearing fully.
+  - Each tenon drops into its pocket with 0.2 mm clearance and locks its arm sideways in every direction.
   - All 7 flat-heads seat with their heads flush and stop short of the pilot ends; the inserts fit their pilots with at least 2 mm of plastic around them.
   - The screws clear every other bolt, head and nut.
 - **Clamp contact:**

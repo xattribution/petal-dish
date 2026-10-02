@@ -16,6 +16,8 @@ with tempfile.TemporaryDirectory() as tmp:
 base_t, yoke_t, Z_el, L, plate_t, cr_in, cr_out, up_in, up_out, cap_r = INFO['FRAME']
 ins_d, ins_deep, ins_len, cs4_d, up_len, ch_len, n_up, n_ch, ch_x = INFO['JOINT']
 arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len = INFO['ARC']
+inset, fit, lead, ch_shoulder = INFO['INSET']
+rib_z0, rib_z1, rib_h, rib_len = INFO['RIBS']
 yoke_z = base_t; top = base_t + yoke_t
 m8_head = 5.5
 dish_d, fd = 400, 0.42
@@ -88,12 +90,12 @@ el_wing = along_x(cone(15, 15, 1.6), up_out) + along_x(cone(19.5, 19.5, 20), up_
 def flathead(length, r_head=4.48, k=2.48, r=2.0): return cone(r_head, r, k) + cone(r, r, length)
 def insert_at(length): return cone(ins_d / 2 - 0.05, ins_d / 2 - 0.05, length)
 up_scr = union([place(flathead(up_len), T([x, y, yoke_z])) for x, y in INFO['UP_SCREWS']])            # world
-up_ins = union([place(insert_at(ins_len), T([x, y, top])) for x, y in INFO['UP_SCREWS']])
-up_ring = union([place(cone(4.8, 4.8, ins_len) - cone(ins_d / 2, ins_d / 2, ins_len), T([x, y, top])) for x, y in INFO['UP_SCREWS']])
+up_ins = union([place(insert_at(ins_len), T([x, y, top - inset + 0.5])) for x, y in INFO['UP_SCREWS']])   # seated 0.5 below the tenon face
+up_ring = union([place(cone(4.8, 4.8, ins_len) - cone(ins_d / 2, ins_d / 2, ins_len), T([x, y, top - inset])) for x, y in INFO['UP_SCREWS']])
 to_minus_y = Rx(90)   # +Z -> -Y
 ch_scr = union([place(flathead(ch_len), T([ch_x, L, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])   # cradle frame
-ch_ins = union([place(insert_at(ins_len), T([ch_x, L - plate_t, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])
-ch_ring = union([place(cone(4.8, 4.8, ins_len) - cone(ins_d / 2, ins_d / 2, ins_len), T([ch_x, L - plate_t, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])
+ch_ins = union([place(insert_at(ins_len), T([ch_x, L - plate_t + inset - 0.5, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])
+ch_ring = union([place(cone(4.8, 4.8, ins_len) - cone(ins_d / 2, ins_d / 2, ins_len), T([ch_x, L - plate_t + inset, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])
 # hub bolts behind the cradle plate: M4 socket head Ø7 x 4 on a Ø9 x 1 washer, shank through the plate (cradle frame)
 hub_bolts = union([place(cone(2, 2, plate_t + 8) + place(cone(4.5, 4.5, 1), T([0, 0, -1])) + place(cone(3.5, 3.5, 4), T([0, 0, -5])),
                          T([30 * math.cos(math.radians(a)), L - plate_t, 30 * math.sin(math.radians(a))]) @ Rx(-90)) for a in (45, 135, 225, 315)])
@@ -128,9 +130,17 @@ def plane_area(n, M, normal, axis, value):   # area of the part's faces lying in
     m = P[n].copy().apply_transform(np.linalg.inv(np.array(INFO[M])))
     sel = (m.face_normals @ np.array(normal) > 0.999) & (abs(m.triangles_center[:, axis] - value) < 1e-3)
     return m.area_faces[sel].sum()
-fu, fc = plane_area("upright", "M_upright", [0, 0, -1], 2, top), plane_area("cheek", "M_cheek", [0, 1, 0], 1, L - plate_t)
+fu, fc = plane_area("upright", "M_upright", [0, 0, -1], 2, top - inset), plane_area("cheek", "M_cheek", [0, 1, 0], 1, L - plate_t)
 cu, cc = contact(upright, yoke, [0, 0, -1]), contact(cheek0, cradle0, [0, 1, 0])
-check(cu / fu > 0.98 and cc / fc > 0.98, f"mating faces bear fully: upright foot {min(100, 100*cu/fu):.0f}% on the yoke plate, cheek end face {min(100, 100*cc/fc):.0f}% on the cradle plate (inside its rim chamfer)")
+check(cu / fu > 0.98 and cc / fc > 0.98, f"mating faces bear fully: upright tenon {min(100, 100*cu/fu):.0f}% on the yoke pocket floor, cheek end face and ribs {min(100, 100*cc/fc):.0f}% on the cradle plate (inside its rim chamfer)")
+# inset joints: each tenon sits in its pocket with {fit} mm clearance and locks the arm sideways once it moves more than that
+lat = [(d, vol(place(upright, T(np.array(d) * (fit + 0.5))), yoke)) for d in ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0])] + \
+      [(d, vol(place(cheek0, T(np.array(d) * (fit + 0.5))), cradle0)) for d in ([1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1])]
+free = [vol(place(upright, T(np.array(d) * (fit - 0.05))), yoke) for d in ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0])] + \
+       [vol(place(cheek0, T(np.array(d) * (fit - 0.05))), cradle0) for d in ([1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1])]
+check(max(free) < 0.5 and min(v for _, v in lat) > 5, f"inset joints: {inset} mm tenons drop into their pockets with {fit} mm clearance and lock each arm sideways in every direction (min engagement {min(v for _, v in lat):.0f} mm³ at {fit + 0.5} mm)")
+ribs = vol(place(cheek0, T([0, 0.2, 0])), cradle0) - vol(place(cheek0, T([0, 0.2, 0])), cradle0 - place(m3.Manifold.cube([100, 100, 100]), T([-100 + cr_in, 0, -50])))
+check(ribs > 2 * (rib_z1 - rib_z0) * rib_h * 0.2 * 0.95, f"cheek ribs ({rib_h} x {rib_len} mm, {rib_z1 - rib_z0} mm thick) bear on the cradle plate ({ribs/0.2:.0f} mm² of contact)")
 wall_u = vol(up_ring, upright) / up_ring.volume(); wall_c = vol(ch_ring, cheek0) / ch_ring.volume()
 check(wall_u > 0.9 and wall_c > 0.9, f"insert bosses: ≥ 2 mm of plastic around each pilot ({100*wall_u:.0f}% / {100*wall_c:.0f}% solid, teardrop roofs excepted)")
 hw_world = [("azimuth bolt", az_bolt + az_head), ("wing nut", el_wing), ("stand screws", st_scr)]
