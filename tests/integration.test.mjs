@@ -24,7 +24,8 @@ for(const cfg of [{mountMode:1},{mountMode:1,mountThrough:0},{mountMode:1,mountB
  const assembled=sceneBounds(m),exploded=sceneBounds(m,1);assert(exploded.size.some((x,k)=>x>assembled.size[k]+1),'Exploded camera bounds include separated geometry');
  const count=m.parts.reduce((s,p)=>s+p.qty,0);assert.equal(m.plates.flatMap(p=>p.placements).length,count);
  for(const part of m.parts){assert(bounds(part.output).min[2]>-.00001);if(part.kind==='mount')fs.writeFileSync('tmp/system-validation/'+part.id+'.stl',Buffer.from(binarySTL(part.output)));}
- if(m.p.seamJoint){const p=m.parts.find(p=>p.kind==='clip');assert.equal(m.instances.filter(i=>i.part===p).length,p.installed);assert.equal(p.qty,p.installed+p.spares);assert(Math.abs(p.dim[2]-10)<.001);fs.writeFileSync('tmp/system-validation/clip.stl',Buffer.from(binarySTL(p.output)));}
+ if(m.p.seamJoint===3)for(const p of m.parts.filter(p=>p.kind==='lever')){assert.equal(m.instances.filter(i=>i.part===p).length,p.installed);assert.equal(p.qty,p.installed+p.spares);}
+ if(m.p.seamJoint===1||m.p.seamJoint===2){const p=m.parts.find(p=>p.kind==='clip');assert.equal(m.instances.filter(i=>i.part===p).length,p.installed);assert.equal(p.qty,p.installed+p.spares);assert(Math.abs(p.dim[2]-10)<.001);fs.writeFileSync('tmp/system-validation/clip.stl',Buffer.from(binarySTL(p.output)));}
  const snap=scadSource(m);assert(snap.includes('multmatrix'));assert(snap.includes('mount-cradle'));assert(snap.includes('mount-cheek'));assert.equal(manifest(m).hardware.some(x=>x.item==='azimuth clamp screw'),!!base);assert.equal(manifest(m).mount.base,!!base);
  console.log('PASS integrated mount, clips, source transforms, hardware and plates',cfg);
 }
