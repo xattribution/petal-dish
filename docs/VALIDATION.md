@@ -93,3 +93,13 @@ Independent trimesh reload of 36 structural binary STLs confirmed watertight, co
 - Offline DOM checks exercise mount controls, clip validation, manual plates and exports. Three generated PDF fixtures and ZIP contents pass text/page bounds checks; assembly and part pages were rendered for visual inspection.
 - Reproducible CAD snapshots are in `docs/snapshots`: run `node scripts/render-system.mjs` then `python3 scripts/render-system.py`. These are exact generated triangles with stock rod cylinders; fasteners and stand are omitted.
 - No physical prints, WebGL rendering test, RF measurement, load rating or warm-creep qualification is claimed. Follow `TEST_ARTICLE.md` before a full assembly.
+
+## Seam levers and M4 seam bolts
+
+- **Seam bolt size.** M3 keeps the revision 12 geometry (Ø3.4 bores, Ø10 seats). M4 cuts Ø4.5 bores with Ø11 seats and, with bolts only, 13 × 11 mm pads. Structural tests check open bores, a clear washer and nut envelope, and flat seat area for M4 with bolts only and with Both.
+- **Seam levers.** These use the Both station geometry. The bundled lever, draw bar, keeper and spring meshes come straight from `cad/seam-lever.scad` (`scripts/pack-lever.py`), for M3 and M4 holes. Tests on the 400 mm default and on a 600 mm two-ring staggered M4 dish check three things:
+  - every installed set clears the assembled dish;
+  - the lever bears on its flange when pushed 0.5 mm toward the wall, and the spring bears on the far flange;
+  - TPU springs never share a plate with rigid parts.
+- **Ring junctions.** At junctions the set flips to the open side. On the 600 mm two-ring dish, 6 of 48 stations have no room on either side and are scheduled for bolts.
+- **Not tested.** Clamp force, cam wear and spring creep are not modeled. Try one set on the seam strips first.
