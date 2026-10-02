@@ -37,13 +37,29 @@ def scad_info():
         info[k] = np.array(info[k], float)
     return info
 
+STL_DTYPE = np.dtype([('n', '<f4', 3), ('v', '<f4', (3, 3)), ('a', '<u2')])
+
+def canonical_stl(path):
+    """Rewrite a binary STL with a fixed header and a stable triangle order (OpenSCAD's order varies between runs),
+    so an unchanged model re-exports byte-identical and keeps its source_sha256."""
+    raw = path.read_bytes()
+    tri = np.frombuffer(raw, STL_DTYPE, int(np.frombuffer(raw, '<u4', 1, 80)[0]), 84)['v'].copy()
+    for t in tri:   # start each triangle at its lexicographically smallest corner, keeping the winding
+        k = min(range(3), key=lambda i: tuple(t[i])); t[:] = np.roll(t, -k, axis=0)
+    tri = tri[np.lexsort(tri.reshape(-1, 9).T[::-1])]
+    n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]); n /= np.maximum(np.linalg.norm(n, axis=1), 1e-12)[:, None]
+    rec = np.zeros(len(tri), STL_DTYPE); rec['n'] = n; rec['v'] = tri
+    path.write_bytes(b'PETAL simple mount, canonical order'.ljust(80, b' ') + np.uint32(len(tri)).tobytes() + rec.tobytes())
+
 def export():
     STL.mkdir(exist_ok=True)
     for name, (part, extra, _, _) in VARIANTS.items():
-        args = ['openscad', '--export-format', 'binstl', '-o', str(STL / f'simple-{name}.stl'), '-D', f'part="{part}"', '-D', 'printing=true']
+        out = STL / f'simple-{name}.stl'
+        args = ['openscad', '--export-format', 'binstl', '-o', str(out), '-D', f'part="{part}"', '-D', 'printing=true']
         for k, v in extra.items(): args += ['-D', f'{k}={v}']
         print('export', name, flush=True)
         subprocess.run(args + [str(SCAD)], check=True, capture_output=True)
+        canonical_stl(out)
 
 def main():
     if '--export' in sys.argv: export()
