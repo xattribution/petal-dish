@@ -1,82 +1,107 @@
-# PETAL 5.3 — integral-flange reflector prototype
+# PETAL — printable parabolic dish generator
 
-A browser/offline generator for a segmented parabolic dish, with an assembly viewer, side-oriented STLs, shared-bed packing and frequency-aware metal-rod feed supports.
+PETAL designs a segmented parabolic dish that you can print on an ordinary 3D printer. Enter the dish size and your printer's build volume. It splits the dish into petals that fit your bed and shows the assembly. Then it exports a ready-to-print kit: STLs, packed print plates, an illustrated assembly PDF and a hardware list.
 
-Open [the standalone app](dist/petal-5.3-offline.html) directly, or serve `dist/` locally. The app includes its solid-modeling kernel and works without a network connection.
+Everything runs in your browser, with no account, no upload and no server-side processing.
 
-**Start with the two seam test strips in the exported ZIP, then one full petal.** This version is an unprinted engineering prototype. A closed STL is not a print-process, load or RF qualification.
+![400 mm dish with seam clips, a prime-focus feed support and the aiming mount](docs/snapshots/assembly.png)
 
-## Self-host / illustrated PDF
+## Get started
 
-Use [the one-shot Linux installer](docs/SELF-HOSTING.md) to serve on port **56302** or a port you choose. It installs the web server and requirements, verifies the build, and creates a boot-persistent service. Use `--ref main` for the current merged release, or a full commit SHA to pin a build.
+Pick one of three ways to run it.
 
-Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exploded views, print-orientation part catalog, counts, hardware, instructions, finishing guidance and optional rod cuts. The **Assembly manual PDF** button downloads it separately. All of this works offline. The header shows **5.3 / build ID / flange joints** so an old downloaded file is easy to identify.
+### 1. Open the offline app (no install)
 
-## Simpler assembly
+Download **[`dist/petal-5.3-offline.html`](dist/petal-5.3-offline.html)** and open it in a browser. It is a single file with everything built in, and it works without a network connection.
 
-- Integral underside flanges replace separate seam brackets. Seams are fastened one of three ways, all behind the RF surface:
-  - **M3 bolts** (default): each bolt clamps between flat seats on both flanges, with a loose nut.
-  - **Snap clips**: solid printed blocks snap straight up over both flanges from behind. A cylindrical bump straight across each clip jaw clicks into a groove across each petal's flange, and low ridges either side keep the clip from sliding or twisting. Detent depth is a setting; the bump and groove follow it. No hardware; spring a jaw with a flat screwdriver to remove one.
-  - **Both**: every station has the bolt hole and the clip recess, so each one takes either.
-- Petals meet on flat mating faces with no keys, so every petal, including the last, slides in radially. The bolts or clips line the petals up and hold them; they must not pull warp out of the shell.
-- One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is curved by default to follow the dish; a flat structural face is optional.
-- Petal roots attach to the hub with blind heat-set inserts by default, so nothing pokes through the reflecting face. Through bolts in recessed front seats are an option.
-- The hub attaches to its mount with M4 through bolts and nuts by default; inserts are an option.
-- Petals print on a flat radial flange. Curved undersides are the default; optional small tangent-plane facets add little material and preserve the front parabola.
-- Larger dishes default to staggered rings with half-petal offsets and three-panel junctions. Shared polygon boundaries use integral cross-flanges; turn staggering off for aligned strips. The planner rejects layouts without space for joints or the printer.
-- Default 400 mm dish: six petals and one hub, two unique printed parts. Optional feed fittings add parts. This is a geometric simplification, not a demonstrated strength rating.
+### 2. Self-host on Linux (one command)
 
-**Interface revision 12 requires a complete regenerated kit.** Revision 12 changes three things:
-- flat seam seats replace the captive nut pockets;
-- the hub mount uses through bolts by default;
-- a flat or curved hub front is selectable (5.3 defaults to curved).
-
-Do not mix its petals or hub with revision 11 parts.
-
-## Clips and RF settings
-
-Clips export broad-side down, with the jaw profile in the layer plane. The initial detent is 0.3 mm. The UI shows estimated jaw strain and rejects a configuration above the entered strain budget. The default 1.5% is a design budget, not a material rating. Qualify the chosen unfilled PETG/ASA or custom material for repeated flexing at service temperature; do not use elongation at break as an allowable. Clip material is independent of rigid mount material. Fit-test filenames are unique at parameter limits.
-
-Frequency is always available under Shape. Choosing a flat hub displays its departure from the parabola; the curved hub is preferred for the RF face.
-
-## Arrange plates
-
-Under Side printing, open **Arrange print plates**. Assign each physical copy to a numbered plate, set X/Y from bed center and rotation on the bed, then Apply arrangement. The exported side-print orientation is preserved. Bounds and 6 mm clearance are checked before accepting changes. Reset automatic packing restores the planner. Shape/printer changes reset overrides; unapplied edits block exports. Plate STLs, PLATES.csv, parameters.json and the PDF carry the accepted arrangement. Overrides apply to this session/export; reloading starts a new arrangement. Empty plate numbers are retained but have no STL.
-
-## Print and assemble
-
-Read the kit's `ASSEMBLY.md`, `HARDWARE.csv` and `REFLECTOR.md`; the app's Print notes use the same source. Keep exported orientations. Add a brim and inspect every layer around flange roots, pointed bore roofs and clip detent grooves. No disposable supports are generated; local slicer supports may still be needed. Shared beds leave 6 mm between part bounds, permitting at most 3 mm individual brims. Print either packed beds or individual quantities, not both.
-
-PETG is a practical indoor fit-test material. ASA is an outdoor starting point with a controlled enclosure and thermal/creep testing. Four perimeters and locally solid pads are starting settings, not a strength guarantee. See [the test procedure](docs/TEST_ARTICLE.md) and [engineering limits](docs/ENGINEERING.md).
-
-Hardware by default:
-- **Seams:** M3 × 16 socket heads (none with snap clips), with a 0.5 mm washer under the head and under the nut, and ordinary M3 nuts.
-- **Roots:** M4 × 12 from the hub rear into short heat-set inserts (maximum 6 mm long), with 1 mm washers.
-- **Mount:** M4 through bolts. Use the generated length for the actual hub and adapter. Blind inserts require the shorter engagement-limited screw.
-
-The generated schedule gives quantities. If you choose inserts, their pilot must match the actual supplier and filament.
-
-## RF finish and feed supports
-
-Printed plastic needs a conductive surface and an appropriate RF feed. Thin aluminum foil tape with specified conductive adhesive is the baseline finishing approach; copper foil or a specified conductive coating are alternatives. Mask joints, align first and bridge seams afterward without tensioning the dish. Ordinary metallic paint is not evidence of adequate conductivity. See [REFLECTOR.md](docs/REFLECTOR.md) for preparation and source references.
-
-Optional three/four-rod supports retain compact bolted rim shoes and a round puck. Smooth solid aluminum rod defaults to 6.35 mm (1/4 inch); generated socket angles and `RODS.csv` give the actual cuts. Frequency informs accuracy budgets, rod screening and experimental Cassegrain secondary sizing. A fixed parabola's focal point does not move with frequency. Prime-focus offsets require the actual feed phase center. See [FEED-OPTICS.md](docs/FEED-OPTICS.md).
-
-The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Enable it under **Aiming mount** to include all three parts in the viewer, kit, plates and PDF. Set azimuth/elevation to check the selected pose and report stand clearance now and over the displayed elevation range. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten. No load rating or complete motion-path certification is implied.
-
-The screwless [seam lever](docs/SEAM-LEVER.md) (`cad/seam-lever.scad`) is a quick-release cam clamp for **Both**-mode seam stations: a lever, draw bar, keeper and TPU spring, with STL sets for the current M3 holes and for M4.
-
-## Develop and validate
-
-```sh
-npm ci
-npm test
-npm run test:ui
-npm run test:scad   # requires OpenSCAD
-npm run docs
-npm run build
+```bash
+curl -fL https://raw.githubusercontent.com/xattribution/petal-dish/main/scripts/install-linux.sh -o /tmp/petal-install.sh \
+  && sudo bash /tmp/petal-install.sh --port 56302 --ref main
 ```
 
-`dist/geometry.js` builds structural solids, `mesh.js` supplies mesh/packing/export utilities, and `solid.js` owns Manifold WASM lifetimes. `feed.js` retains the optics and feed fittings. `exports.js` is the source for generated instructions. `app.bundle.js` and `petal-5.3-offline.html` are reproducible build outputs.
+Then open `http://SERVER-IP:56302`. The installer sets up a small verified web server and a boot-persistent `petal` service.
 
-Legacy straps, recessed seam plates, through-face seam fastener modes, perforations, two-facet bulk backs and sacrificial support modes have been removed. Git history preserves earlier implementations; they are not shipped in the current generator.
+| Option | Meaning |
+|---|---|
+| `--port N` | Listen on port N (default 56302) |
+| `--ref REF` | Install a branch, tag or full commit SHA (default `main`) |
+| `--localhost` | Bind to 127.0.0.1 only, e.g. behind your own reverse proxy |
+
+To update, re-run the same command. For status, logs and rollback, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+
+### 3. Run from source
+
+```bash
+git clone https://github.com/xattribution/petal-dish.git && cd petal-dish
+npm ci
+npm run build                      # rebuilds dist/app.bundle.js and the offline file
+python3 -m http.server 8080 -d dist  # then open http://localhost:8080
+```
+
+## Using it
+
+1. **Shape:** set the dish diameter, the focal ratio (f/D) and, optionally, the frequency.
+2. **Printer:** pick your build volume. PETAL chooses how many petals and rings are needed.
+3. **Joints:** pick how the seams fasten and how the petals attach to the hub (options below).
+4. **Extras:** optionally add a feed or secondary-reflector support, and the aiming mount.
+5. **Export kit (ZIP):** this gives you every STL in its print orientation, packed plates, `ASSEMBLY.pdf`, `HARDWARE.csv` and the fit-test parts.
+6. **Print the two seam test strips first**, then one full petal, before printing the whole dish.
+
+The default 400 mm dish is six petals plus one hub: two unique parts, each with a flat flange down on the bed.
+
+## Options at a glance
+
+| Choice | Options |
+|---|---|
+| **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) |
+| **Petal roots to hub** | Blind M4 heat-set inserts, keeping the reflecting face closed (default) · M4 through bolts in recessed seats |
+| **Hub to mount** | M4 through bolts (default) · blind M4 inserts. Four on a 60 mm bolt circle around a clear Ø30 mm center |
+| **Hub front** | Curved, following the dish (default) · flat |
+| **Underside** | Smooth curved shell (default) · small flat facets |
+| **Large dishes** | Staggered rings (default) · aligned rings |
+| **Feed support** | None · prime focus · Cassegrain secondary (experimental), on 3 or 4 aluminum rods with generated cut lengths |
+| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock, and an optional printed base (or bolt the turntable straight to a stand) ([details](docs/SIMPLE-MOUNT.md)) |
+
+All seam hardware stays behind the reflecting face.
+
+## Documentation
+
+- [ASSEMBLY / print notes](docs/DEFAULT-ASSEMBLY.md): the generated instructions for the default dish. Your kit includes a version for your exact settings.
+- [Test article procedure](docs/TEST_ARTICLE.md): what to print and measure first.
+- [Reflective surface](docs/REFLECTOR.md): foil tape and conductive coatings.
+- [Feed optics and rod supports](docs/FEED-OPTICS.md)
+- [Aiming mount](docs/SIMPLE-MOUNT.md) · [Seam lever](docs/SEAM-LEVER.md)
+- [Engineering limits](docs/ENGINEERING.md) · [Validation record](docs/VALIDATION.md)
+- [Self-hosting](docs/SELF-HOSTING.md)
+
+## Status and limits
+
+PETAL is an **engineering prototype that has not been printed or tested**. A closed STL is not a load, weather or RF rating. Printed plastic needs a conductive finish and a proper RF feed before it works as an antenna. Interface revision 12 parts are not compatible with older kits, so regenerate the whole kit after changing settings. PETG is fine for indoor fit tests. Use ASA for outdoor trials, with a controlled enclosure.
+
+## Develop
+
+```bash
+npm ci
+npm test              # geometry, feed, plates, rings, integration
+npm run test:ui       # builds, then drives the offline app in jsdom
+npm run test:scad     # snapshot renders vs. JS geometry (needs OpenSCAD)
+npm run test:pdf      # manual PDF fixtures (needs Python)
+npm run build         # dist/app.bundle.js, petal-5.3-offline.html, BUILD.json
+```
+
+The app sources live in `dist/`:
+
+- `geometry.js`: dish, flanges, hub and seam fasteners
+- `mount.js`: the aiming mount
+- `feed.js`: optics and feed supports
+- `exports.js`: kit, guide and manifest
+- `manual.js`: the PDF
+
+The printed accessories are OpenSCAD sources in `cad/`. After editing them, regenerate the bundled meshes:
+
+- `python3 scripts/pack-mount.py` for the mount
+- `python3 scripts/pack-lever.py` for the seam lever (needs OpenSCAD and `trimesh`)
+
+`app.bundle.js` and the offline HTML are reproducible build outputs. Earlier designs remain in git history.

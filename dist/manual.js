@@ -8,7 +8,7 @@ import {VERSION,BUILD_ID} from './version.js';
 // Vector views use the exported triangles. No WebGL, screenshots or network.
 const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);
 const clean=s=>String(s).replace(/[–—−]/g,'-').replace(/×/g,'x').replace(/Ø/g,'dia. ').replace(/°/g,' deg').replace(/λ/g,'lambda').replace(/δ/g,'delta').replace(/ν/g,'nu').replace(/³/g,'3').replace(/²/g,'2').replace(/[’‘]/g,"'").replace(/[“”]/g,'"').replace(/→/g,' -> ').replace(/[≤≥]/g,c=>c==='≤'?'<=':'>=').replace(/[^\x20-\x7e\n]/g,' ');
-const colors={panel:[105,147,174],hub:[194,143,67],feed:[74,144,119],mount:[85,115,150],clip:[219,142,65]};
+const colors={panel:[105,147,174],hub:[194,143,67],feed:[74,144,119],mount:[85,115,150],clip:[219,142,65],lever:[196,86,72]};
 export function drawModel(doc,m,{x,y,w,h,exploded=false,rear=false,part=null,labels=false}){
  const az=-Math.PI/3,el=(rear?-38:30)*Math.PI/180,eye=[Math.cos(az)*Math.cos(el),Math.sin(az)*Math.cos(el),Math.sin(el)],right=[-Math.sin(az),Math.cos(az),0],up=[-Math.cos(az)*Math.sin(el),-Math.sin(az)*Math.sin(el),Math.cos(el)];
  const project=v=>[dot(v,right),-dot(v,up),dot(v,eye)],triangles=[],points=[],centers=new Map();
