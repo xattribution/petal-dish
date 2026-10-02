@@ -82,3 +82,14 @@ Validation covers 15 structural configurations, including aligned and staggered 
 These are geometry/software checks. Print a three-panel staggered junction and verify alignment, tool access and side-print overhangs before committing to all rings. No measured strength improvement, slicer toolpath, wind/creep rating or RF performance is established.
 
 Independent trimesh reload of 36 structural binary STLs confirmed watertight, consistently wound, connected positive-volume solids. Mesh cleanup now cancels coincident opposite triangle pairs, collapses sub-resolution connected edges, and refuses unresolved topology rather than exporting a broken seam.
+
+
+## 5.3 system integration (2026-10-01)
+
+- Full structural, feed, plate and ring regression suite passed, plus five integrated mount configurations: through and blind hub hardware, minimum clip elevation, 600 mm staggered rings with four rods, and a 24 GHz secondary configuration at 90° elevation.
+- Mount/dish intersection checks run during generation. Shared affine transforms drive browser, SCAD and PDF assemblies. Stand clearance is calculated at the selected pose and over the permitted elevation interval; it does not replace a continuous collision test or include the stand, cables and metal hardware.
+- Canonical mount STL checks passed for manifoldness, interfaces, sampled angular motion and tool access. Exported mount parts and the side-oriented clip had no >45° downward regions or flat ceilings in the triangle-normal printability scan. Slicer toolpaths remain untested.
+- Clip tests cover the strain rejection threshold, broad-side print orientation, unique coupon names at tolerance limits, and installed/spare counts. The default detent is 0.3 mm; the user-entered 1.5% strain budget is not a certified material allowable.
+- Offline DOM checks exercise mount controls, clip validation, manual plates and exports. Three generated PDF fixtures and ZIP contents pass text/page bounds checks; assembly and part pages were rendered for visual inspection.
+- Reproducible CAD snapshots are in `docs/snapshots`: run `node scripts/render-system.mjs` then `python3 scripts/render-system.py`. These are exact generated triangles with stock rod cylinders; fasteners and stand are omitted.
+- No physical prints, WebGL rendering test, RF measurement, load rating or warm-creep qualification is claimed. Follow `TEST_ARTICLE.md` before a full assembly.

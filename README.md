@@ -1,8 +1,8 @@
-# PETAL 5.2 — integral-flange reflector prototype
+# PETAL 5.3 — integral-flange reflector prototype
 
 A browser/offline generator for a segmented parabolic dish, with an assembly viewer, side-oriented STLs, shared-bed packing and frequency-aware metal-rod feed supports.
 
-Open [the standalone app](dist/petal-5.2-offline.html) directly, or serve `dist/` locally. The app includes its solid-modeling kernel and works without a network connection.
+Open [the standalone app](dist/petal-5.3-offline.html) directly, or serve `dist/` locally. The app includes its solid-modeling kernel and works without a network connection.
 
 **Start with the two seam test strips in the exported ZIP, then one full petal.** This version is an unprinted engineering prototype. A closed STL is not a print-process, load or RF qualification.
 
@@ -10,7 +10,7 @@ Open [the standalone app](dist/petal-5.2-offline.html) directly, or serve `dist/
 
 Use [the one-shot Linux installer](docs/SELF-HOSTING.md) to serve on port **56302** or a port you choose. It installs the web server and requirements, verifies the build, and creates a boot-persistent service. While this PR is unmerged, select `--ref codex/integral-flange-petals`; `main` still contains the older generator.
 
-Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exploded views, print-orientation part catalog, counts, hardware, instructions, finishing guidance and optional rod cuts. The **Assembly manual PDF** button downloads it separately. All of this works offline. The header shows **5.2 / build ID / flange joints** so an old downloaded file is easy to identify.
+Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exploded views, print-orientation part catalog, counts, hardware, instructions, finishing guidance and optional rod cuts. The **Assembly manual PDF** button downloads it separately. All of this works offline. The header shows **5.3 / build ID / flange joints** so an old downloaded file is easy to identify.
 
 ## Simpler assembly
 
@@ -19,7 +19,7 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
   - **Snap clips**: solid printed blocks snap straight up over both flanges from behind. A cylindrical bump straight across each clip jaw clicks into a groove across each petal's flange, and low ridges either side keep the clip from sliding or twisting. Detent depth is a setting; the bump and groove follow it. No hardware; spring a jaw with a flat screwdriver to remove one.
   - **Both**: every station has the bolt hole and the clip recess, so each one takes either.
 - Petals meet on flat mating faces with no keys, so every petal, including the last, slides in radially. The bolts or clips line the petals up and hold them; they must not pull warp out of the shell.
-- One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is flat by default; a curved front that follows the dish is an option.
+- One rear hub, a clear Ø30 mm opening, and four M4 mounts on Ø60 mm BCD. The hub front is curved by default to follow the dish; a flat structural face is optional.
 - Petal roots attach to the hub with blind heat-set inserts by default, so nothing pokes through the reflecting face. Through bolts in recessed front seats are an option.
 - The hub attaches to its mount with M4 through bolts and nuts by default; inserts are an option.
 - Petals print on a flat radial flange. Curved undersides are the default; optional small tangent-plane facets add little material and preserve the front parabola.
@@ -29,9 +29,15 @@ Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exp
 **Interface revision 12 requires a complete regenerated kit.** Revision 12 changes three things:
 - flat seam seats replace the captive nut pockets;
 - the hub mount uses through bolts by default;
-- the hub front is flat by default.
+- a flat or curved hub front is selectable (5.3 defaults to curved).
 
 Do not mix its petals or hub with revision 11 parts.
+
+## Clips and RF settings
+
+Clips export broad-side down, with the jaw profile in the layer plane. The initial detent is 0.3 mm. The UI shows estimated jaw strain and rejects a configuration above the entered strain budget. The default 1.5% is a design budget, not a material rating. Qualify the chosen unfilled PETG/ASA or custom material for repeated flexing at service temperature; do not use elongation at break as an allowable. Clip material is independent of rigid mount material. Fit-test filenames are unique at parameter limits.
+
+Frequency is always available under Shape. Choosing a flat hub displays its departure from the parabola; the curved hub is preferred for the RF face.
 
 ## Arrange plates
 
@@ -46,7 +52,7 @@ PETG is a practical indoor fit-test material. ASA is an outdoor starting point w
 Hardware by default:
 - **Seams:** M3 × 16 socket heads (none with snap clips), with a 0.5 mm washer under the head and under the nut, and ordinary M3 nuts.
 - **Roots:** M4 × 12 from the hub rear into short heat-set inserts (maximum 6 mm long), with 1 mm washers.
-- **Mount:** M4 through bolts. Use 18 mm plus your adapter thickness.
+- **Mount:** M4 through bolts. Use the generated length for the actual hub and adapter. Blind inserts require the shorter engagement-limited screw.
 
 The generated schedule gives quantities. If you choose inserts, their pilot must match the actual supplier and filament.
 
@@ -56,7 +62,7 @@ Printed plastic needs a conductive surface and an appropriate RF feed. Thin alum
 
 Optional three/four-rod supports retain compact bolted rim shoes and a round puck. Smooth solid aluminum rod defaults to 6.35 mm (1/4 inch); generated socket angles and `RODS.csv` give the actual cuts. Frequency informs accuracy budgets, rod screening and experimental Cassegrain secondary sizing. A fixed parabola's focal point does not move with frequency. Prime-focus offsets require the actual feed phase center. See [FEED-OPTICS.md](docs/FEED-OPTICS.md).
 
-The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten.
+The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Enable it under **Aiming mount** to include all three parts in the viewer, kit, plates and PDF. Set azimuth/elevation to check the selected pose and report stand clearance now and over the displayed elevation range. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten. No load rating or complete motion-path certification is implied.
 
 ## Develop and validate
 
@@ -69,6 +75,6 @@ npm run docs
 npm run build
 ```
 
-`dist/geometry.js` builds structural solids, `mesh.js` supplies mesh/packing/export utilities, and `solid.js` owns Manifold WASM lifetimes. `feed.js` retains the optics and feed fittings. `exports.js` is the source for generated instructions. `app.bundle.js` and `petal-5.2-offline.html` are reproducible build outputs.
+`dist/geometry.js` builds structural solids, `mesh.js` supplies mesh/packing/export utilities, and `solid.js` owns Manifold WASM lifetimes. `feed.js` retains the optics and feed fittings. `exports.js` is the source for generated instructions. `app.bundle.js` and `petal-5.3-offline.html` are reproducible build outputs.
 
 Legacy straps, recessed seam plates, through-face seam fastener modes, perforations, two-facet bulk backs and sacrificial support modes have been removed. Git history preserves earlier implementations; they are not shipped in the current generator.

@@ -11,13 +11,19 @@ Three printed parts and one clamp per axis. Each clamp is two flat faces squeeze
 | Elevation | −10° to 100°, checked with the dish fitted. The cradle's cheek clamps against the inside of the yoke's upright, with one wing nut |
 | Scale | Azimuth grooves down the base rim every 5°, wide every 10°, read at the groove on the back of the yoke |
 | Mounting | 4 × M5 flat-head through the base |
-| Supports | None |
+| Supports | Overhang scan passes; inspect your slicer toolpath |
+
+## Generator integration
+
+Enable **Aiming mount** in PETAL 5.3. The app embeds the canonical STLs, applies the same assembly transforms in the viewer/PDF/SCAD snapshot, includes mount parts in plate packing, and checks printed-part interference at the selected pose. It reports the below-base clearance at that pose and the geometric minimum stand height across the displayed elevation range. Add stand/cable/handling margin. The stand, hardware envelopes and complete collision sweep are not runtime-certified.
+
+For **blind hub inserts**, use M4 × 18 through the 12 mm cradle with a 1 mm head washer, nominal 5 mm entry. Never use the through-bolt length in a blind insert. For **through bolts**, use the generated schedule; M4 × 30 is the default 400 mm setup.
 
 ## Design choices
 
 - **One adjustment per axis.** Elevation is a single clamp on one side. It's asymmetric on purpose, so there's one wing nut to work instead of two.
 - **Bigger faces to make up for one joint.** Both clamp faces are round, r 35 around the elevation axis. They share about 39 cm² of contact.
-- **Flared, not thin.** The upright and the cheek are straight only where they clamp. Below that they flare out on every side, all the way to the edges of their plates: the upright across the yoke plate, and the cheek across the hub plate up to the hub screws. No thin wall meets a plate at a right angle. FDM parts are several times weaker across layers than along them, so the flare spreads that load.
+- **Flared, not thin.** The upright and the cheek are straight only where they clamp. Below that they flare out on every side, all the way to the edges of their plates: the upright across the yoke plate, and the cheek across the hub plate up to the hub screws. No thin wall meets a plate at a right angle. Layer adhesion is process- and material-dependent; the flare spreads load into the plate.
 - **Clamp faces where they print best.** The azimuth faces print against the bed, so they come out flat and smooth.
 
 ![Elevation clamp from the rear](simple-mount-clamps.png)
@@ -34,7 +40,7 @@ STLs are in `cad/STL/`, already in print orientation.
 
 ![Print orientation](simple-mount-print.png)
 
-**Material:** print all three in ASA-GF. Glass fill creeps less under clamp pressure and stands up to sun.
+**Material:** use a qualified ASA or reinforced ASA profile for the rigid mount parts, with slip and warm-creep tests. This is separate from the flexible clip material; filled filament is not automatically suitable for repeatedly flexed snaps.
 
 **Print settings:**
 - 5–6 walls.
@@ -82,8 +88,8 @@ STLs are in `cad/STL/`, already in print orientation.
 
 - **Elevation:**
   - About 1.2 N·m per kg of dish at the horizon.
-  - As a rough estimate, a hand-tight M8 at about 1.5 kN on the r 35 faces gives about 10 N·m of grip.
-  - If it creeps, swap the wing nut for a hex nut and a wrench.
+  - Grip depends on actual preload, friction, contact and temperature; no allowable holding torque is established.
+  - If it creeps, stop and review preload, material, bearing stress and clamp design. Do not solve slip by indefinitely increasing torque.
 - **Off-center load:** the dish sits about 40 mm off the clamp. The single joint carries that sideways moment through the full face and the bolt.
 - **Azimuth:** only wind loads it, over 99 cm² of contact.
 

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import {build} from 'esbuild';
-const version='5.2',offline=`petal-${version}-offline.html`,hash=crypto.createHash('sha256');
+import {INTERFACE_REVISION} from '../dist/interface.js';
+const version='5.3',offline=`petal-${version}-offline.html`,hash=crypto.createHash('sha256');
 for(const name of fs.readdirSync('dist').filter(x=>/\.(js|css|html)$/.test(x)&&!['app.bundle.js','version.js','petal-offline.html',offline].includes(x)).sort())hash.update(name).update(fs.readFileSync('dist/'+name));
 hash.update(fs.readFileSync('package-lock.json')).update(fs.readFileSync('scripts/pack-offline.mjs'));
 const id=hash.digest('hex').slice(0,12);
@@ -17,5 +18,5 @@ fs.writeFileSync('dist/'+offline,html);
 // The stable old filename now redirects instead of retaining another full copy.
 fs.writeFileSync('dist/petal-offline.html',`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${offline}"><title>PETAL ${version}</title><a href="${offline}">Download PETAL ${version} offline</a>\n`);
 const files=Object.fromEntries(['index.html','app.bundle.js','style.css',offline,'petal-offline.html'].map(name=>[name,crypto.createHash('sha256').update(fs.readFileSync('dist/'+name)).digest('hex')]));
-fs.writeFileSync('dist/BUILD.json',JSON.stringify({version,build:id,interface:11,offline_file:offline,files},null,2)+'\n');
+fs.writeFileSync('dist/BUILD.json',JSON.stringify({version,build:id,interface:INTERFACE_REVISION,offline_file:offline,files},null,2)+'\n');
 console.log(`PETAL ${version} build ${id}: offline ${Buffer.byteLength(html)} bytes; embedded geometry and PDF engines.`);

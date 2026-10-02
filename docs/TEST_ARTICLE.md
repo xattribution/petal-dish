@@ -1,7 +1,7 @@
 # First test article
 
-1. Export the default curved PETAL 5.2 kit. Keep one parameter set and material profile for every matching piece.
-2. Print TWO copies of `FIT_TEST/seam-strip-print-two.stl`, preserving orientation. These full-width cropped petal strips reproduce the lower and upper edge print conditions and include a key and screw station. Fit their neighboring edges at the intended dish angle; do not flatten the pair onto a table. Check the faces sit flat, then try the fastener: the M3 × 16 screw, washers and loose nut, or with clips, the three fit-test clips. Check insertion, layer flare, that both seats are flat (especially the upper flange's, which prints as a short overhang), tool access and seam step before/after snugging.
+1. Export the default curved PETAL 5.3 kit. Keep one parameter set and material profile for every matching piece.
+2. Print TWO copies of `FIT_TEST/seam-strip-print-two.stl`, preserving orientation. These full-width cropped petal strips reproduce the lower and upper edge print conditions and include flat mating faces and a fastening station. Fit their neighboring edges at the intended dish angle; do not flatten the pair onto a table. Check the faces sit flat, then try the fastener: the M3 × 16 screw, washers and loose nut, or with clips, the distinct fit-test clips. Check insertion, layer flare, that both seats are flat (especially the upper flange's, which prints as a short overhang), tool access and seam step before/after snugging.
 3. If the faces don't sit flat, correct first-layer flare or process error before going further. Do not use bolt torque or clips to pull a gap closed.
 4. Print one full petal with a brim. Inspect layer previews first; use local slicer supports if needed. Measure the full radial and cross-petal profiles against the generated parabola. A short strip cannot reveal full-length warp.
 5. Test the specified short M4 insert on a scrap with the same pilot, then install the root insert. Inserts are a maximum of 6 mm long in a 7 mm cavity, with the mouth recessed 0.5 mm; check heat distortion and actual engagement. With the through-bolt root option instead, check that the M4 × 20 head sits below the front surface and that the seat doesn't crush when tightened.
@@ -10,3 +10,5 @@
 8. Measure again at several elevations and after a warm hold representative of service. Check loosening, creep and seat/flange movement. Only then apply conductive finish and repeat profile/continuity checks.
 
 No torque, wind or payload rating has been established. Begin with a restrained bench fixture and no valuable feed equipment. The foil finish can concentrate sunlight: keep it away from the Sun during handling.
+
+For clips, print broad side down as exported. Cycle each candidate repeatedly and reject cracking, whitening, weak retention or warm creep. For the integrated mount, verify the hub/cradle stack before fitting screws: the blind-insert configuration uses M4 × 18 with a 1 mm washer through the 12 mm cradle. Set stand height from the reported full elevation-range clearance plus cable/handling margin. Restrain the dish during clamp-slip and warm-hold trials.

@@ -55,7 +55,7 @@ To roll back manually, stop PETAL, point `/opt/petal/current` to a retained rele
 
 ## Offline edition and stale copies
 
-The current standalone download is `petal-5.2-offline.html`. It contains both the geometry and PDF engines. Open that file itself in a browser; a mail/file-manager HTML preview may disable JavaScript. Expect **PETAL 5.2**, a build ID, and **flange joints** in the header, seven default printed parts, and an Assembly manual PDF button. Legacy strap/plate selectors indicate an older file.
+The current standalone download is `petal-5.3-offline.html`. It contains both the geometry and PDF engines. Open that file itself in a browser; a mail/file-manager HTML preview may disable JavaScript. Expect **PETAL 5.3**, a build ID, and **flange joints** in the header, seven default printed parts, and an Assembly manual PDF button. Legacy strap/plate selectors indicate an older file.
 
 The old hosted `petal-offline.html` URL redirects to the versioned download. That small redirect is not itself an offline app. Previously downloaded files do not update themselves: download the new version explicitly and remove or rename old copies.
 

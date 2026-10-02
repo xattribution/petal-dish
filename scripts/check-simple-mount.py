@@ -32,7 +32,7 @@ def vol(a, b): return (a ^ b).volume()
 
 # ---- load / bed fit ----
 names = ["base", "yoke", "cradle"]
-P = {n: trimesh.load(f"{D}/{n}.stl") for n in names}
+P = {n: trimesh.load(f"{D}/simple-{n}.stl") for n in names}
 for n, m in P.items():
     e = m.extents
     check(m.is_watertight and m.body_count == 1 and abs(m.bounds[0][2]) < 1e-3 and e[0] <= 204 and e[1] <= 204 and e[2] <= 248,
@@ -102,7 +102,7 @@ reach = [th for th in range(-10, 101, 10) if vol(key, yoke + at_el(cradle0, th) 
 check(reach and min(reach) <= 0, f"hex key reaches the azimuth bolt straight down at el {min(reach)}° to {max(reach)}°")
 
 # ---- hub interface ----
-cr = trimesh.load(f"{D}/cradle.stl"); cr.apply_transform(np.linalg.inv(T([0, 0, L]) @ Rx(-90)))
+cr = trimesh.load(f"{D}/simple-cradle.stl"); cr.apply_transform(np.linalg.inv(T([0, 0, L]) @ Rx(-90)))
 def open_along(mesh, pts, d): return ~mesh.ray.intersects_any(np.array(pts, float), np.tile(d, (len(pts), 1)))
 ph = [[30 * math.cos(math.radians(a)), L - 30, 30 * math.sin(math.radians(a))] for a in (45, 135, 225, 315)] + [[0, L - 30, 0], [14, L - 30, 0]]
 check(open_along(cr, ph, [0, 1, 0]).all(), "cradle: 4 x M4 on 60 BCD and Ø34 port open, with straight access from behind")
