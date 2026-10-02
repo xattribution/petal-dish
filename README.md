@@ -64,6 +64,8 @@ Optional three/four-rod supports retain compact bolted rim shoes and a round puc
 
 The all-printed [simple alt-az mount](docs/SIMPLE-MOUNT.md) (`cad/simple-mount.scad`) is three parts: a base, a yoke and a cradle. Enable it under **Aiming mount** to include all three parts in the viewer, kit, plates and PDF. Set azimuth/elevation to check the selected pose and report stand clearance now and over the displayed elevation range. Each axis is one flat-on-flat clamp with one M8 bolt; loosen, aim, tighten. No load rating or complete motion-path certification is implied.
 
+The screwless [seam lever](docs/SEAM-LEVER.md) (`cad/seam-lever.scad`) is a quick-release cam clamp for **Both**-mode seam stations: a lever, draw bar, keeper and TPU spring, with STL sets for the current M3 holes and for M4.
+
 ## Develop and validate
 
 ```sh
