@@ -7,16 +7,16 @@ PETAL runs entirely in the browser. The server only delivers static files; model
 Download [install-linux.sh](../scripts/install-linux.sh), then run:
 
 ```bash
-sudo bash install-linux.sh --port 56302 --ref codex/integral-flange-petals
+sudo bash install-linux.sh --port 56302 --ref main
 ```
 
 Or download and install in one command (requires curl for this initial download):
 
 ```bash
-curl -fL https://raw.githubusercontent.com/xattribution/petal-dish/codex/integral-flange-petals/scripts/install-linux.sh -o /tmp/petal-install.sh && sudo bash /tmp/petal-install.sh --port 56302 --ref codex/integral-flange-petals
+curl -fL https://raw.githubusercontent.com/xattribution/petal-dish/main/scripts/install-linux.sh -o /tmp/petal-install.sh && sudo bash /tmp/petal-install.sh --port 56302 --ref main
 ```
 
-**While PR #3 is unmerged, keep the explicit branch above.** The older `main` branch does not contain this installer or the flange/PDF generator. After merging, use the same command with `main` in the download URL and `--ref main`. A commit SHA or tag can be used instead of a branch for repeatable installs.
+The commands install the current merged release from `main`. A commit SHA or tag can be used instead of a branch for repeatable installs.
 
 Change `56302` to your preferred TCP port (1-65535). Open `http://SERVER-IP:56302`. Add `--localhost` to bind only 127.0.0.1, for example behind an existing reverse proxy.
 
@@ -55,7 +55,7 @@ To roll back manually, stop PETAL, point `/opt/petal/current` to a retained rele
 
 ## Offline edition and stale copies
 
-The current standalone download is `petal-5.2-offline.html`. It contains both the geometry and PDF engines. Open that file itself in a browser; a mail/file-manager HTML preview may disable JavaScript. Expect **PETAL 5.2**, a build ID, and **flange joints** in the header, seven default printed parts, and an Assembly manual PDF button. Legacy strap/plate selectors indicate an older file.
+The current standalone download is `petal-5.3-offline.html`. It contains both the geometry and PDF engines. Open that file itself in a browser; a mail/file-manager HTML preview may disable JavaScript. Expect **PETAL 5.3**, a build ID, and **flange joints** in the header, seven default printed parts, and an Assembly manual PDF button. Legacy strap/plate selectors indicate an older file.
 
 The old hosted `petal-offline.html` URL redirects to the versioned download. That small redirect is not itself an offline app. Previously downloaded files do not update themselves: download the new version explicitly and remove or rename old copies.
 
