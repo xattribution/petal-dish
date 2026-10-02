@@ -8,7 +8,7 @@ Open [the standalone app](dist/petal-5.3-offline.html) directly, or serve `dist/
 
 ## Self-host / illustrated PDF
 
-Use [the one-shot Linux installer](docs/SELF-HOSTING.md) to serve on port **56302** or a port you choose. It installs the web server and requirements, verifies the build, and creates a boot-persistent service. While this PR is unmerged, select `--ref codex/integral-flange-petals`; `main` still contains the older generator.
+Use [the one-shot Linux installer](docs/SELF-HOSTING.md) to serve on port **56302** or a port you choose. It installs the web server and requirements, verifies the build, and creates a boot-persistent service. Use `--ref main` for the current merged release, or a full commit SHA to pin a build.
 
 Every ZIP now includes a customized **ASSEMBLY.pdf** with generated assembly/exploded views, print-orientation part catalog, counts, hardware, instructions, finishing guidance and optional rod cuts. The **Assembly manual PDF** button downloads it separately. All of this works offline. The header shows **5.3 / build ID / flange joints** so an old downloaded file is easy to identify.
 

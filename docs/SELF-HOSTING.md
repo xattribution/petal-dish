@@ -7,16 +7,16 @@ PETAL runs entirely in the browser. The server only delivers static files; model
 Download [install-linux.sh](../scripts/install-linux.sh), then run:
 
 ```bash
-sudo bash install-linux.sh --port 56302 --ref codex/integral-flange-petals
+sudo bash install-linux.sh --port 56302 --ref main
 ```
 
 Or download and install in one command (requires curl for this initial download):
 
 ```bash
-curl -fL https://raw.githubusercontent.com/xattribution/petal-dish/codex/integral-flange-petals/scripts/install-linux.sh -o /tmp/petal-install.sh && sudo bash /tmp/petal-install.sh --port 56302 --ref codex/integral-flange-petals
+curl -fL https://raw.githubusercontent.com/xattribution/petal-dish/main/scripts/install-linux.sh -o /tmp/petal-install.sh && sudo bash /tmp/petal-install.sh --port 56302 --ref main
 ```
 
-**While PR #3 is unmerged, keep the explicit branch above.** The older `main` branch does not contain this installer or the flange/PDF generator. After merging, use the same command with `main` in the download URL and `--ref main`. A commit SHA or tag can be used instead of a branch for repeatable installs.
+The commands install the current merged release from `main`. A commit SHA or tag can be used instead of a branch for repeatable installs.
 
 Change `56302` to your preferred TCP port (1-65535). Open `http://SERVER-IP:56302`. Add `--localhost` to bind only 127.0.0.1, for example behind an existing reverse proxy.
 
