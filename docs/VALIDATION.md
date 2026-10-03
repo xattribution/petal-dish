@@ -103,3 +103,11 @@ Independent trimesh reload of 36 structural binary STLs confirmed watertight, co
   - TPU springs never share a plate with rigid parts.
 - **Ring junctions.** At junctions the set flips to the open side. On the 600 mm two-ring dish, 6 of 48 stations have no room on either side and are scheduled for bolts.
 - **Not tested.** Clamp force, cam wear and spring creep are not modeled. Try one set on the seam strips first.
+
+
+## Unification and lever motion (2026-10-03)
+
+- The open cam tangent no longer penetrates the flange; the M3 and M4 SCAD, print STLs and embedded meshes are regenerated together.
+- `tests/lever-motion.test.mjs` checks every installed open lever/bar/keeper/spring against panels and hub on 400 mm and 600 mm dishes, plus the lever at five intermediate cam angles with its pivot following the flange tangent. Cam radii come from SCAD metadata. This is sampled geometry validation, not force, fatigue, physical retention or full insertion-path qualification.
+- Mount pilots are 10 mm from the tenon entry face, including the 2 mm inset. Instructions now match the check model: inserts seated 0.5 mm below that entry face. Through-bolt dish instructions distinguish the seven inserts still required by the split mount.
+- Assembly/rear/staggered/exploded snapshots were regenerated for the current five-part mount.

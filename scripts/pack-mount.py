@@ -80,7 +80,7 @@ def main():
     ins_d, ins_deep, ins_len, cs4_d, up_len, ch_len, n_up, n_ch, ch_x = info['JOINT']
     arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len = info['ARC']
     frame = {'baseT': base_t, 'yokeT': yoke_t, 'axisZ': z_el, 'hubL': L, 'plateT': plate_t, 'cheek': [cr_in, cr_out], 'upright': [up_in, up_out], 'capR': cap_r,
-             'insert': {'pilot': ins_d, 'depth': ins_deep, 'length': ins_len}, 'uprightScrews': {'count': n_up, 'length': up_len, 'at': info['UP_SCREWS']},
+             'insert': {'pilot': ins_d, 'depth': ins_deep + info['INSET'][0], 'length': ins_len, 'inset': info['INSET'][0], 'recess': 0.5}, 'uprightScrews': {'count': n_up, 'length': up_len, 'at': info['UP_SCREWS']},
              'cheekScrews': {'count': n_ch, 'length': ch_len, 'x': ch_x, 'z': info['CH_SCREWS']}, 'standHoles': info['STAND'],
              'arc': {'radius': arc_r, 'phi': arc_phi, 'slot': arc_w, 'range': [el_min, el_max], 'boltLength': arc_len}}
     js = ('// Generated from cad/simple-mount.scad and cad/STL/simple-*.stl by scripts/pack-mount.py; do not hand-edit.\n'
