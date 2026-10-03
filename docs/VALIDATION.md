@@ -111,3 +111,45 @@ Independent trimesh reload of 36 structural binary STLs confirmed watertight, co
 - `tests/lever-motion.test.mjs` checks every installed open lever/bar/keeper/spring against panels and hub on 400 mm and 600 mm dishes, plus the lever at five intermediate cam angles with its pivot following the flange tangent. Cam radii come from SCAD metadata. This is sampled geometry validation, not force, fatigue, physical retention or full insertion-path qualification.
 - Mount pilots are 10 mm from the tenon entry face, including the 2 mm inset. Instructions now match the check model: inserts seated 0.5 mm below that entry face. Through-bolt dish instructions distinguish the seven inserts still required by the split mount.
 - Assembly/rear/staggered/exploded snapshots were regenerated for the current five-part mount.
+
+## Feed attachment revision 3 — size and focal-ratio envelope
+
+The rim socket pedestal is replaced by a continuous curved saddle with a flat
+side-print cheek, 45-degree shoulder and front washer/nut recesses. Socket nut
+housings taper into the barrels; radial webs carry the upper sockets into the
+puck. Rod axes, 18 mm engagement, pocket/screw datums and rim bolt positions
+retain revision 2 dimensions. The accessory manifest and instructions use
+revision 3; dish joint interface remains 12.
+
+Run `npm run test:feed-envelope` with numpy, trimesh and manifold3d available to
+Python. Its 50-case grid combines dish diameters 260/400/600/800/1200 mm,
+f/D 0.25/0.30/0.42/0.60/0.80, and prime-focus/Cassegrain supports. Three additional
+cases exercise 4/8 mm rods, clearance extremes, four legs and phase offset.
+36 cases build; 17 are explicitly rejected by the existing rod span/rise or
+secondary diameter limits. Built cases span focal lengths 65–480 mm and rod
+angles 2.29–62.24 degrees. Both staggered ring phases and three/four rod layouts
+occur in the grid. These are sampled configurations, not a proof for every
+continuous parameter combination.
+
+Independent manifold intersections pass for rim shoe/petal, rear backer/petal,
+puck/secondary, and every installed rod against its two fittings. Every exported
+assembled solid is watertight, consistently wound and a single connected body.
+Real M3 washers/nuts clear the rim recesses; real socket nuts clear their pockets
+and sampled side-loading paths. 66 shoe/puck print meshes have at least 116.9 /
+1971.2 mm² respectively of flat bed contact. The default shoe increases bed
+contact from 60.0 to 204.4 mm². Its material volume rises from 3.76 to 8.10 cm³;
+the default prime-focus puck rises from 34.42 to 36.16 cm³. This trades material
+for broader roots and bed contact, rather than claiming a mass optimization.
+
+The existing >45-degree overhang scanner still flags circular bores, hardware
+pockets and some outer socket faces. At the default prime-focus geometry,
+flagged area falls from 371.0 to 288.4 mm² for the shoe and from 809.7 to
+648.0 mm² for the puck. Slicer supports/bridging and bore cleanup remain required
+as appropriate; neither fitting is certified support-free. Shallow-angle cases
+have more puck overhang. No printed load, screw-torque, slip, creep, wind or RF
+performance qualification is implied by these checks.
+
+The full regression suite, embedded offline UI, OpenSCAD mesh parity and
+illustrated PDF/ZIP validation also pass. `scripts/render-feed-joints.py` renders
+actual assembled and print meshes; `scripts/render-accessories.py` renders the
+updated complete support assembly.

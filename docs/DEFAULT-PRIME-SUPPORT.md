@@ -1,6 +1,6 @@
 # PETAL compact rod support · prime-focus
 
-Accessory revision 2. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface is revision 12; regenerate the entire matching kit. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
+Accessory revision 3: tapered nut housings, radial puck webs and a curved rim saddle with an integral side-print cheek. Rod engagement, bolt positions and retention hardware retain revision 2 datums. Regenerate the mount petals, rim shoes, backers and puck together. These fittings replace revision 1 hinges and are not interchangeable. Seam/hub interface is revision 12; regenerate the entire matching kit. Changing rod count can change dish segmentation; regenerate the complete matching kit if it does.
 
 ## Small parts, long metal rods
 
@@ -10,7 +10,7 @@ Socket axes are generated at 34.10° above the dish plane. Socket end-to-end spa
 
 ## Assembly and printing
 
-Print one shoe and the puck first. Nominal diametral rod clearance is 0.35 mm; adjust it after a fit coupon/test socket, not by forcing the rod. Shoes export on their side; puck exports top-face down. Inspect socket bores, nut cavities and screw channels in the slicer and support horizontal roofs as required. Ream gently to a sliding fit. Backers print flat. PETG is a practical indoor fit-test material; ASA is preferable for outdoor UV exposure with an enclosed printer. Neither removes polymer creep: qualify at actual temperature/load. Use at least four perimeters and locally solid socket/boss walls, not an infill percentage as a strength guarantee.
+Print one shoe and the puck first. Nominal diametral rod clearance is 0.35 mm; adjust it after a fit coupon/test socket, not by forcing the rod. Shoes export on their broad flat side cheek; puck exports top-face down. The saddle follows the dish curvature and has open washer/nut recesses over the rim bolts. The puck has tapered radial socket webs. Inspect circular socket bores, nut cavities, bolt recesses and screw channels in the slicer and use localized removable supports for their roofs as required; these parts are not certified support-free. Keep support contact off rod-fit and washer-seat surfaces where possible. Ream gently to a sliding fit. Backers print flat. PETG is a practical indoor fit-test material; ASA is preferable for outdoor UV exposure with an enclosed printer. Neither removes polymer creep: qualify at actual temperature/load. Use at least four perimeters and locally solid socket/boss walls, not an infill percentage as a strength guarantee.
 
 Install rear backer → mount petal → rim shoe. Use M3 hardware in FEED-HARDWARE.csv, separate from dish bolts. The two shoe bolts are alongside the rod socket; tighten before fitting rods. Fit real M3 nuts into the side-loading hex pockets; a small retaining dab of adhesive may hold the nut during assembly, but keep the threads and rod bore clean. M3×10 radial screws retain smooth solid rods. Rounded tips reduce gouging; do not substitute hollow tubing without a revised clamp. Mark rods to reveal slip. No printed threads.
 
