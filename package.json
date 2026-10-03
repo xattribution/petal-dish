@@ -5,6 +5,7 @@
   "scripts": {
     "test": "node tests/structure.test.mjs && node tests/feed.test.mjs && node tests/plates.test.mjs && node tests/rings.test.mjs && node tests/integration.test.mjs && node tests/lever-motion.test.mjs",
     "test:scad": "node scripts/check-scad.mjs",
+    "test:feed-envelope": "node scripts/check-feed-envelope.mjs && python3 scripts/check-feed-envelope.py",
     "build": "node scripts/pack-offline.mjs",
     "test:ui": "npm run build && node scripts/check-ui.cjs",
     "docs": "node scripts/build-docs.mjs",
