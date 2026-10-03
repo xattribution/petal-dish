@@ -58,6 +58,8 @@ kb = 6.5; kt = pocket / 2 + 2;
 echo(str("bar octagon ", p, " mm, neck ", n, " mm, pin slot ", 2 * rb, " mm, cheeks ", (lever_w - gap) / 2, " mm"));
 echo(str("cam radius to the wall: open ", h_open, ", clamped flat ", hf, ", over-center peak ", rc));
 
+echo(MOTION = [h_open, hf, rc, stroke, hole_y, wall]);
+
 // ---------- helpers ----------
 module oct(d) rotate(22.5) circle(d = d / cos(22.5), $fn = 8);   // octagon, across flats d
 // lever profile in the lever frame: pivot at origin, handle down, x away from the wall, y toward the shell
@@ -69,6 +71,9 @@ function lever_pts() = concat(
   [[-hf, yc]]);
 module lever_profile() intersection() {
   polygon(lever_pts());
+  // The open cam must not protrude beyond h_open toward the flange.
+  // The radial spiral briefly exceeds this tangent otherwise (about 0.13 mm).
+  translate([-60, -60]) square([120, 60 + h_open]);
   // 45° print chamfer up from the flat's corner (the flat is the bed face)
   polygon([[-hf, yc], [40, yc + 40 + hf], [40, -60], [-hf, -60]]);
 }

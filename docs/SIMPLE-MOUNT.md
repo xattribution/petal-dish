@@ -70,7 +70,7 @@ The cradle keeps the hub interface: Ø94 × 12 plate, Ø34 port, 4 × M4 on a 60
 - 5–6 walls.
 - 30–40% infill.
 - Elephant-foot compensation on.
-- Insert pilots are Ø5.6 × 8 mm blind holes with pointed roofs where they lie horizontal in the print. Check your insert supplier's recommended hole, and test one on a scrap print first.
+- Insert pilots are Ø5.6 × 10 mm blind holes with pointed roofs where they lie horizontal in the print. Check your insert supplier's recommended hole, and test one on a scrap print first.
 
 ## Hardware
 
@@ -92,7 +92,7 @@ Joint screw lengths are the plate thickness plus the 6 mm insert: the tips stop 
 ![The bolted joints, exploded](simple-mount-joints.png)
 
 1. **Inserts.**
-   - Heat-set 4 inserts into the pilots in the bottom of the upright and 3 into the cheek's end face, each flush with its face.
+   - Heat-set 4 inserts into the pilots in the bottom of the upright and 3 into the cheek's end face, each 0.5 mm below the tenon entry face (the tip of the 2 mm tenon), not below its surrounding shoulder.
    - Let them cool. Scrape off any raised rim so the mating faces stay flat.
 2. **Upright on the yoke plate.**
    - Drop the upright's tenon into the pocket in the plate, against the locating shoulder.
