@@ -22,7 +22,7 @@ function readSTL(file){
  return {v,f};
 }
 try{
- for(const [cfg,id,part] of [[{},'petal-1','petal-1'],[{},'hub','hub'],[{rearStyle:1},'petal-1','petal-1'],[{diameter:600},'petal-2','petal-2'],[{feedMode:1},'petal-1-mount','petal-1-mount'],[{feedMode:2},'secondary-reflector','secondary-reflector'],[{feedMode:1},'feed-rim-shoe','feed-rim-shoe']]){
+ for(const [cfg,id,part] of [[{},'petal-1','petal-1'],[{},'hub','hub'],[{rearStyle:1},'petal-1','petal-1'],[{diameter:600},'petal-2','petal-2'],[{feedMode:1},'petal-1-mount','petal-1-mount'],[{feedMode:2},'secondary-reflector','secondary-reflector'],[{feedMode:1},'feed-rim-shoe','feed-rim-shoe'],[{feedMode:1},'feed-puck','feed-puck'],[{feedMode:2},'feed-puck','feed-puck']]){
   const m=build({...defaults,...cfg}),expected=m.parts.find(p=>p.id===id).output;
   const input=path.join(dir,'check.scad'),output=path.join(dir,'check.stl');
   fs.writeFileSync(input,scadSource(m,kernel).replace('part = "assembly"',`part = "${part}"`));

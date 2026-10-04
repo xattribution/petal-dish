@@ -37,6 +37,14 @@ for item in json.loads((folder/'summary.json').read_text()):
             assert bed_area>40,(item['id'],name,'insufficient flat print contact',bed_area)
             print_summary.append({'file':path.name,'flat_bed_mm2':round(bed_area,1),'overhang_mm2':round(float(printed.area_faces[overhang].sum()),1),'volume_cm3':round(float(printed.volume/1000),2)})
     shoe,puck=parts['feed-rim-shoe'],parts['feed-puck']
+    if g['secondary']:
+        penetration(puck,cylinder([0,0,g['secondary']['backZ']-.1],[0,0,g['carrierFace']+17],2,32),(item['id'],'M4 screw through full stem'))
+        # A continuous witness annulus catches nut slots cutting the stem wall.
+        lo=g['secondary']['backZ']+.05;hi=g['carrierFace']-.05
+        witness=cylinder([0,0,lo],[0,0,hi],8.8,32)
+        witness=trimesh.boolean.difference([witness,cylinder([0,0,lo-1],[0,0,hi+1],2.5,32)],engine='manifold')
+        missing=trimesh.boolean.difference([witness,puck],engine='manifold')
+        assert abs(missing.volume)<.025,(item['id'],'secondary stem wall notches',missing.volume)
     panel=next(m for name,m in parts.items() if name.endswith('-mount'))
     penetration(shoe,panel,(item['id'],'shoe/petal'))
     assert 'feed-backer' not in parts
@@ -57,14 +65,14 @@ for item in json.loads((folder/'summary.json').read_text()):
     low=[g['datum']['r'],0,g['lowerZ']];high=[18,0,g['upperZ']];ro=g['rodDiameter']/2+2.5
     upper_frame=frame(high,low);a=g['legs'][0]['angle']
     rotation=np.array([[np.cos(a),-np.sin(a),0],[np.sin(a),np.cos(a),0],[0,0,1]])
-    for body,fn in [(shoe,frame(low,high)),(puck,lambda q:rotation@upper_frame(q))]:
+    for body,fn,direction in [(shoe,frame(low,high),1),(puck,lambda q:rotation@upper_frame(q),-1)]:
         for slide in [0,1,2,4,8,16,32,60]:
             # Match the pocket's hex orientation before the arbitrary socket transform.
             # trimesh's cylinder basis differs from the CAD cylinder basis. Rebuild
             # the local vertices explicitly with x/z aligned hex corners.
             vertices=[]
             for y in [ro+.7,ro+3.1]:
-                for a in np.arange(6)*np.pi/3:vertices.append([slide-np.cos(a)*5.5/np.sqrt(3),y,12+np.sin(a)*5.5/np.sqrt(3)])
+                for a in np.arange(6)*np.pi/3:vertices.append([direction*slide-np.cos(a)*5.5/np.sqrt(3),y,12+np.sin(a)*5.5/np.sqrt(3)])
             nut=trimesh.convex.convex_hull(np.array([fn(v) for v in vertices]))
             penetration(body,nut,(item['id'],'socket nut insertion',slide))
     print('PASS independent topology, reflector/rod fit and hardware access',item['id'],flush=True)
