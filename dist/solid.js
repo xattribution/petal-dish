@@ -14,6 +14,8 @@ class Solid{
  intersect(b){return new Solid(this.raw.intersect(b.raw));}
  trim(n,d){return new Solid(this.raw.trimByPlane(n,d));}
  transform(fn){const o=fn([0,0,0]),basis=[[1,0,0],[0,1,0],[0,0,1]].map(v=>fn(v).map((x,k)=>x-o[k]));return new Solid(this.raw.transform([...basis[0],0,...basis[1],0,...basis[2],0,...o,1]));}
+ // Unsimplified, unwelded triangles: for bounds and fit probes only, never for export.
+ rawMesh(){const m=this.raw.getMesh();return{v:Array.from({length:m.vertProperties.length/m.numProp},(_,i)=>Array.from(m.vertProperties.slice(i*m.numProp,i*m.numProp+3))),f:Array.from({length:m.triVerts.length/3},(_,i)=>Array.from(m.triVerts.slice(i*3,i*3+3)))};}
  mesh(){const clean=this.raw.simplify(.0001);owned.push(clean);const m=clean.getMesh();return compactMesh({v:Array.from({length:m.vertProperties.length/m.numProp},(_,i)=>Array.from(m.vertProperties.slice(i*m.numProp,i*m.numProp+3))),f:Array.from({length:m.triVerts.length/3},(_,i)=>Array.from(m.triVerts.slice(i*3,i*3+3)))});}
 }
 export const solid=mesh=>new Solid(new Manifold(new Mesh({numProp:3,vertProperties:Float32Array.from(mesh.v.flat()),triVerts:Uint32Array.from(mesh.f.flat())})));

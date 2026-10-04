@@ -2,35 +2,67 @@ import {connectionCatalog,CONNECTION_METHODS} from './connections.js';
 const $=id=>document.getElementById(id);
 const state={connections:{},print:{feed:true,mount:true,clip:true,lever:true}};
 export const workspaceSettings=()=>({...(Object.keys(state.connections).length?{connections:structuredClone(state.connections)}:{}),printSelection:{...state.print}});
-const icon=method=>`<svg viewBox="0 0 120 64" aria-hidden="true"><path d="M12 43h96M38 43V20h18v23m8 0V20h18v23" stroke="currentColor" stroke-width="4" fill="none"/>${method===0?'<path d="M24 30h72m-65-8v16m58-16v16" stroke="#9bbaff" stroke-width="6"/>':method===1?'<path d="M30 25V12h60v13" stroke="#e3b66e" stroke-width="8" fill="none"/>':method===2?'<path d="M24 30h72M30 20V9h60v11" stroke="#9bbaff" stroke-width="6" fill="none"/>':'<path d="M24 30h66l17-20M22 23v14" stroke="#e3b66e" stroke-width="7" fill="none"/>'}</svg>`;
+// Does any seam (default or override) use clips? Drives the clip-fit controls.
+export const overridesUseClips=()=>[...Object.values(state.connections.families||{}),...Object.values(state.connections.joints||{})].some(c=>c.seamJoint===1||c.seamJoint===2);
+// Seam method diagrams: flange walls in line color, hardware in accent / amber. Colors are CSS variables so the
+// selected (solid accent) card can redraw them in its ink color.
+const seamIcon=method=>`<svg viewBox="0 0 120 64" aria-hidden="true"><path d="M12 43h96M38 43V20h18v23m8 0V20h18v23" stroke="var(--icon-line)" stroke-width="4" fill="none"/>${[
+ '<path d="M24 30h72m-65-8v16m58-16v16" stroke="var(--icon-hw)" stroke-width="6"/>',
+ '<path d="M30 25V12h60v13" stroke="var(--icon-hw2)" stroke-width="8" fill="none"/>',
+ '<path d="M24 30h72M30 20V9h60v11" stroke="var(--icon-hw)" stroke-width="6" fill="none"/>',
+ '<path d="M24 30h66l17-20M22 23v14" stroke="var(--icon-hw2)" stroke-width="7" fill="none"/>'][method]}</svg>`;
+const hubIcon=method=>`<svg viewBox="0 0 120 64" aria-hidden="true"><path d="M14 22h92M14 40h92" stroke="var(--icon-line)" stroke-width="4" fill="none"/>${method?'<path d="M60 10v44M50 10h20M50 54h20" stroke="var(--icon-hw)" stroke-width="6" fill="none"/>':'<path d="M60 40V24" stroke="var(--icon-hw)" stroke-width="10"/><path d="M60 56V36" stroke="var(--icon-hw2)" stroke-width="4"/>'}</svg>`;
+const SEAM_TITLES=['M3 or M4 bolts clamp flat seats on both flanges, with a loose nut.','Printed clips snap over both flanges. No hardware.','Every station takes a bolt or a clip.','Quick-release cam levers through the seam holes. No tools; the springs print in TPU.'];
+function card(label,icon,checked,title,onclick){const b=document.createElement('button');b.type='button';b.className='connection-card';b.setAttribute('role','radio');b.setAttribute('aria-checked',String(checked));if(title)b.title=title;b.innerHTML=icon+'<span>'+label+'</span>';b.onclick=onclick;return b;}
 export function setupWorkspace({changed,getModel,showJoint}){
- const form=$('parameters'),sections=[...form.children],tabs=document.createElement('div');tabs.className='design-tabs';tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Design categories');form.before(tabs);
- const groups={Shape:[sections[0],sections.at(-1)],Connections:[sections[1]],Accessories:[sections[2],sections[3]],Print:[sections[4],sections[5]]};
- const panels={};for(const [name,items]of Object.entries(groups)){const button=document.createElement('button');button.type='button';button.textContent=name;button.dataset.category=name;tabs.append(button);const panel=document.createElement('div');panel.dataset.categoryPanel=name;panel.id='category-'+name.toLowerCase();button.setAttribute('aria-controls',panel.id);form.append(panel);items.forEach(el=>panel.append(el));panels[name]=panel;button.onclick=()=>{for(const b of tabs.children)b.setAttribute('aria-pressed',String(b===button));for(const [key,p]of Object.entries(panels))p.hidden=key!==name;};}tabs.firstChild.click();
- // Full instructions live in the generated manual. Keep only changing results in the editor.
- form.querySelectorAll('p.hint:not([id])').forEach(p=>p.remove());
- const section=sections[1],intro=document.createElement('p');intro.className='hint';intro.textContent='Choose a default, a connection family, or one joint.';section.prepend(intro);section.querySelector('.eyebrow').textContent='Connections';
- const open=document.createElement('button');open.type='button';open.className='button secondary';open.textContent='Open connection editor ↗';section.prepend(open);
- const dialog=document.createElement('dialog');dialog.id='connections-editor';dialog.className='guide connections-editor';dialog.innerHTML='<div class="guide-head"><h2>Connections</h2><button type="button" aria-label="Close connection editor">×</button></div><div class="connection-body"><label>Apply to<select id="connection-scope"><option value="all">All connections</option><option value="radial">Petal → petal</option><option value="ring">Ring → ring</option><option value="root">Petal → hub</option><option value="mount">Hub → mount</option><option value="specific">Specific joint</option></select></label><label id="specific-choice" hidden>Joint<select id="connection-joint"></select></label><div id="connection-cards" class="connection-cards"></div><label id="connection-size-label">Seam hardware<select id="connection-size"><option value="3">M3 · Ø3.4</option><option value="4">M4 · Ø4.5</option></select></label><p id="connection-summary" class="hint" aria-live="polite"></p><div class="connection-actions"><button type="button" id="connection-preview">Show joint in model</button><button type="button" id="connection-inherit">Use default</button><button type="button" id="connection-clear">Clear all overrides</button></div><details><summary>Defaults & fit tuning</summary><div id="connection-tuning"></div></details></div>';document.body.append(dialog);dialog.querySelector('.guide-head button').onclick=()=>dialog.close();open.onclick=()=>{refresh();dialog.showModal();};
- const tuning=$('connection-tuning');for(const el of [...section.children])if(el!==open&&el!==intro&&el.className!=='eyebrow')tuning.append(el);
- const summary=document.createElement('p');summary.className='hint';summary.id='connections-overview';section.append(summary);
+ // Category tabs
+ const tabs=[...document.querySelectorAll('[data-category]')],panels=[...document.querySelectorAll('[data-category-panel]')];
+ const show=name=>{for(const t of tabs)t.setAttribute('aria-selected',String(t.dataset.category===name));for(const p of panels)p.hidden=p.dataset.categoryPanel!==name;};
+ for(const t of tabs)t.onclick=()=>show(t.dataset.category);show('Shape');
+ // Info tips: one floating bubble on the page, so panel scrolling never clips it. Hover, focus or tap shows it.
+ for(const t of document.querySelectorAll('.tip'))t.setAttribute('aria-label',t.dataset.tip);
+ const bubble=document.createElement('div');bubble.className='tip-bubble';bubble.setAttribute('role','tooltip');bubble.hidden=true;document.body.append(bubble);
+ const showTip=t=>{bubble.textContent=t.dataset.tip;bubble.hidden=false;const r=t.getBoundingClientRect(),b=bubble.getBoundingClientRect();let y=r.bottom+8;if(y+b.height>innerHeight-8)y=r.top-b.height-8;bubble.style.left=Math.min(innerWidth-b.width-8,Math.max(8,r.left+r.width/2-b.width/2))+'px';bubble.style.top=Math.max(8,y)+'px';};
+ const tipOf=e=>e.target instanceof Element?e.target.closest('.tip'):null;
+ document.addEventListener('pointerover',e=>{const t=tipOf(e);if(t)showTip(t);});document.addEventListener('pointerout',e=>{if(tipOf(e)&&document.activeElement!==tipOf(e))bubble.hidden=true;});
+ document.addEventListener('focusin',e=>{const t=tipOf(e);if(t)showTip(t);else bubble.hidden=true;});document.addEventListener('focusout',e=>{if(tipOf(e))bubble.hidden=true;});
+ // A tap on a tip inside a label or summary shows the tip instead of focusing the field or toggling the section.
+ document.addEventListener('click',e=>{const t=tipOf(e);if(t){e.preventDefault();t.focus();showTip(t);}});
+ document.addEventListener('scroll',()=>{bubble.hidden=true;},true);
+ // Default seam method: cards drive the hidden #seamJoint select through its normal input event.
+ const seam=$('seamJoint'),seamCards=$('seam-cards');
+ const drawSeamCards=()=>seamCards.replaceChildren(...CONNECTION_METHODS.map((name,i)=>card(name,seamIcon(i),Number(seam.value)===i,SEAM_TITLES[i],()=>{if(Number(seam.value)===i)return;seam.value=String(i);seam.dispatchEvent(new Event('input',{bubbles:true}));})));
+ // Print inclusion toggles sit with their accessory.
+ for(const input of document.querySelectorAll('[data-accessory]'))input.onchange=e=>{state.print[e.target.dataset.accessory]=e.target.checked;changed();};
+ // Individual joints editor
+ const dialog=$('connections-editor');$('open-overrides').onclick=()=>{refresh();dialog.showModal();};$('overrides-close').onclick=()=>dialog.close();
  function current(){const scope=$('connection-scope').value,catalog=getModel()?connectionCatalog(getModel()):[],j=catalog.find(j=>j.id===$('connection-joint').value),family=scope==='specific'?j?.family:scope;return{scope,j,family,catalog};}
- function choice(){const {scope,j,family}=current();if(family==='root'||family==='mount')return scope==='specific'?Number(j?.method):Number($(family==='root'?'rootThrough':'mountThrough').value);return scope==='specific'?Number(j?.method):state.connections.families?.[family]?.seamJoint??Number($('seamJoint').value);}
+ const hubFamily=f=>f==='root'||f==='mount';
+ function choice(){const {scope,j,family}=current();if(scope==='specific')return Number(j?.method);if(hubFamily(family))return Number($(family==='root'?'rootThrough':'mountThrough').value);return state.connections.families?.[family]?.seamJoint??Number(seam.value);}
  function commit(method,size){const {scope,j,family}=current(),c=state.connections;
-  if(scope==='all'){for(const [id,value]of [['seamJoint',method],['seamBolt',size],['rootThrough',method===0?1:0],['mountThrough',method===0?1:0]])$(id).value=value;state.connections={};}
-  else if(family==='root'||family==='mount'){if(scope==='specific')(c[family==='root'?'roots':'mounts']??={})[j.index]=method;else{$(family==='root'?'rootThrough':'mountThrough').value=method;delete c[family==='root'?'roots':'mounts'];}}
+  if(hubFamily(family)){if(scope==='specific')(c[family==='root'?'roots':'mounts']??={})[j.index]=method;else{$(family==='root'?'rootThrough':'mountThrough').value=method;delete c[family==='root'?'roots':'mounts'];}}
   else if(scope==='specific')(c.joints??={})[j.id]={seamJoint:method,seamBolt:size};else(c.families??={})[family]={seamJoint:method,seamBolt:size};
   changed();refresh();
  }
- function refresh(){const {scope,j,family,catalog}=current(),root=family==='root'||family==='mount';$('specific-choice').hidden=scope!=='specific';$('connection-preview').hidden=scope!=='specific';$('connection-size-label').hidden=root;$('connection-inherit').disabled=scope==='all';const active=choice();$('connection-cards').replaceChildren(...(root?['Heat-set insert · M4','Through bolt · M4']:CONNECTION_METHODS).map((name,index)=>{const b=document.createElement('button');b.type='button';b.className='connection-card';b.setAttribute('aria-pressed',String(index===active));b.innerHTML=icon(root?0:index)+'<span>'+name+'</span>';b.onclick=()=>commit(index,Number($('connection-size').value));return b;}));if(!root)$('connection-size').value=scope==='specific'?j?.size??3:state.connections.families?.[family]?.seamBolt??$('seamBolt').value;
-  $('connection-summary').textContent=scope==='all'?'Seams use the selected method. Bolt defaults use M4 through bolts at the hub; other defaults use M4 inserts.':root?'M4 interface. Through bolts need nuts and washers.':scope==='specific'?'Changes both matching sides of this joint.':'Individual joint overrides take priority.';
-  const overrides=Object.values(state.connections).reduce((n,v)=>n+Object.keys(v).length,0);summary.textContent=`${catalog.length} joints · ${overrides?overrides+' overrides':'using defaults'}`;
+ function refresh(){const {scope,j,family,catalog}=current(),hub=hubFamily(family),active=choice();
+  $('specific-choice').hidden=scope!=='specific';$('connection-preview').hidden=scope!=='specific';$('connection-size-label').hidden=hub;
+  $('connection-cards').replaceChildren(...(hub?['Heat-set insert · M4','Through bolt · M4']:CONNECTION_METHODS).map((name,i)=>card(name,hub?hubIcon(i):seamIcon(i),i===active,hub?'':SEAM_TITLES[i],()=>commit(i,Number($('connection-size').value)))));
+  if(!hub)$('connection-size').value=scope==='specific'?j?.size??3:state.connections.families?.[family]?.seamBolt??$('seamBolt').value;
+  $('connection-summary').textContent=hub?'M4 interface. Through bolts take a nut and washers.':scope==='specific'?'Changes both sides of this joint.':'One joint set on its own still keeps its own choice.';
+  const overrides=Object.values(state.connections).reduce((n,v)=>n+Object.keys(v).length,0);$('connections-overview').textContent=`${catalog.length} joints · ${overrides?overrides+(overrides===1?' override':' overrides'):'all use the defaults above'}`;
  }
  $('connection-preview').onclick=()=>{const {j,scope}=current();if(scope==='specific'&&j){showJoint?.(j);dialog.close();}};$('connection-scope').onchange=refresh;$('connection-joint').onchange=refresh;$('connection-size').onchange=()=>commit(choice(),Number($('connection-size').value));
- $('connection-inherit').onclick=()=>{const {scope,j,family}=current();if(scope==='specific'){delete state.connections[family==='root'?'roots':family==='mount'?'mounts':'joints']?.[family==='root'||family==='mount'?j.index:j.id];}else if(family==='root'||family==='mount')delete state.connections[family==='root'?'roots':'mounts'];else delete state.connections.families?.[family];changed();refresh();};$('connection-clear').onclick=()=>{state.connections={};changed();refresh();};
- const prints=document.createElement('section');prints.innerHTML='<div class="eyebrow">Include on print plates</div><p class="hint">Uncheck parts you already have. Assembly stays visible.</p>';for(const [key,label]of [['feed','Feed fittings'],['mount','Aiming mount'],['clip','Seam clips'],['lever','Seam levers & springs']]){const el=document.createElement('label');el.className='support-toggle';el.innerHTML=`<input type="checkbox" checked data-accessory="${key}">${label}`;el.querySelector('input').onchange=e=>{state.print[key]=e.target.checked;changed();};prints.append(el);}panels.Accessories.append(prints);
- $('guide-toggle').textContent='Quick help';$('guide-title').textContent='Before printing';
- const pan=document.createElement('button');pan.id='pan-view';pan.type='button';pan.textContent='Pan';pan.title='Pan mode · also middle drag or Shift + drag';pan.setAttribute('aria-pressed','false');$('home').before(pan);
- $('canvas').setAttribute('aria-label','Dish model. Drag to orbit; middle drag or Shift drag to pan; scroll to zoom. Two fingers pan and pinch. Shift arrow keys pan; Home fits model.');
- return {geometryChanged(){delete state.connections.joints;delete state.connections.roots;},update(){const select=$('connection-joint'),old=select.value;select.replaceChildren(...connectionCatalog(getModel()).map(j=>new Option(j.label,j.id)));if([...select.options].some(o=>o.value===old))select.value=old;refresh();},reset(){state.connections={};state.print={feed:true,mount:true,clip:true,lever:true};prints.querySelectorAll('input').forEach(i=>i.checked=true);}};
+ $('connection-inherit').onclick=()=>{const {scope,j,family}=current();if(scope==='specific')delete state.connections[family==='root'?'roots':family==='mount'?'mounts':'joints']?.[hubFamily(family)?j.index:j.id];else if(hubFamily(family))delete state.connections[family==='root'?'roots':'mounts'];else delete state.connections.families?.[family];changed();refresh();};
+ $('connection-clear').onclick=()=>{state.connections={};changed();refresh();};
+ drawSeamCards();
+ return {
+  geometryChanged(){delete state.connections.joints;delete state.connections.roots;},
+  seamChanged:drawSeamCards,
+  update(){const m=getModel(),select=$('connection-joint'),old=select.value;select.replaceChildren(...connectionCatalog(m).map(j=>new Option(j.label,j.id)));if([...select.options].some(o=>o.value===old))select.value=old;
+   const ring=$('connection-scope').querySelector('[value=ring]');ring.hidden=m.layout.rows<2;if(ring.hidden&&$('connection-scope').value==='ring')$('connection-scope').value='radial';
+   // Show a print toggle only for accessories this design has.
+   for(const el of document.querySelectorAll('.accessory-toggle')){const kind=el.dataset.for;el.hidden=!m.parts.some(p=>p.kind===kind);}
+   drawSeamCards();refresh();},
+  reset(){state.connections={};state.print={feed:true,mount:true,clip:true,lever:true};for(const i of document.querySelectorAll('[data-accessory]'))i.checked=true;}
+ };
 }

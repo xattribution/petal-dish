@@ -41,10 +41,10 @@ The kinematic frame is the same for every option: elevation axis 94 mm above the
   - The upright's tenon is its whole footprint, foot flange included, and it bears on the pocket floor.
   - The cheek's tenon stands 2 mm inside its end face on the inner, top and bottom sides, and is flush with the clamp face so it prints without overhang. The tenon end and the end face both bear on the plate.
   - The insert pilots are 2 mm deeper, so the screws keep their length and full engagement.
-- **Cheek ribs.** Two triangular ribs (9 × 22 mm, 4 mm thick) on the cheek's inner face, top and bottom at the plate end, stiffen the cheek where it meets the plate and bear on it. They clear the hub's M4 bolt heads and stand straight up in print.
+- **Cheek gusset.** One solid wedge (20 mm wide, 8 × 24 mm) on the cheek's inner face at the plate end stiffens the joint and bears on the plate. It sits between the hub's M4 bolt heads and outside the Ø34 port, and prints as an up-facing slope.
 - **Countersunk heads, no bridges.** All joint and stand screws are 90° flat-heads. The countersinks open toward the bed, so their 45° cones print without support where a counterbore would need bridging. The heads finish flush or just below the face: under the yoke plate that is the azimuth bearing face, and on the cradle it is the face the dish hub bears on.
-- **Bigger faces to make up for one joint.** Both elevation arms are round, r 40 around the axis, about 50 cm² of contact.
-- **The cheek end stays inside the plate rim.** Its end face is 14 × 68 mm at the inner edge, with 45° chamfers at the outer corners, so all of it bears on the plate inside the rim chamfer. It clears the four hub bolt heads behind the plate.
+- **Clamp faces sized to the load.** The upright's cap is r 40 around the axis and holds the arc slot. The cheek's clamp disc is r 32, about 37 cm² of contact. Hand-tight on the M8, that holds roughly 8 N·m, several times the moment of a 400 mm dish with a feed in wind.
+- **A compact cheek.** The cheek tapers straight from its clamp disc to a flat 14 × 42 mm end face. The whole face sits inside the plate's rim chamfer, so it needs no corner cuts, and it clears the four hub bolt heads behind the plate. It is 70 cm³, about 30% less than the earlier 80 mm wide cheek with ribs.
 
 ![Elevation clamp and arc lock from the outside](simple-mount-clamps.png)
 
@@ -58,7 +58,7 @@ STLs are in `cad/STL/`, already in print orientation. Use the variant that match
 | Yoke | `simple-yoke.stl`; without the base `simple-yoke-stand.stl` | Bearing face down | 138 × 116 × 18 |
 | Upright | `simple-upright.stl`; with arc lock `simple-upright-arc.stl` | Lying on its clamp face (x = 40) | 110 × 88 × 36 |
 | Cradle | `simple-cradle.stl` | Hub face down | Ø94 × 12 |
-| Cheek | `simple-cheek.stl`; with arc lock `simple-cheek-arc.stl` | Lying on its clamp face (x = 40) | 103 × 80 × 14 |
+| Cheek | `simple-cheek.stl`; with arc lock `simple-cheek-arc.stl` | Lying on its clamp face (x = 40) | 97 × 64 × 22 |
 
 ![Print orientation](simple-mount-print.png)
 
@@ -144,13 +144,13 @@ It reads the print transforms from the SCAD, places all eight STLs with them, an
 
 - **Bed fit and printability:** closed, single-body meshes that fit the bed, and an overhang scan: nothing faces down more than 45° from vertical, and no bridges longer than 10 mm.
 - **Joints:**
-  - The upright sits flush on the yoke plate (30 cm²) and the cheek on the cradle plate (6.8 cm², ribs included), each face bearing fully.
+  - The upright sits flush on the yoke plate (30 cm²) and the cheek on the cradle plate (6.2 cm², gusset included), each face bearing fully.
   - Each tenon drops into its pocket with 0.2 mm clearance and locks its arm sideways in every direction.
   - All 7 flat-heads seat with their heads flush and stop short of the pilot ends; the inserts fit their pilots with at least 2 mm of plastic around them.
   - The screws clear every other bolt, head and nut.
 - **Clamp contact:**
   - Azimuth: 98 cm².
-  - Elevation: 48–53 cm² across the range, 44–49 cm² with the arc slot.
+  - Elevation: 36–38 cm² across the range, 32–34 cm² with the arc slot.
 - **Hardware:** the bolts, heads and wing nut sit in their holes and pockets at every angle.
 - **Elevation travel:** −10° to 100°, clear of the yoke, upright and hardware. The first contact is at −22.5°.
 - **Arc lock:** the M6 runs clear through the slot from −10° to 100°, and its washer stays inside both clamp faces and clear of the M8 fender washer and wing nut at every angle. The slot ends stop travel at about −12° and 102°.

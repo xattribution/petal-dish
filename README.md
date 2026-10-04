@@ -2,9 +2,9 @@
 
 PETAL designs a segmented parabolic dish that you can print on an ordinary 3D printer. Enter the dish size and your printer's build volume. It splits the dish into petals that fit your bed and shows the assembly. Then it exports a ready-to-print kit: STLs, packed print plates, an illustrated assembly PDF and a hardware list.
 
-Everything runs in your browser, with no account, no upload and no server-side processing.
+Everything runs in your browser, with no account, no upload and no server-side processing. Geometry builds in a background worker, so the page stays responsive while large dishes generate.
 
-![400 mm dish with seam clips, a prime-focus feed support and the aiming mount](docs/snapshots/assembly.png)
+![A 400 mm dish, exploded and seen from the front: six petals with snap clips around the hub](docs/snapshots/hero.png)
 
 ## Get started
 
@@ -42,12 +42,16 @@ python3 -m http.server 8080 -d dist  # then open http://localhost:8080
 
 ## Using it
 
-1. **Shape:** set the dish diameter, the focal ratio (f/D) and, optionally, the frequency.
-2. **Printer:** pick your build volume. PETAL chooses how many petals and rings are needed.
-3. **Joints:** pick how the seams fasten and how the petals attach to the hub (options below).
-4. **Extras:** optionally add a feed or secondary-reflector support, and the aiming mount.
-5. **Export kit (ZIP):** this gives you every STL in its print orientation, packed plates, `ASSEMBLY.pdf`, `HARDWARE.csv` and the fit-test parts.
-6. **Print the two seam test strips first**, then one full petal, before printing the whole dish.
+![PETAL in the browser: a 400 mm dish with seam clips, a prime-focus feed support and the aiming mount](docs/snapshots/app.png)
+
+The editor has four tabs.
+
+1. **Shape:** dish diameter, focal ratio (f/D), shell thickness, an optional frequency, and the hub front.
+2. **Connections:** pick the seam method from the four cards, the seam bolt size and the hub joints. **Edit individual joints** changes one seam family or one joint; **Show in model** highlights it.
+3. **Accessories:** a prime-focus or Cassegrain rod support and the aiming mount. Each has a checkbox to leave its parts off the print plates when you already have them.
+4. **Print:** your printer volume and plate packing. PETAL chooses how many petals and rings are needed.
+
+Then **Export kit (ZIP)**: every STL in its print orientation, packed plates, `ASSEMBLY.pdf`, `HARDWARE.csv` and the fit-test parts. **Print the two seam test strips first**, then one full petal, before printing the whole dish.
 
 The default 400 mm dish is six petals plus one hub: two unique parts, each with a flat flange down on the bed.
 
@@ -58,7 +62,7 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 | **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) |
 | **Petal roots to hub** | Blind M4 heat-set inserts, keeping the reflecting face closed (default) · M4 through bolts in recessed seats |
 | **Hub to mount** | M4 through bolts (default) · blind M4 inserts. Four on a 60 mm bolt circle around a clear Ø30 mm center |
-| **Hub front** | Curved, following the dish (default) · flat |
+| **Hub front** | Flat, which prints cleanly (default) · curved, following the dish |
 | **Underside** | Smooth curved shell (default) · small flat facets |
 | **Large dishes** | Staggered rings (default) · aligned rings |
 | **Feed support** | None · prime focus · Cassegrain secondary (experimental), on 3 or 4 aluminum rods with generated cut lengths |
@@ -66,9 +70,11 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 
 All seam hardware stays behind the reflecting face.
 
-The editor has **Shape, Connections, Accessories and Print** categories. Open the Connections drawer to choose a default, override petal seams or ring seams, or change one joint. **Show joint in model** highlights the matching pieces. Seams support M3/M4; petal roots and hub mounts use the fixed M4 interface. Kits with overrides include `CONNECTIONS.csv` and individually named petal variants.
+| Rear: clips, hub and mount | 600 mm, two staggered rings | Exploded |
+|---|---|---|
+| ![Rear view of the 400 mm dish showing seam clips, the flat hub and the aiming mount](docs/snapshots/rear.png) | ![600 mm dish with two staggered rings, mixed bolt and clip seams and four rods](docs/snapshots/staggered.png) | ![Exploded 400 mm dish and mount](docs/snapshots/exploded.png) |
 
-Accessories can stay visible in the assembly while being excluded from print plates and STL exports when you already have matching parts. Full print and assembly details are in the generated PDF; Quick help stays brief.
+Seams take M3 or M4; petal roots and hub mounts use the fixed M4 interface. Kits with joint overrides include `CONNECTIONS.csv` and individually named petal variants. Help for each setting is in its **ⓘ** tooltip, and the full print and assembly instructions are in the generated PDF.
 
 Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera.
 
@@ -92,7 +98,7 @@ Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set in
 
 ## Status and limits
 
-PETAL is an **engineering prototype that has not been printed or tested**. A closed STL is not a load, weather or RF rating. Printed plastic needs a conductive finish and a proper RF feed before it works as an antenna. Interface revision 12 parts are not compatible with older kits, so regenerate the whole kit after changing settings. PETG is fine for indoor fit tests. Use ASA for outdoor trials, with a controlled enclosure.
+PETAL is an **engineering prototype**. Test prints fit as designed, but a closed STL is not a load, weather or RF rating. Printed plastic needs a conductive finish and a proper RF feed before it works as an antenna. Interface revision 12 parts are not compatible with older kits, so regenerate the whole kit after changing settings. PETG is fine for indoor fit tests. Use ASA for outdoor trials, with a controlled enclosure.
 
 ## Develop
 
@@ -102,15 +108,19 @@ npm test              # geometry, feed, plates, rings, integration
 npm run test:ui       # builds, then drives the offline app in jsdom
 npm run test:scad     # snapshot renders vs. JS geometry (needs OpenSCAD)
 npm run test:pdf      # manual PDF fixtures (needs Python)
+npm run test:hosting  # real Caddy check of the installer config (downloads Caddy once)
 npm run build         # dist/app.bundle.js, petal-5.3-offline.html, BUILD.json
 ```
 
 The app sources live in `dist/`:
 
+- `app.js`, `workspace-ui.js`, `viewer.js`: the page, its controls and the WebGL preview
+- `engine.js`: the geometry worker (build and every export); `engine-client.js` starts it, or runs it on the page if workers are unavailable
+- `params.js`: defaults, limits and validation, shared by the page and the worker
 - `geometry.js`: dish, flanges, hub and seam fasteners
 - `mount.js`: the aiming mount
 - `feed.js`: optics and feed supports
-- `exports.js`: kit, guide and manifest
+- `exports.js`, `zip.js`: kit, guide, manifest and the deflated ZIP
 - `manual.js`: the PDF
 
 The printed accessories are OpenSCAD sources in `cad/`. After editing them, regenerate the bundled meshes:
@@ -118,4 +128,4 @@ The printed accessories are OpenSCAD sources in `cad/`. After editing them, rege
 - `python3 scripts/pack-mount.py` for the mount
 - `python3 scripts/pack-lever.py` for the seam lever (needs OpenSCAD and `trimesh`)
 
-`app.bundle.js` and the offline HTML are reproducible build outputs. Earlier designs remain in git history.
+`app.bundle.js` and the offline HTML are reproducible build outputs. `npm run docs` regenerates the default guides in `docs/`, and `node scripts/render-system.mjs && python3 scripts/render-system.py && node scripts/render-app.mjs` regenerates the README images. Earlier designs remain in git history.

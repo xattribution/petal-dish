@@ -109,7 +109,7 @@ def turntable(case_ids):
                 frame=render([(mesh,[84,155,148])],25*np.cos(np.deg2rad(azimuth)),azimuth,center,np.linalg.norm(np.ptp(v,axis=0))*1.02,size=320)
                 image.paste(frame,(col*320,80+row*330))
         frames.append(image)
-    frames[0].save(ROOT/'docs/feed-review-orbit.gif',save_all=True,append_images=frames[1:],duration=180,loop=0)
+    frames[0].save(OUTPUT/'orbit.gif',save_all=True,append_images=frames[1:],duration=180,loop=0)
 
 def matrix():
     cases=[c for c in json.loads((SOURCE/'summary.json').read_text()) if c['status']=='built']
@@ -119,7 +119,7 @@ def matrix():
         source=Image.open(OUTPUT/(c['id']+'.png'));x=i%columns*360;y=i//columns*218
         draw.text((x+8,y+6),f"{c['id']} / {c['angle']:.1f} deg",font=font,fill='#22313c')
         for j,col in enumerate([2,4]):image.paste(source.crop((col*360,70,(col+1)*360,430)).resize((180,180)),(x+j*180,y+30))
-    image.save(ROOT/'docs/feed-direct-matrix.png')
+    image.save(OUTPUT/'matrix.png')
 
 if __name__ == '__main__':
     if len(sys.argv)>1 and sys.argv[1]=='--turntable':turntable(sys.argv[2:])

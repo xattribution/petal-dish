@@ -150,9 +150,8 @@ have more puck overhang. No printed load, screw-torque, slip, creep, wind or RF
 performance qualification is implied by these checks.
 
 The full regression suite, embedded offline UI, OpenSCAD mesh parity and
-illustrated PDF/ZIP validation also pass. `scripts/render-feed-joints.py` renders
-actual assembled and print meshes; `scripts/render-accessories.py` renders the
-updated complete support assembly.
+illustrated PDF/ZIP validation also pass. The one-off render scripts for this
+revision were retired on 2026-10-04 and remain in git history.
 
 ## Curved seam bearing lands — bolt-only mode
 
@@ -177,8 +176,8 @@ significant change in overall >45-degree flagged area: approximately 314 mm²
 for default/shallow, and 307 → 314 mm² for the deep M4 case. Most flags are
 existing near-bed flat bridge surfaces; this is not a support-free claim.
 The complete regression suite, offline UI, OpenSCAD parity and illustrated
-PDF/ZIP checks pass. Render the actual before/after triangles with
-`node scripts/render-seam-pads.mjs && python3 scripts/render-seam-pads.py`.
+PDF/ZIP checks pass. The before/after render scripts were retired on 2026-10-04
+and remain in git history.
 
 ## Connections workspace and feed revision 4
 
@@ -213,9 +212,8 @@ regenerate the fittings and rod cuts together.
 Feed and integration tests, OpenSCAD mesh parity, the embedded offline UI, and
 custom/secondary PDF content and page bounds pass. The UI check is DOM-only;
 WebGL is not exercised. Residual bore/pocket overhangs need slicer inspection, and
-physical fit/load qualification remains separate. `scripts/render-feed-slimming.py`
-rebuilds the revision-4 baseline from git and renders the actual before/after
-meshes at the same scale.
+physical fit/load qualification remains separate. The before/after render script
+was retired on 2026-10-04 and remains in git history.
 
 ## Multi-view feed review — ecdc20b6aff8
 
@@ -226,3 +224,26 @@ Independent tests now guard both defects. The expanded sweep builds 40 of 57
 cases, with 17 explicit limit rejections, and checks 80 fitting print meshes.
 Six views per part/interface and an additional representative full orbit are
 recorded in [the geometry review](FEED-GEOMETRY-REVIEW.md).
+
+## Performance, export and editor review — 2026-10-04
+
+Geometry and every export now run in a Web Worker started from a Blob URL, so the
+hosted page and the single offline file both stay responsive; without workers the
+same engine runs on the page. On a 600 mm dish switched to seam levers and the
+mount, the page previously froze for 10 s in one stall and reached the final model
+in 23 s; it now never misses a frame and finishes in 5.5 s (headless Chromium,
+software WebGL).
+
+Seam-lever placement tests each lever set only against the petals its bounds
+reach, one at a time, in its own memory scope. A 700 mm lever dish builds in 4 s
+instead of 10 s, 900 mm in 6 s instead of 25 s, and 1200 mm builds instead of
+exhausting WASM memory. Mixed-connection kits build each distinct petal once
+(5.4 s to 2.2 s). Every model is byte-identical to the previous engine for the
+same settings, checked across 14 configurations.
+
+The exploded view moves each part rigidly; the petal at azimuth 0 was previously
+stretched about 30 % tangentially in the preview, the PDF and `exploded.png`.
+Kits are deflated (about half the size), and the manual culls hidden triangles
+(about half the size), draws each print plate as a numbered footprint diagram and
+lists hardware as a table. The hub front is flat by default again, as revision 12
+specifies.
