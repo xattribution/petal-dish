@@ -153,3 +153,29 @@ The full regression suite, embedded offline UI, OpenSCAD mesh parity and
 illustrated PDF/ZIP validation also pass. `scripts/render-feed-joints.py` renders
 actual assembled and print meshes; `scripts/render-accessories.py` renders the
 updated complete support assembly.
+
+## Curved seam bearing lands — bolt-only mode
+
+The fixed-height bolt-pad blocks are replaced by full-depth bearing lands clipped
+to a swept curved flange envelope. The top overlaps the petal underside; the
+bottom stops inside the existing curved flange edge. A 2 mm chamfer joins one
+end to the 3 mm wall, while the other retains the existing print-direction ramp.
+The small 0.1 mm bottom / 0.4 mm top envelope offsets avoid coincident boolean
+faces. Hole centers, flat 5 mm bearing faces, bolt/nut/washer specifications and
+interface revision 12 are retained. Clip and lever flange profiles are unchanged.
+
+The structure regression now checks that bearing lands do not protrude through
+the reflector face or below the curved flange floor, and that at least 95% of
+the outer washer bearing annulus remains supported. Reflector-face checks allow
+for the existing tessellation chord error. The 29 structure configurations include
+260/400/600/800/1200 mm dishes, f/D 0.25 and 0.8 extremes, M3/M4 bolts, multiple
+rings, staggered/aligned joints, faceted rear surfaces, insertion/mating,
+connectivity, hardware access and bed packing.
+
+Before/after print scans at default, shallow and deep M4 geometry show no
+significant change in overall >45-degree flagged area: approximately 314 mm²
+for default/shallow, and 307 → 314 mm² for the deep M4 case. Most flags are
+existing near-bed flat bridge surfaces; this is not a support-free claim.
+The complete regression suite, offline UI, OpenSCAD parity and illustrated
+PDF/ZIP checks pass. Render the actual before/after triangles with
+`node scripts/render-seam-pads.mjs && python3 scripts/render-seam-pads.py`.

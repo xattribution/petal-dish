@@ -77,8 +77,18 @@ function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s
  // Print-up in this flange's frame: faces whose normal is -sg·e point down; psi tilts them to 45° or better.
  const upU=e[0]*Math.sin(h)+e[1]*Math.cos(h),upT=v[0]*Math.sin(h)+v[1]*Math.cos(h),sg=upU<0?-1:1;let psi=0;
  for(let d=0;d<=60;d++){const ok=[d,-d].find(x=>-Math.abs(upU)*Math.cos(x*PI/180)-upT*Math.sin(x*PI/180)>=-.68);if(ok!==undefined){psi=ok*PI/180;break;}}
- const SB=seamBolt(p),pw=SB.padW,padPoly=s=>[[s-sg*(pw-5*Math.tan(psi)),0],[s+sg*pw,0],[s+sg*pw,5],[s-sg*pw,5]];
- let pads=null;for(const s of stations){const z=level(s),F=frameAt(s),ct=Math.cos(tilt(s)),Yb=(back(s)-dAt(s)-z)*ct,Ys=(back(s)-z)*ct;if(!p.seamJoint){const pad=loft([z-SB.padH,z+SB.padH].map(zz=>padPoly(s).map(([ss,t])=>point(ss,t,zz))));pads=pads?pads.union(pad):pad;body=body.union(pad);}else{
+ const SB=seamBolt(p),pw=SB.padW,padPoly=s=>[[s-sg*(pw-5*Math.tan(psi)),0],[s+sg*(pw+2),0],[s+sg*(pw+2),3],[s+sg*pw,5],[s-sg*pw,5]];
+ const padCount=count,padEnvelope=p.seamJoint?null:loft(Array.from({length:padCount+1},(_,i)=>{
+  const ss=start-overlap+(end-start+2*overlap)*i/padCount;
+  return [[-.02,-dAt(ss)+.1],[5.02,-dAt(ss)+.1],[5.02,.4],[-.02,.4]].map(([t,dz])=>{const q=point(ss,t,0);return point(ss,t,backZ(q[0],q[1],p)+dz);});
+ }));
+ let pads=null;for(const s of stations){const z=level(s),F=frameAt(s),ct=Math.cos(tilt(s)),Yb=(back(s)-dAt(s)-z)*ct,Ys=(back(s)-z)*ct;if(!p.seamJoint){
+  // A full-depth curved bearing land joins the shell and flange without a notch.
+  // Its print-down end keeps the support-safe ramp; the other end blends into
+  // the 3 mm wall with a 2 mm chamfer. Bolt/washer datums remain unchanged.
+  const pad=loft([-p.diameter,p.diameter].map(zz=>padPoly(s).map(([ss,t])=>point(ss,t,zz)))).intersect(padEnvelope);
+  pads=pads?pads.union(pad):pad;body=body.union(pad);
+ }else{
   // two low vertical ridges either side of the clip, from the flange bottom to the shell: a square face toward the clip,
   // a flat 1 mm top, and a ramp back to the wall as steep as this flange's print direction allows
   let best=-9,ramp=0;for(let a=0;a<=80;a++){const r=a*PI/180,val=-Math.abs(upU)*Math.cos(r)+upT*Math.sin(r);if(val>=-.68){ramp=Math.tan(r);break;}if(val>best){best=val;ramp=Math.tan(r);}}
