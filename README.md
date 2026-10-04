@@ -72,7 +72,13 @@ Accessories can stay visible in the assembly while being excluded from print pla
 
 Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera.
 
-Feed revision 6 fastens rods directly into the mounting petals with integrated underside through-bores and side screws. The new petal sockets use print-aligned 45° ramps and roofs at 45° or steeper; separate rim shoes and their mounting bolts are removed. Regenerate mount petals, carrier and rod cuts together.
+Feed revision 7 uses a small rounded taper around each direct petal rod hole and a compact side-screw ear. The large underside pyramid, separate rim shoes, backing plates and paired mounting bolts are gone. Only the bore changes angle as dish size or focal distance changes; the exterior blends into the dish underside. The circular bearing has 45° roof shoulders and a **0.8 mm bridge** for the exported side-print orientation.
+
+In **Accessories → Feed support**, choose **Enter diameter**, then enter your measured rod diameter in **mm or inches** (2–12.7 mm / approximately 0.079–0.5 inches). For example, 0.25 inches is exactly 6.35 mm. Both petal and carrier bores use this diameter plus the selected diametral clearance. Switching units preserves physical size. **Auto** still screens the available 4, 5, 6, 6.35 and 8 mm stock sizes. Exported geometry, manifest and rod schedule use millimeters; the CSV also includes cut lengths in inches.
+
+Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set insert**, maximum 4 mm long, compatible with a 4.2 mm pilot. Carrier hex nuts remain unchanged. Regenerate mounting petals, carrier and rod cuts together; previous feed revisions are not interchangeable. Test one mounting petal for your rod and insert fit first. The carrier and secondary still need their own slicer support review.
+
+![Compact direct rod attachment, actual CAD views](docs/feed-review/400-0.42-1.png)
 
 ## Documentation
 

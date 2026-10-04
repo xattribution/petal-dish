@@ -19,7 +19,7 @@ if(!edgesOnly)for(const diameter of [260,400,600,800,1200])for(const fd of [.25,
  console.log('PASS envelope build',id,'angle',screen.rodAngle.toFixed(2));
 }
 // Extremes that independently exercise stock clearance, four legs and phase offset.
-for(const [index,cfg]of [{feedMode:1,fd:.3,rodDiameter:8,rodClearance:.7,feedLegs:4},{feedMode:1,fd:.8,rodDiameter:4,rodClearance:.15,phaseOffset:100},{feedMode:2,fd:.6,rodDiameter:8,rodClearance:.7,feedLegs:4,frequencyGHz:20},
+for(const [index,cfg]of [{feedMode:1,rodDiameter:3.175},{feedMode:1,rodDiameter:7.9375},{feedMode:1,rodDiameter:12.7},{feedMode:1,fd:.3,rodDiameter:8,rodClearance:.7,feedLegs:4},{feedMode:1,fd:.8,rodDiameter:4,rodClearance:.15,phaseOffset:100},{feedMode:2,fd:.6,rodDiameter:8,rodClearance:.7,feedLegs:4,frequencyGHz:20},
  {feedMode:1,diameter:260,fd:.8,phaseUnits:1,phaseOffset:-10,frequencyGHz:10,rodDiameter:8,rodClearance:.7},
  {feedMode:1,diameter:1200,fd:.3,rodDiameter:8,feedLegs:4,minimumRise:15.1},
  {feedMode:1,diameter:260,fd:.8,phaseUnits:1,phaseOffset:-10,frequencyGHz:10,rodDiameter:4,rodClearance:.15},

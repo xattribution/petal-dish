@@ -63,10 +63,10 @@ def mounted_panel(panel,g,p,n):
     A=np.array([g['datum']['r'],0,g['lowerZ']]);B=np.array([18,0,g['upperZ']]);axis=(B-A)/np.linalg.norm(B-A)
     up=np.array([np.sin(np.pi/n),np.cos(np.pi/n),0]);V=up-axis*np.dot(axis,up);V/=np.linalg.norm(V);T=np.cross(axis,V)
     if T[2]<0:T=-T
-    radius=(g['rodDiameter']+p['rodClearance'])/2;L=max(1,g['lowerEntrance']-10);C=A+axis*L
+    radius=(g['rodDiameter']+p['rodClearance'])/2;C=A+axis*1.3
     rod=trimesh.creation.cylinder(radius=g['rodDiameter']/2,segment=[A+axis*(g['lowerEntrance']-18),A+axis*(g['lowerEntrance']+28)],sections=48)
-    screw=trimesh.creation.cylinder(radius=1.5,segment=[C-T*12,C-T*g['rodDiameter']/2],sections=24)
-    nut=trimesh.creation.box([2.4,5.5,5.5]);matrix=np.eye(4);matrix[:3,:3]=np.array([T,V,axis]).T;matrix[:3,3]=C-T*(radius+2.8);nut.apply_transform(matrix)
+    screw=trimesh.creation.cylinder(radius=1.5,segment=[C+[0,-14,0],C+[0,-g['rodDiameter']/2,0]],sections=24)
+    nut=trimesh.creation.cylinder(radius=2.1,segment=[C+[0,-11,0],C+[0,-7,0]],sections=32)
     objects=[(panel,[230,176,88])]
     for metal in [rod,screw,nut]:objects.append((dict(v=metal.vertices.tolist(),f=metal.faces.tolist()),[175,183,193]))
     return objects
