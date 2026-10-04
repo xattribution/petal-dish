@@ -9,11 +9,27 @@ const rotate=a=>q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(
 function checkMesh(mesh,name){const edges=new Map();for(const f of mesh.f)for(let i=0;i<3;i++){const a=f[i],b=f[(i+1)%3],key=[Math.min(a,b),Math.max(a,b)].join(':'),e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);}assert([...edges.values()].every(([n,w])=>n===2&&w===0),name+' manifold topology');assert(volume(mesh)>0,name+' positive volume');}
 fs.mkdirSync('/tmp/petal5-validation',{recursive:true});
 const cases=[{}, {rearStyle:1},{diameter:260},{diameter:600},{diameter:800,bedX:300,bedY:300,bedZ:300},{diameter:400,sectors:8,rows:2},{fd:.25},{fd:.8},{thickness:1.6},{thickness:6},{bedZ:120},{rearStyle:1,facetSize:30,resolution:10},{mountThrough:0},{rootThrough:1,hubFlat:0},{seamJoint:1},{seamJoint:1,clipDetent:2,clipAllowableStrain:7},{seamJoint:2,diameter:600},{seamJoint:1,diameter:800,rows:3,sectors:8,bedX:300,bedY:300,bedZ:300,feedMode:1,feedLegs:4},{diameter:600,staggerRings:0},{seamBolt:4},{seamJoint:2,seamBolt:4,diameter:600},{seamJoint:3},{seamJoint:3,seamBolt:4,diameter:600,rows:2,bedX:300,bedY:300,bedZ:300},{diameter:800,rows:3,sectors:8,bedX:300,bedY:300,bedZ:300}];
+cases.push({fd:.25,seamBolt:4},{diameter:260,fd:.25,seamBolt:4},{diameter:600,fd:.8,seamBolt:4,bedX:300,bedY:300,bedZ:300},{diameter:1200,fd:.25,bedX:400,bedY:400,bedZ:400},{diameter:1200,fd:.8,bedX:400,bedY:400,bedZ:400});
 for(const[c,cfg]of cases.entries()){
  const m=build({...defaults,...cfg});
  solidScope(()=>{
  for(const p of m.parts){checkMesh(p.mesh,p.id);checkMesh(p.output,p.id+' print');const raw=solid(p.mesh).raw,components=raw.decompose();assert.equal(components.length,1,p.id+' single connected solid');components.forEach(x=>x.delete());assert(p.dim[0]<=m.p.bedX-2*m.p.margin+.001&&p.dim[1]<=m.p.bedY-2*m.p.margin+.001&&p.dim[2]<=m.p.bedZ-2+.001);assert(Math.abs(bounds(p.output).min[2])<1e-5);fs.writeFileSync(`/tmp/petal5-validation/${c}-${p.id}.stl`,Buffer.from(binarySTL(p.output)));}
  const panels=m.parts.filter(x=>x.kind==='panel'),angle=2*Math.PI/m.layout.n;
+ if(m.p.seamJoint===0)for(const part of panels){
+  // Bearing lands must join the underside and remain inside the curved lower
+  // flange edge. Check the real exported vertices, not the pad construction.
+  for(const f of part.spec.flanges){const{o,e,v}=f.frame;for(const q of part.mesh.v){
+   const ss=(q[0]-o[0])*e[0]+(q[1]-o[1])*e[1],t=(q[0]-o[0])*v[0]+(q[1]-o[1])*v[1];
+   if(t>3.25&&t<5.01&&f.stations.some(s=>Math.abs(ss-s)<seamBolt(m.p).padW+2.1))assert(q[2]>=backZ(q[0],q[1],m.p)-14-.2,'bearing land protrudes past curved flange floor');
+  }}
+  const chordTolerance=.03+m.p.resolution**2/(2*m.focal);
+  for(const q of part.mesh.v)assert(q[2]<=(q[0]**2+q[1]**2)/(4*m.focal)+chordTolerance,'bearing land protrudes through reflector face');
+  const body=solid(part.mesh),SB=seamBolt(m.p),outer=m.p.seamBolt===4?4.5:3.5,inner=SB.holeR*Math.SQRT2+.1;
+  for(const f of part.spec.flanges)for(const i of f.stations.keys()){
+   const F=stationFrame(f,i),ring=cylinder(F(4.6,0,0),F(4.9,0,0),outer,48).subtract(cylinder(F(4.5,0,0),F(5,0,0),inner,48));
+   assert(body.intersect(ring).raw.volume()>.95*Math.PI*(outer**2-inner**2)*.3,'washer bearing annulus remains supported');
+  }
+ }
  // Final petal insertion with fixed neighbors, including all radial segments.
  for(const part of panels){const s=solid(part.mesh);for(const delta of [4,2,1,.8,.6,.4,.2,0]){const moving=s.transform(q=>[q[0]+delta,q[1],q[2]]);for(const sign of [-1,1])assert(moving.intersect(s.transform(rotate(sign*angle))).raw.volume()<.02,`radial insertion collision ${c} ${delta} ${sign}`);}}
  // Test actual phased neighboring rows and the outer segment's radial insertion.
@@ -42,7 +58,7 @@ for(const[c,cfg]of cases.entries()){
  assert(hub.intersect(cylinder([0,0,-50],[0,0,100],14.9)).raw.volume()<.001,'clear center');
  });
  assert.equal(m.plates.flatMap(p=>p.placements).length,m.parts.reduce((s,p)=>s+p.qty,0));for(const plate of m.plates){const boxes=plate.placements.map(p=>{const[x,y,w,h]=p.bounds;assert(x>=-1e-6&&y>=-1e-6&&x+w<=m.p.bedX-2*m.p.margin+1e-5&&y+h<=m.p.bedY-2*m.p.margin+1e-5);return[x,y,w,h];});for(let i=0;i<boxes.length;i++)for(let j=0;j<i;j++){const[a,b,w,h]=boxes[i],[x,y,W,H]=boxes[j];assert(a>=x+W+5.99||x>=a+w+5.99||b>=y+H+5.99||y>=b+h+5.99,'packing clearance');}}
- const coupon=connectionCoupon(m)[0];checkMesh(coupon.mesh,'coupon');assert.equal(coupon.qty,2);assert.equal(manifest(m).interface_revision,12);if(!m.p.seamJoint)assert.equal(hardwareSchedule(m)[0].quantity,m.layout.n*(2*m.layout.rows+(m.p.staggerRings?4:2)*(m.layout.rows-1)));
+ const coupon=connectionCoupon(m)[0];checkMesh(coupon.mesh,'coupon');assert.equal(coupon.qty,2);assert.equal(manifest(m).interface_revision,12);if(!m.p.seamJoint)assert.equal(hardwareSchedule(m)[0].quantity,m.parts.filter(part=>part.kind==='panel').reduce((sum,part)=>sum+part.qty*part.spec.flanges.reduce((n,f)=>n+f.stations.length,0),0)/2);
  console.log('PASS structure, closed solids, bed fit, mating, insertion, flat seats, root/hub fasteners, coupons and packing',cfg,m.layout);
 }
 const p={...defaults,rearStyle:1};for(let x=45;x<200;x+=3.1)for(let y=-80;y<80;y+=4.3){const ideal=(x*x+y*y)/(4*p.diameter*p.fd)-p.thickness,d=ideal-backZ(x,y,p);assert(d>=-1e-9&&d<=p.facetSize**2/(8*p.diameter*p.fd)+1e-9);}
