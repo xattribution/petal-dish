@@ -216,3 +216,13 @@ WebGL is not exercised. Residual bore/pocket overhangs need slicer inspection, a
 physical fit/load qualification remains separate. `scripts/render-feed-slimming.py`
 rebuilds the revision-4 baseline from git and renders the actual before/after
 meshes at the same scale.
+
+## Multi-view feed review — ecdc20b6aff8
+
+The review found and corrected carrier nut-entry cuts crossing secondary stems
+and an M4 screw bore stopping short inside the longer stem. Carrier nuts load
+from the outer edges; the clearance bore follows the actual stem back datum.
+Independent tests now guard both defects. The expanded sweep builds 40 of 57
+cases, with 17 explicit limit rejections, and checks 80 fitting print meshes.
+Six views per part/interface and an additional representative full orbit are
+recorded in [the geometry review](FEED-GEOMETRY-REVIEW.md).

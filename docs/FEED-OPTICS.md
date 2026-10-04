@@ -4,9 +4,11 @@
 
 ![Same-scale before and after](feed-slimming.png)
 
+[Multi-view geometry review](FEED-GEOMETRY-REVIEW.md)
+
 ## What changed
 
-The fittings use **thin curved feet and tapered socket lobes**. Each lobe follows its rod and blends into a single continuous body. A 44 mm central carrier replaces the broad 80 mm housing; the rim foot has a rounded footprint and chamfered perimeter. Local bulges contain only the rod bore, real nut and retention screw.
+The fittings use **thin curved feet and tapered socket lobes**. Each lobe follows its rod and blends into a single continuous body. A 44 mm central carrier replaces the broad 80 mm housing; the rim foot has a rounded footprint and chamfered perimeter. Local bulges contain only the rod bore, real nut and retention screw. Carrier nuts slide inward from the outer edges, keeping their loading channels clear of the central secondary stem.
 
 The separate rear backer is removed. A widened mounting-petal bearing area supports paired M3 through bolts, with a 45° underside chamfer around the added material. Use washers under the rear bolt heads. The curved contact surfaces retain a small manufacturing clearance; regenerate the mounting petals and fittings together. Dish seam/hub interface remains revision 12, while these feed fittings are revision 5. Seam clips and levers retain their matched 5 mm flange walls; the rim-fitting interface uses M3 bolts.
 
