@@ -1,11 +1,10 @@
-import {feedMountPad} from './feed-solids.js';
 import {jointKey,seamChoice,rootChoice,mountChoice,validateConnections,connectionCatalog} from './connections.js';
 import {patch,bounds,printMesh,rotateBed,packParts,zAt} from './mesh.js';
 import {solidScope,solid,cylinder,loft,sphere} from './solid.js';
 import {INTERFACE_REVISION} from './interface.js';
 import {appendMount} from './mount.js';
 import {affine,rz} from './scene.js';
-import {feedFits,feedDatum,appendFeedParts} from './feed.js';
+import {feedFits,petalRodSocket,appendFeedParts} from './feed.js';
 import {leverMeshes} from './lever-meshes.js';
 export {binarySTL,volume,zip,packedPlateMesh,bounds,printMesh,rotateBed,zAt} from './mesh.js';
 export const defaults={feedMode:0,feedLegs:3,rodDiameter:6.35,rodClearance:.35,feedPayload:100,phaseUnits:0,autoSecondary:1,secondaryWaves:4,phaseOffset:0,secondaryPosition:.82,backFocus:-20,frequencyGHz:0,diameter:400,fd:.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:.4,resolution:5,sectors:0,rows:0,rearStyle:0,facetSize:20,packPlates:1,staggerRings:1,seamJoint:0,clipFit:.05,clipDetent:.3,clipMaterial:0,clipAllowableStrain:1.5,mountMode:0,mountBase:1,mountArcLock:0,azimuth:0,elevation:30,seamBolt:3,hubFlat:0,rootThrough:0,mountThrough:1,insertDiameter:5.6};
@@ -137,7 +136,8 @@ export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=row
    const seat=zAt(52.5-ROOT.seatR,p)-ROOT.seatDepth,top=zAt(70,p)+5;
    body=body.subtract(bore(drop(2.25),bottom-1,top).union(bore(roofR(2.25),bottom-1,top)).union(bore(drop(ROOT.seatR),seat,top)).union(bore(roofR(ROOT.seatR),seat,top)));
   }else body=body.subtract(cylinder([52.5,0,bottom-1],[52.5,0,bottom+7],p.insertDiameter/2));}
- if(feed){const d=feedDatum(p);const pad=feedMountPad(d.r,p.diameter,p.diameter*p.fd,p.thickness);body=body.union(pad);for(const q of d.holes){const x=q.r*Math.cos(q.a),y=q.r*Math.sin(q.a);body=body.subtract(cylinder([x,y,d.rear-15],[x,y,d.front+5],1.7));}}
+ if(feed){const socket=petalRodSocket(p,{n,rows},(x,y)=>backZ(x,y,p));body=body.union(socket.body);for(const cut of socket.cuts)body=body.subtract(cut);}
+
  for(const f of flanges)for(const cut of f.cuts)body=body.subtract(cut);
  return{body,spec:{a,b,row:j,flanges:flanges.map(({stations,levels,tilts,key,frame,start,end,id,family,joint,bolt})=>({stations,levels,tilts,key,frame,start,end,id,family,joint,bolt})),feedMount:feed,rootThrough:p.rootThrough}};}
 function hubSolid(p,n){const bottom=rootBottom(p)-6,top=rootBottom(p),R=60;const face=hubFace(p);let center=solid(patch({r0:15,r1:R,a0:0,a1:TAU,...(p.hubFlat?{topFn:()=>face}:{}),backFn:()=>bottom},p));for(let i=0;i<n;i++){const a=i*TAU/n;center=center.trim([-Math.cos(a),-Math.sin(a),0],-45+p.gap/2);}let hub=cylinder([0,0,bottom],[0,0,top],R,128).subtract(cylinder([0,0,bottom-1],[0,0,top+1],15,96)).union(center);for(let i=0;i<n;i++){const a=i*TAU/n,x=52.5*Math.cos(a),y=52.5*Math.sin(a);hub=hub.subtract(cylinder([x,y,bottom-1],[x,y,top+1],2.3));}for(let i=0;i<4;i++){const a=PI/4+i*PI/2,x=30*Math.cos(a),y=30*Math.sin(a);hub=hub.subtract(cylinder([x,y,bottom-1],[x,y,mountChoice(p,i)?p.diameter:bottom+7],mountChoice(p,i)?2.3:p.insertDiameter/2));if(mountChoice(p,i))hub=hub.subtract(cylinder([x,y,hubSeatFloor(p)],[x,y,p.diameter],5,48));}return hub;}
