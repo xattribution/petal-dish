@@ -1,16 +1,18 @@
-# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 4
+# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 5
 
 ![Actual generated geometry](feed-joints.png)
 
+![Same-scale before and after](feed-slimming.png)
+
 ## What changed
 
-The fittings now have **continuous fixed outer housings**. Only the rod bores, screw channels and captured-nut pockets follow the calculated rod angle. The carrier is one tapered 80 mm housing with a recessed prime-focus adapter datum. The rim fitting has a rounded footprint and a chamfered perimeter.
+The fittings use **thin curved feet and tapered socket lobes**. Each lobe follows its rod and blends into a single continuous body. A 44 mm central carrier replaces the broad 80 mm housing; the rim foot has a rounded footprint and chamfered perimeter. Local bulges contain only the rod bore, real nut and retention screw.
 
-The separate rear backer is removed. A widened mounting-petal bearing area supports paired M3 through bolts, with a 45° underside chamfer around the added material. Use washers under the rear bolt heads. The curved contact surfaces retain a small manufacturing clearance; regenerate the mounting petals and fittings together. Dish seam/hub interface remains revision 12, while these feed fittings are revision 4. Seam clips and levers retain their matched 5 mm flange walls; the rim-fitting interface uses M3 bolts.
+The separate rear backer is removed. A widened mounting-petal bearing area supports paired M3 through bolts, with a 45° underside chamfer around the added material. Use washers under the rear bolt heads. The curved contact surfaces retain a small manufacturing clearance; regenerate the mounting petals and fittings together. Dish seam/hub interface remains revision 12, while these feed fittings are revision 5. Seam clips and levers retain their matched 5 mm flange walls; the rim-fitting interface uses M3 bolts.
 
 Three rods use the fewest parts. Four rods are available, with the fourth fitted last without preload. Compatible equal-angle petal segmentation is still required; changing between three and four rods can require regenerating the entire matching dish/hub.
 
-Use the generated `RODS.csv`, hardware schedule and PDF for your exact dimensions. Rod cuts changed with revision 4; older cuts and fittings do not interchange.
+Use the generated `RODS.csv`, hardware schedule and PDF for your exact dimensions. Rod cuts changed with revision 5; older cuts and fittings do not interchange.
 
 ## Frequency is an input, not a complete antenna design
 
@@ -51,7 +53,7 @@ The secondary is a 3 mm shell with a central boss and one blind short-M4-insert 
 
 ## Rod cuts, tolerances and retention
 
-The physical blind-end datums determine span S. The generator finds the actual lower and upper bore entrances in the fixed housings, then uses 18 mm nominal engagement at both ends:
+The physical blind-end datums determine span S. Each tapered socket ends 22 mm from its blind-end datum, with 18 mm nominal engagement at both ends:
 
 `rod cut = S − lower entrance − upper entrance + 36 mm`.
 

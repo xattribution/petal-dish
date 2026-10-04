@@ -1,4 +1,4 @@
 leg,stock,diameter_mm,socket_end_span_mm,lower_bore_entrance_mm,upper_bore_entrance_mm,engagement_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_end_z_mm,upper_end_z_mm
-1,smooth solid aluminum,6.35,206.500,28.907,24.484,18,189.110,7.4453,0.000,34.097,60.236,176.000
-2,smooth solid aluminum,6.35,206.500,28.907,24.484,18,189.110,7.4453,120.000,34.097,60.236,176.000
-3,smooth solid aluminum,6.35,206.500,28.907,24.484,18,189.110,7.4453,240.000,34.097,60.236,176.000
+1,smooth solid aluminum,6.35,206.500,22.000,22.000,18,198.500,7.8150,0.000,34.097,60.236,176.000
+2,smooth solid aluminum,6.35,206.500,22.000,22.000,18,198.500,7.8150,120.000,34.097,60.236,176.000
+3,smooth solid aluminum,6.35,206.500,22.000,22.000,18,198.500,7.8150,240.000,34.097,60.236,176.000

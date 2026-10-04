@@ -72,7 +72,7 @@ Accessories can stay visible in the assembly while being excluded from print pla
 
 Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera.
 
-Feed revision 4 uses continuous housings with angled internal channels. The widened, chamfered mounting petal replaces the separate backer. Regenerate feed fittings and rod cuts together.
+Feed revision 5 uses thin curved feet and tapered socket lobes blended into a compact carrier. The smaller, chamfered mounting reinforcement replaces the separate backer. Regenerate feed fittings and rod cuts together.
 
 ## Documentation
 
