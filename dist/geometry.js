@@ -1,33 +1,14 @@
-import {jointKey,seamChoice,rootChoice,mountChoice,validateConnections,connectionCatalog} from './connections.js';
-import {patch,bounds,printMesh,rotateBed,packParts,zAt} from './mesh.js';
+import {jointKey,seamChoice,rootChoice,mountChoice} from './connections.js';
+import {patch,bounds,printMesh,rotateBed,packAll,zAt} from './mesh.js';
 import {solidScope,solid,cylinder,loft,sphere} from './solid.js';
-import {INTERFACE_REVISION} from './interface.js';
+import {defaults,limits,CLIP,clipOuter,boltY,usesClips,usesLevers,seamHoles,SEAM_BOLT,seamBolt,clipStrain,JOINT,validate} from './params.js';
+export {defaults,limits,CLIP,boltY,usesClips,usesLevers,seamHoles,SEAM_BOLT,seamBolt,clipStrain,JOINT,validate} from './params.js';
 import {appendMount} from './mount.js';
 import {affine,rz} from './scene.js';
 import {feedFits,petalRodSocket,appendFeedParts} from './feed.js';
 import {leverMeshes} from './lever-meshes.js';
-export {binarySTL,volume,zip,packedPlateMesh,bounds,printMesh,rotateBed,zAt} from './mesh.js';
-export const defaults={feedMode:0,feedLegs:3,rodDiameter:6.35,rodClearance:.35,feedPayload:100,phaseUnits:0,autoSecondary:1,secondaryWaves:4,phaseOffset:0,secondaryPosition:.82,backFocus:-20,frequencyGHz:0,diameter:400,fd:.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:.4,resolution:5,sectors:0,rows:0,rearStyle:0,facetSize:20,packPlates:1,staggerRings:1,seamJoint:0,clipFit:.05,clipDetent:.3,clipMaterial:0,clipAllowableStrain:1.5,mountMode:0,mountBase:1,mountArcLock:0,azimuth:0,elevation:30,seamBolt:3,hubFlat:0,rootThrough:0,mountThrough:1,insertDiameter:5.6};
-export const limits={feedMode:[0,2],feedLegs:[3,4],rodDiameter:[0,12.7],rodClearance:[.15,.7],feedPayload:[1,2000],phaseUnits:[0,1],autoSecondary:[0,1],secondaryWaves:[2,10],phaseOffset:[-150,150],secondaryPosition:[.6,.95],backFocus:[-200,-5],frequencyGHz:[0,100],diameter:[260,1200],fd:[.25,.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[.2,1],resolution:[2,10],sectors:[0,24],rows:[0,8],rearStyle:[0,1],facetSize:[10,30],packPlates:[0,1],staggerRings:[0,1],seamJoint:[0,3],clipFit:[0,.1],clipDetent:[.3,2],clipMaterial:[0,2],clipAllowableStrain:[.2,10],mountMode:[0,1],mountBase:[0,1],mountArcLock:[0,1],azimuth:[-180,180],elevation:[-10,100],seamBolt:[3,4],hubFlat:[0,1],rootThrough:[0,1],mountThrough:[0,1],insertDiameter:[5.2,6]};
+export {binarySTL,volume,packedPlateMesh,bounds,printMesh,rotateBed,zAt,packAll} from './mesh.js';
 export const ROOT={seatR:4.8,seatDepth:5};
-// Snap clip: a solid trapezoid block with a channel that snaps straight up over both flange walls from behind.
-// In clip modes the flange wall is a uniform 5 mm, so each petal presents one flat face. Each clip jaw carries a
-// cylindrical bump straight across its full width; it clicks into a matching cylindrical groove in each wall, cut
-// slightly wider than the clip. Two low vertical ridges on each wall either side of the clip stop it sliding along
-// the seam or twisting. Detent depth sizes both the bump and the groove.
-// Clip spots are tilted to follow the shell along the seam, so the clip's top sits just under the shell.
-// Profile: X across the seam, Y toward the shell, Y = 0 at the station level (flange bottom near -7, shell at 7).
-export const CLIP={width:10,detentR:2.6,detentY:3,tip:2.5,root:4,top:6.75,floor:-9.5,bottom:-14.5,fillet:1.5,clear:.4,ridge:{top:1,h:1,maxRamp:4},wall:5};
-const clipOuter=(a0,Y)=>a0+CLIP.root+(CLIP.tip-CLIP.root)*(Y-CLIP.floor)/(CLIP.top-CLIP.floor);
-// Bolt height in the station frame: with both bolts and clips, the bolt sits low and the detent high so the seat stays flat.
-export const boltY=p=>p.seamJoint>=2?-2.2:0;
-// Seam fastening modes: 0 bolts, 1 snap clips, 2 both (hole and clip window), 3 seam levers (same stations as 2).
-export const usesClips=p=>p.seamJoint===1||p.seamJoint===2;
-export const usesLevers=p=>p.seamJoint===3;
-export const seamHoles=p=>p.seamJoint!==1;
-// Seam bolt size: M3 (Ø3.4 bore, Ø10 seats) or M4 (Ø4.5 bore, Ø11 seats, larger pads).
-export const SEAM_BOLT={3:{holeR:1.7,seatR:5,padW:6,padH:5,screw:'M3 × 16 socket head',nut:'M3 / 5.5 mm AF',washer:'M3 / 0.5 mm',smallWasher:'M3 / 6 mm OD (DIN 433)',driver:5.5},4:{holeR:2.25,seatR:5.5,padW:6.5,padH:5.5,screw:'M4 × 20 socket head',nut:'M4 / 7 mm AF',washer:'M4 / 0.8 mm, 9 mm OD (DIN 125)',smallWasher:'M4 / 8 mm OD (DIN 433)',driver:7}};
-export const seamBolt=p=>SEAM_BOLT[p.seamBolt]||SEAM_BOLT[3];
 // The detent axis sits outside the wall so the clip's bump reaches exactly the detent depth into the wall.
 const detentX=d=>CLIP.wall+CLIP.detentR-d;
 export function clipSolid(fit,detent,map){const C=CLIP,a0=5-fit,parts=[],ext=poly=>loft([-C.width/2,C.width/2].map(U=>poly.map(([X,Y])=>map(X,Y,U))));
@@ -39,13 +20,7 @@ export function clipSolid(fit,detent,map){const C=CLIP,a0=5-fit,parts=[],ext=pol
  return parts.reduce((x,y)=>x.union(y));}
 // Station frame from the exported flange spec: (X across the seam, Y toward the shell, U along the seam) -> dish coordinates.
 export function stationFrame(f,i){const{o,e,v}=f.frame,s=f.stations[i],z=f.levels[i],a=f.tilts[i],c=Math.cos(a),sn=Math.sin(a);return(X,Y,U)=>{const ss=s+U*c-Y*sn;return[o[0]+ss*e[0]+X*v[0],o[1]+ss*e[1]+X*v[1],z+U*sn+Y*c];};}
-// Peak jaw strain while the bump rides over the wall: tapered cantilever from the channel floor, loaded at the detent.
-export function clipStrain(p){const C=CLIP,a0=5-p.clipFit,yl=C.detentY,N=400;let d=0,em=0;const h=Y=>clipOuter(a0,Y)-a0;
- for(let i=0;i<N;i++){const Y=C.floor+(yl-C.floor)*(i+.5)/N,x=yl-Y,H=h(Y);d+=x*x/(H**3/12)*(yl-C.floor)/N;}
- const P=(p.clipDetent+p.clipFit)/d;for(let i=0;i<=N;i++){const Y=C.floor+(yl-C.floor)*i/N;em=Math.max(em,6*P*(yl-Y)/h(Y)**2);}return em;}
-export const JOINT={revision:INTERFACE_REVISION,wall:3,depth:14,boss:5,insertDepth:7,insertMaxLength:6};
 const PI=Math.PI,TAU=2*PI;
-export function validate(p){validateConnections(p.connections);for(const[k,[a,b]]of Object.entries(limits))if(!Number.isFinite(p[k])||p[k]<a||p[k]>b)throw Error(`${k} must be between ${a} and ${b}.`);if(p.seamBolt!==3&&p.seamBolt!==4)throw Error('seamBolt must be 3 (M3) or 4 (M4).');for(const k of ['feedMode','feedLegs','phaseUnits','autoSecondary','sectors','rows','rearStyle','packPlates','staggerRings','seamJoint','clipMaterial','mountMode','mountBase','mountArcLock','seamBolt','hubFlat','rootThrough','mountThrough'])if(!Number.isInteger(p[k]))throw Error(k+' must be a whole-number option.');if(p.sectors&&(p.sectors<6||p.sectors%2))throw Error('Choose automatic or an even petal count from 6 to 24.');if(p.rodDiameter!==0&&p.rodDiameter<2)throw Error('Rod diameter must be 2–12.7 mm, or 0 for automatic stock sizing.');if(p.feedMode&&p.sectors&&p.sectors%p.feedLegs)throw Error('Petal count must be divisible by the rod count.');if(p.mountMode&&(p.seamJoint||[...Object.values(p.connections?.families||{}),...Object.values(p.connections?.joints||{})].some(c=>c.seamJoint))&&p.elevation< -7.5)throw Error('Clip mount preview requires elevation at least -7.5°.');if((usesClips(p)||[...Object.values(p.connections?.families||{}),...Object.values(p.connections?.joints||{})].some(c=>usesClips(c)))&&clipStrain(p)*100>p.clipAllowableStrain)throw Error(`Clip strain ${(100*clipStrain(p)).toFixed(2)}% exceeds your ${p.clipAllowableStrain}% budget. Reduce detent/squeeze or supply a qualified material budget.`);return p;}
 export function backZ(x,y,p){if(!p.rearStyle)return zAt(Math.hypot(x,y),p)-p.thickness;const q=p.facetSize,X=Math.round(x/q)*q,Y=Math.round(y/q)*q;return(2*X*x+2*Y*y-X*X-Y*Y)/(4*p.diameter*p.fd)-p.thickness;}
 export const rootBottom=p=>zAt(45,p)-10;
 // Optional flat hub front sits at the height where the petals start (r 45): easier to print, and it is in the feed's shadow.
@@ -56,7 +31,7 @@ export const hubMountGrip=p=>hubSeatFloor(p)-(rootBottom(p)-6);
 export function rowBounds(p,n,rows,j){const end=p.diameter/2*Math.cos(PI/n);return[45+(end-45)*j/rows,j===rows-1?Infinity:45+(end-45)*(j+1)/rows];}
 export function sidePrint(mesh,n){const h=PI/n,c=Math.cos(h),s=Math.sin(h);return printMesh({v:mesh.v.map(([x,y,z])=>[c*x-s*y,-z,s*x+c*y]),f:mesh.f});}
 function chooseBed(mesh,p){for(let yaw=0;yaw<180;yaw+=15){const m=rotateBed(mesh,yaw),dim=bounds(m).size;if(dim[0]<=p.bedX-2*p.margin&&dim[1]<=p.bedY-2*p.margin&&dim[2]<=p.bedZ-2)return{mesh:m,dim,yaw};}return null;}
-export function plan(p){validate(p);if(Math.min(p.bedX,p.bedY)-2*p.margin<120)throw Error('The 120 mm hub needs more usable bed space.');let best;for(const rows of p.rows?[p.rows]:[1,2,3,4,5,6,7,8])for(const n of p.sectors?[p.sectors]:[6,8,10,12,14,16,18,20,22,24]){if(best&&rows*n>=best.n*best.rows)continue;if(!feedFits(p,n,rows))continue;const h=PI/n,R=p.diameter/2,span=(R-45/Math.cos(h))/rows;if(span<66||45*Math.tan(h)<8.5)continue;let ok=true;for(let j=0;j<rows;j++){const[a,b]=rowBounds(p,n,rows,j),r1=Math.min(R,b/Math.cos(h));if(rows>1&&j<rows-1&&(p.staggerRings?2*b*Math.tan(h/2)<36:2*b*Math.tan(h)<62)){ok=false;break;}const spec={r0:a,r1,a0:-h,a1:h,backFn:(x,y)=>backZ(x,y,p)-17};let m=solidScope(()=>solid(patch(spec,p)).trim([1,0,0],a).mesh());if(!chooseBed(sidePrint(m,n),p)){ok=false;break;}}if(ok)best={n,rows,choices:[]};}if(!best)throw Error('No side-printed layout fits. Use automatic segmentation, a larger print volume, or a smaller dish. Flange joints need enough room for hardware and tools.');return best;}
+export function plan(p){validate(p);if(Math.min(p.bedX,p.bedY)-2*p.margin<120)throw Error('The 120 mm hub needs more usable bed space.');let best;for(const rows of p.rows?[p.rows]:[1,2,3,4,5,6,7,8])for(const n of p.sectors?[p.sectors]:[6,8,10,12,14,16,18,20,22,24]){if(best&&rows*n>=best.n*best.rows)continue;if(!feedFits(p,n,rows))continue;const h=PI/n,R=p.diameter/2,span=(R-45/Math.cos(h))/rows;if(span<66||45*Math.tan(h)<8.5)continue;let ok=true;for(let j=0;j<rows;j++){const[a,b]=rowBounds(p,n,rows,j),r1=Math.min(R,b/Math.cos(h));if(rows>1&&j<rows-1&&(p.staggerRings?2*b*Math.tan(h/2)<36:2*b*Math.tan(h)<62)){ok=false;break;}const spec={r0:a,r1,a0:-h,a1:h,backFn:(x,y)=>backZ(x,y,p)-17};let m=solidScope(()=>solid(patch(spec,p)).trim([1,0,0],a).rawMesh());if(!chooseBed(sidePrint(m,n),p)){ok=false;break;}}if(ok)best={n,rows,choices:[]};}if(!best){if(p.feedMode){let fits=false;try{plan({...p,feedMode:0});fits=true;}catch{}if(fits)throw Error(`No petal count fits both your printer and ${p.feedLegs} rods: the petal count must be a multiple of the rod count${p.sectors?'':', and petals must stay wide enough at the hub'}. Try ${p.feedLegs===3?4:3} rods${p.sectors?' or automatic petals':''}, or a larger print volume.`);}throw Error('No side-printed layout fits. Use automatic segmentation, a larger print volume, or a smaller dish. Flange joints need enough room for hardware and tools.');}return best;}
 function clipped(s,p,n,a,b,gap=0){const h=PI/n;
  s=s.trim([Math.sin(h),Math.cos(h),0],gap/2).trim([Math.sin(h),-Math.cos(h),0],gap/2);
  if(p.staggerRings){
@@ -116,15 +91,21 @@ function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s
   const c=Math.max(.6,p.clipDetent+.2);cuts.push(loft([-CLIP.width/2-CLIP.clear,CLIP.width/2+CLIP.clear].map(u=>[[W+.05,Yb-.05],[W+.05,Yb+c],[W-c,Yb-.05]].map(([t,Y])=>F(t,Y,u)))));}
  seats=seats?seats.union(seat):seat;}
  return{body,seats,windows,pads,cuts,stations,levels:stations.map(level),tilts:stations.map(tilt),key:mid,frame,start,end};}
-export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=rowBounds(p,n,rows,j),R=p.diameter/2;const lines=[];if(p.rearStyle)for(let k=-Math.ceil(R/p.facetSize);k<=Math.ceil(R/p.facetSize);k++)for(const normal of [[1,0],[0,1]])lines.push([...normal,(k+.5)*p.facetSize]);let body=clipped(solid(patch({r0:Math.max(1,a-2),r1:R,a0:-h,a1:h,backFn:(x,y)=>backZ(x,y,p),creaseLines:lines},p)),p,n,a,b,p.gap);
- const makeFlange=(frame,start,end,...args)=>{const choice=seamChoice(p,frame,start,end,angle),f=flange({...p,...choice},frame,start,end,...args);return {...f,id:choice.id,family:choice.family,joint:choice.seamJoint,bolt:choice.seamBolt};};const flanges=[];for(const sign of [-1,1])flanges.push(makeFlange({o:[0,0],e:[Math.cos(h),sign*Math.sin(h)],v:[Math.sin(h),-sign*Math.cos(h)]},Math.max(63,a/Math.cos(p.staggerRings&&j>0?h/2:h)+1),Math.min(R,Number.isFinite(b)?b/Math.cos(p.staggerRings?h/2:h):R)-1,sign===1,h));
+// Every flange on a petal: [frame, start, end, male, half-angle, overlap]. Shared by panelSolid and petalSignature.
+function flangeFrames(p,n,rows,j){const h=PI/n,[a,b]=rowBounds(p,n,rows,j),R=p.diameter/2,defs=[];
+ for(const sign of [-1,1])defs.push([{o:[0,0],e:[Math.cos(h),sign*Math.sin(h)],v:[Math.sin(h),-sign*Math.cos(h)]},Math.max(63,a/Math.cos(p.staggerRings&&j>0?h/2:h)+1),Math.min(R,Number.isFinite(b)?b/Math.cos(p.staggerRings?h/2:h):R)-1,sign===1,h]);
  if(p.staggerRings){for(const [r,male] of [[a,false],[b,true]])if((male&&j<rows-1)||(!male&&j>0))for(const t of [-h/2,h/2]){
   const c=Math.cos(t),s=Math.sin(t),L=r*Math.tan(h/2);
-  flanges.push(makeFlange({o:[r*c,r*s],e:[-s,c],v:male?[-c,-s]:[c,s]},-L,L,male,h,20*Math.tan(h/2)+1));
+  defs.push([{o:[r*c,r*s],e:[-s,c],v:male?[-c,-s]:[c,s]},-L,L,male,h,20*Math.tan(h/2)+1]);
  }}else{
- if(j>0)flanges.push(makeFlange({o:[a,0],e:[0,1],v:[1,0]},-a*Math.tan(h),a*Math.tan(h),false,h));
- if(j<rows-1)flanges.push(makeFlange({o:[b,0],e:[0,1],v:[-1,0]},-b*Math.tan(h),b*Math.tan(h),true,h));
+ if(j>0)defs.push([{o:[a,0],e:[0,1],v:[1,0]},-a*Math.tan(h),a*Math.tan(h),false,h]);
+ if(j<rows-1)defs.push([{o:[b,0],e:[0,1],v:[-1,0]},-b*Math.tan(h),b*Math.tan(h),true,h]);
  }
+ return defs;}
+// Petals with the same root fastener, rod mount and seam choices are identical solids.
+const petalSignature=(p,n,rows,j,mount,angle)=>JSON.stringify([mount,j===0?p.rootThrough:null,flangeFrames(p,n,rows,j).map(([frame,start,end])=>{const c=seamChoice(p,frame,start,end,angle);return[c.seamJoint,c.seamBolt];})]);
+export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=rowBounds(p,n,rows,j),R=p.diameter/2;const lines=[];if(p.rearStyle)for(let k=-Math.ceil(R/p.facetSize);k<=Math.ceil(R/p.facetSize);k++)for(const normal of [[1,0],[0,1]])lines.push([...normal,(k+.5)*p.facetSize]);let body=clipped(solid(patch({r0:Math.max(1,a-2),r1:R,a0:-h,a1:h,backFn:(x,y)=>backZ(x,y,p),creaseLines:lines},p)),p,n,a,b,p.gap);
+ const makeFlange=(frame,start,end,...args)=>{const choice=seamChoice(p,frame,start,end,angle),f=flange({...p,...choice},frame,start,end,...args);return {...f,id:choice.id,family:choice.family,joint:choice.seamJoint,bolt:choice.seamBolt};};const flanges=flangeFrames(p,n,rows,j).map(([frame,start,end,...args])=>makeFlange(frame,start,end,...args));
  // Clip flange bodies to the seam planes (flat mating faces).
  // Seats clear every flange's gusset (a seat near a corner also opens the neighbor's), never the shell or a bolt pad.
  for(const f of flanges){let fb=f.body;for(const g of flanges)if(g.seats)fb=fb.subtract(g.seats);for(const w of f.windows)fb=fb.subtract(w);body=body.union(f.pads?fb.union(f.pads):fb);}
@@ -142,7 +123,7 @@ export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=row
  return{body,spec:{a,b,row:j,flanges:flanges.map(({stations,levels,tilts,key,frame,start,end,id,family,joint,bolt})=>({stations,levels,tilts,key,frame,start,end,id,family,joint,bolt})),feedMount:feed,rootThrough:p.rootThrough}};}
 function hubSolid(p,n){const bottom=rootBottom(p)-6,top=rootBottom(p),R=60;const face=hubFace(p);let center=solid(patch({r0:15,r1:R,a0:0,a1:TAU,...(p.hubFlat?{topFn:()=>face}:{}),backFn:()=>bottom},p));for(let i=0;i<n;i++){const a=i*TAU/n;center=center.trim([-Math.cos(a),-Math.sin(a),0],-45+p.gap/2);}let hub=cylinder([0,0,bottom],[0,0,top],R,128).subtract(cylinder([0,0,bottom-1],[0,0,top+1],15,96)).union(center);for(let i=0;i<n;i++){const a=i*TAU/n,x=52.5*Math.cos(a),y=52.5*Math.sin(a);hub=hub.subtract(cylinder([x,y,bottom-1],[x,y,top+1],2.3));}for(let i=0;i<4;i++){const a=PI/4+i*PI/2,x=30*Math.cos(a),y=30*Math.sin(a);hub=hub.subtract(cylinder([x,y,bottom-1],[x,y,mountChoice(p,i)?p.diameter:bottom+7],mountChoice(p,i)?2.3:p.insertDiameter/2));if(mountChoice(p,i))hub=hub.subtract(cylinder([x,y,hubSeatFloor(p)],[x,y,p.diameter],5,48));}return hub;}
 export function build(input){const p=validate({...defaults,...input}),layout=plan(p);return solidScope(()=>{const{n,rows}=layout,parts=[],instances=[],step=TAU/n;const add=(id,name,mesh,qty,angles,kind,row,spec={})=>{const pm=kind==='panel'?sidePrint(mesh,n):kind==='clip'?printMesh({v:mesh.v.map(([x,y,z])=>[x,z,-y]),f:mesh.f}):printMesh(mesh),choice=chooseBed(pm,p);if(!choice)throw Error(name+' exceeds the print volume after adding joints. Increase print volume or segmentation.');const part={id,name,mesh,print:choice.mesh,output:choice.mesh,dim:choice.dim,qty,kind,row,spec,angle:90,bedRotation:choice.yaw,supportMeshes:[]};parts.push(part);angles.forEach(a=>instances.push({part,a}));return part;};
- if(p.connections){ for(let j=0;j<rows;j++){const groups=new Map();for(let i=0;i<n;i++){const angle=i*step+(p.staggerRings?(j%2)*PI/n:0),mount=Boolean(p.feedMode&&j===rows-1&&i%(n/p.feedLegs)===0),local={...p,rootThrough:rootChoice(p,i)},built=panelSolid(local,n,rows,j,mount,angle),signature=JSON.stringify([mount,j===0?local.rootThrough:null,built.spec.flanges.map(f=>[f.joint,f.bolt])]);if(groups.has(signature))groups.get(signature).angles.push(angle);else groups.set(signature,{...built,angles:[angle],mount});}let v=0;for(const group of groups.values()){v++;add(`petal-${j+1}-variant-${v}`,`Petal ${j+1} · variant ${v}${group.mount?' · rod mount':''}`,group.body.mesh(),group.angles.length,group.angles,'panel',j,group.spec);}}
+ if(p.connections){ for(let j=0;j<rows;j++){const groups=new Map();for(let i=0;i<n;i++){const angle=i*step+(p.staggerRings?(j%2)*PI/n:0),mount=Boolean(p.feedMode&&j===rows-1&&i%(n/p.feedLegs)===0),local={...p,rootThrough:rootChoice(p,i)},signature=petalSignature(local,n,rows,j,mount,angle);if(groups.has(signature))groups.get(signature).angles.push(angle);else groups.set(signature,{...panelSolid(local,n,rows,j,mount,angle),angles:[angle],mount});}let v=0;for(const group of groups.values()){v++;add(`petal-${j+1}-variant-${v}`,`Petal ${j+1} · variant ${v}${group.mount?' · rod mount':''}`,group.body.mesh(),group.angles.length,group.angles,'panel',j,group.spec);}}
 }else{ for(let j=0;j<rows;j++)for(const mount of [false,true]){const angles=Array.from({length:n},(_,i)=>i).filter(i=>Boolean(p.feedMode&&j===rows-1&&i%(n/p.feedLegs)===0)===mount).map(i=>i*step+(p.staggerRings?(j%2)*PI/n:0));if(!angles.length)continue;const{body,spec}=panelSolid(p,n,rows,j,mount);add(`petal-${j+1}${mount?'-mount':''}`,`Petal ${j+1}${mount?' · rod mount':''}`,body.mesh(),angles.length,angles,'panel',j,spec);}
 }
  add('hub','Hub · clear center',hubSolid(p,n).mesh(),1,[0],'hub',-1);const seams=seamStations(parts);
@@ -153,14 +134,19 @@ export function build(input){const p=validate({...defaults,...input}),layout=pla
  const fitted=usesClips(p)?[parts.find(q=>q.kind==='clip')]:usesLevers(p)?addLevers(p,parts,seams):[];
  if(fitted.length){const placed=[],panels=instances.filter(i=>i.part.kind==='panel');
   // A lever set sits on the +X side of the station; where that side meets another flange (ring junctions) it is turned to -X.
-  const dish=usesLevers(p)?panels.map(i=>solid(i.part.mesh).transform(q=>rz(q,i.a))).reduce((x,y)=>x.union(y)):null,leverSet=(F,a,g)=>fitted.map(part=>solid(part.mesh).transform(q=>rz(F(g*q[0],q[1],g*q[2]),a))).reduce((x,y)=>x.union(y));
+  const collides=usesLevers(p)?leverProbe(panels):null,leverSet=collides?fitted.map(part=>solid(part.mesh)).reduce((x,y)=>x.union(y)):null;
   for(const ins of panels)for(const f of ins.part.spec.flanges)for(let k=0;k<f.stations.length;k++){const F=stationFrame(f,k),center=rz(F(0,0,0),ins.a);if(placed.some(q=>Math.hypot(...q.map((x,j)=>x-center[j]))<.15))continue;placed.push(center);
    // Where neither side has room (some ring junctions), that station takes a seam bolt instead; every station has the hole.
-   let g=1;if(dish&&leverSet(F,ins.a,1).intersect(dish).raw.volume()>.05){g=-1;if(leverSet(F,ins.a,-1).intersect(dish).raw.volume()>.05){m.boltStations=(m.boltStations||0)+1;continue;}}
+   let g=1;if(collides&&collides(leverSet,F,ins.a,1)){g=-1;if(collides(leverSet,F,ins.a,-1)){m.boltStations=(m.boltStations||0)+1;continue;}}
    for(const part of fitted)instances.push({part,a:ins.a,matrix:part.kind==='clip'?affine(([x,u,y])=>F(x,y,u)):affine(([x,y,u])=>F(g*x,y,g*u))});}if(placed.length!==seams)throw Error('Seam stations do not pair across the seams. Change mesh or segmentation.');
   const installed=placed.length-(m.boltStations||0),spares=Math.max(2,Math.ceil(installed/10));if(!installed)throw Error('No seam station has room for a lever. Use bolts, clips or Both.');for(const part of fitted){if(part.kind==='lever')part.qty=installed+spares;part.installed=installed;part.spares=part.qty-installed;}m.bolts+=m.boltStations||0;}
 }
  appendFeedParts(m,{patch,printMesh,bounds});appendMount(m);for(const part of parts)part.printIncluded=p.printSelection?.[part.kind]!==false;m.plates=p.packPlates?packAll(parts,p):[];return m;});}
+// Lever sets are checked against only the petals whose bounds they reach, one petal at a time (petals meet
+// only at faces, so their overlaps add), each test in its own scope so temporary solids are freed at once.
+// Testing every station against a union of the whole dish was slow and exhausted WASM memory on large dishes.
+function leverProbe(panels){const base=new Map(),items=panels.map(i=>{if(!base.has(i.part))base.set(i.part,solid(i.part.mesh));const s=base.get(i.part).transform(q=>rz(q,i.a)),{min,max}=s.raw.boundingBox();return{s,min,max};});
+ return (set,F,a,g)=>solidScope(()=>{const shape=set.transform(q=>rz(F(g*q[0],q[1],g*q[2]),a)),b=shape.raw.boundingBox(),near=items.filter(x=>x.min.every((v,k)=>v<=b.max[k]+.01)&&x.max.every((v,k)=>v>=b.min[k]-.01));let overlap=0;for(const x of near)if((overlap+=shape.intersect(x.s).raw.volume())>.05)return true;return false;});}
 function installConnections(m,add){
  const {p,parts,instances}=m,panels=instances.filter(i=>i.part.kind==='panel'),stations=new Map();
  for(const ins of panels)for(const f of ins.part.spec.flanges)for(let k=0;k<f.stations.length;k++){const F=stationFrame(f,k),center=rz(F(0,0,0),ins.a),key=center.map(v=>Math.round(v*10)).join(',');if(!stations.has(key))stations.set(key,[]);stations.get(key).push({ins,f,k,F});}
@@ -168,13 +154,11 @@ function installConnections(m,add){
  const counts={clip:0,lever:{3:0,4:0},bolts:{3:0,4:0}},fitted={};for(const pair of stations.values()){const f=pair[0].f;if(f.joint===1||f.joint===2)counts.clip++;if(f.joint===3)counts.lever[f.bolt]++;if(f.joint===0||f.joint===2)counts.bolts[f.bolt]++;}
  if(counts.clip)fitted.clip=[add('seam-clip','Seam clip',clipSolid(p.clipFit,p.clipDetent,(X,Y,U)=>[X,U,Y]).mesh(),counts.clip+Math.max(2,Math.ceil(counts.clip/10)),[],'clip',-1)];
  const both=counts.lever[3]&&counts.lever[4];for(const size of [3,4])if(counts.lever[size])fitted[size]=addLevers({...p,seamBolt:size},parts,counts.lever[size],both?'-M'+size:'');
- const dish=counts.lever[3]||counts.lever[4]?panels.map(i=>solid(i.part.mesh).transform(q=>rz(q,i.a))).reduce((a,b)=>a.union(b)):null;
- for(const pair of stations.values()){const {ins,f,F}=pair[0],set=f.joint===1||f.joint===2?fitted.clip:f.joint===3?fitted[f.bolt]:null;if(!set)continue;let g=1;if(f.joint===3){const shape=g=>set.map(part=>solid(part.mesh).transform(q=>rz(F(g*q[0],q[1],g*q[2]),ins.a))).reduce((a,b)=>a.union(b));if(shape(1).intersect(dish).raw.volume()>.05){g=-1;if(shape(-1).intersect(dish).raw.volume()>.05){counts.lever[f.bolt]--;counts.bolts[f.bolt]++;m.boltStations=(m.boltStations||0)+1;continue;}}}for(const part of set)instances.push({part,a:ins.a,matrix:part.kind==='clip'?affine(([x,u,y])=>F(x,y,u)):affine(([x,y,u])=>F(g*x,y,g*u))});}
+ const collides=counts.lever[3]||counts.lever[4]?leverProbe(panels):null,leverSets={};for(const size of [3,4])if(fitted[size])leverSets[size]=fitted[size].map(part=>solid(part.mesh)).reduce((a,b)=>a.union(b));
+ for(const pair of stations.values()){const {ins,f,F}=pair[0],set=f.joint===1||f.joint===2?fitted.clip:f.joint===3?fitted[f.bolt]:null;if(!set)continue;let g=1;if(f.joint===3){const shape=leverSets[f.bolt];if(collides(shape,F,ins.a,1)){g=-1;if(collides(shape,F,ins.a,-1)){counts.lever[f.bolt]--;counts.bolts[f.bolt]++;m.boltStations=(m.boltStations||0)+1;continue;}}}for(const part of set)instances.push({part,a:ins.a,matrix:part.kind==='clip'?affine(([x,u,y])=>F(x,y,u)):affine(([x,y,u])=>F(g*x,y,g*u))});}
  for(const [key,set]of Object.entries(fitted)){const installed=key==='clip'?counts.clip:counts.lever[key],spares=Math.max(2,Math.ceil(installed/10));for(const part of set){part.installed=installed;part.spares=spares;part.qty=installed+spares;}}
  m.connectionCounts=counts;m.bolts=m.layout.n+counts.bolts[3]+counts.bolts[4];
 }
-// TPU springs can't share a bed with rigid parts on a single-material printer: pack them on their own plates.
-export const packAll=(parts,p)=>[...packParts(parts.filter(x=>x.printIncluded!==false&&!x.flex),p),...packParts(parts.filter(x=>x.printIncluded!==false&&x.flex),p)];
 // Seam lever (cad/seam-lever.scad): four printed parts per station, bundled for the selected bolt size.
 export const LEVER_PARTS=[['lever','Seam lever · lever'],['bar','Seam lever · draw bar'],['keeper','Seam lever · keeper'],['spring','Seam lever · spring (TPU)']];
 function addLevers(p,parts,seams,suffix=""){const set=leverMeshes['M'+p.seamBolt],qty=seams+Math.max(2,Math.ceil(seams/10));return LEVER_PARTS.map(([key,name])=>{const src=set[key],mesh={v:src.installed.v.map(q=>[...q]),f:src.installed.f},choice=chooseBed(printMesh({v:src.print.v.map(q=>[...q]),f:src.print.f}),p);if(!choice)throw Error(name+' exceeds the print volume.');const part={id:'seam-lever-'+key+suffix,name:name+suffix,mesh,print:choice.mesh,output:choice.mesh,dim:choice.dim,qty,kind:'lever',row:-1,spec:{hole_d:set.hole_d,material:key==='spring'?'TPU 95A':'PCTG or PETG',source_sha256:leverMeshes.source_sha256},flex:key==='spring',angle:90,bedRotation:choice.yaw,supportMeshes:[]};parts.push(part);return part;});}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {unzip} from '../dist/zip.js';
 import {build,defaults,volume,bounds,backZ,connectionCoupon,binarySTL,rootBottom,hubFace,hubSeatFloor,ROOT,clipSolid,clipStrain,CLIP,stationFrame,boltY,hardwareSchedule,usesClips,usesLevers,seamBolt} from '../dist/geometry.js';
 import {apply} from '../dist/scene.js';
 import {zAt} from '../dist/mesh.js';
@@ -64,7 +65,7 @@ for(const[c,cfg]of cases.entries()){
 const p={...defaults,rearStyle:1};for(let x=45;x<200;x+=3.1)for(let y=-80;y<80;y+=4.3){const ideal=(x*x+y*y)/(4*p.diameter*p.fd)-p.thickness,d=ideal-backZ(x,y,p);assert(d>=-1e-9&&d<=p.facetSize**2/(8*p.diameter*p.fd)+1e-9);}
 const m=build(defaults);assert.equal(m.plates.length,3,'two three-petal beds plus hub');fs.writeFileSync('/tmp/petal5-validation/default-kit.zip',Buffer.from(await kit(m).arrayBuffer()));
 console.log('PASS tangent facet thickness bound and complete kit export');
-{const m=build({seamJoint:3,seamBolt:4}),man=manifest(m),text=new TextDecoder('latin1').decode(await kit(m).arrayBuffer());
+{const m=build({seamJoint:3,seamBolt:4}),man=manifest(m),files=await unzip(kit(m)),text=Object.keys(files).join('\n')+new TextDecoder().decode(files['ASSEMBLY.md']);
  assert.equal(man.seam_bolt,'M4');assert.equal(man.seam_levers.hole_mm,4.5);assert(man.parts.some(x=>x.file.startsWith('seam-lever-spring')&&x.material==='TPU 95A'));
  for(const name of ['lever','bar','keeper','spring'])assert(text.includes(`seam-lever-${name}_qty-${m.parts.find(p=>p.id==='seam-lever-'+name).qty}.stl`),'kit has the lever '+name);
  assert(text.includes('seam lever'),'guide covers seam levers');console.log('PASS seam lever kit, manifest and M4 bolt size');}

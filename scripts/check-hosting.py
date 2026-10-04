@@ -2,7 +2,12 @@
 Uses the official release downloaded to tmp/host-test. No root/package changes.
 """
 import hashlib,json,pathlib,socket,subprocess,tarfile,time,urllib.request,urllib.error
-root=pathlib.Path(__file__).resolve().parents[1];work=root/'tmp/host-test';asset='caddy_2.11.4_linux_amd64.tar.gz'
+root=pathlib.Path(__file__).resolve().parents[1];work=root/'tmp/host-test';version='2.11.4';asset=f'caddy_{version}_linux_amd64.tar.gz'
+# Fetch the official release once (the same files the installer verifies); later runs reuse it.
+work.mkdir(parents=True,exist_ok=True)
+for name,target in [(asset,'caddy.tar.gz'),(f'caddy_{version}_checksums.txt','checksums.txt')]:
+    if not (work/target).exists():
+        with urllib.request.urlopen(f'https://github.com/caddyserver/caddy/releases/download/v{version}/{name}',timeout=120) as r:(work/target).write_bytes(r.read())
 expected=[l.split()[0] for l in (work/'checksums.txt').read_text().splitlines() if len(l.split())==2 and l.split()[1].lstrip('*')==asset]
 assert len(expected)==1 and hashlib.sha512((work/'caddy.tar.gz').read_bytes()).hexdigest()==expected[0]
 with tarfile.open(work/'caddy.tar.gz') as t:(work/'caddy').write_bytes(t.extractfile('caddy').read())
