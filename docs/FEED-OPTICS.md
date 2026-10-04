@@ -1,16 +1,16 @@
-# Compact feed support and frequency sizing — PETAL 5.0
+# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 4
 
-![Actual generated geometry](feed-support.png)
+![Actual generated geometry](feed-joints.png)
 
 ## What changed
 
-The revision-1 clevises, pivot pins, long rod ends and broad carrier arms have been replaced by **small bolted rim shoes, slim rear backers, long metal rods and one round puck**. The puck body is 52 mm across; its short integrated sockets extend beyond that diameter. Each shoe has a 20 × 28 mm footprint and a 3 mm curved sole with an integral socket-root boss. Socket axes are generated at the calculated rod angle. There are no adjustable hinges to lock.
+The fittings now have **continuous fixed outer housings**. Only the rod bores, screw channels and captured-nut pockets follow the calculated rod angle. The carrier is one tapered 80 mm housing with a recessed prime-focus adapter datum. The rim fitting has a rounded footprint and a chamfered perimeter.
 
-The shoe follows the parabola with a small manufacturing clearance. Its backer follows a tangent datum, avoiding a deep flat wedge across the curved petal. The local reinforced mounting area uses paired M3 through holes near the rim. This is the bolted attachment option: no friction-only snap latch is relied on for sustained load. Regenerate the mount petals and accessories together. PETAL 5.0 uses dish seam/hub interface revision 10; previous dish parts are incompatible.
+The separate rear backer is removed. A widened mounting-petal bearing area supports paired M3 through bolts, with a 45° underside chamfer around the added material. Use washers under the rear bolt heads. The curved contact surfaces retain a small manufacturing clearance; regenerate the mounting petals and fittings together. Dish seam/hub interface remains revision 12, while these feed fittings are revision 4. Seam clips and levers retain their matched 5 mm flange walls; the rim-fitting interface uses M3 bolts.
 
 Three rods use the fewest parts. Four rods are available, with the fourth fitted last without preload. Compatible equal-angle petal segmentation is still required; changing between three and four rods can require regenerating the entire matching dish/hub.
 
-For the default 400 mm three-rod example, solid printed CAD volume (excluding rods and hardware) is 580.28 cm³ without the accessory, 641.91 cm³ with prime-focus support, and 667.63 cm³ with the example secondary. Nominal rods are 198.50 mm for prime focus and 201.21 mm for the example secondary. These are CAD volumes, not measured print weights.
+Use the generated `RODS.csv`, hardware schedule and PDF for your exact dimensions. Rod cuts changed with revision 4; older cuts and fittings do not interchange.
 
 ## Frequency is an input, not a complete antenna design
 
@@ -51,9 +51,11 @@ The secondary is a 3 mm shell with a central boss and one blind short-M4-insert 
 
 ## Rod cuts, tolerances and retention
 
-The physical socket-end coordinates determine span S. Each socket is 22 mm long with a bore beginning 2 mm from its blind end. At 18 mm nominal engagement, the rod end sits 4 mm from the socket end:
+The physical blind-end datums determine span S. The generator finds the actual lower and upper bore entrances in the fixed housings, then uses 18 mm nominal engagement at both ends:
 
-`rod cut = S − 2 × (22−18) = S − 8 mm`.
+`rod cut = S − lower entrance − upper entrance + 36 mm`.
+
+The entrance distances, cut and leg positions are included in `RODS.csv`. The bore floor begins 2 mm from its datum. The code rejects layouts with insufficient blind-end clearance.
 
 Keep 16–19 mm engagement and at least 1 mm clearance above the bore floor at maximum insertion. Deburr, mark insertion depths and trial-fit before final trimming. The rods are not printed; use smooth **solid** aluminum stock. Tubing requires a different clamp and section calculation, because a radial screw can crush it. The purchased rod diameter and generated socket clearance must match.
 
@@ -67,7 +69,7 @@ Automatic stock selection uses `δ = FL³/(3EI)`, `I = πd⁴/64`, E=69 GPa, and
 
 The displayed surface-RMS budget is λ/40. In the Ruze random-error approximation, that corresponds to roughly 0.43 dB surface-error loss alone; systematic petal distortion, gaps, blockage and feed losses are additional effects. This budget is not a measurement of the printed surface or a complete focus-position tolerance. Rod-screening deflection is likewise not a prediction of RF loss.
 
-Print the shoe on its exported side and the puck top-face down. Check horizontal socket roofs, nut pockets and screw channels in the slicer, adding support where needed. Print backers flat. Print the secondary boss-down with support under the surrounding rear shell. Start with four perimeters and locally solid fitting walls; inspect the actual sliced wall paths. PETG is useful for indoor fit tests; ASA can be appropriate for outdoor UV exposure with an enclosed printer. Qualify creep and alignment at the actual service temperature.
+Print the shoe on its exported side and the puck top-face down. Check horizontal socket roofs, nut pockets and screw channels in the slicer, adding support where needed. Print the secondary boss-down with support under the surrounding rear shell. Start with four perimeters and locally solid fitting walls; inspect the actual sliced wall paths. PETG is useful for indoor fit tests; ASA can be appropriate for outdoor UV exposure with an enclosed printer. Qualify creep and alignment at the actual service temperature.
 
 Cover the dish-facing reflector surfaces with continuous, well-bonded aluminum/copper foil or a verified conductive coating. Ordinary metallic-looking paint is not an RF conductivity specification. Foil wrinkles, seams, adhesive thickness and assembly steps all consume the surface-error budget. Mask mounting datums and bores; fit first and coat afterward. Verify electrical continuity, then measure RF performance with stable feed alignment.
 
@@ -77,6 +79,6 @@ Cover the dish-facing reflector surfaces with continuous, well-bonded aluminum/c
 - [NRAO: surface errors and the Ruze approximation](https://naic.nrao.edu/arecibo/phil/sysperf/misc/surfaceErrorsRuze.html).
 - [RF HAMDESIGN: three-leg accessory examples](https://www.rfhamdesign.com/products/parabolicdishkit/accessories/index.php).
 - [Prusa material guide](https://help.prusa3d.com/filament-material-guide): PETG and ASA printing/material considerations.
-- [Evan Wallace's CSG implementation](https://github.com/evanw/csg.js): MIT-licensed Boolean kernel, vendored for offline procedural fitting generation; see `THIRD-PARTY-NOTICES.md`.
+- [Manifold](https://github.com/elalish/manifold): Boolean geometry kernel used by the online and offline app; see `THIRD-PARTY-NOTICES.md`.
 
 Automated checks cover closed meshes, winding, quantities, print bounds, generated cuts and datums, wavelength sizing, fixed primary focus, rod screening, exports and independent hyperbola reflection/path checks. Sampled mesh interference checks and OpenSCAD comparisons complement them. These are geometry/software checks, not a slicer, physical load test, electromagnetic simulation or measured antenna qualification.

@@ -1,40 +1,28 @@
-import {solid,box,cylinder,loft} from './solid.js';
+import {box,cylinder,loft} from './solid.js';
 export const feedMesh=s=>s.mesh();
-export const feedCylinder=cylinder,feedBox=box,feedSolid=solid;
+export const feedCylinder=cylinder,feedBox=box;
 export const feedTransform=(s,fn)=>s.transform(fn);
-export function feedSocket(diameter,clearance){
- const ro=diameter/2+2.5;
- // Taper the nut housing into the barrel over its length. Keep the pocket and
- // screw-face datums unchanged, so the existing M3 hardware still fits.
- const shoulder=loft([[1,2,ro+.4],[7.5,4.6,ro+5.6],[16.5,4.6,ro+5.6],[21,2,ro+.4]].map(([z,w,y])=>[[-w,0,z],[w,0,z],[w,y,z],[-w,y,z]]));
- let body=feedCylinder([0,0,0],[0,0,22],ro).union(shoulder);
- const cuts=[feedCylinder([0,0,2],[0,0,24],(diameter+clearance)/2),feedCylinder([0,0,12],[0,ro+7,12],1.7,20),feedCylinder([0,ro+.6,12],[0,ro+3.2,12],5.8/Math.sqrt(3),6),feedBox([3,ro+1.9,12],[3,1.3,3.45])];
- return{body,cuts,ro};
+// Fixed outer housings. Only rod bores and their retention pockets follow the rod axis.
+export function feedRimBody(r,focal){
+ const x0=r-30,x1=r+10,rings=[];
+ for(let i=0;i<=20;i++){const x=x0+(x1-x0)*i/20,edge=Math.min(x-x0,x1-x),bevel=Math.max(0,3-edge),w=edge<8?8+Math.sqrt(Math.max(0,64-(8-edge)**2)):16,z=y=>(x*x+y*y)/(4*focal)+.08,h=38-16*(x-x0)/(x1-x0);
+ rings.push([[-w+3,z(-w+3)+bevel],[-w+bevel,z(-w+bevel)+3],[-w+bevel,z(-w+bevel)+h-3],[-w+3,z(-w+3)+h],[w-3,z(w-3)+h],[w-bevel,z(w-bevel)+h-3],[w-bevel,z(w-bevel)+3],[w-3,z(w-3)+bevel]].map(([y,z])=>[x,y,z]));}return loft(rings);
 }
-export function feedCurvedFoot(r,inner,focal){
- const rings=[];for(let i=0;i<=12;i++){const x=r-inner+(inner+10)*i/12;const ring=[];for(let j=0;j<=8;j++){const y=-14+28*j/8;ring.push([x,y,(x*x+y*y)/(4*focal)+.08]);}for(let j=8;j>=0;j--){const y=-14+28*j/8;ring.push([x,y,(x*x+y*y)/(4*focal)+3.08]);}rings.push(ring);}return loft(rings);
+export function feedPuckBody(face){return loft([[-18,26],[-4,40],[13,40],[16,37]].map(([z,r])=>Array.from({length:64},(_,i)=>{const a=i*Math.PI/32;return[r*Math.cos(a),r*Math.sin(a),face+z];})));}
+export function feedContinuousSocket(diameter,clearance){const ro=diameter/2+2.5;return{ro,cuts:[
+ feedCylinder([0,0,2],[0,0,120],(diameter+clearance)/2,48),
+ feedCylinder([0,0,12],[0,120,12],1.7,24),
+ feedCylinder([0,ro+5.6,12],[0,120,12],3.3,32),
+ feedCylinder([0,ro+.6,12],[0,ro+3.2,12],5.8/Math.sqrt(3),6),
+ feedBox([60,ro+1.9,12],[60,1.3,3.45])
+ ]};}
+export function feedMountPad(r,diameter,focal,thickness){
+ const x0=r-16,x1=Math.sqrt((diameter/2)**2-19**2),rear=r*r/(4*focal)-thickness-5,slope=r/(2*focal),rings=[];
+ for(let i=0;i<=20;i++){const x=x0+(x1-x0)*i/20,endBevel=Math.max(0,3-Math.min(x-x0,x1-x)),ys=Array.from({length:39},(_,j)=>j-19),bottom=y=>rear+slope*(x-r)+Math.max(endBevel,Math.max(0,Math.abs(y)-16)),top=y=>(x*x+y*y)/(4*focal);
+ rings.push([...ys.map(y=>[x,y,bottom(y)]),...ys.toReversed().map(y=>[x,y,top(y)])]);}return loft(rings);
 }
-// A continuous curved saddle, rather than a small round pedestal, carries the
-// lower barrel into the sole. Bolt recesses are cut after the saddle union.
-export function feedRimSaddle(r,lowerZ,angle,ro,focal){
- const inner=18*Math.cos(angle),width=ro,rings=[];
- for(let i=0;i<=12;i++){
-  const x=r-inner+(inner+8)*i/12,base=y=>(x*x+y*y)/(4*focal)+.15;
-  const roof=Math.max(base(width)+3,lowerZ+(r-x)*Math.tan(angle)+ro*.65);
-  // The +14 cheek is the side-print bed face. Its 45-degree shoulder grows
-  // inward from it; the upper cheek tapers straight to the sole to save plastic.
-  const edge=Math.max(base(14)+3,roof-(14-width));
-  rings.push([[-14,base(-14)],[-width,base(-width)],[0,base(0)],[width,base(width)],[14,base(14)],[14,edge],[width,roof],[-width,roof],[-14,base(-14)+3]].map(([y,z])=>[x,y,z]));
- }
- return loft(rings);
-}
-// Radial webs support each upper socket from the puck. The outer roof falls at
-// 45 degrees: when the puck is inverted for printing it forms a rising ramp.
-export function feedPuckWeb(face,angle,ro){
- const end=18+18*Math.cos(angle),width=ro-.8;
- return loft([18,26,end].sort((a,b)=>a-b).map(r=>{
-  const bottom=face+8-(r-18)*Math.tan(angle)-.5;
-  const top=Math.max(bottom+1,face+16-Math.max(0,r-26));
-  return [[r,-width,bottom],[r,width,bottom],[r,width,top],[r,-width,top]];
- }));
+
+export function feedRimEnvelope(x,r,focal){const x0=r-30,step=2,i=Math.max(0,Math.min(19,Math.floor((x-x0)/step))),t=(x-(x0+i*step))/step;
+ const sample=X=>{const edge=Math.min(X-x0,r+10-X),bevel=Math.max(0,3-edge),w=edge<8?8+Math.sqrt(Math.max(0,64-(8-edge)**2)):16,base=(X*X+(w-3)**2)/(4*focal)+.08;return[base+bevel,base+38-16*(X-x0)/40];};
+ const a=sample(x0+i*step),b=sample(x0+(i+1)*step);return a.map((v,k)=>v+(b[k]-v)*t);
 }

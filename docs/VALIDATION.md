@@ -179,3 +179,16 @@ existing near-bed flat bridge surfaces; this is not a support-free claim.
 The complete regression suite, offline UI, OpenSCAD parity and illustrated
 PDF/ZIP checks pass. Render the actual before/after triangles with
 `node scripts/render-seam-pads.mjs && python3 scripts/render-seam-pads.py`.
+
+## Connections workspace and feed revision 4
+
+Build `c2ebade2f49b` adds family/individual connection overrides, matched petal print variants, a joint map in CSV/PDF, accessory print inclusion, compact category controls, and viewport pan/pinch with a wider zoom range.
+
+- The full JS suite passes, including mixed M3/M4 seam methods with staggered and aligned rings, individually selected root/mount inserts or through bolts, hardware totals, matching fit-strip pairs, and ZIP/plate exclusions.
+- The feed envelope sweep covers 53 size/focal-ratio/optical-layout combinations: 36 build and 17 are explicitly rejected by stock-span or secondary geometry limits. Independent mesh checks cover connected closed solids, fitting/petal and secondary interference, rods, washer/nut seating, and captured-nut insertion paths. The 66 main fitting print meshes have flat bed contact. Residual bore/pocket overhangs still require slicer review.
+- Fixed continuous feed housings replace rotated external sockets. Rod cuts use the actual housing entrances. The widened petal bearing patch replaces the rear backer and has a 45° underside perimeter chamfer. Rim fittings use M3 bolts; seam clips/levers retain their matched 5 mm flange grip faces.
+- A previously failing 800 mm / f/D 0.25 Boolean mesh case now passes. Quantization repair remains bounded to 0.0001 mm; only closed numerical islands with at most 12 triangles and less than 0.00001 mm³ volume are removed.
+- The embedded offline UI and export controls pass DOM tests. Navigation tests cover orbit, middle/Shift/keyboard pan, pinch, expanded zoom, fixed depth range and reset using mocked WebGL calls. A real browser/GPU viewport run was unavailable; the browser download failed.
+- OpenSCAD volume/bounds comparisons pass. Default, custom, secondary and mixed-connection PDFs pass independent content and page-bound checks; representative pages were rendered for inspection.
+
+These checks validate software geometry and export consistency. They do not replace a slicer inspection or physical fit/load test.

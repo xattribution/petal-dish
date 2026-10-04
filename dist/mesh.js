@@ -81,7 +81,7 @@ export function compactMesh(mesh,precision=1e6){
  })).filter(face=>new Set(face).size===3);
  // Collapse sub-resolution connected edges across quantization-cell boundaries.
  const parent=v.map((_,i)=>i),root=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
- for(const face of f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3];if(Math.hypot(...v[a].map((x,k)=>x-v[b][k]))<.00001)parent[root(b)]=root(a);}
+ for(const face of f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3];if(Math.hypot(...v[a].map((x,k)=>x-v[b][k]))<Math.max(.00001,1/precision))parent[root(b)]=root(a);}
  f=f.map(face=>face.map(root)).filter(face=>new Set(face).size===3);
  try{const repaired=repairFlatTriangles({v,f}),pairs=new Map(),drop=new Set();
  // Float32 Boolean seams can leave coincident, oppositely wound zero-volume
@@ -90,8 +90,11 @@ export function compactMesh(mesh,precision=1e6){
  const result={v:repaired.v,f:repaired.f.filter((_,i)=>!drop.has(i))},edges=new Map();
  for(const face of result.f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3],key=Math.min(a,b)+':'+Math.max(a,b),e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);}
  if([...edges.values()].some(([count,winding])=>count!==2||winding!==0))throw Error('Mesh has an unresolved seam. Change mesh spacing or segmentation and regenerate; no printable export was produced.');
- return result;}catch(e){if(precision===1e6)return compactMesh(mesh,1e5);throw e;}
+ return removeNumericalIslands(result);}catch(e){if(precision>1e4)return compactMesh(mesh,precision/10);throw e;}
 }
+// Boolean intersections can leave a closed, flat tetrahedron with Float32-scale
+// volume. Remove only tiny closed islands; never discard a substantive component.
+function removeNumericalIslands(mesh){const parent=mesh.v.map((_,i)=>i),root=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};for(const face of mesh.f)for(const i of face)parent[root(i)]=root(face[0]);const groups=new Map();for(const face of mesh.f){const id=root(face[0]),group=groups.get(id)||{count:0,volume:0};const [a,b,c]=face.map(i=>mesh.v[i]);group.count++;group.volume+=(a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6;groups.set(id,group);}if(groups.size<2)return mesh;const discarded=new Set([...groups].filter(([,g])=>g.count<=12&&Math.abs(g.volume)<.00001).map(([id])=>id));return discarded.size?{v:mesh.v,f:mesh.f.filter(face=>!discarded.has(root(face[0])))}:mesh;}
 function repairFlatTriangles(mesh){const {v}=mesh,f=[...mesh.f],edges=new Map(),key=(a,b)=>Math.min(a,b)+':'+Math.max(a,b),add=(face,i)=>{for(let j=0;j<3;j++){const k=key(face[j],face[(j+1)%3]);if(!edges.has(k))edges.set(k,new Set());edges.get(k).add(i);}},remove=(face,i)=>{for(let j=0;j<3;j++)edges.get(key(face[j],face[(j+1)%3]))?.delete(i);},area=face=>{const [a,b,c]=face.map(i=>v[i]),u=b.map((x,k)=>x-a[k]),w=c.map((x,k)=>x-a[k]);return Math.hypot(u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]);};f.forEach(add);const queue=f.map((_,i)=>i);for(let q=0;q<queue.length;q++){const i=queue[q],face=f[i];if(!face||area(face)>1e-9)continue;if(q>mesh.f.length*4)throw Error("Mesh repair did not converge. Change the mesh spacing and regenerate.");let j=0,dist=-1;for(let k=0;k<3;k++){const d=v[face[k]].reduce((s,x,t)=>s+(x-v[face[(k+1)%3]][t])**2,0);if(d>dist){dist=d;j=k;}}const a=face[j],b=face[(j+1)%3],mid=face[(j+2)%3],adj=[...edges.get(key(a,b))].find(k=>k!==i&&f[k]);if(adj===undefined)throw Error('Cannot repair collapsed mesh edge');const other=f[adj],k=other.findIndex((x,k)=>key(x,other[(k+1)%3])===key(a,b)),u=other[k],w=other[(k+1)%3],tip=other[(k+2)%3];remove(face,i);remove(other,adj);f[i]=null;f[adj]=[u,mid,tip];add(f[adj],adj);const ni=f.length;f.push([mid,w,tip]);add(f[ni],ni);queue.push(adj,ni);}return {v,f:f.filter(Boolean)};}
 // Exact triangle slices produce a piecewise-linear support envelope, including
 // shallow rear seats. X breakpoints preserve the actual underside profile.

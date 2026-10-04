@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {JSDOM} from 'jsdom';
+import {Viewer} from '../dist/viewer.js';
+const dom=new JSDOM('<canvas tabindex="0"></canvas>',{pretendToBeVisual:true}),{window}=dom,canvas=window.document.querySelector('canvas'),uniforms={};
+globalThis.window=window;globalThis.ResizeObserver=class{observe(){}};
+const gl=new Proxy({getShaderParameter:()=>true,getProgramParameter:()=>true,getUniformLocation:(_,name)=>name,getAttribLocation:()=>0,uniform1f:(name,value)=>uniforms[name]=value,uniform2fv:(name,value)=>uniforms[name]=[...value]}, {get:(obj,key)=>obj[key]??(()=>({}))});canvas.getContext=()=>gl;canvas.getBoundingClientRect=()=>({left:0,top:0,width:800,height:600});canvas.setPointerCapture=()=>{};
+const viewer=new Viewer(canvas);viewer.model={};viewer.extent=400;viewer.center=[0,0,0];viewer.draw();
+const pointer=(type,id,x,y,extra={})=>{const e=new window.Event(type);Object.assign(e,{pointerId:id,clientX:x,clientY:y,button:0,...extra});canvas.dispatchEvent(e);};
+pointer('pointerdown',1,100,100,{button:1});pointer('pointermove',1,180,150);pointer('pointerup',1,180,150);assert(viewer.pan[0]>0&&viewer.pan[1]<0);assert.equal(viewer.yaw,-.35);
+const old=[...viewer.pan];canvas.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowUp',shiftKey:true}));assert(viewer.pan[1]>old[1]);
+viewer.reset();pointer('pointerdown',1,100,100);pointer('pointermove',1,150,100);pointer('pointerup',1,150,100);assert(viewer.yaw>-.35);assert.deepEqual(viewer.pan,[0,0]);
+const depth=uniforms.depthRange;canvas.dispatchEvent(new window.WheelEvent('wheel',{deltaY:-3000,clientX:400,clientY:300,cancelable:true}));assert(viewer.zoom>3);assert.equal(uniforms.depthRange,depth);assert.deepEqual(viewer.pan,[0,0]);
+viewer.reset();pointer('pointerdown',1,100,100);pointer('pointerdown',2,200,100);pointer('pointermove',2,300,140);assert(viewer.zoom>1);assert.notEqual(viewer.pan[0],0);pointer('pointercancel',1,100,100);pointer('pointerup',2,300,140);viewer.reset();assert.equal(viewer.zoom,1);assert.deepEqual(viewer.pan,[0,0]);
+console.log('PASS viewport orbit, middle/keyboard pan, pinch, expanded zoom, independent depth range and reset. WebGL calls mocked.');dom.window.close();

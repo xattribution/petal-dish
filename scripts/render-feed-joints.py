@@ -17,9 +17,9 @@ for i,p in enumerate(parts):
   poly=Poly3DCollection(v[np.array(mesh['f'])],facecolors='#549b94',linewidth=0,antialiased=False,shade=True,lightsource=matplotlib.colors.LightSource(315,40));poly.set_edgecolor('none');ax.add_collection3d(poly)
   span=v.max(0)-v.min(0);half=max(span)*.6
   ax.set_xlim(-half,half);ax.set_ylim(-half,half);ax.set_zlim(-half,half);ax.set_box_aspect((1,1,1),zoom=1.25);ax.view_init(elev=25,azim=-55 if mode=='mesh' else -120);ax.set_axis_off()
-  name='Curved rim saddle' if p['id']=='feed-rim-shoe' else 'Webbed carrier puck'
+  name='Continuous rim fitting' if p['id']=='feed-rim-shoe' else 'Continuous carrier housing'
   ax.set_title(name+' — '+('installed orientation' if mode=='mesh' else 'exported print orientation'),fontsize=12,pad=-8)
-fig.suptitle('PETAL feed attachment revision 3 · actual 400 mm / f/D 0.42 meshes',fontsize=17,y=.97)
-fig.text(.5,.025,'Rod and fastener datums retained. Circular bores and hardware pockets still need slicer support review.',ha='center',fontsize=10,color='#475569')
+fig.suptitle('PETAL feed attachment revision 4 · actual 400 mm / f/D 0.42 meshes',fontsize=17,y=.97)
+fig.text(.5,.025,'Fixed housings, angled internal bores and recalculated rod cuts. Circular bores and hardware pockets still need slicer support review.',ha='center',fontsize=10,color='#475569')
 fig.subplots_adjust(left=.01,right=.99,bottom=.07,top=.9,wspace=.02,hspace=.04)
 fig.savefig(root/'docs/feed-joints.png',dpi=160);plt.close(fig)
