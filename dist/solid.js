@@ -8,6 +8,7 @@ let owned=[];
 export function solidScope(fn){const previous=owned;owned=[];try{return fn();}finally{for(const x of owned.reverse())x.delete();owned=previous;}}
 class Solid{
  constructor(raw){this.raw=raw;owned.push(raw);}
+ hull(){return new Solid(this.raw.hull());}
  union(b){return new Solid(this.raw.add(b.raw));}
  subtract(b){return new Solid(this.raw.subtract(b.raw));}
  intersect(b){return new Solid(this.raw.intersect(b.raw));}

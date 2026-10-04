@@ -192,3 +192,27 @@ Build `c2ebade2f49b` adds family/individual connection overrides, matched petal 
 - OpenSCAD volume/bounds comparisons pass. Default, custom, secondary and mixed-connection PDFs pass independent content and page-bound checks; representative pages were rendered for inspection.
 
 These checks validate software geometry and export consistency. They do not replace a slicer inspection or physical fit/load test.
+
+## Slim feed fittings — revision 5
+
+Build `12176e22f157` replaces the bulky revision-4 housings with a thin curved
+foot and tapered socket lobes blended into a 44 mm central carrier. The mounting
+reinforcement footprint is narrower; its underside retains the 45° perimeter
+chamfer. The default 400 mm / f/D 0.42 rim fitting drops from 31.90 to 11.47 cm³
+(64%); the prime-focus carrier drops from 125.56 to 39.31 cm³ (69%). These are
+solid CAD volumes, not slicer estimates. Default material-budget regression
+checks prevent the fittings growing back into broad blocks.
+
+The 53-case feed sweep builds 36 supported configurations and explicitly rejects
+17 outside the existing stock-span/secondary limits. Independent intersections
+and topology checks pass for reflector contact, rods, secondary, washer/nut
+seating and side-loading nut paths. All 66 main fitting print meshes retain flat
+bed contact. Rod bores retain 18 mm nominal engagement in 22 mm tapered sockets;
+regenerate the fittings and rod cuts together.
+
+Feed and integration tests, OpenSCAD mesh parity, the embedded offline UI, and
+custom/secondary PDF content and page bounds pass. The UI check is DOM-only;
+WebGL is not exercised. Residual bore/pocket overhangs need slicer inspection, and
+physical fit/load qualification remains separate. `scripts/render-feed-slimming.py`
+rebuilds the revision-4 baseline from git and renders the actual before/after
+meshes at the same scale.

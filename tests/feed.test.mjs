@@ -27,3 +27,7 @@ for(const frequencyGHz of [5,20,50]){const g=feedGeometry({...defaults,feedMode:
 console.log('PASS frequency sizing, fixed focus, phase scaling and automatic rod screening');
 assert.equal(feedManifest(build(defaults)).enabled,false);
 console.log('PASS Cassegrain reflected-ray direction, equal optical path, return aperture and invalid configurations');
+
+// Keep the default fittings compact: these budgets guard against enclosing all
+// rod angles in large solid blocks again.
+const slim=build({...defaults,feedMode:1});assert(volume(slim.parts.find(p=>p.id==='feed-rim-shoe').mesh)<14000);assert(volume(slim.parts.find(p=>p.id==='feed-puck').mesh)<45000);console.log('PASS compact feed fitting material budgets');
