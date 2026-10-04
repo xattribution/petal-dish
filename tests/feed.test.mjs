@@ -9,7 +9,7 @@ for(const cfg of [{feedMode:1},{feedMode:1,feedLegs:4},{feedMode:2},{feedMode:2,
  for(const l of g.legs){assert(Math.abs(Math.hypot(...l.upperRodEnd.map((v,k)=>v-l.lowerRodEnd[k]))-l.cutLength)<1e-8);const d=Math.hypot(...l.upper.map((x,k)=>x-l.lower[k]));assert(Math.abs(d-(l.cutLength+g.lowerEntrance+g.upperEntrance-36))<1e-9);assert(Math.abs(l.lower[2]-g.datum.rear)<1e-9);assert(Math.abs(l.upper[2]-(g.carrierFace+8))<1e-9);}
  if(m.p.feedMode===1)assert(Math.abs(g.carrierFace+m.p.phaseOffset-m.focal)<1e-9);
  assert.equal(rodCSV(m).trim().split('\n').length,m.p.feedLegs+1);assert(manifest(m).feed_support.enabled);assert(guideSections(m).some(s=>s.title==='Rod support'));
- const zip=new TextDecoder().decode(await kit(m,'').arrayBuffer());assert(zip.includes('RODS.csv')&&zip.includes('FEED-SUPPORT.md')&&zip.includes('FEED-HARDWARE.csv'));const lower=feedHardware(m)[0];assert.equal(lower.quantity,m.p.feedLegs);assert.equal(lower.spec,'M3 × 10');assert(!feedHardware(m).some(h=>h.item.includes('rim-foot')));
+ const zip=new TextDecoder().decode(await kit(m,'').arrayBuffer());assert(zip.includes('RODS.csv')&&zip.includes('FEED-SUPPORT.md')&&zip.includes('FEED-HARDWARE.csv'));const lower=feedHardware(m)[0];assert.equal(lower.quantity,m.p.feedLegs);assert.equal(lower.spec,'M3 × 12');assert(!feedHardware(m).some(h=>h.item.includes('rim-foot')));
  console.log('PASS feed topology, quantities, rods and exports',cfg,'cut',g.cutLength);
 }
 // Independent ray reflection and constant optical path, not a second invocation of the formula.
@@ -31,4 +31,6 @@ console.log('PASS Cassegrain reflected-ray direction, equal optical path, return
 
 // Keep the default fittings compact: these budgets guard against enclosing all
 // rod angles in large solid blocks again.
-const slim=build({...defaults,feedMode:1});assert(volume(slim.parts.find(p=>p.spec.feedMount).mesh)-volume(slim.parts.find(p=>p.kind==='panel'&&!p.spec.feedMount).mesh)<8000);assert(volume(slim.parts.find(p=>p.id==='feed-puck').mesh)<45000);console.log('PASS compact feed fitting material budgets');
+const slim=build({...defaults,feedMode:1});assert(volume(slim.parts.find(p=>p.spec.feedMount).mesh)-volume(slim.parts.find(p=>p.kind==='panel'&&!p.spec.feedMount).mesh)<3500);assert(volume(slim.parts.find(p=>p.id==='feed-puck').mesh)<45000);console.log('PASS compact feed fitting material budgets');
+
+for(const rodDiameter of [2,3.175,7.9375,12.7]){validate({...defaults,rodDiameter});assert.equal(feedGeometry({...defaults,feedMode:1,rodDiameter},layout).rodDiameter,rodDiameter);}for(const rodDiameter of [1.99,12.71])assert.throws(()=>validate({...defaults,rodDiameter}));

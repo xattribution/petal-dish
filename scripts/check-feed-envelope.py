@@ -60,24 +60,26 @@ for item in json.loads((folder/'summary.json').read_text()):
     h=np.pi/data['layout']['n'];up=np.array([np.sin(h),np.cos(h),0]);V=up-axis*np.dot(axis,up);V/=np.linalg.norm(V)
     T=np.cross(axis,V)
     if T[2]<0:T=-T
-    radius=(g['rodDiameter']+p['rodClearance'])/2;screwL=max(1,g['lowerEntrance']-10);nutT=-(radius+2.8);C=A+axis*screwL
-    for slide in [0,1,2,4,8,16,24]:
-        nut=trimesh.creation.box([2.4,5.5,5.5]);matrix=np.eye(4);matrix[:3,:3]=np.array([T,V,axis]).T;matrix[:3,3]=C+T*nutT+V*slide;nut.apply_transform(matrix)
-        penetration(panel,nut,(item['id'],'square nut insertion',slide))
-    penetration(panel,cylinder(C-T*40,C,1.5,32),(item['id'],'underside screw access'))
-    # Witnesses on both bearing walls exclude the screw channel itself.
-    for dt in [-2.5,2.5]:
-        for dl in [-2.4,2.4]:
-            witness=trimesh.creation.box([.2,.2,.2]);witness.apply_translation(C+T*(nutT+dt)+axis*dl)
-            missing=trimesh.boolean.difference([witness,panel],engine='manifold')
-            assert missing.volume<.001,(item['id'],'nut bearing wall missing',dt,dl,missing.volume)
+    radius=(g['rodDiameter']+p['rodClearance'])/2;C=A+axis*1.3
+    penetration(panel,cylinder(C+[0,-40,0],C,1.5,32),(item['id'],'side screw access'))
+    # Side pilot remains open for the short insert; no nut slot or backing plate.
+    penetration(panel,cylinder(C+[0,-40,0],C+[0,-radius-2.51,0],2,48),(item['id'],'insert access'))
+    # Full 4 mm insert has at least 0.8 mm of plastic around the pilot.
+    lo=C+[0,-radius-6.5,0];hi=C+[0,-radius-2.5,0]
+    wall=trimesh.boolean.difference([cylinder(lo,hi,2.9,48),cylinder(lo-[0,.1,0],hi+[0,.1,0],2.11,48)],engine='manifold')
+    missing=trimesh.boolean.difference([wall,panel],engine='manifold')
+    assert abs(missing.volume)<.025,(item['id'],'insert retaining wall',missing.volume)
     # Inspect the actual assembled mesh against actual side-print up, rather than
     # assuming the rod axis or world Z is the printer's vertical direction.
-    centers=panel.triangles_center;r=g['datum']['r'];x0=r-max(18,g['lowerEntrance']*abs(axis[0])+radius+3)
-    depth=6+radius+7.6
-    local=(centers[:,0]>x0-.5)&(centers[:,0]<p['diameter']/2+.1)&(abs(centers@up-r*up[0])<depth+.5)
+    centers=panel.triangles_center;r=g['datum']['r']
+    local=(abs(centers[:,0]-r)<22)&(centers[:,1]>-25)&(centers[:,1]<18)
     unsupported=local&(panel.face_normals@up<-(np.cos(np.pi/4)+.0001))
-    area=float(panel.area_faces[unsupported].sum())
+    # The only permitted bridge is the measured <=0.8 mm flat bore roof.
+    transverse=(panel.triangles-A)@T
+    longitudinal=(panel.triangles-A)@axis
+    height=(panel.triangles-A)@V
+    bridge=(np.ptp(transverse,axis=1)<=.801)&(np.max(abs(transverse),axis=1)<=.401)&(np.max(abs(height-(radius*np.sqrt(2)-.4)),axis=1)<.002)
+    area=float(panel.area_faces[unsupported&~bridge].sum())
     assert area<.1,(item['id'],'new socket overhang beyond 45 degrees',area)
     print_summary.append({'case':item['id'],'socket_overhang_mm2':round(area,4),'petal_volume_cm3':round(float(panel.volume/1000),2)})
     # Radial nut pockets: check the real hex and its complete side-loading path.

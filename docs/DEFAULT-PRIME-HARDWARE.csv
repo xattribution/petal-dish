@@ -1,5 +1,5 @@
 item,specification,quantity,grip_mm,note
-"petal rod-retention screw","M3 × 10","3","","Headless underside set screw into a captured M3 square nut; rounded tip against solid rod."
-"petal retention nut","M3 square / 5.5 mm width / 2.4 mm thickness","3","","Slide into the open underside slot before inserting the rod."
+"petal rod-retention screw","M3 × 12","3","","Headless side set screw into a short M3 insert; rounded tip against solid rod."
+"petal retention insert","short M3 / maximum 4 mm / compatible with 4.2 mm pilot","3","","Heat-set from the side, recessed 0.5 mm. Test insert fit before printing the dish."
 "carrier rod-retention screw","M3 × 10","3","","Real M3 hex nut in carrier side pocket."
 "carrier retention nut","M3 hex / 5.5 mm AF / 2.4 mm thickness","3","","Carrier pocket allows 5.8 mm AF."

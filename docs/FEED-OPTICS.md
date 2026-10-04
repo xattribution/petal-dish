@@ -1,14 +1,14 @@
-# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 6
+# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 7
 
-![Actual integrated petal geometry](feed-direct-petal.png)
+![Actual integrated petal geometry](feed-review/400-0.42-1.png)
 
 ## Direct petal attachment
 
-The rod passes directly through an angled hole in a selected outer petal. A compact underside saddle is continuous with the shell. An M3 side screw and captured square nut retain the rod. There is no separate rim shoe, rear backer, pair of mounting bolts or rim-bolt washer stack.
+The rod passes directly through an angled hole in a selected outer petal. A compact underside saddle is continuous with the shell. An M3 × 12 headless side screw and short M3 heat-set insert retain the rod. There is no separate rim shoe, rear backer, pair of mounting bolts or rim-bolt washer stack.
 
-The underside ramps and teardrop hole roofs follow the actual side-print direction. The square nut enters an open slot. These new petal sockets are designed for support-free printing in the exported orientation. The unchanged carrier and secondary still need their own slicer support review.
+Small circular tapers blend into the underside. The rod bore has 45° roof shoulders and a 0.8 mm bridge in the actual side-print direction; the side insert pilot is circular. These new petal sockets are designed for support-free printing in the exported orientation. The unchanged carrier and secondary still need their own slicer support review.
 
-Three rods use the fewest parts; four remain available. Regenerate mounting petals, carrier and rod cuts together. Changing rod count can change segmentation. Use the generated PDF and hardware CSV: the petal uses **M3 square nuts**, while the carrier uses **M3 hex nuts**.
+Three rods use the fewest parts; four remain available. Regenerate mounting petals, carrier and rod cuts together. Changing rod count can change segmentation. Use the generated PDF and hardware CSV: the petal uses **short M3 heat-set inserts**, maximum 4 mm long, compatible with a 4.2 mm pilot, while the carrier uses **M3 hex nuts**.
 
 The lower rod datum is now under the reflector. Its crossing of the front face is solved for the chosen dish curve; cuts and angles are recalculated. The 18 mm front-face insertion mark includes any rear protrusion through the open bore, rather than promising 18 mm continuous plastic contact. The carrier keeps its 16–19 mm engagement range. No strength rating follows from geometry checks alone.
 
@@ -22,7 +22,7 @@ For frequency ν in GHz, wavelength in mm is `λ = 299.792458 / ν`. The primary
 | Actual feed phase offset in mm | Prime-focus puck position and rod angles/cuts |
 | Known feed phase offset in wavelengths | Converts the supplied feed-specific offset using frequency, then recalculates puck and rods |
 | Automatic solid-rod diameter | Chooses 4, 5, 6, 6.35 or 8 mm from span, entered payload and deflection budget |
-| Manual solid-rod diameter | Uses selected stock; warns if over the screening deflection budget |
+| Manual solid-rod diameter | Uses a user-entered 2–12.7 mm diameter, in mm or inches; warns if over the screening deflection budget |
 | Frequency in either optical mode | Reports wavelength and surface-error screening budget |
 
 Changing frequency, phase offset or rod diameter can change the fixed socket angles and bore sizes. Regenerate the mount petals, carrier and rod cut list together; changing the metal rods alone is not always sufficient.
