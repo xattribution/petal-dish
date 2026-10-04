@@ -1,7 +1,7 @@
 """Independent solids/clearance checks on check-feed-envelope.mjs exports.
 Requires numpy, trimesh and manifold3d. No load, fatigue or RF qualification.
 """
-import json
+import json,sys
 from pathlib import Path
 import numpy as np
 import trimesh
@@ -22,7 +22,7 @@ def frame(A,B):
 def rotated(mesh,a):
     m=mesh.copy();m.apply_transform(trimesh.transformations.rotation_matrix(a,[0,0,1]));return m
 for item in json.loads((folder/'summary.json').read_text()):
-    if item['status']!='built':continue
+    if item['status']!='built' or (len(sys.argv)>1 and item['id']!=sys.argv[1]):continue
     data=json.loads((folder/(item['id']+'.json')).read_text());p,g=data['parameters'],data['feed']
     parts={x['id']:trimesh.Trimesh(x['mesh']['v'],x['mesh']['f'],process=False) for x in data['parts']}
     for name,m in parts.items():
@@ -39,12 +39,12 @@ for item in json.loads((folder/'summary.json').read_text()):
     shoe,puck=parts['feed-rim-shoe'],parts['feed-puck']
     panel=next(m for name,m in parts.items() if name.endswith('-mount'))
     penetration(shoe,panel,(item['id'],'shoe/petal'))
-    penetration(parts['feed-backer'],panel,(item['id'],'backer/petal'))
+    assert 'feed-backer' not in parts
     if 'secondary-reflector' in parts:penetration(puck,parts['secondary-reflector'],(item['id'],'puck/secondary'))
     # Exact cylinders include all nominal 18 mm of engagement at either end.
     for leg in g['legs']:
         A,B=np.array(leg['lower']),np.array(leg['upper']);axis=(B-A)/np.linalg.norm(B-A)
-        rod=cylinder(A+axis*4,B-axis*4,g['rodDiameter']/2,48)
+        rod=cylinder(A+axis*(g['lowerEntrance']-18),B-axis*(g['upperEntrance']-18),g['rodDiameter']/2,48)
         penetration(rod,rotated(shoe,leg['angle']),(item['id'],'rod/shoe',leg['number']))
         penetration(rod,puck,(item['id'],'rod/puck',leg['number']))
     # Front washer/nut access in the saddle recesses, not just a clear bolt bore.
@@ -58,7 +58,7 @@ for item in json.loads((folder/'summary.json').read_text()):
     upper_frame=frame(high,low);a=g['legs'][0]['angle']
     rotation=np.array([[np.cos(a),-np.sin(a),0],[np.sin(a),np.cos(a),0],[0,0,1]])
     for body,fn in [(shoe,frame(low,high)),(puck,lambda q:rotation@upper_frame(q))]:
-        for slide in [0,1,2,4,8]:
+        for slide in [0,1,2,4,8,16,32,60]:
             # Match the pocket's hex orientation before the arbitrary socket transform.
             # trimesh's cylinder basis differs from the CAD cylinder basis. Rebuild
             # the local vertices explicitly with x/z aligned hex corners.

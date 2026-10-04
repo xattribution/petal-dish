@@ -66,6 +66,14 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 
 All seam hardware stays behind the reflecting face.
 
+The editor has **Shape, Connections, Accessories and Print** categories. Open the Connections drawer to choose a default, override petal seams or ring seams, or change one joint. **Show joint in model** highlights the matching pieces. Seams support M3/M4; petal roots and hub mounts use the fixed M4 interface. Kits with overrides include `CONNECTIONS.csv` and individually named petal variants.
+
+Accessories can stay visible in the assembly while being excluded from print plates and STL exports when you already have matching parts. Full print and assembly details are in the generated PDF; Quick help stays brief.
+
+Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera.
+
+Feed revision 4 uses continuous housings with angled internal channels. The widened, chamfered mounting petal replaces the separate backer. Regenerate feed fittings and rod cuts together.
+
 ## Documentation
 
 - [ASSEMBLY / print notes](docs/DEFAULT-ASSEMBLY.md): the generated instructions for the default dish. Your kit includes a version for your exact settings.

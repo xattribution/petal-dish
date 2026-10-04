@@ -1,13 +1,15 @@
 """Independent PDF text, page bounds, and ZIP validation after manual.test.mjs."""
-import json,pathlib,zipfile
+import json,pathlib,zipfile,sys
 import pdfplumber
 from pypdf import PdfReader
 root=pathlib.Path('tmp/pdfs')
-for name in ['default','custom','secondary']:
+for name in sys.argv[1:] or ['default','custom','secondary','mixed']:
     meta=json.loads((root/f'{name}.json').read_text());reader=PdfReader(root/f'{name}.pdf');text='\n'.join(p.extract_text() for p in reader.pages)
     for phrase in [f"{meta['diameter']} mm",meta['build'],'exploded view','Printed parts','Hardware / quantities','Build record']:
         assert phrase in text,(name,phrase)
-    for p in meta['parts']:assert f"{p['id']}_qty-{p['qty']}.stl" in text,(name,p)
+    for p in meta['parts']:
+        if p.get('printIncluded') is False:assert 'Reuse compatible existing parts' in text;continue
+        assert f"{p['id']}_qty-{p['qty']}.stl" in text,(name,p)
     if meta['feed']:assert meta['feed']['cut'] in text and 'Rod cuts / feed placement' in text
     with pdfplumber.open(root/f'{name}.pdf') as pdf:
         for i,page in enumerate(pdf.pages):

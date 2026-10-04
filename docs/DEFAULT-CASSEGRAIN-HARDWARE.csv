@@ -1,8 +1,8 @@
 item,specification,quantity,grip_mm,note
-"rim-foot screw","M3 × 20","6","13.660","Install from rear; two 0.5 mm washers and M3 nut. Check access/stack before tightening."
+"rim-foot screw","M3 × 16","6","10.560","Install from rear; two 0.5 mm washers and M3 nut. Check access/stack before tightening."
 "rod-retention screw","M3 × 10","6","","Real M3 nut in side pocket; rounded screw tip against solid rod. Slip-test; do not crush tubing."
 "M3 nut","5.5 mm AF / 2.4 mm height","12","","Rim and socket retention; pocket allows 5.8 mm AF"
 "M3 washer","0.5 mm thick","12","","Both faces of each rim bolt"
-"secondary screw","M4 × 50","1","","41 mm puck/stem stack + 4 mm metal washer/spacer stack; nominal 5 mm entry. Verify actual insert/tip clearance."
+"secondary screw","M4 × 55","1","","46 mm puck/stem stack + 4 mm metal washer/spacer stack; nominal 5 mm entry. Verify actual insert/tip clearance."
 "M4 washer","1 mm thick","4","","4 mm total metal spacer/washer stack under secondary screw"
 "secondary insert","short M4 / maximum 6 mm / compatible with 5.6 mm pilot","1","","7 mm blind pocket; insert 0.5 mm below boss face"
