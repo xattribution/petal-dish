@@ -1,20 +1,16 @@
-# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 5
+# Compact feed support and frequency sizing — PETAL 5.3 · accessory revision 6
 
-![Actual generated geometry](feed-joints.png)
+![Actual integrated petal geometry](feed-direct-petal.png)
 
-![Same-scale before and after](feed-slimming.png)
+## Direct petal attachment
 
-[Multi-view geometry review](FEED-GEOMETRY-REVIEW.md)
+The rod passes directly through an angled hole in a selected outer petal. A compact underside saddle is continuous with the shell. An M3 side screw and captured square nut retain the rod. There is no separate rim shoe, rear backer, pair of mounting bolts or rim-bolt washer stack.
 
-## What changed
+The underside ramps and teardrop hole roofs follow the actual side-print direction. The square nut enters an open slot. These new petal sockets are designed for support-free printing in the exported orientation. The unchanged carrier and secondary still need their own slicer support review.
 
-The fittings use **thin curved feet and tapered socket lobes**. Each lobe follows its rod and blends into a single continuous body. A 44 mm central carrier replaces the broad 80 mm housing; the rim foot has a rounded footprint and chamfered perimeter. Local bulges contain only the rod bore, real nut and retention screw. Carrier nuts slide inward from the outer edges, keeping their loading channels clear of the central secondary stem.
+Three rods use the fewest parts; four remain available. Regenerate mounting petals, carrier and rod cuts together. Changing rod count can change segmentation. Use the generated PDF and hardware CSV: the petal uses **M3 square nuts**, while the carrier uses **M3 hex nuts**.
 
-The separate rear backer is removed. A widened mounting-petal bearing area supports paired M3 through bolts, with a 45° underside chamfer around the added material. Use washers under the rear bolt heads. The curved contact surfaces retain a small manufacturing clearance; regenerate the mounting petals and fittings together. Dish seam/hub interface remains revision 12, while these feed fittings are revision 5. Seam clips and levers retain their matched 5 mm flange walls; the rim-fitting interface uses M3 bolts.
-
-Three rods use the fewest parts. Four rods are available, with the fourth fitted last without preload. Compatible equal-angle petal segmentation is still required; changing between three and four rods can require regenerating the entire matching dish/hub.
-
-Use the generated `RODS.csv`, hardware schedule and PDF for your exact dimensions. Rod cuts changed with revision 5; older cuts and fittings do not interchange.
+The lower rod datum is now under the reflector. Its crossing of the front face is solved for the chosen dish curve; cuts and angles are recalculated. The 18 mm front-face insertion mark includes any rear protrusion through the open bore, rather than promising 18 mm continuous plastic contact. The carrier keeps its 16–19 mm engagement range. No strength rating follows from geometry checks alone.
 
 ## Frequency is an input, not a complete antenna design
 
@@ -29,7 +25,7 @@ For frequency ν in GHz, wavelength in mm is `λ = 299.792458 / ν`. The primary
 | Manual solid-rod diameter | Uses selected stock; warns if over the screening deflection budget |
 | Frequency in either optical mode | Reports wavelength and surface-error screening budget |
 
-Changing frequency, phase offset or rod diameter can change the fixed socket angles and bore sizes. Regenerate the shoes, puck and rod cut list together; changing the metal rods alone is not always sufficient.
+Changing frequency, phase offset or rod diameter can change the fixed socket angles and bore sizes. Regenerate the mount petals, carrier and rod cut list together; changing the metal rods alone is not always sufficient.
 
 The phase offset in wavelengths is for a **known, scalable feed design**. It is not a universal horn/patch/helix phase-center model. Entering frequency does not synthesize an RF feed, select polarization or establish bandwidth. Default zero offset means the actual feed datum has not been supplied.
 
@@ -55,13 +51,13 @@ The secondary is a 3 mm shell with a central boss and one blind short-M4-insert 
 
 ## Rod cuts, tolerances and retention
 
-The physical blind-end datums determine span S. Each tapered socket ends 22 mm from its blind-end datum, with 18 mm nominal engagement at both ends:
+The underside petal datum and carrier datum determine span S. The lower front-face crossing is solved from the parabola; the upper entrance remains 22 mm from its datum:
 
 `rod cut = S − lower entrance − upper entrance + 36 mm`.
 
-The entrance distances, cut and leg positions are included in `RODS.csv`. The bore floor begins 2 mm from its datum. The code rejects layouts with insufficient blind-end clearance.
+The entrance distances, cut and leg positions are included in `RODS.csv`. The petal hole is through, with no floor. Only the carrier has a bore floor, 2 mm from its datum.
 
-Keep 16–19 mm engagement and at least 1 mm clearance above the bore floor at maximum insertion. Deburr, mark insertion depths and trial-fit before final trimming. The rods are not printed; use smooth **solid** aluminum stock. Tubing requires a different clamp and section calculation, because a radial screw can crush it. The purchased rod diameter and generated socket clearance must match.
+At the carrier, keep 16–19 mm engagement and at least 1 mm clearance above its bore floor. Align the lower 18 mm mark with the front-face center crossing; the rod may protrude under the petal. Deburr, mark insertion depths and trial-fit before final trimming. The rods are not printed; use smooth **solid** aluminum stock. Tubing requires a different clamp and section calculation, because a radial screw can crush it. The purchased rod diameter and generated socket clearance must match.
 
 The radial M3×10 screw threads through a real M3 nut in a **side-loading captured pocket**. The nut has a retaining roof in the screw-load direction; it is not simply pressed into an outward-open recess. No printed threads. Test screw-tip contact, slip and repeatability with the actual rod and filament. Mark the rod for visual slip detection. Do not interpret screw engagement as a validated clamp-force rating.
 
@@ -73,7 +69,7 @@ Automatic stock selection uses `δ = FL³/(3EI)`, `I = πd⁴/64`, E=69 GPa, and
 
 The displayed surface-RMS budget is λ/40. In the Ruze random-error approximation, that corresponds to roughly 0.43 dB surface-error loss alone; systematic petal distortion, gaps, blockage and feed losses are additional effects. This budget is not a measurement of the printed surface or a complete focus-position tolerance. Rod-screening deflection is likewise not a prediction of RF loss.
 
-Print the shoe on its exported side and the puck top-face down. Check horizontal socket roofs, nut pockets and screw channels in the slicer, adding support where needed. Print the secondary boss-down with support under the surrounding rear shell. Start with four perimeters and locally solid fitting walls; inspect the actual sliced wall paths. PETG is useful for indoor fit tests; ASA can be appropriate for outdoor UV exposure with an enclosed printer. Qualify creep and alignment at the actual service temperature.
+Print mounting petals in their exported side-print orientation; the new socket roofs and underside ramps are aligned for support-free printing. Print the carrier top-face down; its existing circular bores and hex-nut pockets may need localized supports. Print the secondary boss-down with support under the surrounding rear shell. Start with four perimeters and locally solid fitting walls; inspect the actual sliced wall paths. PETG is useful for indoor fit tests; ASA can be appropriate for outdoor UV exposure with an enclosed printer. Qualify creep and alignment at the actual service temperature.
 
 Cover the dish-facing reflector surfaces with continuous, well-bonded aluminum/copper foil or a verified conductive coating. Ordinary metallic-looking paint is not an RF conductivity specification. Foil wrinkles, seams, adhesive thickness and assembly steps all consume the surface-error budget. Mask mounting datums and bores; fit first and coat afterward. Verify electrical continuity, then measure RF performance with stable feed alignment.
 

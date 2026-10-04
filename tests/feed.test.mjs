@@ -4,12 +4,12 @@ import {feedGeometry,cassegrainGeometry,feedManifest,rodCSV,feedHardware} from '
 import {kit,manifest,guideSections} from '../dist/exports.js';
 function closed(mesh,name){const es=new Map();for(const f of mesh.f){const[a,b,c]=f.map(i=>mesh.v[i]),u=b.map((x,k)=>x-a[k]),v=c.map((x,k)=>x-a[k]);assert(Math.hypot(u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0])>1e-9,name+' degenerate');for(let i=0;i<3;i++){const a=f[i],b=f[(i+1)%3],k=Math.min(a,b)+':'+Math.max(a,b),s=es.get(k)||[0,0];s[0]++;s[1]+=a<b?1:-1;es.set(k,s);}}for(const[n,w]of es.values())assert(n===2&&w===0,name+' open edge');assert(volume(mesh)>0,name+' volume');}
 for(const cfg of [{feedMode:1},{feedMode:1,feedLegs:4},{feedMode:2},{feedMode:2,feedLegs:4},{feedMode:1,diameter:600,bedX:300,bedY:300},{feedMode:1,phaseOffset:15,packPlates:1},{feedMode:2,frequencyGHz:15},{feedMode:2,frequencyGHz:20},{feedMode:1,frequencyGHz:20,rodDiameter:0}]){
- const m=build({...defaults,...cfg}),g=m.feed;for(const h of g.datum.holes)assert(Math.abs(h.r*Math.sin(h.a))>g.rodDiameter/2+2.5+3.3,"M3 nut clears socket body");assert.equal(m.layout.n%m.p.feedLegs,0);assert.equal(m.parts.find(p=>p.id.endsWith('-mount')).qty,m.p.feedLegs);assert.equal(m.instances.filter(i=>i.part.id.endsWith('-mount')).length,m.p.feedLegs);
+ const m=build({...defaults,...cfg}),g=m.feed;assert.equal(g.datum.holes.length,0);assert(!m.parts.some(p=>p.id==='feed-rim-shoe'));assert.equal(m.layout.n%m.p.feedLegs,0);assert.equal(m.parts.find(p=>p.id.endsWith('-mount')).qty,m.p.feedLegs);assert.equal(m.instances.filter(i=>i.part.id.endsWith('-mount')).length,m.p.feedLegs);
  for(const p of m.parts){closed(p.mesh,p.id);closed(p.output,p.id+' output');assert(Math.abs(bounds(p.output).min[2])<1e-6);assert(p.dim[0]<=m.p.bedX-2*m.p.margin+.001&&p.dim[1]<=m.p.bedY-2*m.p.margin+.001&&p.dim[2]<=m.p.bedZ-2+.001);}
- for(const l of g.legs){const d=Math.hypot(...l.upper.map((x,k)=>x-l.lower[k]));assert(Math.abs(d-(l.cutLength+g.lowerEntrance+g.upperEntrance-36))<1e-9);assert(Math.abs(l.lower[2]-(g.datum.front+4))<1e-9);assert(Math.abs(l.upper[2]-(g.carrierFace+8))<1e-9);}
+ for(const l of g.legs){assert(Math.abs(Math.hypot(...l.upperRodEnd.map((v,k)=>v-l.lowerRodEnd[k]))-l.cutLength)<1e-8);const d=Math.hypot(...l.upper.map((x,k)=>x-l.lower[k]));assert(Math.abs(d-(l.cutLength+g.lowerEntrance+g.upperEntrance-36))<1e-9);assert(Math.abs(l.lower[2]-g.datum.rear)<1e-9);assert(Math.abs(l.upper[2]-(g.carrierFace+8))<1e-9);}
  if(m.p.feedMode===1)assert(Math.abs(g.carrierFace+m.p.phaseOffset-m.focal)<1e-9);
  assert.equal(rodCSV(m).trim().split('\n').length,m.p.feedLegs+1);assert(manifest(m).feed_support.enabled);assert(guideSections(m).some(s=>s.title==='Rod support'));
- const zip=new TextDecoder().decode(await kit(m,'').arrayBuffer());assert(zip.includes('RODS.csv')&&zip.includes('FEED-SUPPORT.md')&&zip.includes('FEED-HARDWARE.csv'));const lower=feedHardware(m)[0];assert.equal(lower.quantity,2*m.p.feedLegs);assert(Number(lower.spec.split(' × ')[1])>=lower.grip_mm+5);
+ const zip=new TextDecoder().decode(await kit(m,'').arrayBuffer());assert(zip.includes('RODS.csv')&&zip.includes('FEED-SUPPORT.md')&&zip.includes('FEED-HARDWARE.csv'));const lower=feedHardware(m)[0];assert.equal(lower.quantity,m.p.feedLegs);assert.equal(lower.spec,'M3 × 10');assert(!feedHardware(m).some(h=>h.item.includes('rim-foot')));
  console.log('PASS feed topology, quantities, rods and exports',cfg,'cut',g.cutLength);
 }
 // Independent ray reflection and constant optical path, not a second invocation of the formula.
@@ -23,11 +23,12 @@ assert(Math.abs(2*a.secondary.radius-4*299.792458/15)<1e-7);assert(Math.abs(2*b.
 assert.throws(()=>feedGeometry({...defaults,feedMode:2,frequencyGHz:2.4},layout),/25%/);
 const fixedA=feedGeometry({...defaults,feedMode:1,frequencyGHz:2.4},layout),fixedB=feedGeometry({...defaults,feedMode:1,frequencyGHz:20},layout);assert.equal(fixedA.cutLength,fixedB.cutLength);assert(fixedB.surfaceRmsBudget<fixedA.surfaceRmsBudget);
 const scaled=feedGeometry({...defaults,feedMode:1,frequencyGHz:10,phaseUnits:1,phaseOffset:.2},layout);assert(Math.abs(scaled.carrierFace+299.792458/10*.2-168)<1e-9);assert.throws(()=>feedGeometry({...defaults,feedMode:1,phaseUnits:1},layout));
-for(const frequencyGHz of [5,20,50]){const g=feedGeometry({...defaults,feedMode:1,frequencyGHz,rodDiameter:0},layout);assert(g.screenDeflection<=g.targetDeflection);}
+for(const frequencyGHz of [5,20]){const g=feedGeometry({...defaults,feedMode:1,frequencyGHz,rodDiameter:0},layout);assert(g.screenDeflection<=g.targetDeflection);}
+assert.throws(()=>feedGeometry({...defaults,feedMode:1,frequencyGHz:50,rodDiameter:0},layout),/deflection budget/);
 console.log('PASS frequency sizing, fixed focus, phase scaling and automatic rod screening');
 assert.equal(feedManifest(build(defaults)).enabled,false);
 console.log('PASS Cassegrain reflected-ray direction, equal optical path, return aperture and invalid configurations');
 
 // Keep the default fittings compact: these budgets guard against enclosing all
 // rod angles in large solid blocks again.
-const slim=build({...defaults,feedMode:1});assert(volume(slim.parts.find(p=>p.id==='feed-rim-shoe').mesh)<14000);assert(volume(slim.parts.find(p=>p.id==='feed-puck').mesh)<45000);console.log('PASS compact feed fitting material budgets');
+const slim=build({...defaults,feedMode:1});assert(volume(slim.parts.find(p=>p.spec.feedMount).mesh)-volume(slim.parts.find(p=>p.kind==='panel'&&!p.spec.feedMount).mesh)<8000);assert(volume(slim.parts.find(p=>p.id==='feed-puck').mesh)<45000);console.log('PASS compact feed fitting material budgets');

@@ -72,7 +72,7 @@ Accessories can stay visible in the assembly while being excluded from print pla
 
 Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera.
 
-Feed revision 5 uses thin curved feet and tapered socket lobes blended into a compact carrier. The smaller, chamfered mounting reinforcement replaces the separate backer. Regenerate feed fittings and rod cuts together.
+Feed revision 6 fastens rods directly into the mounting petals with integrated underside through-bores and side screws. The new petal sockets use print-aligned 45° ramps and roofs at 45° or steeper; separate rim shoes and their mounting bolts are removed. Regenerate mount petals, carrier and rod cuts together.
 
 ## Documentation
 
