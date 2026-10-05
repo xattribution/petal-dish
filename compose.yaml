@@ -1,0 +1,8 @@
+services:
+  petal:
+    build: .
+    image: petal-dish:5.3
+    container_name: petal
+    restart: unless-stopped
+    ports:
+      - "56302:8080"

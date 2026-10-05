@@ -1,0 +1,9 @@
+.git
+cad
+docs
+scripts
+tests
+node_modules
+*.md
+package.json
+package-lock.json

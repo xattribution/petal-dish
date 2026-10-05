@@ -8,7 +8,7 @@ Everything runs in your browser, with no account, no upload and no server-side p
 
 ## Get started
 
-Pick one of three ways to run it.
+Pick one of four ways to run it.
 
 ### 1. Open the offline app (no install)
 
@@ -31,7 +31,16 @@ Then open `http://SERVER-IP:56302`. The installer sets up a small verified web s
 
 To update, re-run the same command. For status, logs and rollback, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
-### 3. Run from source
+### 3. Docker
+
+```bash
+git clone https://github.com/xattribution/petal-dish.git && cd petal-dish
+docker compose up -d --build
+```
+
+Then open `http://SERVER-IP:56302`. Compose builds an nginx image from the committed `dist/` and publishes port 56302. This serves the static build only. It does not run the verified Linux installer. To update, `git pull` and run the same command.
+
+### 4. Run from source
 
 ```bash
 git clone https://github.com/xattribution/petal-dish.git && cd petal-dish
