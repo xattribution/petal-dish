@@ -3,7 +3,7 @@ import json,pathlib,zipfile,sys
 import pdfplumber
 from pypdf import PdfReader
 root=pathlib.Path('tmp/pdfs')
-for name in sys.argv[1:] or ['default','custom','secondary','mixed']:
+for name in sys.argv[1:] or ['default','custom','secondary','collector','mixed']:
     meta=json.loads((root/f'{name}.json').read_text());reader=PdfReader(root/f'{name}.pdf');text='\n'.join(p.extract_text() for p in reader.pages)
     for phrase in [f"{meta['diameter']} mm",meta['build'],'exploded view','Printed parts','Hardware / quantities','Build record']:
         assert phrase in text,(name,phrase)

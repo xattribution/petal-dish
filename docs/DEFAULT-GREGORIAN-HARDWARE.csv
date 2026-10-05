@@ -1,0 +1,9 @@
+item,specification,quantity,grip_mm,note
+"petal rod-retention screw","M3 × 12","3","","Headless side set screw into a short M3 insert; rounded tip against solid rod."
+"petal retention insert","short M3 / maximum 4 mm / compatible with 4.2 mm pilot","3","","Heat-set from the side, recessed 0.5 mm. Test insert fit before printing the dish."
+"bowl rod bolt","M3 × 20 socket head","3","","Across each bowl fin (13.3 mm) and through the rod. Fit the rod, then drill Ø3.2 through it using the fin hole as the guide."
+"bowl rod nut","M3 nyloc","3","",""
+"bowl rod washer","M3","6","","One under the head, one under the nut, on the flat fin faces."
+"insert mast tube","Ø16 mm tube, cut 72.8 mm","1","","Aluminum or rigid conduit. The insert cable runs inside it and out through the hub center."
+"mast set screw","M3 × 8 cup point","2","","One in the mast foot, one in the insert cup, each into a short M3 insert."
+"mast retention insert","short M3 / maximum 4 mm / compatible with 4.2 mm pilot","2","","Heat-set into the rib on each socket."

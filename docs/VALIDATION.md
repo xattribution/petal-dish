@@ -247,3 +247,25 @@ Kits are deflated (about half the size), and the manual culls hidden triangles
 (about half the size), draws each print plate as a numbered footprint diagram and
 lists hardware as a table. The hub front is flat by default again, as revision 12
 specifies.
+
+## 5.3 Gregorian collector and tripod base (2026-10-05)
+
+**Collector optics.** An independent tracer, `node scripts/check-collector-rays.mjs`, sends 60 vertical rays per case onto the parabola, through F1, onto the generated bowl profile, and reflects them with the exact ellipse normal. Seven cases: 400 mm at f/D 0.25, 0.3, 0.42, 0.6 and 0.8; 800 mm; and 24 GHz with an 8 λ bowl.
+
+| Case | Bowl Ø | Rays on bowl | Missed | Shaded | Hit off ellipse | Miss at F2 | θ at F2 |
+|---|---|---|---|---|---|---|---|
+| 400, f/D 0.42 | 85.3 | 47 | 0 | 13 | 0.0012 mm | 0 | 25° |
+| 400, f/D 0.3 (pedestal) | 65.3 | 50 | 0 | 10 | 0.0013 mm | 0 | 25° |
+| 400, f/D 0.6, θ 20° | 96.9 | 46 | 0 | 14 | 0.0009 mm | 0 | 20° |
+| 400, f/D 0.8, θ 15° | 97.6 | 45 | 0 | 15 | 0.0006 mm | 0 | 15° |
+| 400, f/D 0.25, θ 45°, 20 mm insert | 70.9 | 49 | 0 | 11 | 0.0019 mm | 0 | 45° |
+| 800, f/D 0.42 | 121.3 | 51 | 0 | 9 | 0.0016 mm | 0 | 25° |
+| 400, 24 GHz, 8 λ | 99.9 | 45 | 0 | 15 | 0.0014 mm | 0 | 25° |
+
+"Shaded" rays fall inside the bowl's own radius and never reach the dish. The unit tests add the focal-sum identity on every profile point, the ellipse magnification `(1 + e)/(1 − e)`, the shadow condition, and the reshaping between f/D 0.3 and 0.6.
+
+**Collector parts.** Bowl, mast foot, insert cup and pedestal are closed meshes that pass the 45° overhang scan in their export orientation across nine configurations (rod Ø4–6.35, mast Ø6–25.4, 400 and 800 mm, f/D 0.25–0.8). Default part sizes: bowl 107 × 118 × 41 mm (54 cm³), foot 76 × 76 × 32 mm (34 cm³), cup 35 mm (12 cm³). The collector adds about 2 s to a build.
+
+**Tripod base.** `simple-base-legs.stl` is the SCAD base with `base_screws = false`; every other mount STL re-exported byte-identical. The app unions three octagonal sockets and subtracts the bores and teardrop cross holes. The result passes the overhang scan for 8 mm legs at 10°, 20 mm at 20° and 25.4 mm at 30°. Integration tests cover socket fit for every leg size, M3/M4/M5 bolt selection, leg length falling with splay and rising with a heavier dish, and the exact pose check (default dish at −10° touches leg 1 facing it, clears at 60° azimuth).
+
+No RF measurement, wind test or physical print of the collector or tripod is claimed.

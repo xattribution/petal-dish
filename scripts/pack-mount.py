@@ -15,6 +15,7 @@ STL = ROOT / 'cad/STL'
 # variant: (SCAD part, extra -D settings, frame, print matrix)
 VARIANTS = {
     'base':        ('base',    {},                      'world',  'M_base'),
+    'base-legs':   ('base',    {'base_screws': 'false'}, 'world', 'M_base'),
     'yoke':        ('yoke',    {},                      'world',  'M_yoke'),
     'yoke-stand':  ('yoke',    {'stand_holes': 'true'}, 'world',  'M_yoke'),
     'upright':     ('upright', {},                      'world',  'M_upright'),

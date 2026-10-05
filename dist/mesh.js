@@ -103,7 +103,7 @@ function repairFlatTriangles(mesh){const {v}=mesh,f=[...mesh.f],edges=new Map(),
 const inRect=(r,a,h)=>r>h.r0&&r<h.r1&&a>h.a0&&a<h.a1;
 
 // Manual overrides retain a stable identity for every physical copy. Coordinates
-// are the output mesh origin relative to the bed centre; only in-plane yaw changes.
+// are the output mesh origin relative to the bed center; only in-plane yaw changes.
 export function plateRows(plates){return plates.flatMap((plate,i)=>plate.placements.map(x=>({copy:x.copy,part:x.part.id,plate:i+1,x:x.x,y:x.y,yaw:x.yaw})));}
 export function manualPlates(parts,p,rows){
  const expected=new Map(parts.flatMap(part=>Array.from({length:part.qty},(_,i)=>[`${part.id}:${i+1}`,part]))),seen=new Set(),plates=[];

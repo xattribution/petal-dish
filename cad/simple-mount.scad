@@ -15,6 +15,7 @@ part = "assembly";  // [assembly,base,yoke,upright,cradle,cheek,matrices]
 printing = false;
 arc_lock = false;     // M6 arc-slot lock bolt: slot in the upright, hole + head pocket in the cheek
 stand_holes = false;  // no base: 4 × M5 countersunk holes from the top of the yoke plate; assembly omits the base
+base_screws = true;   // base: 4 × M5 flat-head holes to a stand. The app's tripod base turns them off and adds leg sockets
 dish_d = 400; dish_fd = 0.42;
 el = 30; az = 0; show_dish = true;
 $fn = 96;
@@ -129,7 +130,7 @@ module base() difference() {
   plate(base_t, bed_bottom=false) circle(r=disc_R, $fn=144);
   translate([0,0,-1]) rotate(30) cylinder(r=m8_af/sqrt(3), h=m8_nut + 1.5, $fn=6);   // azimuth nut
   translate([0,0,-1]) cylinder(d=m8, h=base_t + 2, $fn=hfn);
-  for (a=[45:90:359]) rotate(a) translate([44, 0, base_t]) mirror([0,0,1]) cs_hole(m5, cs5_d, base_t + 1);   // 4 × M5 flat-head
+  if (base_screws) for (a=[45:90:359]) rotate(a) translate([44, 0, base_t]) mirror([0,0,1]) cs_hole(m5, cs5_d, base_t + 1);   // 4 × M5 flat-head
   // azimuth scale: grooves down the rim every 5°, wide every 10°, read at the yoke's rear groove
   for (a=[0:5:355]) rotate(270 + a) translate([disc_R - 1, a % 10 == 0 ? -0.6 : -0.3, -1])
     cube([3, a % 10 == 0 ? 1.2 : 0.6, base_t + 2]);

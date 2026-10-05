@@ -19,6 +19,7 @@ For frequency ν in GHz, wavelength in mm is `λ = 299.792458 / ν`. The primary
 | Generator control | What changes |
 | --- | --- |
 | Frequency + automatic secondary sizing | Target secondary diameter, solved hyperbola position, rod angles/cuts and center standoff |
+| Frequency + automatic bowl sizing (collector) | Bowl diameter in wavelengths when that exceeds the smallest bowl that shades the insert; ellipse, F2, rods and mast follow |
 | Actual feed phase offset in mm | Prime-focus puck position and rod angles/cuts |
 | Known feed phase offset in wavelengths | Converts the supplied feed-specific offset using frequency, then recalculates puck and rods |
 | Automatic solid-rod diameter | Chooses 4, 5, 6, 6.35 or 8 mm from span, entered payload and deflection budget |
@@ -49,6 +50,39 @@ The returned ray bundle must clear the 30 mm hub with 1.5 mm radial margin. This
 
 The secondary is a 3 mm shell with a central boss and one blind short-M4-insert pocket. No screw breaks the reflecting face. Use the generated hardware schedule: puck/standoff height changes the screw length. A 4 mm total metal washer/spacer stack leaves nominally 5 mm screw entry. Verify actual insert length and tip clearance before tightening.
 
+## Gregorian collector
+
+The collector layout uses the dish to gather rather than to radiate. A concave bowl hangs just beyond the prime focus, facing the dish. Rays from the dish converge on F1, cross it, reflect off the bowl and come back down to a second focus F2 below it. The receiving insert sits at F2, looking up into the bowl, on a short tube mast from the hub. The rods socket directly into fins on the bowl, so there is no separate carrier or adapter.
+
+![Gregorian collector cross-sections for f/D 0.3, 0.42 and 0.6](gregorian-collector.png)
+
+**Why an ellipsoid.** A reflector that sends every ray through one point to a second point is an ellipsoid with those two points as foci. With F1 at the dish focus and F2 at the insert's phase center, every dish ray folds to the insert. This is the Gregorian dual reflector; the Cassegrain mode uses a convex hyperboloid instead and puts the feed behind the dish. About F1, with ψ measured from the dish axis (ψ = 0 at the bowl vertex):
+
+`t(ψ) = b² / (a + c·cos ψ)`, with `c = |F1F2| / 2`, `a = (|PF1| + |PF2|) / 2` at any surface point P, and `b² = a² − c²`.
+
+**How it follows the dish.** Every build re-solves the bowl from D and f/D:
+
+- Rim angle `ψ0 = 2·atan(D / 4f)`. The bowl edge sits at `ψ0 + 3°`, so it catches every dish ray with a little spill margin.
+- The insert half-angle θ is the angle at F2 to the bowl edge. For a bowl radius `r`, the focus spacing is `|F1F2| = r·(cot θ − cot ψE)`.
+- Magnification `M = (1 + e) / (1 − e) = tan(ψE / 2) / tan(θ / 2)`, with `e = c / a`. The insert sees an equivalent dish of `f/D × M`, so a deep dish can be fed by an ordinary moderate-beam insert.
+
+A deeper dish (larger ψ0) or a narrower insert beam spreads F1 and F2 apart. A wider insert beam pulls F2 up toward the bowl; a larger insert needs a larger bowl.
+
+**Sizing rule: hide the insert in the bowl's shadow.** Dish rays inside the bowl's radius never reach the dish, so a cone below F1, of half-angle `2·atan((r + lip) / 2f)`, carries no energy. The insert cup and mast go inside that cone, so the bowl is the only blocking object. This is the minimum-blockage condition for dual reflectors (Wade: the feed's blockage should not exceed the subreflector's). Auto sizing bisects for the smallest bowl that shades the insert cup with 1 mm to spare, or the entered number of wavelengths when a frequency is set, whichever is larger. Manual sizing takes your diameter and rejects one that cannot hide the insert.
+
+**RF guidance.** These are ray-optics rules; diffraction is not modeled.
+
+| Check | Rule used | What the app does |
+| --- | --- | --- |
+| Bowl size | Above ~10 λ works well; 5–10 λ loses some gain to diffraction; below ~5 λ prime focus usually wins | Warns below 10 λ and below 5 λ |
+| Blockage | Area fraction `((r + lip) / R)²` | Reports it; warns above 5%; refuses bowls over 30% of D |
+| Insert far field | Bowl at least `2d² / λ` from the insert | Warns when the bowl is closer |
+| Insert beam | −10 dB edge near ±θ | θ is the input; the dish rim lands slightly inside it |
+
+At 10 GHz a 400 mm, f/D 0.42 dish gets a 4 λ (120 mm) bowl by default, which the app flags. At 24 GHz the same 4 λ is a 50 mm target, so the shadow rule sets the size (about 85 mm, 6.8 λ). Larger dishes and higher frequencies are where the collector earns its keep.
+
+**Mechanics.** The bowl prints on its flat back with the reflecting face up and no supports: the back follows the face at 3 mm or a 45° cone, whichever is steeper. Each rod ends in a flat-sided fin with a through hole for an M3 (rods 6 mm and up) or M2 bolt, match-drilled through the rod. The mast foot bolts to the flat hub front on the four hub-to-mount through bolts; the cup and foot each take an M3 set screw into a short heat-set insert. The cable runs inside the mast and out through the hub center. Very deep dishes leave no room for a tube, and the cup then stands on a printed pedestal.
+
 ## Rod cuts, tolerances and retention
 
 The underside petal datum and carrier datum determine span S. The lower front-face crossing is solved from the parabola; the upper entrance remains 22 mm from its datum:
@@ -75,10 +109,12 @@ Cover the dish-facing reflector surfaces with continuous, well-bonded aluminum/c
 
 ## Sources and verification scope
 
+- [Paul Wade, W1GHZ: Multiple Reflector Dish Antennas](https://www.w1ghz.org/antbook/conf/Multiple_reflector_antennas.pdf): Gregorian ellipse foci, magnification and eccentricity, subreflector size and feed blockage.
+- [T. L. Wilson: Techniques of Radio Astronomy](https://arxiv.org/abs/1111.1183): dual-reflector systems, aperture blockage and efficiency.
 - [MathWorks: Cassegrain geometry and electromagnetic analysis](https://www.mathworks.com/help/antenna/ug/design-and-analyze-cassegrain-antenna.html): separate horn design; example 4λ secondary; hybrid solvers and diffraction considerations.
 - [NRAO: surface errors and the Ruze approximation](https://naic.nrao.edu/arecibo/phil/sysperf/misc/surfaceErrorsRuze.html).
 - [RF HAMDESIGN: three-leg accessory examples](https://www.rfhamdesign.com/products/parabolicdishkit/accessories/index.php).
 - [Prusa material guide](https://help.prusa3d.com/filament-material-guide): PETG and ASA printing/material considerations.
 - [Manifold](https://github.com/elalish/manifold): Boolean geometry kernel used by the online and offline app; see `THIRD-PARTY-NOTICES.md`.
 
-Automated checks cover closed meshes, winding, quantities, print bounds, generated cuts and datums, wavelength sizing, fixed primary focus, rod screening, exports and independent hyperbola reflection/path checks. Sampled mesh interference checks and OpenSCAD comparisons complement them. These are geometry/software checks, not a slicer, physical load test, electromagnetic simulation or measured antenna qualification.
+Automated checks cover closed meshes, winding, quantities, print bounds, generated cuts and datums, wavelength sizing, fixed primary focus, rod screening, exports, independent hyperbola reflection/path checks and ellipse ray traces to F2 for several dish shapes. Sampled mesh interference checks and OpenSCAD comparisons complement them. These are geometry/software checks, not a slicer, physical load test, electromagnetic simulation or measured antenna qualification.

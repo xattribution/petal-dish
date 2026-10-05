@@ -17,7 +17,7 @@
 <div class="field"><label for="diameter">Dish diameter <span>mm</span></label><div class="number-range"><input type="range" id="diameter-range" min="260" max="1200" step="10" value="400" aria-label="Dish diameter slider"><input id="diameter" name="diameter" type="number" min="260" max="1200" step="1" value="400"></div></div>
 <div class="field"><label for="fd">Focal ratio <span>f / D</span></label><div class="number-range"><input type="range" id="fd-range" min="0.25" max="0.8" step="0.01" value="0.42" aria-label="Focal ratio slider"><input id="fd" name="fd" type="number" min="0.25" max="0.8" step="0.01" value="0.42"></div></div>
 <div class="field"><label for="thickness">Shell thickness <span>mm</span><span class="tip" tabindex="0" data-tip="Vertical shell thickness. The integral flanges reinforce every seam."></span></label><div class="number-range"><input type="range" id="thickness-range" min="1.6" max="6" step="0.2" value="2.4" aria-label="Shell thickness slider"><input id="thickness" name="thickness" type="number" min="1.6" max="6" step="0.1" value="2.4"></div></div>
-<label for="frequencyGHz">Frequency <span>GHz</span><span class="tip" tabindex="0" data-tip="Optional; 0 means not specified. It sizes a Cassegrain secondary and sets the surface-accuracy target. It does not move the focus."></span><input id="frequencyGHz" type="number" min="0" max="100" step="0.1" value="0"></label>
+<label for="frequencyGHz">Frequency <span>GHz</span><span class="tip" tabindex="0" data-tip="Optional; 0 means not specified. It sizes a Cassegrain secondary or collector bowl in wavelengths and sets the surface-accuracy target. It does not move the focus."></span><input id="frequencyGHz" type="number" min="0" max="100" step="0.1" value="0"></label>
 <p id="rf-result" class="print-result"></p>
 <label for="hubFlat">Hub front<span class="tip" id="hub-tip" tabindex="0" data-tip="Flat prints cleanly. Curved follows the parabola."></span><select id="hubFlat"><option value="1">Flat</option><option value="0">Curved · follows the dish</option></select></label>
 <label for="rearStyle">Rear construction<select id="rearStyle" name="rearStyle"><option value="0">Curved shell</option><option value="1">Faceted underside</option></select></label>
@@ -63,8 +63,8 @@
 
 <div id="category-accessories" role="tabpanel" data-category-panel="Accessories" hidden>
 <section>
-<div class="eyebrow">Feed support<span class="tip" tabindex="0" data-tip="Aluminum rods fasten directly into the outer petals with underside side screws and meet at one central carrier. The RF feed is not included."></span></div>
-<label for="feedMode">Optical layout<select id="feedMode"><option value="0">No rod support</option><option value="1">Prime-focus feed</option><option value="2">Cassegrain secondary · experimental</option></select></label>
+<div class="eyebrow">Feed support<span class="tip" tabindex="0" data-tip="Aluminum rods run from the outer petals to a central carrier, secondary or collector bowl. The RF feed or insert is not included."></span></div>
+<label for="feedMode">Optical layout<select id="feedMode"><option value="0">No rod support</option><option value="1">Prime-focus feed</option><option value="2">Cassegrain secondary · experimental</option><option value="3">Gregorian collector · bowl and insert</option></select></label>
 <div id="feed-settings" hidden>
 <label for="feedLegs">Rod count<select id="feedLegs"><option value="3">3 rods</option><option value="4">4 rods</option></select></label>
 <label for="rodSizing">Rod sizing<select id="rodSizing"><option value="manual">Enter diameter</option><option value="auto">Auto · deflection screening</option></select></label>
@@ -72,14 +72,22 @@
 <label for="feedPayload" id="payload-field">Supported payload <span>g</span><input id="feedPayload" type="number" min="1" max="2000" value="100"></label>
 <label for="rodClearance">Socket clearance <span>mm</span><span class="tip" tabindex="0" data-tip="Diametral clearance added to the rod diameter in the petal and carrier bores."></span><input id="rodClearance" type="number" min="0.15" max="0.7" step="0.05" value="0.35"></label>
 <div id="prime-settings">
-<div class="double"><label for="phaseOffset">Phase-center offset<span class="tip" tabindex="0" data-tip="Signed distance from the carrier's lower face to the feed's phase center, along the dish axis, away from the dish. Use your feed's real phase center; zero is a placeholder."></span><input id="phaseOffset" type="number" min="-150" max="150" step="0.5" value="0"></label><label for="phaseUnits">Units<select id="phaseUnits"><option value="0">mm</option><option value="1">wavelengths</option></select></label></div>
+<div class="double"><label for="phaseOffset">Phase center<span class="tip" tabindex="0" data-tip="Signed distance along the dish axis from the carrier's lower face, or the insert cup's rim, to the feed's phase center. Positive points away from the dish. Zero is a placeholder."></span><input id="phaseOffset" type="number" min="-150" max="150" step="0.5" value="0"></label><label for="phaseUnits">Units<select id="phaseUnits"><option value="0">mm</option><option value="1">wavelengths</option></select></label></div>
+</div>
+<div id="collector-settings" hidden>
+<label for="collectorDiameter">Insert diameter <span>mm</span><span class="tip" tabindex="0" data-tip="Outside diameter of your receiving insert: horn, patch or LNB throat. It sits in a printed cup under the bowl."></span><input id="collectorDiameter" type="number" min="8" max="120" step="0.5" value="30"></label>
+<label for="collectorAngle">Insert beam half-angle <span>°</span><span class="tip" tabindex="0" data-tip="Half-angle of the insert's beam at its −10 dB edge. The bowl is solved so its rim falls on this angle. Narrower angles allow a smaller bowl."></span><input id="collectorAngle" type="number" min="10" max="60" step="0.5" value="25"></label>
+</div>
+<div id="sizing-settings" hidden>
+<label for="autoSecondary"><span class="name" id="sizing-label">Secondary sizing</span><span class="tip" tabindex="0" id="sizing-tip" data-tip="Geometric prototype. Secondary size, diffraction and rear-feed clearance need RF validation."></span><select id="autoSecondary"><option value="1">From frequency when specified</option><option value="0">Manual geometric experiment</option></select></label>
+<label for="secondaryWaves" id="waves-field"><span class="name" id="waves-label">Secondary diameter</span> <span>wavelengths</span><input id="secondaryWaves" type="number" min="2" max="10" step="0.5" value="4"></label>
+<label for="bowlDiameter" id="bowl-field">Bowl Ø <span>mm</span><input id="bowlDiameter" type="number" min="56" max="400" step="1" value="90"></label>
 </div>
 <div id="secondary-settings" hidden>
-<label for="autoSecondary">Secondary sizing<span class="tip" tabindex="0" data-tip="Geometric prototype. Secondary size, diffraction and rear-feed clearance need RF validation."></span><select id="autoSecondary"><option value="1">From frequency when specified</option><option value="0">Manual geometric experiment</option></select></label>
-<label for="secondaryWaves">Secondary diameter <span>wavelengths</span><input id="secondaryWaves" type="number" min="2" max="10" step="0.5" value="4"></label>
 <label for="secondaryPosition">Manual vertex / focus<input id="secondaryPosition" type="number" min="0.6" max="0.95" step="0.01" value="0.82"></label>
 <label for="backFocus">Rear feed focus z <span>mm</span><input id="backFocus" type="number" min="-200" max="-5" step="1" value="-20"></label>
 </div>
+<div class="double" id="mast-field" hidden><label for="mastDiameter">Mast tube Ø<span class="tip" tabindex="0" data-tip="Outside diameter of the tube from the hub to the insert cup. The insert cable runs inside it. Very deep dishes get a printed pedestal instead."></span><input id="mastDiameter" type="number" min="6" max="25.4" step="any" value="16"></label><label for="mastUnits">Units<select id="mastUnits"><option value="mm">mm</option><option value="in">inches</option></select></label></div>
 <p id="feed-result" class="print-result" aria-live="polite"></p>
 <label class="support-toggle accessory-toggle" data-for="feed"><input type="checkbox" checked data-accessory="feed">Print the feed fittings</label>
 </div>
@@ -88,7 +96,11 @@
 <div class="eyebrow">Aiming mount<span class="tip" tabindex="0" data-tip="Preview angles do not change print orientation. Interference is checked at this pose; stand clearance covers the whole elevation range. Friction clamps; no load rating."></span></div>
 <label for="mountMode">Include mount<select id="mountMode"><option value="0">Dish only</option><option value="1">Manual az / el mount</option></select></label>
 <div id="mount-settings" hidden>
-<label for="mountBase">Azimuth base<select id="mountBase"><option value="1">Printed base with azimuth scale</option><option value="0">No base · bolts to your stand</option></select></label>
+<label for="mountBase">Azimuth base<select id="mountBase"><option value="1">Printed base with azimuth scale</option><option value="2">Tripod leg sockets</option><option value="0">No base · bolts to your stand</option></select></label>
+<div id="leg-settings" hidden>
+<div class="double"><label for="legDiameter">Leg Ø<span class="tip" tabindex="0" data-tip="Outside diameter of your legs: dowel, tube or conduit. Each tapered socket grips about 2.5 diameters and takes one cross bolt."></span><input id="legDiameter" type="number" min="8" max="25.4" step="any" value="20"></label><label for="legUnits">Units<select id="legUnits"><option value="mm">mm</option><option value="in">inches</option></select></label></div>
+<label for="legSplay">Leg splay <span>°</span><span class="tip" tabindex="0" data-tip="Angle of each leg out from vertical. Wider is steadier and needs a wider footprint."></span><input id="legSplay" type="number" min="10" max="30" step="1" value="20"></label>
+</div>
 <label for="mountArcLock">Elevation lock<select id="mountArcLock"><option value="0">Single clamp bolt</option><option value="1">Add arc-slot lock bolt</option></select></label>
 <div class="double"><label for="azimuth">Azimuth <span>°</span><input id="azimuth" type="number" min="-180" max="180" step="1" value="0"></label><label for="elevation">Elevation <span>°</span><input id="elevation" type="number" min="-10" max="100" step="0.5" value="30"></label></div>
 <p id="mount-result" class="print-result"></p>

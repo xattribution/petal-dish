@@ -74,14 +74,18 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 | **Hub front** | Flat, which prints cleanly (default) · curved, following the dish |
 | **Underside** | Smooth curved shell (default) · small flat facets |
 | **Large dishes** | Staggered rings (default) · aligned rings |
-| **Feed support** | None · prime focus · Cassegrain secondary (experimental), on 3 or 4 aluminum rods with generated cut lengths |
-| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock, and an optional printed base (or bolt the turntable straight to a stand) ([details](docs/SIMPLE-MOUNT.md)) |
+| **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on 3 or 4 aluminum rods with generated cut lengths |
+| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand) ([details](docs/SIMPLE-MOUNT.md)) |
 
 All seam hardware stays behind the reflecting face.
 
 | Rear: clips, hub and mount | 600 mm, two staggered rings | Exploded |
 |---|---|---|
 | ![Rear view of the 400 mm dish showing seam clips, the flat hub and the aiming mount](docs/snapshots/rear.png) | ![600 mm dish with two staggered rings, mixed bolt and clip seams and four rods](docs/snapshots/staggered.png) | ![Exploded 400 mm dish and mount](docs/snapshots/exploded.png) |
+
+| Gregorian collector on the tripod base | Tripod leg sockets |
+|---|---|
+| ![400 mm dish with the collector bowl, insert mast and cup, on three legs](docs/snapshots/collector.png) | ![Tripod base from below: three tapered octagonal sockets with cross bolt holes](docs/simple-mount-tripod.png) |
 
 Seams take M3 or M4; petal roots and hub mounts use the fixed M4 interface. Kits with joint overrides include `CONNECTIONS.csv` and individually named petal variants. Help for each setting is in its **ⓘ** tooltip, and the full print and assembly instructions are in the generated PDF.
 

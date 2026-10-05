@@ -8,4 +8,4 @@ fs.writeFileSync('docs/DEFAULT-ASSEMBLY.md',guide(m));
 fs.writeFileSync('docs/REFLECTOR.md',reflectorGuide(m));
 console.log('Generated default revision-12 assembly and reflector guides.');
 
-for(const feedMode of [1,2]){const f=build({...defaults,feedMode}),name=feedMode===1?'PRIME':'CASSEGRAIN';fs.writeFileSync('docs/DEFAULT-'+name+'-SUPPORT.md',feedGuide(f));fs.writeFileSync('docs/DEFAULT-'+name+'-RODS.csv',rodCSV(f));fs.writeFileSync('docs/DEFAULT-'+name+'-HARDWARE.csv',feedHardwareCSV(f));}
+for(const feedMode of [1,2,3]){const f=build({...defaults,feedMode}),name=['','PRIME','CASSEGRAIN','GREGORIAN'][feedMode];fs.writeFileSync('docs/DEFAULT-'+name+'-SUPPORT.md',feedGuide(f));fs.writeFileSync('docs/DEFAULT-'+name+'-RODS.csv',rodCSV(f));fs.writeFileSync('docs/DEFAULT-'+name+'-HARDWARE.csv',feedHardwareCSV(f));}

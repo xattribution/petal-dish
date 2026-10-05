@@ -50,9 +50,10 @@ form section{padding:16px 0;border-bottom:1px solid var(--line)}
 .eyebrow{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px;margin-bottom:12px}
 .field{margin-bottom:14px}
 label{display:block;color:var(--text-2);font-size:12px}
-label>span:not(.tip){float:right;color:var(--muted)}
+label>span:not(.tip):not(.name){float:right;color:var(--muted)}
 .controls label+label,.controls label+div,.controls div+label,.controls p+label,.controls .field+label{margin-top:12px}
 .controls .double label,.controls .triple label{margin-top:0}
+.controls #feed-settings>div+div,.controls #mount-settings>div+div,.controls #mount-settings>label+div{margin-top:12px}
 input[type=number],select{display:block;width:100%;height:36px;background:var(--field);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--text);padding:6px 8px;margin-top:6px;min-width:0}
 input[type=range]{width:100%;min-width:0;accent-color:var(--accent);margin:0;height:32px}
 input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0;flex-shrink:0}
@@ -74,6 +75,7 @@ details.group>.advanced{padding-bottom:16px}
 section details.group>.advanced{padding:12px 0 0}
 .profile-details summary{padding-bottom:0}
 .profile{width:100%;height:auto;margin-top:8px}
+.profile path,.profile line{fill:none}.profile .axis{stroke:var(--line-strong);stroke-dasharray:3 4}.profile .dish{stroke:var(--accent);stroke-width:2}.profile .sub{stroke:var(--text-2);stroke-width:2}.profile .ray{stroke:var(--amber);stroke-width:.8;opacity:.6}.profile .focus{fill:var(--amber)}.profile text{fill:var(--muted);font:12px ui-monospace,monospace}
 .advanced{display:grid;gap:12px}
 .advanced>label,.advanced>div{margin-top:0!important}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

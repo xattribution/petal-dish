@@ -1,4 +1,5 @@
-import {box,cylinder,loft} from './solid.js';
+import {box,cylinder,loft,revolve,prism} from './solid.js';
+import {octFrustum,insertScrewCuts,teardrop,tube} from './sockets.js';
 export const feedMesh=s=>s.mesh();
 export const feedCylinder=cylinder,feedBox=box;
 export const feedTransform=(s,fn)=>s.transform(fn);
@@ -15,7 +16,7 @@ export function feedContinuousSocket(diameter,clearance,loadingDirection=1){cons
 // Two small circular tapers join the rod bearing and side insert to the shell.
 // Only the bore follows the rod angle; the exterior follows the dish underside.
 export function feedIntegralSocket(p,g,n,backFn){
- const h=Math.PI/n,up=[Math.sin(h),Math.cos(h),0],A=[g.datum.r,0,g.lowerZ],B=[18,0,g.upperZ],axis=B.map((v,k)=>(v-A[k])/g.pivotDistance),dot=axis.reduce((s,v,k)=>s+v*up[k],0),v0=up.map((v,k)=>v-dot*axis[k]),vl=Math.hypot(...v0),V=v0.map(v=>v/vl);
+ const h=Math.PI/n,up=[Math.sin(h),Math.cos(h),0],A=[g.datum.r,0,g.lowerZ],B=[g.topRadius??18,0,g.upperZ],axis=B.map((v,k)=>(v-A[k])/g.pivotDistance),dot=axis.reduce((s,v,k)=>s+v*up[k],0),v0=up.map((v,k)=>v-dot*axis[k]),vl=Math.hypot(...v0),V=v0.map(v=>v/vl);
  let T=[axis[1]*V[2]-axis[2]*V[1],axis[2]*V[0]-axis[0]*V[2],axis[0]*V[1]-axis[1]*V[0]];if(T[2]<0)T=T.map(v=>-v);
  const at=(t,w,l)=>A.map((a,k)=>a+T[k]*t+V[k]*w+axis[k]*l),r=(g.rodDiameter+p.rodClearance)/2,depth=3+r+1.2;
  const collar=(cx,cy,inner,d)=>{const outer=inner+(d+.3)/.95;return loft([[inner,-d],[outer,.3],[outer,.5],[outer*.75,.5],[outer*.5,.5],[outer*.25,.5],[.1,.5]].map(([radius,z])=>Array.from({length:63},(_,i)=>{const a=(i+.17)*2*Math.PI/63,x=cx+radius*Math.cos(a),y=cy+radius*Math.sin(a);return[x,y,backFn(x,y)+z];})));};
@@ -28,4 +29,51 @@ export function feedIntegralSocket(p,g,n,backFn){
  const pilotEnd=-r-2.5,shoulderEnd=-r-.5,C=at(0,0,1.3);
  const screw=loft([[-100,2.1],[pilotEnd,2.1],[shoulderEnd,1.7],[0,1.7]].map(([y,radius])=>Array.from({length:48},(_,i)=>{const a=i*Math.PI/24;return[C[0]+radius*Math.cos(a),y,C[2]+radius*Math.sin(a)];})));
  return{body,cuts:[bore,screw],frame:{A,axis,T,V,screwL:1.3,insertAxis:[0,1,0],pilotEnd},depth};
+}
+
+// Convex hull of 2D points (monotone chain), counter-clockwise.
+function hull2(points){const p=[...points].sort((a,b)=>a[0]-b[0]||a[1]-b[1]),cross=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]),lo=[],up=[];for(const q of p){while(lo.length>1&&cross(lo.at(-2),lo.at(-1),q)<=0)lo.pop();lo.push(q);}for(const q of [...p].reverse()){while(up.length>1&&cross(up.at(-2),up.at(-1),q)<=0)up.pop();up.push(q);}return lo.slice(0,-1).concat(up.slice(0,-1));}
+// Rod fin on the collector bowl: a flat-sided block around the rod bore, hung from the bowl's flat top so it prints
+// standing on the bed. One through bolt across its flat faces (match-drill the rod through the fin hole).
+export const finBolt=rodD=>rodD>=6?{size:3,hole:1.7}:{size:2,hole:1.2};
+export const finWidth=rodD=>{const ro=rodD/2+2.5;return{lo:-ro,hi:ro+2,ro};};
+// Gregorian collector solids, each in its own local frame (z along the dish axis):
+//  bowl: origin at the bowl vertex; prints flat top down, reflecting face up, so it needs no supports.
+//  foot: origin on the hub front; prints flange down.   cup: origin at the tube's top end; prints socket down.
+export function collectorBodies(p,g){
+ const b=g.bowl,m=g.mast,wall=3,Z0=b.vertex,front=b.profile.map(([r,z])=>[r,z-Z0]);
+ // The back is the underside in print: never shallower than 45°, capped by a flat top that sits on the bed.
+ const back=new Array(front.length);back[front.length-1]=front.at(-1)[1]+wall;for(let i=front.length-2;i>=0;i--)back[i]=Math.max(front[i][1]+wall,back[i+1]+(front[i+1][0]-front[i][0]));
+ const top=wall,rear=[];for(let i=0;i<front.length;i++){rear.push([front[i][0],Math.min(back[i],top)]);if(i<front.length-1&&back[i]>top&&back[i+1]<top){const k=(back[i]-top)/(back[i]-back[i+1]);rear.push([front[i][0]+k*(front[i+1][0]-front[i][0]),top]);}}
+ let bowl=revolve([...front,...rear.reverse()],160);
+ // Everything below the reflecting face stays clear: subtract that cavity from the finished part.
+ const edge=front.at(-1),cavity=revolve([[0,edge[1]-80],[edge[0]+.01,edge[1]-80],[edge[0]+.01,edge[1]],...[...front].reverse()],160);
+ const frontAt=r=>{for(let i=1;i<front.length;i++)if(front[i][0]>=r){const[r0,z0]=front[i-1],[r1,z1]=front[i];return z0+(z1-z0)*(r-r0)/(r1-r0||1);}return front.at(-1)[1];};
+ const B=[g.topRadius,g.upperZ-Z0],A=[g.datum.r,g.lowerZ-Z0],len=Math.hypot(A[0]-B[0],A[1]-B[1]),ax=[(A[0]-B[0])/len,(A[1]-B[1])/len],n=[ax[1],-ax[0]];
+ const at=(s,k=0)=>[B[0]+s*ax[0]+k*n[0],B[1]+s*ax[1]+k*n[1]],W=finWidth(g.rodDiameter),bolt=finBolt(g.rodDiameter),inner=b.radius-4;
+ const fin2d=hull2([[inner,top],[at(22)[0],top],at(22,W.ro),at(0,W.ro),[inner,frontAt(inner)+wall]]);
+ const fin=loft([W.lo,W.hi].map(y=>fin2d.map(([r,z])=>[r,y,z])));
+ const r=(g.rodDiameter+p.rodClearance)/2,P=(s,y=0)=>{const[q,z]=at(s);return[q,y,z];};
+ const cuts=[teardrop(P(2),P(80),r,[0,0,-1],48),teardrop(P(12,W.lo-1),P(12,W.hi+1),bolt.hole,[0,0,-1])];
+ for(const a of g.legs.map(l=>l.angle)){const turn=q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(a)*q[1],q[2]];
+  bowl=bowl.union(fin.transform(turn));for(const c of cuts)bowl=bowl.subtract(c.transform(turn));}
+ bowl=bowl.subtract(cavity);
+ // Mast foot on the hub front: flange on the four mount bolts, tapered socket, M3 set screw into an insert on a rib.
+ const F=m.flange,ribY=m.bore+6.5,rib=(z0,z1)=>prism([[-4.5,0],[4.5,0],[4.5,ribY],[-4.5,ribY]],z0,z1),ring=(z,rr)=>Array.from({length:96},(_,i)=>{const a=i*Math.PI/48;return[rr*Math.cos(a),rr*Math.sin(a),z];});
+ const cupR=b.insertRadius,rimZ=3+m.cupDepth,cupBody=(z,fl)=>revolve(fl>0?[[0,z-fl],[cupR-fl,z-fl],[cupR,z],[cupR,z+rimZ],[0,z+rimZ]]:[[0,z-.02],[cupR,z-.02],[cupR,z+rimZ],[0,z+rimZ]],96),coaxCone=z=>loft([[z-.5,m.bore+.5],[z+m.bore-m.coaxR,m.coaxR]].map(([zz,rr])=>ring(zz,rr)));
+ if(!m.tube){// Pedestal: flange, a solid tapered column with the coax hole, and the cup on a 45° flare.
+  const H=m.tubeTop-m.footZ,col=Math.max(m.footAF[1],2*m.coaxR+8),fl=Math.max(0,cupR-col/2+.3);
+  const ped0=tube(m.flangeRadius,0,F,96).union(octFrustum(Math.max(m.footAF[0],col+4),col,F-.01,H-.01));let ped=ped0.union(cupBody(H,fl));
+  for(const c of [tube(m.coaxR,-1,H+3.01),tube(p.collectorDiameter/2+.2,H+3,H+rimZ+1,96)])ped=ped.subtract(c);
+  for(let i=0;i<4;i++){const a=Math.PI/4+i*Math.PI/2;ped=ped.subtract(cylinder([30*Math.cos(a),30*Math.sin(a),-1],[30*Math.cos(a),30*Math.sin(a),F+1],2.3,32));}
+  return{bowl,foot:ped,cup:null};}
+ let foot=tube(m.flangeRadius,0,F,96).union(octFrustum(m.footAF[0],m.footAF[1],F-.01,F+m.footSocket)).union(rib(F-.01,F+m.footSocket));
+ for(const c of [tube(m.bore,F,F+m.footSocket+1),tube(m.coaxR,-1,F+.01),...insertScrewCuts(m.bore,F+m.footSocket/2,ribY)])foot=foot.subtract(c);
+ for(let i=0;i<4;i++){const a=Math.PI/4+i*Math.PI/2;foot=foot.subtract(cylinder([30*Math.cos(a),30*Math.sin(a),-1],[30*Math.cos(a),30*Math.sin(a),F+1],2.3,32));}
+ // Insert cup on the tube top: tapered socket below (narrow end down), 45° flare into the cup, cup above.
+ const S=m.cupSocket,apothem=z=>(m.cupAF[0]+(m.cupAF[1]-m.cupAF[0])*(z+S)/S)/2;
+  let fl=Math.max(0,cupR-apothem(0));for(let i=0;i<4;i++)fl=Math.max(0,cupR-apothem(-fl)+.3);
+ let cup=octFrustum(m.cupAF[0],m.cupAF[1],-S,-.01).union(rib(-S,-.01)).union(cupBody(0,fl));
+ for(const c of [tube(m.bore,-S-1,0),coaxCone(0),tube(m.coaxR,0,3.01),tube(p.collectorDiameter/2+.2,3,rimZ+1,96),...insertScrewCuts(m.bore,-S/2,ribY)])cup=cup.subtract(c);
+ return{bowl,foot,cup};
 }

@@ -53,7 +53,9 @@ export class Viewer{
  // Grid, focus marker and rod centerlines.
  rebuildOverlays(){if(!this.model)return;const m=this.model;this.free(this.overlays);this.reach=0;
   if(this.mode!=='layout'){
-   if(m.feed&&this.mode==='assembled'){const rods=[];for(const l of m.feed.legs)rods.push(...dishPoint(m,l.lower),...dishPoint(m,l.upper));this.add(this.overlays,new Float32Array(rods),null,{lines:true,base:[.4,.85,.72]});}
+   if(m.feed&&this.mode==='assembled'){const rods=[];for(const l of m.feed.legs)rods.push(...dishPoint(m,l.lower),...dishPoint(m,l.upper));if(m.feed.mast?.tube)rods.push(...dishPoint(m,m.feed.mast.lower),...dishPoint(m,m.feed.mast.upper));this.add(this.overlays,new Float32Array(rods),null,{lines:true,base:[.4,.85,.72]});}
+   // Tripod legs: centerlines through the sockets, continued 100 mm past the mouth.
+   if(m.mount?.tripod&&this.mode==='assembled'){const t=m.mount.tripod,legs=[];for(const l of t.legs)legs.push(...l.boreEnd,...l.boreEnd.map((v,k)=>v+l.axis[k]*(t.engagement+100)));this.add(this.overlays,new Float32Array(legs),null,{lines:true,base:[.4,.85,.72]});}
    const r=m.p.diameter*.65,step=m.p.diameter/10,grid=[];for(let v=-r;v<=r+1e-9;v+=step)grid.push(-r,v,-18,r,v,-18,v,-r,-18,v,r,-18);this.add(this.overlays,new Float32Array(grid),null,{lines:true,base:[.13,.13,.15],grid:true});
    if(this.focus){const f=m.focal,h=m.p.diameter*.015,lines=[-h,0,f,h,0,f,0,-h,f,0,h,f,0,0,f-h,0,0,f+h];for(let z=0;z<f;z+=f/24)lines.push(0,0,z,0,0,z+f/48);const pts=[];for(let i=0;i<lines.length;i+=3)pts.push(...dishPoint(m,lines.slice(i,i+3)));this.add(this.overlays,new Float32Array(pts),null,{lines:true,base:[1,.7,.3]});this.reach=Math.max(this.reach,f*1.65);}
    if(m.feed&&this.mode==='assembled')this.reach=Math.max(this.reach,m.feed.carrierFace*1.7);

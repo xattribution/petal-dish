@@ -23,4 +23,8 @@ export const box=(center,radius)=>new Solid(Manifold.cube(radius.map(x=>2*x),tru
 export function cylinder(a,b,r,n=32){const axis=b.map((x,k)=>x-a[k]),l=Math.hypot(...axis),w=axis.map(x=>x/l),seed=Math.abs(w[2])<.9?[0,0,1]:[1,0,0],u=[seed[1]*w[2]-seed[2]*w[1],seed[2]*w[0]-seed[0]*w[2],seed[0]*w[1]-seed[1]*w[0]],ul=Math.hypot(...u);u.forEach((x,k)=>u[k]=x/ul);const v=[w[1]*u[2]-w[2]*u[1],w[2]*u[0]-w[0]*u[2],w[0]*u[1]-w[1]*u[0]];return new Solid(Manifold.cylinder(l,r,r,n)).transform(q=>a.map((x,k)=>x+u[k]*q[0]+v[k]*q[1]+w[k]*q[2]));}
 // Loft matching convex polygons. Determine orientation from signed volume.
 export function loft(rings){const v=rings.flat(),n=rings[0].length,f=[];for(let j=1;j<n-1;j++){f.push([0,j+1,j]);const k=(rings.length-1)*n;f.push([k,k+j,k+j+1]);}for(let k=0;k<rings.length-1;k++)for(let j=0;j<n;j++){const a=k*n+j,b=k*n+(j+1)%n,c=b+n,d=a+n;f.push([a,b,c],[a,c,d]);}let vol=0;for(const[i,j,k]of f){const a=v[i],b=v[j],c=v[k];vol+=a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]);}if(vol<0)f.forEach(x=>x.reverse());return solid({v,f});}
+// Solid of revolution about +z from a closed (radius, z) profile; points on the axis use radius 0.
+export const revolve=(profile,segments=128)=>new Solid(Manifold.revolve([profile.map(([r,z])=>[Math.max(0,r),z])],segments));
+// Prism along +z from a closed (x, y) polygon between z0 and z1.
+export const prism=(poly,z0,z1)=>new Solid(Manifold.extrude([poly],z1-z0)).transform(([x,y,z])=>[x,y,z+z0]);
 export const sphere=(c,r,n=32)=>new Solid(Manifold.sphere(r,n)).transform(v=>v.map((x,k)=>x+c[k]));

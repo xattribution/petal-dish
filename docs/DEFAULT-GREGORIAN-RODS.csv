@@ -1,0 +1,5 @@
+leg,stock,diameter_mm,datum_span_mm,lower_face_crossing_mm,upper_bore_entrance_mm,insertion_mark_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_rod_end_z_mm,upper_rod_end_z_mm
+1,smooth solid aluminum,6.35,195.939,4.913,22.000,18,205.026,8.0719,0.000,48.175,33.062,185.844
+2,smooth solid aluminum,6.35,195.939,4.913,22.000,18,205.026,8.0719,120.000,48.175,33.062,185.844
+3,smooth solid aluminum,6.35,195.939,4.913,22.000,18,205.026,8.0719,240.000,48.175,33.062,185.844
+mast,tube with the insert cable inside,16,,,,,72.824,2.8671,,90,9.013,81.838

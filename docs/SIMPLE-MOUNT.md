@@ -11,7 +11,7 @@ Five printed parts and one clamp per axis. Each clamp is two flat faces squeezed
 | Elevation | −10° to 100°, checked with the dish fitted. The cheek clamps against the inside of the upright, with one wing nut. Optional arc lock: a second bolt in an arc slot |
 | Scale | Azimuth grooves down the base rim every 5°, wide every 10°, read at the groove on the back of the yoke |
 | Joints | Upright → yoke plate: 4 × M4 flat-head from below. Cheek → cradle plate: 3 × M4 flat-head from the hub face. All into heat-set inserts, heads flush |
-| Mounting | 4 × M5 flat-head through the base, or through the yoke plate without the base |
+| Mounting | 4 × M5 flat-head through the base, through the yoke plate without the base, or three legs in the tripod base |
 | Supports | None. The overhang scan passes for every part; inspect your slicer toolpath |
 
 ## Options
@@ -22,6 +22,7 @@ Set them in PETAL under **Aiming mount**, or in `cad/simple-mount.scad`:
 |---|---|---|
 | Azimuth base: *Printed base with azimuth scale* (default) | `stand_holes = false` | Base + yoke turntable with the azimuth clamp and the scale |
 | Azimuth base: *No base · turntable bolts to the stand* | `stand_holes = true` | No base part. The yoke plate gets 4 countersunk M5 holes from its top and screws straight onto a flat stand. No azimuth clamp: turn the stand to aim in azimuth |
+| Azimuth base: *Tripod leg sockets* | `base_screws = false`, plus sockets added by the app | The base without its M5 holes, with three splayed, tapered leg sockets on its underside. See [Tripod base](#tripod-base) |
 | Elevation lock: *Add arc-slot lock bolt* | `arc_lock = true` | An M6 bolt runs in an arc slot through the upright, from a captive head in the cheek, for extra grip. It covers the whole −10° to 100° range |
 
 ## Generator integration
@@ -48,13 +49,43 @@ The kinematic frame is the same for every option: elevation axis 94 mm above the
 
 ![Elevation clamp and arc lock from the outside](simple-mount-clamps.png)
 
+## Tripod base
+
+![Tripod base from below with 20 mm legs](simple-mount-tripod.png)
+
+Pick **Tripod leg sockets** as the azimuth base and enter your leg diameter (8–25.4 mm, in mm or inches) and splay (10–30° from vertical). Legs are whatever round stock you have: dowel, aluminum tube or conduit.
+
+| | Rule | 20 mm legs, 20° splay |
+|---|---|---|
+| Bore | leg Ø + 0.4 mm, blind, floor just below the base | Ø20.4 |
+| Engagement | max(35 mm, 2.5 × leg Ø) | 50 mm |
+| Wall | max(5 mm, 0.25 × Ø) at the base, tapering to max(3 mm, 0.15 × Ø) at the mouth | 5 → 3 mm |
+| Shape | Octagon, flats facing the cross bolt | 30.4 → 26.4 mm across flats |
+| Cross bolt | M3 below Ø14, M4 below Ø20, M5 above, mid-engagement, nyloc and two washers | M5 × 40 |
+| Placement | As far out as the Ø116 disc allows, clear of the azimuth nut | root at r 37 mm |
+
+Leg 1 points along azimuth zero. Each socket's flats face the tangential direction, so the cross bolt clamps two flat faces. Push the leg home, drill it through the socket hole, and bolt it.
+
+**Printing.** The base still prints top face down, so the sockets stand up from it, leaning out by the splay. The outer faces overhang by at most the splay plus about 2° of taper. The bore floor faces up and the cross-bolt holes are teardrops. No supports.
+
+**Leg length.** The app computes the shortest legs that do two jobs, for your actual dish, feed and mount:
+
+- **Stability.** It sums every printed part, the aluminum rods and mast, and the feed payload at its focus, and finds the worst center-of-mass offset from the azimuth axis over the elevation range. A tripod tips first over the edge between two feet, which sits at half the foot radius. The legs must put that edge 1.5 times farther out than the offset.
+- **Ground clearance.** The dish's lowest point over the elevation range must stay 20 mm off the ground.
+
+The default 400 mm dish needs 370 mm legs at 20° splay, on a 334 mm foot circle. With the Gregorian collector the center of mass moves forward and the answer becomes 560 mm. More splay shortens the legs.
+
+**Leg clearance.** The dish turns in azimuth over fixed legs. For every elevation the app checks whether any part of the dish comes within 3 mm of a leg or socket at any azimuth, and reports the lowest elevation that is clear all the way round. It also checks the selected pose exactly. The default dish touches a leg only below −8°, and only when it faces that leg.
+
+These are static checks with no wind rating. Stake or weight the feet outdoors.
+
 ## Parts
 
 STLs are in `cad/STL/`, already in print orientation. Use the variant that matches your options.
 
 | Part | STL | Prints | Size (mm) |
 |---|---|---|---|
-| Base | `simple-base.stl` | Top (clamp) face down | Ø116 × 14 |
+| Base | `simple-base.stl`; tripod `simple-base-legs.stl` plus the app's sockets (export from the app) | Top (clamp) face down | Ø116 × 14; tripod about 127 × 128 × 70 |
 | Yoke | `simple-yoke.stl`; without the base `simple-yoke-stand.stl` | Bearing face down | 138 × 116 × 18 |
 | Upright | `simple-upright.stl`; with arc lock `simple-upright-arc.stl` | Lying on its clamp face (x = 40) | 110 × 88 × 36 |
 | Cradle | `simple-cradle.stl` | Hub face down | Ø94 × 12 |
