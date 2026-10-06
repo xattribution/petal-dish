@@ -1,4 +1,4 @@
-import {box,cylinder,loft,revolve,prism} from './solid.js';
+import {box,cylinder,loft,revolve,prism,hullPoints} from './solid.js';
 import {octFrustum,insertScrewCuts,teardrop,tube} from './sockets.js';
 export const feedMesh=s=>s.mesh();
 export const feedCylinder=cylinder,feedBox=box;
@@ -31,33 +31,44 @@ export function feedIntegralSocket(p,g,n,backFn){
  return{body,cuts:[bore,screw],frame:{A,axis,T,V,screwL:1.3,insertAxis:[0,1,0],pilotEnd},depth};
 }
 
-// Convex hull of 2D points (monotone chain), counter-clockwise.
-function hull2(points){const p=[...points].sort((a,b)=>a[0]-b[0]||a[1]-b[1]),cross=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]),lo=[],up=[];for(const q of p){while(lo.length>1&&cross(lo.at(-2),lo.at(-1),q)<=0)lo.pop();lo.push(q);}for(const q of [...p].reverse()){while(up.length>1&&cross(up.at(-2),up.at(-1),q)<=0)up.pop();up.push(q);}return lo.slice(0,-1).concat(up.slice(0,-1));}
-// Rod fin on the collector bowl: a flat-sided block around the rod bore, hung from the bowl's flat top so it prints
-// standing on the bed. One through bolt across its flat faces (match-drill the rod through the fin hole).
+// Collector rod seat bolt: M3 for 6 mm rods and up, M2 below. Width across the seat's flat side faces.
 export const finBolt=rodD=>rodD>=6?{size:3,hole:1.7}:{size:2,hole:1.2};
-export const finWidth=rodD=>{const ro=rodD/2+2.5;return{lo:-ro,hi:ro+2,ro};};
+export const finWidth=(rodD,clearance=.35)=>{const hb=(rodD+clearance)/2+2.5;return{lo:-hb,hi:hb,ro:hb};};
+// Area of faces that would print steeper than 45° when +z points down to the bed, ignoring the bed face at z = bed.
+function overhangArea(s,bed){const {v,f}=s.rawMesh();let area=0;for(const[i,j,k]of f){const a=v[i],b=v[j],d=v[k];if(a[2]>bed-.01&&b[2]>bed-.01&&d[2]>bed-.01)continue;
+ const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],w=[d[0]-a[0],d[1]-a[1],d[2]-a[2]],n=[u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]],l=Math.hypot(...n);if(l>0&&n[2]/l>Math.SQRT1_2+.01)area+=l/2;}return area;}
+// Collector bowl back, as [r, z] from the vertex out to the rim: the reflecting face plus `wall`, never shallower than
+// 45° (it is the underside in print), capped by the flat top at z = top that sits on the bed.
+export function bowlBack(front,wall,top){
+ const back=new Array(front.length);back[front.length-1]=front.at(-1)[1]+wall;for(let i=front.length-2;i>=0;i--)back[i]=Math.max(front[i][1]+wall,back[i+1]+(front[i+1][0]-front[i][0]));
+ const rear=[];for(let i=0;i<front.length;i++){rear.push([front[i][0],Math.min(back[i],top)]);if(i<front.length-1&&back[i]>top&&back[i+1]<top){const k=(back[i]-top)/(back[i]-back[i+1]);rear.push([front[i][0]+k*(front[i+1][0]-front[i][0]),top]);}}
+ return rear;
+}
 // Gregorian collector solids, each in its own local frame (z along the dish axis):
 //  bowl: origin at the bowl vertex; prints flat top down, reflecting face up, so it needs no supports.
 //  foot: origin on the hub front; prints flange down.   cup: origin at the tube's top end; prints socket down.
 export function collectorBodies(p,g){
  const b=g.bowl,m=g.mast,wall=3,Z0=b.vertex,front=b.profile.map(([r,z])=>[r,z-Z0]);
- // The back is the underside in print: never shallower than 45°, capped by a flat top that sits on the bed.
- const back=new Array(front.length);back[front.length-1]=front.at(-1)[1]+wall;for(let i=front.length-2;i>=0;i--)back[i]=Math.max(front[i][1]+wall,back[i+1]+(front[i+1][0]-front[i][0]));
- const top=wall,rear=[];for(let i=0;i<front.length;i++){rear.push([front[i][0],Math.min(back[i],top)]);if(i<front.length-1&&back[i]>top&&back[i+1]<top){const k=(back[i]-top)/(back[i]-back[i+1]);rear.push([front[i][0]+k*(front[i+1][0]-front[i][0]),top]);}}
- let bowl=revolve([...front,...rear.reverse()],160);
+ const top=wall,rear=bowlBack(front,wall,top);
+ let bowl=revolve([...front,...[...rear].reverse()],160);
  // Everything below the reflecting face stays clear: subtract that cavity from the finished part.
  const edge=front.at(-1),cavity=revolve([[0,edge[1]-80],[edge[0]+.01,edge[1]-80],[edge[0]+.01,edge[1]],...[...front].reverse()],160);
- const frontAt=r=>{for(let i=1;i<front.length;i++)if(front[i][0]>=r){const[r0,z0]=front[i-1],[r1,z1]=front[i];return z0+(z1-z0)*(r-r0)/(r1-r0||1);}return front.at(-1)[1];};
- const B=[g.topRadius,g.upperZ-Z0],A=[g.datum.r,g.lowerZ-Z0],len=Math.hypot(A[0]-B[0],A[1]-B[1]),ax=[(A[0]-B[0])/len,(A[1]-B[1])/len],n=[ax[1],-ax[0]];
- const at=(s,k=0)=>[B[0]+s*ax[0]+k*n[0],B[1]+s*ax[1]+k*n[1]],W=finWidth(g.rodDiameter),bolt=finBolt(g.rodDiameter),inner=b.radius-4;
- const fin2d=hull2([[inner,top],[at(22)[0],top],at(22,W.ro),at(0,W.ro),[inner,frontAt(inner)+wall]]);
- const fin=loft([W.lo,W.hi].map(y=>fin2d.map(([r,z])=>[r,y,z])));
- const r=(g.rodDiameter+p.rodClearance)/2,P=(s,y=0)=>{const[q,z]=at(s);return[q,y,z];};
- const cuts=[teardrop(P(2),P(80),r,[0,0,-1],48),teardrop(P(12,W.lo-1),P(12,W.hi+1),bolt.hole,[0,0,-1])];
- for(const a of g.legs.map(l=>l.angle)){const turn=q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(a)*q[1],q[2]];
-  bowl=bowl.union(fin.transform(turn));for(const c of cuts)bowl=bowl.subtract(c.transform(turn));}
- bowl=bowl.subtract(cavity);
+ // Rod seats (see collectorSeat): the rod collar swept at 45° up to the flat top, plus a small flare into the rim
+ // under the seat's mouth. The side faces stay flat where the cross bolt's washers sit.
+ const Q=g.seat,c=Math.cos(Q.alpha),sn=Math.sin(Q.alpha),Bx=Q.topRadius,Bz=Q.upperZ-Z0,re=b.radius,ze=b.edgeZ-Z0,bolt=finBolt(g.rodDiameter);
+ const rb=(g.rodDiameter+p.rodClearance)/2,ha=rb+Q.wall,hb=ha,k=Math.max(.8,Math.min(2,ha-(g.rodDiameter>=6?3.5:2.5)-.25));
+ const section=[[ha,hb-k],[ha-k,hb],[-(ha-k),hb],[-ha,hb-k],[-ha,-(hb-k)],[-(ha-k),-hb],[ha-k,-hb],[ha,-(hb-k)]],lower=section.filter(([a])=>a<0).concat([[0,hb],[0,-hb]]);
+ const P=(t,a=0,y=0)=>[Bx+t*c+a*sn,y,Bz-t*sn+a*c],sec=(t,pts=section)=>pts.map(([a,y])=>P(t,a,y)),sweep=q=>q[2]>=top?q:[q[0]-(top-q[2]),q[1],top];
+ const core=hullPoints([...sec(0),...sec(Q.length),...sec(0).map(sweep),...sec(Q.length).map(sweep)]).trim([0,0,-1],-top);
+ // The flare runs from the rim to the underside of the seat's mouth; it is left out where it would reach the washers.
+ const flareAt=(hb+4)/re,anchors=[],along=q=>(q[0]-Bx)*c-(q[2]-Bz)*sn;for(const ph of [-flareAt,0,flareAt])for(const z of [ze+.4,ze+wall-.4])anchors.push([(re-.4)*Math.cos(ph),(re-.4)*Math.sin(ph),z]);   // just inside the rim wall
+ const flare=anchors.every(q=>along(q)>=Q.bolt+Q.washer/2+.5)?hullPoints([...anchors,...sec(Q.length-.3,lower.map(([a,y])=>[a*.97,y*.97]))]).trim([0,0,-1],-top):null;
+ const cuts=[teardrop(P(Q.floor),P(80),rb,[0,0,-1],48),teardrop(P(Q.bolt,0,-hb-1),P(Q.bolt,0,hb+1),bolt.hole,[0,0,-1])];
+ const assemble=seat=>{let out=bowl;for(const a of g.legs.map(l=>l.angle)){const turn=q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(a)*q[1],q[2]];
+  out=out.union(seat.transform(turn));for(const cut of cuts)out=out.subtract(cut.transform(turn));}return out.subtract(cavity);};
+ // The core is printable by construction. Keep the flare only when the finished bowl has no face under 45° in print
+ // (print-down is +z here; the flat top on the bed is exempt).
+ if(flare){const withFlare=assemble(core.union(flare));if(overhangArea(withFlare,top)<1){bowl=withFlare;}else bowl=assemble(core);}else bowl=assemble(core);
  // Mast foot on the hub front: flange on the four mount bolts, tapered socket, M3 set screw into an insert on a rib.
  const F=m.flange,ribY=m.bore+6.5,rib=(z0,z1)=>prism([[-4.5,0],[4.5,0],[4.5,ribY],[-4.5,ribY]],z0,z1),ring=(z,rr)=>Array.from({length:96},(_,i)=>{const a=i*Math.PI/48;return[rr*Math.cos(a),rr*Math.sin(a),z];});
  const cupR=b.insertRadius,rimZ=3+m.cupDepth,cupBody=(z,fl)=>revolve(fl>0?[[0,z-fl],[cupR-fl,z-fl],[cupR,z],[cupR,z+rimZ],[0,z+rimZ]]:[[0,z-.02],[cupR,z-.02],[cupR,z+rimZ],[0,z+rimZ]],96),coaxCone=z=>loft([[z-.5,m.bore+.5],[z+m.bore-m.coaxR,m.coaxR]].map(([zz,rr])=>ring(zz,rr)));

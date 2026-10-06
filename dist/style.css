@@ -53,7 +53,7 @@ label{display:block;color:var(--text-2);font-size:12px}
 label>span:not(.tip):not(.name){float:right;color:var(--muted)}
 .controls label+label,.controls label+div,.controls div+label,.controls p+label,.controls .field+label{margin-top:12px}
 .controls .double label,.controls .triple label{margin-top:0}
-.controls #feed-settings>div+div,.controls #mount-settings>div+div,.controls #mount-settings>label+div{margin-top:12px}
+.controls #feed-settings>div+div,.controls #mount-settings>div+div,.controls #mount-settings>label+div,.controls #leg-settings>div+div{margin-top:12px}
 input[type=number],select{display:block;width:100%;height:36px;background:var(--field);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--text);padding:6px 8px;margin-top:6px;min-width:0}
 input[type=range]{width:100%;min-width:0;accent-color:var(--accent);margin:0;height:32px}
 input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0;flex-shrink:0}

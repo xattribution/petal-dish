@@ -18,7 +18,7 @@ Magnification M = (1 + e) / (1 − e) = 2.85, with eccentricity e = c / a = 0.48
 
 ## Parts
 
-- Collector bowl, Ø85.3 mm, 3 mm shell with 3 built-in rod fins. Prints on its flat back with the cup facing up; no supports.
+- Collector bowl, Ø85.3 mm, 3 mm shell. The wall thickens into 3 rod seats between the flat top and the rim, so nothing hangs below the rim. Prints on its flat top with the reflecting face up; no supports.
 - Mast foot: bolts to the hub front through the four mount holes. Prints flange down.
 - Insert cup: Ø30 mm bore, 12.0 mm deep, on the mast tube. Prints socket down.
 - Mast tube: Ø16 mm, cut 72.8 mm. Aluminum or rigid conduit; the insert cable runs inside it.
@@ -29,7 +29,7 @@ Magnification M = (1 + e) / (1 − e) = 2.85, with eccentricity e = c / a = 0.48
 2. Bolt the mast foot to the hub front with the four mount through bolts; the nuts sit on top of the 6 mm flange.
 3. Feed the insert cable through the tube, seat the tube in the foot and the cup, and snug both set screws.
 4. Seat the insert in the cup with its phase center 0.0 mm above the cup rim (z = 96.8 mm).
-5. Fit the 3 × Ø6.35 mm rods (cut 205.0 mm) into the petals, then into the bowl fins. Center the bowl over the hub, drill each rod Ø3.2 through the fin hole, then fit the M3 bolts, washers and nylocs.
+5. Mark each of the 3 × Ø6.35 mm rods (cut 229.0 mm) 18 mm from the petal end and 11 mm from the bowl end. Fit them into the petals, then push them into the bowl's rod seats up to the marks. Center the bowl over the hub, drill each rod Ø3.2 through the seat's cross hole, then fit the M3 bolts with a washer on each flat face and a nyloc.
 6. Line the bowl's concave face with bonded aluminum or copper foil, seams pressed flat.
 
 ## Checks

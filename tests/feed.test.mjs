@@ -61,4 +61,17 @@ for(const cfg of [{},{fd:.3},{fd:.6,collectorAngle:20},{fd:.8,collectorAngle:15}
  assert.throws(()=>build({...defaults,feedMode:3,hubFlat:0}),/Flat/);assert.throws(()=>build({...defaults,feedMode:3,mountThrough:0}),/through bolts/);
  assert.throws(()=>build({...defaults,feedMode:3,collectorDiameter:60,collectorAngle:35}),/30%/);assert.throws(()=>build({...defaults,feedMode:3,autoSecondary:0,bowlDiameter:60}),/cannot hide/);
  assert.throws(()=>build({...defaults,feedMode:3,fd:.8,collectorAngle:40}),/narrower cone/);}
+// The printed bowl's reflecting face is the ellipsoid itself: rays cast up from F2 meet the mesh on the ellipse, and the
+// rod seats stay within the bowl's height (nothing below the rim) and outside the reflecting face.
+for(const cfg of [{},{fd:.3},{fd:.6,collectorAngle:20},{diameter:800,bedX:300,bedY:300,bedZ:300}]){
+ const m=build({...defaults,feedMode:3,...cfg}),b=m.feed.bowl,mesh=m.parts.find(p=>p.id==='feed-bowl').mesh,f=b.primaryFocus;
+ const ellipseZ=r=>{let lo=0,hi=b.edgeAngle*Math.PI/180;for(let i=0;i<60;i++){const q=(lo+hi)/2,t=b.b**2/(b.a+b.c*Math.cos(q));if(t*Math.sin(q)<r)lo=q;else hi=q;}const t=b.b**2/(b.a+b.c*Math.cos(lo));return f+t*Math.cos(lo);};
+ const tris=mesh.f.map(t=>t.map(i=>mesh.v[i]));let worst=0,n=0;
+ for(let i=0;i<14;i++)for(let j=0;j<24;j++){const r=(b.radius-.4)*(i+.5)/14,a=j*Math.PI/12,x=r*Math.cos(a),y=r*Math.sin(a);let hit=Infinity;
+  for(const[A,B,C]of tris){const d=(B[0]-A[0])*(C[1]-A[1])-(C[0]-A[0])*(B[1]-A[1]);if(Math.abs(d)<1e-12)continue;const u=((x-A[0])*(C[1]-A[1])-(C[0]-A[0])*(y-A[1]))/d,v=((B[0]-A[0])*(y-A[1])-(x-A[0])*(B[1]-A[1]))/d;if(u<-1e-9||v<-1e-9||u+v>1+1e-9)continue;hit=Math.min(hit,A[2]+u*(B[2]-A[2])+v*(C[2]-A[2]));}
+  worst=Math.max(worst,Math.abs(hit-ellipseZ(r)));n++;}
+ assert(worst<.03,`reflecting face off the ellipse by ${worst} mm`);
+ const zs=mesh.v.map(q=>q[2]);assert(Math.min(...zs)>b.edgeZ-.5&&Math.max(...zs)<b.vertex+3+1e-6,'rod seats stay within the bowl height');
+ console.log('PASS printed reflecting face matches the ellipse',JSON.stringify(cfg),n,'rays, worst',worst.toFixed(4),'mm');
+}
 console.log('PASS Gregorian collector focal geometry, shadow, reshaping, parts, hardware and limits');

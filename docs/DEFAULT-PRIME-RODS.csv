@@ -1,4 +1,4 @@
-leg,stock,diameter_mm,datum_span_mm,lower_face_crossing_mm,upper_bore_entrance_mm,insertion_mark_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_rod_end_z_mm,upper_rod_end_z_mm
-1,smooth solid aluminum,6.35,209.720,5.171,22.000,18,218.549,8.6043,0.000,39.425,34.667,173.460
-2,smooth solid aluminum,6.35,209.720,5.171,22.000,18,218.549,8.6043,120.000,39.425,34.667,173.460
-3,smooth solid aluminum,6.35,209.720,5.171,22.000,18,218.549,8.6043,240.000,39.425,34.667,173.460
+leg,stock,diameter_mm,datum_span_mm,lower_face_crossing_mm,upper_bore_entrance_mm,lower_insertion_mark_mm,upper_insertion_mark_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_rod_end_z_mm,upper_rod_end_z_mm
+1,smooth solid aluminum,6.35,209.720,5.171,22.000,18,18,218.549,8.6043,0.000,39.425,34.667,173.460
+2,smooth solid aluminum,6.35,209.720,5.171,22.000,18,18,218.549,8.6043,120.000,39.425,34.667,173.460
+3,smooth solid aluminum,6.35,209.720,5.171,22.000,18,18,218.549,8.6043,240.000,39.425,34.667,173.460

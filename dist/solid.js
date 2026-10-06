@@ -26,5 +26,6 @@ export function loft(rings){const v=rings.flat(),n=rings[0].length,f=[];for(let 
 // Solid of revolution about +z from a closed (radius, z) profile; points on the axis use radius 0.
 export const revolve=(profile,segments=128)=>new Solid(Manifold.revolve([profile.map(([r,z])=>[Math.max(0,r),z])],segments));
 // Prism along +z from a closed (x, y) polygon between z0 and z1.
+export const hullPoints=pts=>new Solid(Manifold.hull(pts));
 export const prism=(poly,z0,z1)=>new Solid(Manifold.extrude([poly],z1-z0)).transform(([x,y,z])=>[x,y,z+z0]);
 export const sphere=(c,r,n=32)=>new Solid(Manifold.sphere(r,n)).transform(v=>v.map((x,k)=>x+c[k]));

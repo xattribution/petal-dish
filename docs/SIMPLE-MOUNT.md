@@ -53,7 +53,7 @@ The kinematic frame is the same for every option: elevation axis 94 mm above the
 
 ![Tripod base from below with 20 mm legs](simple-mount-tripod.png)
 
-Pick **Tripod leg sockets** as the azimuth base and enter your leg diameter (8–25.4 mm, in mm or inches) and splay (10–30° from vertical). Legs are whatever round stock you have: dowel, aluminum tube or conduit.
+Pick **Tripod leg sockets** as the azimuth base, enter your leg diameter (8–25.4 mm, in mm or inches) and set the splay with its slider (10–30° from vertical, default 20°). Legs are whatever round stock you have: dowel, aluminum tube or conduit.
 
 | | Rule | 20 mm legs, 20° splay |
 |---|---|---|

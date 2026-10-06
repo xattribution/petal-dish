@@ -1,6 +1,6 @@
 import {feedMesh,feedCylinder,feedTransform,feedPuckBody,feedContinuousSocket,feedSocketBody,feedIntegralSocket,collectorBodies} from './feed-solids.js';
 import {mountChoice} from './connections.js';
-import {finBolt,finWidth} from './feed-solids.js';
+import {finBolt,finWidth,bowlBack} from './feed-solids.js';
 export const FEED={revision:7,engagement:18,minEngagement:16,maxEngagement:19,puckRadius:22};
 const FEED_TAU=2*Math.PI;
 const fz=(r,p)=>r*r/(4*p.diameter*p.fd);
@@ -54,6 +54,41 @@ export function gregorianGeometry(p){
   shadowAngle:deg(shadowAngle(re)),outerRadius:re+G.lip,blockage:((re+G.lip)/R)**2,magnification,equivalentFD:magnification*p.fd,insertRadius:insertR,offset,cupRim:g-offset,
   apexToInsert:zv-g,profile,minDiameter:2*minRadius,waves:lambda?2*re/lambda:null,nearField:lambda?2*p.collectorDiameter**2/lambda:null};
 }
+// Collector rod seat: the bowl wall thickens where each rod goes in, between the flat top and the rim. Nothing hangs
+// below the rim. The rod runs just above the back cone, enters at the rim and ends inside the thickened wall:
+//  - its bore keeps 1.5 mm of wall over the reflecting face and 1.5 mm under the flat top;
+//  - the cross bolt sits where the rod clears the back cone, so its washers bear on flat faces in open air;
+//  - the seat is the rod collar swept at 45° up to the flat top, so in print (bowl on its top) it stands on the bed
+//    and every face under it is 45° or steeper.
+export const SEAT={wall:2.5,floor:1.5,gap:.5,front:1.5,roof:1,mouth:1,washerGap:.5,minEngagement:8};
+export function collectorSeat(p,bowl,datum,rodD){
+ const rb=(rodD+p.rodClearance)/2,ha=rb+SEAT.wall,hb=ha,washer=rodD>=6?7:5,k=Math.max(.8,Math.min(2,ha-washer/2-.25)),re=bowl.radius;
+ const cap=bowl.vertex+GREGORIAN.wall,front=bowl.profile,end=SEAT.floor+SEAT.gap,target=Math.max(10,Math.ceil(1.6*rodD));
+ const back=bowlBack(bowl.profile,GREGORIAN.wall,cap),backAt=r=>{if(r>re)return-Infinity;for(let i=1;i<back.length;i++)if(back[i][0]>=r){const[r0,z0]=back[i-1],[r1,z1]=back[i];return z0+(z1-z0)*(r-r0)/(r1-r0||1);}return back.at(-1)[1];};
+ // (a, b): a along the rod's outward-up normal in its radial plane, b tangential. Chamfered square.
+ const section=[[ha,hb-k],[ha-k,hb],[-(ha-k),hb],[-ha,hb-k],[-ha,-(hb-k)],[-(ha-k),-hb],[ha-k,-hb],[ha,-(hb-k)]];
+ // One seat for a given rod angle, mouth radius and engagement: the lowest axis that clears everything, or null.
+ const place=(alpha,rm,engagement)=>{const c=Math.cos(alpha),s=Math.sin(alpha),t=s/c,ax=[c,-s],u1=[s,c];
+  const rEnd=rm-engagement*c,rBolt=rm-engagement/2*c,rB=rEnd-end*c,L=(rm-rB)/c;
+  // axis height at r: zr + (re − r)·tan α; every clearance only improves as the axis rises, so bisect for the lowest
+  const ok=zr=>{const zB=zr+(re-rB)*t,apex=[rB-rb*Math.SQRT2*u1[0],zB-rb*Math.SQRT2*u1[1]];
+   // the bore apex (toward the reflecting face) keeps SEAT.front of wall over the face
+   for(const[r,f]of front){const w=[r-apex[0],f-apex[1]],q=Math.max(SEAT.floor,Math.min(L,w[0]*ax[0]+w[1]*ax[1]));if(Math.hypot(w[0]-q*ax[0],w[1]-q*ax[1])<SEAT.front)return false;}
+   // the washer circle on each flat side face (b = ±hb) sits in open air, clear of the bowl's back
+   const zb=zr+(re-rBolt)*t;for(let j=0;j<48;j++){const a=j*Math.PI/24,r=rBolt+washer/2*(Math.cos(a)*c+Math.sin(a)*s),z=zb+washer/2*(-Math.cos(a)*s+Math.sin(a)*c);if(z<backAt(Math.hypot(r,hb))+SEAT.washerGap)return false;}
+   // the rod leaving the mouth clears the rim
+   for(const zc of [bowl.edgeZ,bowl.edgeZ+GREGORIAN.wall]){const w=[re-rm,zc-(zr-(rm-re)*t)],q=Math.max(0,w[0]*ax[0]+w[1]*ax[1]);if(Math.hypot(w[0]-q*ax[0],w[1]-q*ax[1])<rodD/2+.5)return false;}
+   return true;};
+  let lo=bowl.edgeZ-60,hi=cap+60;if(!ok(hi))return null;for(let j=0;j<60;j++){const mid=(lo+hi)/2;if(ok(mid))hi=mid;else lo=mid;}
+  const zB=hi+(re-rB)*t;if(zB+rb*c>cap-SEAT.roof)return null;   // the rod end must stay under the flat top
+  return{topRadius:rB,upperZ:zB,engagement,length:L,bolt:(rBolt-rB)/c,end,mouthRadius:rm};};
+ // Keep the mouth as close to the rim as the bowl allows, and the engagement as long as fits (down to 8 mm).
+ const fit=alpha=>{for(let m=SEAT.mouth;m<=30;m+=.5)for(let e=target;e>=SEAT.minEngagement;e-=.5){const q=place(alpha,re+m,e);if(q)return q;}return null;};
+ let alpha=Math.atan2(bowl.edgeZ-datum.rear,datum.r-re),seat=null;
+ for(let i=0;i<30;i++){seat=fit(alpha);if(!seat)break;const next=Math.atan2(seat.upperZ-datum.rear,datum.r-seat.topRadius);if(Math.abs(next-alpha)<1e-9)break;alpha=next;}
+ if(!seat)throw Error('The rods cannot reach into this bowl’s wall. Use a narrower insert angle or a larger bowl.');
+ return{...seat,alpha,rb,ha,hb,chamfer:k,cap,section,washer,...SEAT};
+}
 // Insert mast: a user tube from a foot bolted on the hub front to the insert cup. Heights along the dish axis.
 export function mastGeometry(p,bowl){
  const G=GREGORIAN,bore=(p.mastDiameter+.4)/2,footZ=fz(45,p),footTop=footZ+G.flange,footSocket=Math.max(25,1.6*p.mastDiameter),cupSocket=Math.max(20,1.2*p.mastDiameter);
@@ -68,16 +103,16 @@ export function feedGeometry(p,layout){
  if(!p.feedMode)return null;const d=feedDatum(p),lambda=p.frequencyGHz>0?299.792458/p.frequencyGHz:null,secondary=p.feedMode===2?cassegrainGeometry(p):null,bowl=p.feedMode===3?gregorianGeometry(p):null,mast=bowl?mastGeometry(p,bowl):null;
  const offset=bowl?bowl.offset:p.feedMode!==1?0:p.phaseUnits===1?(lambda===null?NaN:p.phaseOffset*lambda):p.phaseOffset;if(!Number.isFinite(offset))throw Error('Enter a frequency for a phase-center offset specified in wavelengths.');
  // Collector rods end in sockets just outside the bowl rim, where no ray reaches (behind or beyond the bowl).
- const lowerZ=d.rear,topRadius=bowl?bowl.radius+1+(p.rodDiameter||8)/2+2.5:18;
+ const seat=bowl?collectorSeat(p,bowl,d,p.rodDiameter||8):null,lowerZ=d.rear,topRadius=seat?seat.topRadius:18;
  const requiredFace=secondary?lowerZ+(secondary.edgeZ+10-lowerZ)*(d.r-topRadius)/(d.r-secondary.radius-7)-8:0;
  const stemHeight=secondary?Math.max(30,5*Math.ceil((requiredFace-secondary.backZ)/5)):0;
- const carrierFace=bowl?bowl.vertex:secondary?secondary.backZ+stemHeight:p.diameter*p.fd-offset,upperZ=bowl?bowl.edgeZ+.5:carrierFace+8;
+ const carrierFace=bowl?bowl.vertex:secondary?secondary.backZ+stemHeight:p.diameter*p.fd-offset,upperZ=seat?seat.upperZ:carrierFace+8;
  const distance=Math.hypot(d.r-topRadius,upperZ-lowerZ),ux=(d.r-topRadius)/distance,uz=(upperZ-lowerZ)/distance;
  // The lower datum lies under the petal. Solve the actual curved-face crossing,
  // rather than borrowing the former separate shoe's fixed 22 mm entrance.
  let lo=0,hi=distance;for(let i=0;i<64;i++){const t=(lo+hi)/2;if(lowerZ+uz*t<fz(d.r-ux*t,p))lo=t;else hi=t;}
- const lowerEntrance=(lo+hi)/2,upperEntrance=22;
- const cut=distance-lowerEntrance-upperEntrance+2*FEED.engagement;
+ const lowerEntrance=(lo+hi)/2,upperEntrance=seat?seat.length:22,upperEngagement=seat?seat.engagement:FEED.engagement;
+ const cut=distance-lowerEntrance-upperEntrance+FEED.engagement+upperEngagement;
  if(upperZ-lowerZ<15||distance<60||cut>600)throw Error('Rod geometry is outside the compact fitting envelope: require at least 15 mm rise, 60 mm span and at most 600 mm cut.');
  // Conservative single-rod cantilever screening, NOT a full truss/load model.
  // E=69 GPa; full entered payload acts transversely on one rod; 1 mm or lambda/50 target.
@@ -85,7 +120,7 @@ export function feedGeometry(p,layout){
  const deflection=diameter=>load*L**3/(3*69000*(Math.PI*diameter**4/64));
  const diameter=p.rodDiameter||[4,5,6,6.35,8].find(d=>deflection(d)<=targetDeflection);
  if(!diameter)throw Error('No 4–8 mm solid aluminum rod meets the screening deflection budget. Reduce payload/span or engineer a tubular support.');
- const phase=p.staggerRings?((layout.rows-1)%2)*Math.PI/layout.n:0,legs=Array.from({length:p.feedLegs},(_,i)=>{const angle=phase+i*FEED_TAU/p.feedLegs;const lower=[d.r*Math.cos(angle),d.r*Math.sin(angle),lowerZ],upper=[topRadius*Math.cos(angle),topRadius*Math.sin(angle),upperZ],axis=upper.map((v,k)=>(v-lower[k])/distance);return{number:i+1,angle,lower,upper,lowerRodEnd:lower.map((v,k)=>v+axis[k]*(lowerEntrance-FEED.engagement)),upperRodEnd:upper.map((v,k)=>v-axis[k]*(upperEntrance-FEED.engagement)),lowerFaceCrossing:lower.map((v,k)=>v+axis[k]*lowerEntrance),pivotDistance:distance,lowerEntrance,upperEntrance,cutLength:cut};});
+ const phase=p.staggerRings?((layout.rows-1)%2)*Math.PI/layout.n:0,legs=Array.from({length:p.feedLegs},(_,i)=>{const angle=phase+i*FEED_TAU/p.feedLegs;const lower=[d.r*Math.cos(angle),d.r*Math.sin(angle),lowerZ],upper=[topRadius*Math.cos(angle),topRadius*Math.sin(angle),upperZ],axis=upper.map((v,k)=>(v-lower[k])/distance);return{number:i+1,angle,lower,upper,lowerRodEnd:lower.map((v,k)=>v+axis[k]*(lowerEntrance-FEED.engagement)),upperRodEnd:upper.map((v,k)=>v-axis[k]*(upperEntrance-upperEngagement)),lowerFaceCrossing:lower.map((v,k)=>v+axis[k]*lowerEntrance),pivotDistance:distance,lowerEntrance,upperEntrance,cutLength:cut};});
  if(secondary){const rr=secondary.radius+diameter/2+1,z=lowerZ+(upperZ-lowerZ)*(d.r-rr)/(d.r-topRadius);if(z<secondary.edgeZ+3+diameter/2+1)throw Error('Rod path crowds the secondary edge. Change secondary position, rear focus or dish geometry.');}
  const warnings=['Prototype: no wind, payload or RF performance rating. Small radial screws require physical slip and warm-creep tests.'];
  if(p.feedLegs===4)warnings.push('Fit the fourth rod last without preload; never use it to pull a warped petal into alignment.');
@@ -98,7 +133,7 @@ export function feedGeometry(p,layout){
   else if(bowl.waves!==null&&bowl.waves<10)warnings.push(`The bowl is ${bowl.waves.toFixed(1)} wavelengths across. Dual reflectors work best above about 10 λ; expect some diffraction loss.`);
   if(bowl.nearField!==null&&bowl.apexToInsert<bowl.nearField)warnings.push(`The bowl is inside the insert’s near field at this frequency (${bowl.apexToInsert.toFixed(0)} mm, wants ${bowl.nearField.toFixed(0)} mm). Use a smaller insert.`);
   if(bowl.blockage>.05)warnings.push(`The bowl shades ${(100*bowl.blockage).toFixed(1)}% of the aperture. A smaller or narrower-beam insert lets it shrink.`);}
- return{mode:p.feedMode===1?'prime-focus':p.feedMode===2?'cassegrain':'gregorian-collector',bowl,mast,topRadius,legs,datum:d,carrierFace,upperZ,lowerZ,cutLength:cut,lowerEntrance,upperEntrance,pivotDistance:distance,rodAngle:Math.atan2(upperZ-lowerZ,d.r-topRadius)*180/Math.PI,phase,secondary,stemHeight,offset,rodDiameter:diameter,lambda,targetDeflection,screenDeflection:deflection(diameter),surfaceRmsBudget:lambda?lambda/40:null,warnings};
+ return{mode:p.feedMode===1?'prime-focus':p.feedMode===2?'cassegrain':'gregorian-collector',bowl,mast,seat,upperEngagement,topRadius,legs,datum:d,carrierFace,upperZ,lowerZ,cutLength:cut,lowerEntrance,upperEntrance,pivotDistance:distance,rodAngle:Math.atan2(upperZ-lowerZ,d.r-topRadius)*180/Math.PI,phase,secondary,stemHeight,offset,rodDiameter:diameter,lambda,targetDeflection,screenDeflection:deflection(diameter),surfaceRmsBudget:lambda?lambda/40:null,warnings};
 }
 const transform=(mesh,fn)=>({v:mesh.v.map(fn),f:mesh.f});
 const flip=mesh=>transform(mesh,([x,y,z])=>[x,-y,-z]);
@@ -136,7 +171,7 @@ function collectorManifest(m){const g=m.feed,b=g.bowl,t=g.mast;return{layout:'Gr
  aperture_blockage_fraction:b.blockage,magnification:b.magnification,equivalent_f_over_D:b.equivalentFD,insert_diameter_mm:m.p.collectorDiameter,insert_cup_rim_z_mm:b.cupRim,phase_center_offset_mm:b.offset,bowl_apex_to_insert_mm:b.apexToInsert,insert_near_field_mm:b.nearField,
  mast:t.tube?{tube_diameter_mm:t.diameter,cut_length_mm:t.cutLength,lower_end_z_mm:t.footTop,upper_end_z_mm:t.tubeTop}:{printed_pedestal:true,top_z_mm:t.tubeTop}};}
 export function feedManifest(m){if(!m.feed)return{enabled:false};const g=m.feed,s=g.secondary;return{enabled:true,revision:FEED.revision,mode:g.mode,legs:m.p.feedLegs,rod_diameter_mm:g.rodDiameter,stock:'smooth solid aluminum rod (screen assumes E = 69 GPa)',cut_length_mm:g.cutLength,socket_end_span_mm:g.pivotDistance,nominal_insertion_each_end_mm:18,carrier_engagement_range_mm:[16,19],petal_attachment:'integrated underside through-bore and short M3 heat-set insert side screw',petal_bore_roof:'45-degree shoulders and 0.8 mm bridge relative to petal print-up',carrier_lower_face_z_mm:g.carrierFace,phase_center_offset_mm:g.offset,frequency_GHz:m.p.frequencyGHz||null,wavelength_mm:g.lambda,surface_rms_screen_mm:g.surfaceRmsBudget,rod_deflection_screen_mm:g.screenDeflection,rod_deflection_budget_mm:g.targetDeflection,payload_input_g:m.p.feedPayload,puck_core_diameter_mm:44,lower_bore_entrance_mm:g.lowerEntrance,upper_bore_entrance_mm:g.upperEntrance,adapter_bolt_circle_mm:24,adapter_bolts:`${m.p.feedLegs} × M3 midway between rods; feed-specific adapter required`,legs_geometry:g.legs,collector:g.bowl?collectorManifest(m):null,secondary:s?{primary_focus_z:s.primaryFocus,rear_focus_z:s.backFocus,vertex_z:s.vertex,vertex_ratio:s.ratio,diameter_mm:2*s.radius,target_diameter_mm:s.targetDiameter,front_surface:'z = center + a * sqrt(1 + r^2 / b^2)',center:s.center,a:s.a,b:Math.sqrt(s.b2),back_boss_z:s.backZ,return_bundle_radius_mm:s.returnRadius}:null,hardware:feedHardware(m),warnings:g.warnings};}
-export function rodCSV(m){if(!m.feed)return'';const g=m.feed;return 'leg,stock,diameter_mm,datum_span_mm,lower_face_crossing_mm,upper_bore_entrance_mm,insertion_mark_each_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_rod_end_z_mm,upper_rod_end_z_mm\n'+m.feed.legs.map(l=>[l.number,'smooth solid aluminum',m.feed.rodDiameter,l.pivotDistance.toFixed(3),g.lowerEntrance.toFixed(3),g.upperEntrance.toFixed(3),18,l.cutLength.toFixed(3),(l.cutLength/25.4).toFixed(4),(l.angle*180/Math.PI).toFixed(3),m.feed.rodAngle.toFixed(3),l.lowerRodEnd[2].toFixed(3),l.upperRodEnd[2].toFixed(3)].join(',')).join('\n')+'\n'+(g.mast?.tube?['mast','tube with the insert cable inside',g.mast.diameter,'','','','',g.mast.cutLength.toFixed(3),(g.mast.cutLength/25.4).toFixed(4),'',90,g.mast.footTop.toFixed(3),g.mast.tubeTop.toFixed(3)].join(',')+'\n':'');}
+export function rodCSV(m){if(!m.feed)return'';const g=m.feed;return 'leg,stock,diameter_mm,datum_span_mm,lower_face_crossing_mm,upper_bore_entrance_mm,lower_insertion_mark_mm,upper_insertion_mark_mm,cut_length_mm,cut_length_inches,azimuth_degrees,rod_elevation_degrees,lower_rod_end_z_mm,upper_rod_end_z_mm\n'+m.feed.legs.map(l=>[l.number,'smooth solid aluminum',m.feed.rodDiameter,l.pivotDistance.toFixed(3),g.lowerEntrance.toFixed(3),g.upperEntrance.toFixed(3),FEED.engagement,+g.upperEngagement.toFixed(2),l.cutLength.toFixed(3),(l.cutLength/25.4).toFixed(4),(l.angle*180/Math.PI).toFixed(3),m.feed.rodAngle.toFixed(3),l.lowerRodEnd[2].toFixed(3),l.upperRodEnd[2].toFixed(3)].join(',')).join('\n')+'\n'+(g.mast?.tube?['mast','tube with the insert cable inside',g.mast.diameter,'','','','','',g.mast.cutLength.toFixed(3),(g.mast.cutLength/25.4).toFixed(4),'',90,g.mast.footTop.toFixed(3),g.mast.tubeTop.toFixed(3)].join(',')+'\n':'');}
 export function feedHardware(m){if(!m.feed)return[];const n=m.p.feedLegs;if(m.feed.bowl)return collectorHardware(m);return[
  {item:'petal rod-retention screw',spec:'M3 × 12',quantity:n,note:'Headless side set screw into a short M3 insert; rounded tip against solid rod.'},
  {item:'petal retention insert',spec:'short M3 / maximum 4 mm / compatible with 4.2 mm pilot',quantity:n,note:'Heat-set from the side, recessed 0.5 mm. Test insert fit before printing the dish.'},
@@ -146,7 +181,7 @@ export function feedHardware(m){if(!m.feed)return[];const n=m.p.feedLegs;if(m.fe
 function collectorHardware(m){const g=m.feed,n=m.p.feedLegs,bolt=finBolt(g.rodDiameter),W=finWidth(g.rodDiameter),width=W.hi-W.lo,len=Math.ceil((width+(bolt.size===3?1:.6)+bolt.size*1.4+1)/2)*2,t=g.mast;return[
  {item:'petal rod-retention screw',spec:'M3 × 12',quantity:n,note:'Headless side set screw into a short M3 insert; rounded tip against solid rod.'},
  {item:'petal retention insert',spec:'short M3 / maximum 4 mm / compatible with 4.2 mm pilot',quantity:n,note:'Heat-set from the side, recessed 0.5 mm. Test insert fit before printing the dish.'},
- {item:'bowl rod bolt',spec:`M${bolt.size} × ${len} socket head`,quantity:n,note:`Across each bowl fin (${width.toFixed(1)} mm) and through the rod. Fit the rod, then drill Ø${bolt.size+.2} through it using the fin hole as the guide.`},
+ {item:'bowl rod bolt',spec:`M${bolt.size} × ${len} socket head`,quantity:n,note:`Across each rod seat's flat faces (${width.toFixed(1)} mm) and through the rod. Fit the rod, then drill Ø${bolt.size+.2} through it using the seat's cross hole as the guide.`},
  {item:'bowl rod nut',spec:`M${bolt.size} nyloc`,quantity:n},{item:'bowl rod washer',spec:`M${bolt.size}`,quantity:2*n,note:'One under the head, one under the nut, on the flat fin faces.'},
  ...(t.tube?[{item:'insert mast tube',spec:`Ø${t.diameter} mm tube, cut ${t.cutLength.toFixed(1)} mm`,quantity:1,note:'Aluminum or rigid conduit. The insert cable runs inside it and out through the hub center.'},
   {item:'mast set screw',spec:'M3 × 8 cup point',quantity:2,note:'One in the mast foot, one in the insert cup, each into a short M3 insert.'},
@@ -173,7 +208,7 @@ Magnification M = (1 + e) / (1 − e) = ${b.magnification.toFixed(2)}, with ecce
 
 ## Parts
 
-- Collector bowl, Ø${f(2*b.radius)} mm, 3 mm shell with ${m.p.feedLegs} built-in rod fins. Prints on its flat back with the cup facing up; no supports.
+- Collector bowl, Ø${f(2*b.radius)} mm, 3 mm shell. The wall thickens into ${m.p.feedLegs} rod seats between the flat top and the rim, so nothing hangs below the rim. Prints on its flat top with the reflecting face up; no supports.
 ${t.tube?`- Mast foot: bolts to the hub front through the four mount holes. Prints flange down.
 - Insert cup: Ø${m.p.collectorDiameter} mm bore, ${f(t.cupDepth)} mm deep, on the mast tube. Prints socket down.
 - Mast tube: Ø${t.diameter} mm, cut ${f(t.cutLength)} mm. Aluminum or rigid conduit; the insert cable runs inside it.`:`- Insert pedestal: one printed column from the hub front to the insert cup (this dish is too deep for a tube). Prints flange down.`}
@@ -185,7 +220,7 @@ ${t.tube?`- Mast foot: bolts to the hub front through the four mount holes. Prin
 ${t.tube?`3. Feed the insert cable through the tube, seat the tube in the foot and the cup, and snug both set screws.
 4. Seat the insert in the cup with its phase center ${f(b.offset)} mm above the cup rim (z = ${f(b.insertFocus)} mm).`:`3. Feed the insert cable up through the hub center and pedestal.
 4. Seat the insert in the cup with its phase center ${f(b.offset)} mm above the cup rim (z = ${f(b.insertFocus)} mm).`}
-5. Fit the ${m.p.feedLegs} × Ø${g.rodDiameter} mm rods (cut ${f(g.cutLength)} mm) into the petals, then into the bowl fins. Center the bowl over the hub, drill each rod Ø${bolt.size+.2} through the fin hole, then fit the M${bolt.size} bolts, washers and nylocs.
+5. Mark each of the ${m.p.feedLegs} × Ø${g.rodDiameter} mm rods (cut ${f(g.cutLength)} mm) 18 mm from the petal end and ${+g.upperEngagement.toFixed(1)} mm from the bowl end. Fit them into the petals, then push them into the bowl's rod seats up to the marks. Center the bowl over the hub, drill each rod Ø${bolt.size+.2} through the seat's cross hole, then fit the M${bolt.size} bolts with a washer on each flat face and a nyloc.
 6. Line the bowl's concave face with bonded aluminum or copper foil, seams pressed flat.
 
 ## Checks
