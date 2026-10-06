@@ -46,9 +46,9 @@ export function setupWorkspace({changed,getModel,showJoint}){
  }
  function refresh(){const {scope,j,family,catalog}=current(),hub=hubFamily(family),active=choice();
   $('specific-choice').hidden=scope!=='specific';$('connection-preview').hidden=scope!=='specific';$('connection-size-label').hidden=hub;
-  $('connection-cards').replaceChildren(...(hub?['Heat-set insert · M4','Through bolt · M4']:CONNECTION_METHODS).map((name,i)=>card(name,hub?hubIcon(i):seamIcon(i),i===active,hub?'':SEAM_TITLES[i],()=>commit(i,Number($('connection-size').value)))));
+  $('connection-cards').replaceChildren(...(hub?['Heat-set insert','Through bolt'].map(x=>`${x} · M${$(family==='root'?'rootBolt':'mountBolt').value}`):CONNECTION_METHODS).map((name,i)=>card(name,hub?hubIcon(i):seamIcon(i),i===active,hub?'':SEAM_TITLES[i],()=>commit(i,Number($('connection-size').value)))));
   if(!hub)$('connection-size').value=scope==='specific'?j?.size??3:state.connections.families?.[family]?.seamBolt??$('seamBolt').value;
-  $('connection-summary').textContent=hub?'M4 interface. Through bolts take a nut and washers.':scope==='specific'?'Changes both sides of this joint.':'One joint set on its own still keeps its own choice.';
+  $('connection-summary').textContent=hub?`M${$(family==='root'?'rootBolt':'mountBolt').value} interface. Through bolts take a nut and washers.`:scope==='specific'?'Changes both sides of this joint.':'One joint set on its own still keeps its own choice.';
   const overrides=Object.values(state.connections).reduce((n,v)=>n+Object.keys(v).length,0);$('connections-overview').textContent=`${catalog.length} joints · ${overrides?overrides+(overrides===1?' override':' overrides'):'all use the defaults above'}`;
  }
  $('connection-preview').onclick=()=>{const {j,scope}=current();if(scope==='specific'&&j){showJoint?.(j);dialog.close();}};$('connection-scope').onchange=refresh;$('connection-joint').onchange=refresh;$('connection-size').onchange=()=>commit(choice(),Number($('connection-size').value));

@@ -2,10 +2,27 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import {mountMeshes,mountFrame} from '../dist/mount-meshes.js';
-assert.deepEqual(Object.keys(mountMeshes).sort(),['base','base-legs','cheek','cheek-arc','cradle','upright','upright-arc','yoke','yoke-stand']);
-for(const [name,mesh] of Object.entries(mountMeshes)){assert.equal(mesh.source_sha256,createHash('sha256').update(fs.readFileSync(`cad/STL/simple-${name}.stl`)).digest('hex'),'Regenerate bundled mount mesh after CAD changes');assert(['world','cradle'].includes(mesh.frame));assert.equal(mesh.toModel.length,3);}
+import {mountSolid} from '../dist/mount-fasteners.js';
+import {solid,solidScope,cylinder} from '../dist/solid.js';
+// Bundled blanks (no fastener holes) match cad/STL/blank; the app cuts the holes for the selected sizes.
+assert.deepEqual(Object.keys(mountMeshes).sort(),['base','cheek','cheek-arc','cradle','upright','upright-arc','yoke']);
+for(const [name,mesh] of Object.entries(mountMeshes)){assert.equal(mesh.source_sha256,createHash('sha256').update(fs.readFileSync(`cad/STL/blank/simple-${name}.stl`)).digest('hex'),'Regenerate bundled mount mesh after CAD changes');assert(['world','cradle'].includes(mesh.frame));assert.equal(mesh.toModel.length,3);}
 assert.equal(mountFrame.insert.depth,10);assert.equal(mountFrame.insert.recess,.5);assert.equal(mountFrame.axisZ,94);assert.equal(mountFrame.hubL,75);assert.equal(mountFrame.baseT,14);
-for(const f of fs.readdirSync('cad/STL').filter(f=>f.startsWith('simple-')))assert(mountMeshes[f.slice(7,-4)],'Obsolete mount STL '+f);
+const COMPLETE=['base','cheek','cheek-arc','cradle','upright','upright-arc','yoke','yoke-stand'];
+assert.deepEqual(fs.readdirSync('cad/STL').filter(f=>f.startsWith('simple-')).sort(),COMPLETE.map(n=>`simple-${n}.stl`).sort(),'complete mount STLs');
+for(const f of fs.readdirSync('cad/STL/blank'))assert(mountMeshes[f.slice(7,-4)],'Obsolete blank STL '+f);
+// At the default sizes the app's cuts reproduce the complete OpenSCAD parts (float32 STL rounding only).
+{const read=f=>{const b=fs.readFileSync(f),n=b.readUInt32LE(80),key=new Map(),v=[],faces=[];for(let i=0;i<n;i++){const t=[];for(let k=0;k<3;k++){const o=84+i*50+12+k*12,q=[b.readFloatLE(o),b.readFloatLE(o+4),b.readFloatLE(o+8)],s=q.join();if(!key.has(s)){key.set(s,v.length);v.push(q);}t.push(key.get(s));}faces.push(t);}return{v,f:faces};};
+ solidScope(()=>{for(const name of COMPLETE){const {body}=mountSolid(name,defaults),ref=solid(read(`cad/STL/simple-${name}.stl`)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();
+  assert(diff<.5,`${name}: app cuts differ from the complete STL by ${diff.toFixed(3)} mm³`);assert.equal(body.raw.genus(),ref.raw.genus(),name+' hole count');}});
+ console.log('PASS default-size mount cuts reproduce cad/STL/simple-*.stl');}
+// Other sizes: the hole diameters follow the selection.
+{const probe=(variant,cfg,a,b,r)=>solidScope(()=>{const {body,src}=mountSolid(variant,{...defaults,...cfg}),M=src.toModel,R=[0,1,2].map(i=>M[i].slice(0,3)),inv=q=>{const w=q.map((x,i)=>x-M[i][3]);return[0,1,2].map(j=>R[0][j]*w[0]+R[1][j]*w[1]+R[2][j]*w[2]);};return body.intersect(cylinder(inv(a),inv(b),r,48)).raw.volume();});
+ for(const [m,clear] of [[6,6.6],[8,8.5],[10,10.5]]){assert(probe('upright',{clampBolt:m},[39,0,94],[61,0,94],clear/2-.05)<.01,'M'+m+' elevation hole');assert(probe('upright',{clampBolt:m},[39,0,94],[61,0,94],clear/2+.3)>1,'M'+m+' elevation hole is not oversize');}
+ for(const [m,clear] of [[3,3.4],[4,4.5],[5,5.5]]){assert(probe('cradle',{mountBolt:m},[21.2132,62,21.2132],[21.2132,76,21.2132],clear/2-.05)<.01,'M'+m+' hub hole');assert(probe('cradle',{mountBolt:m},[21.2132,62,21.2132],[21.2132,76,21.2132],clear/2+.3)>1,'M'+m+' hub hole is not oversize');
+  assert(probe('yoke',{jointBolt:m},[48,32,15],[48,32,23],clear/2-.05)<.01,'M'+m+' joint hole');}
+ for(const [m,clear] of [[4,4.5],[6,6.6]])assert(probe('base',{standBolt:m},[31.11,31.11,-1],[31.11,31.11,8],clear/2-.05)<.01,'M'+m+' stand hole');
+ console.log('PASS mount holes follow the selected bolt sizes');}
 import {build,defaults,connectionCoupon,clipStrain,hardwareSchedule,binarySTL} from '../dist/geometry.js';
 import {bounds} from '../dist/mesh.js';
 import {scenePoint,dishPoint,sceneBounds} from '../dist/scene.js';
@@ -39,6 +56,7 @@ assert(100*clipStrain(defaults)<defaults.clipAllowableStrain);
  for(const l of t.legs){assert(Math.abs(Math.hypot(...l.axis)-1)<1e-9);assert(Math.abs(Math.acos(-l.axis[2])*180/Math.PI-20)<1e-9);assert(l.boreEnd[2]<-.99);}
  assert(t.innerRadius>=11&&t.rootRadius>0);assert.equal(t.engagement,50);assert.equal(t.bolt.size,5);
  assert.equal(tri({legDiameter:8}).bolt.size,3);assert.equal(tri({legDiameter:16}).bolt.size,4);assert.equal(tri({legDiameter:25.4,legSplay:30}).bolt.size,5);
+ assert.equal(tri({legBolt:6}).bolt.size,6);assert.equal(tri({legBolt:6}).bolt.hole,6.6);assert.throws(()=>tri({legDiameter:10,legBolt:6}),/leg bolts need legs/);
  assert(tri({legSplay:30}).minLegLength<t.minLegLength,'more splay, shorter legs');
  assert(tri({feedMode:3,feedPayload:500}).minLegLength>t.minLegLength,'a heavier dish needs a wider stance');
  assert.equal(tri({elevation:-10}).poseClear,false);assert.equal(tri({elevation:-10,azimuth:60}).poseClear,true);assert(t.blocked&&t.clearFrom>-10);

@@ -90,8 +90,9 @@ export function collectorSeat(p,bowl,datum,rodD){
  return{...seat,alpha,rb,ha,hb,chamfer:k,cap,section,washer,...SEAT};
 }
 // Insert mast: a user tube from a foot bolted on the hub front to the insert cup. Heights along the dish axis.
-export function mastGeometry(p,bowl){
- const G=GREGORIAN,bore=(p.mastDiameter+.4)/2,footZ=fz(45,p),footTop=footZ+G.flange,footSocket=Math.max(25,1.6*p.mastDiameter),cupSocket=Math.max(20,1.2*p.mastDiameter);
+export function mastGeometry(p,bowl,n){
+ const G=GREGORIAN,bore=(p.mastDiameter+.4)/2,footZ=fz(45/Math.cos(Math.PI/n),p),   // the flat hub front (geometry.js hubFace)
+ footTop=footZ+G.flange,footSocket=Math.max(25,1.6*p.mastDiameter),cupSocket=Math.max(20,1.2*p.mastDiameter);
  const cupDepth=Math.min(25,Math.max(8,.4*p.collectorDiameter)),cupRim=bowl.cupRim,cupFloorTop=cupRim-cupDepth,tubeTop=cupFloorTop-G.cupFloor,cupBottom=tubeTop-cupSocket,footSocketTop=footTop+footSocket;
  if(tubeTop<footTop+8)throw Error('The insert would sit inside the hub. Widen the insert half-angle or use a smaller insert.');
  // Deep dishes leave no room for a tube: the cup then stands on a printed column on the foot (one part).
@@ -100,7 +101,7 @@ export function mastGeometry(p,bowl){
   footAF:[socketAF(5),socketAF(3)],cupAF:[socketAF(3),socketAF(4.5)],flange:G.flange,flangeRadius:G.footR};
 }
 export function feedGeometry(p,layout){
- if(!p.feedMode)return null;const d=feedDatum(p),lambda=p.frequencyGHz>0?299.792458/p.frequencyGHz:null,secondary=p.feedMode===2?cassegrainGeometry(p):null,bowl=p.feedMode===3?gregorianGeometry(p):null,mast=bowl?mastGeometry(p,bowl):null;
+ if(!p.feedMode)return null;const d=feedDatum(p),lambda=p.frequencyGHz>0?299.792458/p.frequencyGHz:null,secondary=p.feedMode===2?cassegrainGeometry(p):null,bowl=p.feedMode===3?gregorianGeometry(p):null,mast=bowl?mastGeometry(p,bowl,layout.n):null;
  const offset=bowl?bowl.offset:p.feedMode!==1?0:p.phaseUnits===1?(lambda===null?NaN:p.phaseOffset*lambda):p.phaseOffset;if(!Number.isFinite(offset))throw Error('Enter a frequency for a phase-center offset specified in wavelengths.');
  // Collector rods end in sockets just outside the bowl rim, where no ray reaches (behind or beyond the bowl).
  const seat=bowl?collectorSeat(p,bowl,d,p.rodDiameter||8):null,lowerZ=d.rear,topRadius=seat?seat.topRadius:18;

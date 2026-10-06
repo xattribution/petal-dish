@@ -1,4 +1,5 @@
 import {box,cylinder,loft,revolve,prism,hullPoints} from './solid.js';
+import {FASTENER} from './params.js';
 import {octFrustum,insertScrewCuts,teardrop,tube} from './sockets.js';
 export const feedMesh=s=>s.mesh();
 export const feedCylinder=cylinder,feedBox=box;
@@ -76,11 +77,11 @@ export function collectorBodies(p,g){
   const H=m.tubeTop-m.footZ,col=Math.max(m.footAF[1],2*m.coaxR+8),fl=Math.max(0,cupR-col/2+.3);
   const ped0=tube(m.flangeRadius,0,F,96).union(octFrustum(Math.max(m.footAF[0],col+4),col,F-.01,H-.01));let ped=ped0.union(cupBody(H,fl));
   for(const c of [tube(m.coaxR,-1,H+3.01),tube(p.collectorDiameter/2+.2,H+3,H+rimZ+1,96)])ped=ped.subtract(c);
-  for(let i=0;i<4;i++){const a=Math.PI/4+i*Math.PI/2;ped=ped.subtract(cylinder([30*Math.cos(a),30*Math.sin(a),-1],[30*Math.cos(a),30*Math.sin(a),F+1],2.3,32));}
+  for(let i=0;i<4;i++){const a=Math.PI/4+i*Math.PI/2;ped=ped.subtract(cylinder([30*Math.cos(a),30*Math.sin(a),-1],[30*Math.cos(a),30*Math.sin(a),F+1],FASTENER[p.mountBolt].clear/2+.05,32));}
   return{bowl,foot:ped,cup:null};}
  let foot=tube(m.flangeRadius,0,F,96).union(octFrustum(m.footAF[0],m.footAF[1],F-.01,F+m.footSocket)).union(rib(F-.01,F+m.footSocket));
  for(const c of [tube(m.bore,F,F+m.footSocket+1),tube(m.coaxR,-1,F+.01),...insertScrewCuts(m.bore,F+m.footSocket/2,ribY)])foot=foot.subtract(c);
- for(let i=0;i<4;i++){const a=Math.PI/4+i*Math.PI/2;foot=foot.subtract(cylinder([30*Math.cos(a),30*Math.sin(a),-1],[30*Math.cos(a),30*Math.sin(a),F+1],2.3,32));}
+ for(let i=0;i<4;i++){const a=Math.PI/4+i*Math.PI/2;foot=foot.subtract(cylinder([30*Math.cos(a),30*Math.sin(a),-1],[30*Math.cos(a),30*Math.sin(a),F+1],FASTENER[p.mountBolt].clear/2+.05,32));}
  // Insert cup on the tube top: tapered socket below (narrow end down), 45° flare into the cup, cup above.
  const S=m.cupSocket,apothem=z=>(m.cupAF[0]+(m.cupAF[1]-m.cupAF[0])*(z+S)/S)/2;
   let fl=Math.max(0,cupR-apothem(0));for(let i=0;i<4;i++)fl=Math.max(0,cupR-apothem(-fl)+.3);

@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {build,defaults,volume,bounds} from '../dist/geometry.js';
 import {scadSource} from '../dist/exports.js';
+import {mountSolid} from '../dist/mount-fasteners.js';
+import {solid,solidScope} from '../dist/solid.js';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'petal-scad-'));
 const kernel='';
 function readSTL(file){
@@ -22,7 +24,7 @@ function readSTL(file){
  return {v,f};
 }
 try{
- for(const [cfg,id,part] of [[{},'petal-1','petal-1'],[{},'hub','hub'],[{rearStyle:1},'petal-1','petal-1'],[{diameter:600},'petal-2','petal-2'],[{feedMode:1},'petal-1-mount','petal-1-mount'],[{feedMode:2},'secondary-reflector','secondary-reflector'],[{feedMode:1},'feed-puck','feed-puck'],[{feedMode:2},'feed-puck','feed-puck'],[{feedMode:3},'feed-bowl','feed-bowl'],[{feedMode:3},'feed-insert-cup','feed-insert-cup'],[{mountMode:1,mountBase:2},'mount-base','mount-base']]){
+ for(const [cfg,id,part] of [[{},'petal-1','petal-1'],[{},'hub','hub'],[{rearStyle:1},'petal-1','petal-1'],[{diameter:600},'petal-2','petal-2'],[{feedMode:1},'petal-1-mount','petal-1-mount'],[{feedMode:2},'secondary-reflector','secondary-reflector'],[{feedMode:1},'feed-puck','feed-puck'],[{feedMode:2},'feed-puck','feed-puck'],[{feedMode:3},'feed-bowl','feed-bowl'],[{feedMode:3},'feed-insert-cup','feed-insert-cup'],[{mountMode:1,mountBase:2},'mount-base','mount-base'],[{rootThrough:1,rootBolt:5,mountBolt:3},'hub','hub'],[{rootBolt:3},'petal-1','petal-1'],[{mountMode:1,clampBolt:10,jointBolt:3},'mount-cheek','mount-cheek'],[{mountMode:1,mountBase:0,standBolt:6,jointBolt:5},'mount-yoke','mount-yoke']]){
   const m=build({...defaults,...cfg}),expected=m.parts.find(p=>p.id===id).output;
   const input=path.join(dir,'check.scad'),output=path.join(dir,'check.stl');
   fs.writeFileSync(input,scadSource(m,kernel).replace('part = "assembly"',`part = "${part}"`));
@@ -34,4 +36,10 @@ try{
   assert(a.every((x,i)=>Math.abs(x-b[i])<.05),`Bounds mismatch ${a} vs ${b}`);
   console.log('PASS OpenSCAD render / JS volume and bounds',cfg,id,'relative volume error',dv);
  }
+ // cad/simple-mount.scad at non-default sizes against the app's cuts on the bundled blanks
+ const sizes={jointBolt:5,clampBolt:10,standBolt:6,mountBolt:3},D={joint_m:5,clamp_m:10,stand_m:6,hub_m:3};
+ for(const part of ['base','yoke','upright','cradle','cheek']){const output=path.join(dir,part+'.stl');
+  const run=spawnSync('openscad',['--export-format','binstl','-o',output,'-D',`part="${part}"`,'-D','printing=true',...Object.entries(D).flatMap(([k,v])=>['-D',`${k}=${v}`]),'cad/simple-mount.scad'],{encoding:'utf8',timeout:300000});
+  assert.equal(run.status,0,run.stderr);
+  solidScope(()=>{const {body}=mountSolid(part,{...defaults,...sizes}),ref=solid(readSTL(output)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();assert(diff<.5,`${part}: SCAD and app cuts differ by ${diff} mm³`);console.log('PASS simple-mount.scad sizes match the app cuts',part,D,'differ',diff.toFixed(3),'mm³');});}
 }finally{fs.rmSync(dir,{recursive:true,force:true});}

@@ -266,6 +266,32 @@ specifies.
 
 **Collector parts.** The rod seats are built into the bowl wall between its flat top and the rim. Across 14 dish sizes and focal ratios (260–1200 mm, f/D 0.25–0.6) every bowl, mast foot, insert cup and pedestal is a closed mesh and passes the 45° overhang scan in its export orientation (38 parts). A ray cast up from F2 against the printed bowl mesh lands on the ellipse within 0.01 mm at 336 points per bowl for four dish shapes, and no part of the bowl or its seats sits below the rim. Default part sizes: bowl 91 × 87 × 21 mm (34 cm³), foot 76 × 76 × 32 mm (34 cm³), cup 35 mm (12 cm³).
 
-**Tripod base.** `simple-base-legs.stl` is the SCAD base with `base_screws = false`; every other mount STL re-exported byte-identical. The app unions three octagonal sockets and subtracts the bores and teardrop cross holes. The result passes the overhang scan for 8 mm legs at 10°, 20 mm at 20° and 25.4 mm at 30°. Integration tests cover socket fit for every leg size, M3/M4/M5 bolt selection, leg length falling with splay and rising with a heavier dish, and the exact pose check (default dish at −10° touches leg 1 facing it, clears at 60° azimuth).
+**Tripod base.** The app starts from the base blank, unions three octagonal sockets, then cuts the azimuth bolt and nut pocket for the clamp size, the bores and the teardrop cross holes. The result passes the overhang scan for 8 mm legs at 10°, 20 mm at 20° and 25.4 mm at 30°. Integration tests cover socket fit for every leg size, the automatic M3/M4/M5 bolt selection, the M3–M6 override and its minimum leg size, leg length falling with splay and rising with a heavier dish, and the exact pose check (default dish at −10° touches leg 1 facing it, clears at 60° azimuth).
 
 No RF measurement, wind test or physical print of the collector or tripod is claimed.
+
+## Raised flat hub, sizing goal and bolt sizes (2026-10-06)
+
+**Flat hub.** The flat front now sits level with the petals at the hub's corners, where the inner petal edge is highest (zAt(45 / cos(π/n))), and chamfers down along each edge to meet the petal. The step between hub and petal along every edge is within ±0.1 mm on the default dish and ±0.25 mm at 260 mm, f/D 0.25 (the chamfer is sampled every 0.5 mm radially). The default hub center now stands 4.02 mm above the vertex instead of 3.01 mm, up to 3.68 mm above the parabola at the center opening. Structure tests check the face height and that the face is flat outside the mount seats. Two lengths follow: the default hub-to-adapter screw is M4 × 35 (was 30) and the Gregorian mast is cut 71.8 mm (was 72.8).
+
+**Automatic sizing.** Packed beds holding petals or the hub, for the two goals:
+
+| Dish / bed | Largest petals | Fewest print plates |
+|---|---|---|
+| 400 / 220 (default) | 6 × 1 ring · 3 | 6 × 1 · 3 |
+| 500 / 256 | 6 × 1 · 3 | 6 × 1 · 3 |
+| 600 / 220 | 8 × 2 · 5 | 8 × 2 · 5 |
+| 600 / 300 | 6 × 1 · 3 | 6 × 1 · 3 |
+| 800 / 256 | 10 × 2 · 7 | 10 × 2 · 7 |
+| 900 / 300 | 10 × 2 · 4 | 10 × 2 · 4 |
+| 1200 / 350 | 12 × 2 · 8 | 12 × 3 · 5 |
+
+Fewest plates ranks candidates on a packed estimate, then packs the real petals and only switches when they need strictly fewer beds. Without that check the estimate picked 8 petals over 6 for 600 / 300, with no saving.
+
+**Bolt sizes.** Petal roots and hub-to-mount bolts take M3, M4 or M5; the mount takes M3–M5 joint screws, M6/M8/M10 clamp bolts and M4–M6 stand screws; tripod leg bolts are automatic or M3–M6.
+
+- The app bundles mount blanks with no fastener holes and cuts them itself. At the default sizes the cut parts match all eight complete STLs within 0.16 mm³ (float32 rounding), with the same number of holes.
+- `cad/simple-mount.scad` with `joint_m = 5`, `clamp_m = 10`, `stand_m = 6`, `hub_m = 3` matches the app's parts within 0.12 mm³.
+- Mount parts at the smallest and largest sizes, without the base, and the tripod base with M10 clamps and M6 leg bolts pass the 45° overhang scan.
+- OpenSCAD snapshot round trips pass for an M5 through-root / M3 mount hub, an M3-root petal, an M10 / M3 cheek and an M6 / M5 yoke.
+- Integration tests check hole diameters for every size, the hardware lengths and the leg bolt's minimum leg size.

@@ -47,7 +47,7 @@ def cone(r0, r1, h, n=48):   # along +Z from z = 0 (radius r0) to z = h (radius 
 def along_x(Mn, x0): return place(Mn, T([x0, 0, 0]) @ Ry(90))   # a +Z solid turned to run along +X from x0
 
 # ---- load, bed fit, overhang scan (print orientation) ----
-NAMES = ["base", "base-legs", "yoke", "yoke-stand", "upright", "upright-arc", "cradle", "cheek", "cheek-arc"]
+NAMES = ["base", "yoke", "yoke-stand", "upright", "upright-arc", "cradle", "cheek", "cheek-arc"]
 P = {n: trimesh.load(f"{D}/simple-{n}.stl") for n in NAMES}
 COS45 = math.cos(math.radians(44.85))   # flag faces more than 45.15° past vertical
 for n, m in P.items():

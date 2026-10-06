@@ -55,7 +55,7 @@ for(const cfg of [{},{fd:.3},{fd:.6,collectorAngle:20},{fd:.8,collectorAngle:15}
 {const a=gregorianGeometry({...defaults,feedMode:3,fd:.3}),b=gregorianGeometry({...defaults,feedMode:3,fd:.6,collectorAngle:25});assert(a.c/a.a!==b.c/b.a&&a.radius<b.radius,'bowl reshapes with the dish');}
 {const m=build({...defaults,feedMode:3}),g=m.feed,ids=m.parts.filter(p=>p.kind==='feed').map(p=>p.id);assert.deepEqual(ids,['feed-bowl','feed-mast-foot','feed-insert-cup']);
  for(const p of m.parts.filter(p=>p.kind==='feed')){closed(p.mesh,p.id);closed(p.output,p.id+' output');}
- const hw=feedHardware(m),q=i=>hw.find(h=>h.item===i);assert.equal(q('bowl rod bolt').quantity,3);assert.equal(q('mast set screw').quantity,2);assert(q('insert mast tube').spec.includes('cut 72.8'));
+ const hw=feedHardware(m),q=i=>hw.find(h=>h.item===i);assert.equal(q('bowl rod bolt').quantity,3);assert.equal(q('mast set screw').quantity,2);assert(q('insert mast tube').spec.includes('cut 71.8'));
  assert.equal(rodCSV(m).trim().split('\n').length,5);assert(feedGuide(m).includes('Gregorian'));assert.equal(feedManifest(m).collector.insert_half_angle_degrees,25);
  const deep=build({...defaults,feedMode:3,fd:.3});assert(deep.parts.some(p=>p.id==='feed-insert-pedestal')&&!deep.feed.mast.tube);
  assert.throws(()=>build({...defaults,feedMode:3,hubFlat:0}),/Flat/);assert.throws(()=>build({...defaults,feedMode:3,mountThrough:0}),/through bolts/);

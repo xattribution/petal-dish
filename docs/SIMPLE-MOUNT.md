@@ -2,7 +2,7 @@
 
 ![Simple mount with a 400 mm PETAL at 20° elevation, arc lock fitted](simple-mount.png)
 
-Five printed parts and one clamp per axis. Each clamp is two flat faces squeezed by one M8 bolt: loosen, aim, tighten. The two arms, the upright and the cheek, are separate parts bolted on with M4 heat-set inserts. That lets every part print flat, with no supports.
+Five printed parts and one clamp per axis. Each clamp is two flat faces squeezed by one bolt (M8 by default): loosen, aim, tighten. The two arms, the upright and the cheek, are separate parts bolted on with heat-set inserts (M4 by default). Every bolt size can be changed; see [Bolt sizes](#bolt-sizes). That lets every part print flat, with no supports.
 
 | | |
 |---|---|
@@ -10,8 +10,8 @@ Five printed parts and one clamp per axis. Each clamp is two flat faces squeezed
 | Azimuth | 360°. The yoke turns on the base; one bolt in the center, tightened with a hex key from above |
 | Elevation | −10° to 100°, checked with the dish fitted. The cheek clamps against the inside of the upright, with one wing nut. Optional arc lock: a second bolt in an arc slot |
 | Scale | Azimuth grooves down the base rim every 5°, wide every 10°, read at the groove on the back of the yoke |
-| Joints | Upright → yoke plate: 4 × M4 flat-head from below. Cheek → cradle plate: 3 × M4 flat-head from the hub face. All into heat-set inserts, heads flush |
-| Mounting | 4 × M5 flat-head through the base, through the yoke plate without the base, or three legs in the tripod base |
+| Joints | Upright → yoke plate: 4 flat-heads from below. Cheek → cradle plate: 3 flat-heads from the hub face. All into heat-set inserts, heads flush |
+| Mounting | 4 flat-heads through the base, through the yoke plate without the base, or three legs in the tripod base |
 | Supports | None. The overhang scan passes for every part; inspect your slicer toolpath |
 
 ## Options
@@ -25,11 +25,25 @@ Set them in PETAL under **Aiming mount**, or in `cad/simple-mount.scad`:
 | Azimuth base: *Tripod leg sockets* | `base_screws = false`, plus sockets added by the app | The base without its M5 holes, with three splayed, tapered leg sockets on its underside. See [Tripod base](#tripod-base) |
 | Elevation lock: *Add arc-slot lock bolt* | `arc_lock = true` | An M6 bolt runs in an arc slot through the upright, from a captive head in the cheek, for extra grip. It covers the whole −10° to 100° range |
 
+### Bolt sizes
+
+| App setting | SCAD parameter | Sizes (default) | What changes |
+|---|---|---|---|
+| Clamp bolts | `clamp_m` | M6, **M8**, M10 | Azimuth hole and captive nut pocket in the base; elevation holes and the head pocket in the cheek. Azimuth M × 25 socket head; elevation hex bolt 40 mm (M6, M8) or 45 mm (M10) |
+| Joint screws | `joint_m` | M3, **M4**, M5 | Countersinks in the yoke and cradle plates; insert pilots in the upright and cheek (Ø4.2 / 5.6 / 6.4). Flat-heads 14 / 16 / 16 mm (upright) and 16 / 18 / 18 mm (cheek) |
+| Stand screws | `stand_m` | M4, **M5**, M6 | Countersunk holes in the base or, without the base, the yoke plate |
+| Hub to mount (Connections tab) | `hub_m` | M3, **M4**, M5 | The four cradle holes, matching the hub's mount bolts |
+| Leg cross bolt | (app only) | **Auto**, M3–M6 | Auto picks M3, M4 or M5 by leg diameter. The hole may take up to half the leg diameter |
+
+The arc lock stays M6. The insert pilots follow the **Insert pilot** setting, which is the M4 value; M3 and M5 move by the same amount.
+
+The STLs in `cad/STL/` are the default sizes. For other sizes export the parts from the app, or set the parameters above in the SCAD.
+
 ## Generator integration
 
-Enable **Aiming mount** in PETAL 5.3. The app embeds the canonical STLs for the selected options, applies the same assembly transforms in the viewer/PDF/SCAD snapshot, includes mount parts in plate packing, and checks printed-part interference at the selected pose. It reports the clearance below the lowest mount face at that pose and the geometric minimum stand height across the displayed elevation range. Add stand/cable/handling margin. The stand, hardware envelopes and complete collision sweep are not runtime-certified.
+Enable **Aiming mount** in PETAL 5.3. The app embeds blank parts for the selected options (`cad/STL/blank/`, exported with `fasteners = false`) and cuts every bolt hole, countersink, insert pilot and nut or head pocket for the selected sizes, with the SCAD's own transforms and 32-sided holes ([`dist/mount-fasteners.js`](../dist/mount-fasteners.js)). At the default sizes the result matches `cad/STL/simple-*.stl` to float rounding. It applies the same assembly transforms in the viewer/PDF/SCAD snapshot, includes mount parts in plate packing, and checks printed-part interference at the selected pose. It reports the clearance below the lowest mount face at that pose and the geometric minimum stand height across the displayed elevation range. Add stand/cable/handling margin. The stand, hardware envelopes and complete collision sweep are not runtime-certified.
 
-For **blind hub inserts**, use M4 × 18 through the 12 mm cradle with a 1 mm head washer, nominal 5 mm entry. Never use the through-bolt length in a blind insert. For **through bolts**, use the generated schedule; M4 × 30 is the default 400 mm setup.
+For **blind hub inserts**, use M4 × 18 through the 12 mm cradle with a 1 mm head washer, nominal 5 mm entry (M3 × 16 and M5 × 18 for the other sizes). Never use the through-bolt length in a blind insert. For **through bolts**, use the generated schedule; M4 × 35 is the default 400 mm setup.
 
 The kinematic frame is the same for every option: elevation axis 94 mm above the base bottom (base 14 + yoke plate 10 + 70), hub face 75 mm ahead of the axis, clamp faces at x = 40. Without the base the yoke bottom, 14 mm up in that frame, is the lowest face, and the app measures stand clearance from it.
 
@@ -42,9 +56,9 @@ The kinematic frame is the same for every option: elevation axis 94 mm above the
   - The upright's tenon is its whole footprint, foot flange included, and it bears on the pocket floor.
   - The cheek's tenon stands 2 mm inside its end face on the inner, top and bottom sides, and is flush with the clamp face so it prints without overhang. The tenon end and the end face both bear on the plate.
   - The insert pilots are 2 mm deeper, so the screws keep their length and full engagement.
-- **Cheek gusset.** One solid wedge (20 mm wide, 8 × 24 mm) on the cheek's inner face at the plate end stiffens the joint and bears on the plate. It sits between the hub's M4 bolt heads and outside the Ø34 port, and prints as an up-facing slope.
+- **Cheek gusset.** One solid wedge (20 mm wide, 8 × 24 mm) on the cheek's inner face at the plate end stiffens the joint and bears on the plate. It sits between the hub's bolt heads and outside the Ø34 port, and prints as an up-facing slope.
 - **Countersunk heads, no bridges.** All joint and stand screws are 90° flat-heads. The countersinks open toward the bed, so their 45° cones print without support where a counterbore would need bridging. The heads finish flush or just below the face: under the yoke plate that is the azimuth bearing face, and on the cradle it is the face the dish hub bears on.
-- **Clamp faces sized to the load.** The upright's cap is r 40 around the axis and holds the arc slot. The cheek's clamp disc is r 32, about 37 cm² of contact. Hand-tight on the M8, that holds roughly 8 N·m, several times the moment of a 400 mm dish with a feed in wind.
+- **Clamp faces sized to the load.** The upright's cap is r 40 around the axis and holds the arc slot. The cheek's clamp disc is r 32, about 37 cm² of contact. Hand-tight on the default M8, that holds roughly 8 N·m, several times the moment of a 400 mm dish with a feed in wind.
 - **A compact cheek.** The cheek tapers straight from its clamp disc to a flat 14 × 42 mm end face. The whole face sits inside the plate's rim chamfer, so it needs no corner cuts, and it clears the four hub bolt heads behind the plate. It is 70 cm³, about 30% less than the earlier 80 mm wide cheek with ribs.
 
 ![Elevation clamp and arc lock from the outside](simple-mount-clamps.png)
@@ -61,7 +75,7 @@ Pick **Tripod leg sockets** as the azimuth base, enter your leg diameter (8–25
 | Engagement | max(35 mm, 2.5 × leg Ø) | 50 mm |
 | Wall | max(5 mm, 0.25 × Ø) at the base, tapering to max(3 mm, 0.15 × Ø) at the mouth | 5 → 3 mm |
 | Shape | Octagon, flats facing the cross bolt | 30.4 → 26.4 mm across flats |
-| Cross bolt | M3 below Ø14, M4 below Ø20, M5 above, mid-engagement, nyloc and two washers | M5 × 40 |
+| Cross bolt | Auto: M3 below Ø14, M4 below Ø20, M5 above; or pick M3–M6. Mid-engagement, nyloc and two washers | M5 × 40 |
 | Placement | As far out as the Ø116 disc allows, clear of the azimuth nut | root at r 37 mm |
 
 Leg 1 points along azimuth zero. Each socket's flats face the tangential direction, so the cross bolt clamps two flat faces. Push the leg home, drill it through the socket hole, and bolt it.
@@ -81,11 +95,11 @@ These are static checks with no wind rating. Stake or weight the feet outdoors.
 
 ## Parts
 
-STLs are in `cad/STL/`, already in print orientation. Use the variant that matches your options.
+STLs are in `cad/STL/`, already in print orientation, at the default bolt sizes. Use the variant that matches your options.
 
 | Part | STL | Prints | Size (mm) |
 |---|---|---|---|
-| Base | `simple-base.stl`; tripod `simple-base-legs.stl` plus the app's sockets (export from the app) | Top (clamp) face down | Ø116 × 14; tripod about 127 × 128 × 70 |
+| Base | `simple-base.stl`; tripod: export from the app | Top (clamp) face down | Ø116 × 14; tripod about 127 × 128 × 70 |
 | Yoke | `simple-yoke.stl`; without the base `simple-yoke-stand.stl` | Bearing face down | 138 × 116 × 18 |
 | Upright | `simple-upright.stl`; with arc lock `simple-upright-arc.stl` | Lying on its clamp face (x = 40) | 110 × 88 × 36 |
 | Cradle | `simple-cradle.stl` | Hub face down | Ø94 × 12 |
@@ -93,7 +107,7 @@ STLs are in `cad/STL/`, already in print orientation. Use the variant that match
 
 ![Print orientation](simple-mount-print.png)
 
-The cradle keeps the hub interface: Ø94 × 12 plate, Ø34 port, 4 × M4 on a 60 mm circle.
+The cradle keeps the hub interface: Ø94 × 12 plate, Ø34 port, 4 holes on a 60 mm circle for the hub's mount bolts (M4 by default).
 
 **Material:** use a qualified ASA or reinforced ASA profile for the rigid mount parts, with slip and warm-creep tests. This is separate from the flexible clip material; filled filament is not automatically suitable for repeatedly flexed snaps.
 
@@ -101,9 +115,11 @@ The cradle keeps the hub interface: Ø94 × 12 plate, Ø34 port, 4 × M4 on a 60
 - 5–6 walls.
 - 30–40% infill.
 - Elephant-foot compensation on.
-- Insert pilots are Ø5.6 × 10 mm blind holes with pointed roofs where they lie horizontal in the print. Check your insert supplier's recommended hole, and test one on a scrap print first.
+- Insert pilots are 10 mm deep blind holes (Ø5.6 for M4, Ø4.2 for M3, Ø6.4 for M5) with pointed roofs where they lie horizontal in the print. Check your insert supplier's recommended hole, and test one on a scrap print first.
 
 ## Hardware
+
+Default sizes. The generated hardware list and PDF use the sizes you pick.
 
 | Qty | Item | Use |
 |---|---|---|
@@ -112,15 +128,17 @@ The cradle keeps the hub interface: Ø94 × 12 plate, Ø34 port, 4 × M4 on a 60
 | 7 | M4 heat-set insert, 6 mm long or shorter, for a Ø5.6 pilot | 4 in the bottom of the upright, 3 in the cheek's end face |
 | 4 | M4 × 16 flat-head (ISO 10642 / DIN 7991) | Upright → yoke plate, up from below |
 | 3 | M4 × 18 flat-head (ISO 10642 / DIN 7991) | Cheek → cradle plate, from the hub face |
-| 4 | M4 × 30 socket head, 2 washers, nut | Cradle → PETAL hub. Head behind the cradle plate; washer and nut in the seats on the hub front |
+| 4 | M4 × 35 socket head, 2 washers, nut | Cradle → PETAL hub. Head behind the cradle plate; washer and nut in the seats on the hub front |
 | 4 | M5 flat-head screw | Base → your stand, or yoke plate → your stand without the base |
 | 1 | M6 × 45 hex bolt (ISO 4017), M6 washer 12 mm OD, M6 nyloc nut | Arc lock only. Head captive in the cheek; washer and nyloc on the upright's outside |
 
-Joint screw lengths are the plate thickness plus the 6 mm insert: the tips stop about 1.5 mm short of the pilot bottoms. Use a nyloc or flange nut on the arc lock, not a wing nut: its wings would foul the M8 wing nut. The Ø12 washer is the largest that clears the M8 wing nut's swept circle (Ø39).
+Each joint screw is the shortest stock length that reaches through the plate and the whole insert; the tips stop at least 1.5 mm short of the pilot bottoms. Use a nyloc or flange nut on the arc lock, not a wing nut: its wings would foul the M8 wing nut. The Ø12 washer is the largest that clears the M8 wing nut's swept circle (Ø39).
 
 ## Assembly
 
 ![The bolted joints, exploded](simple-mount-joints.png)
+
+Default sizes; the generated PDF uses yours.
 
 1. **Inserts.**
    - Heat-set 4 inserts into the pilots in the bottom of the upright and 3 into the cheek's end face, each 0.5 mm below the tenon entry face (the tip of the 2 mm tenon), not below its surrounding shoulder.
@@ -137,7 +155,7 @@ Joint screw lengths are the plate thickness plus the 6 mm insert: the tips stop 
    - Drive the 4 × M5 flat-heads down through its countersinks, heads flush. They are reached from above beside the upright, so do this before the cradle goes on.
 5. **Cheek on the cradle.** Drop the cheek's tenon into the pocket in the back of the cradle plate, then fit it with the 3 × M4 × 18 from the hub face, heads flush. Do this before the dish hub covers that face.
 6. **Cradle on the dish.**
-   - Push the 4 × M4 × 30 with washers through the cradle plate from behind, then through the hub.
+   - Push the 4 × M4 × 35 with washers through the cradle plate from behind, then through the hub.
    - Put a washer and nut on each in the Ø10 seats on the hub front and tighten.
 7. **Elevation bolt.** Seat the M8 × 40 head in its pocket on the inside of the cheek. With the arc lock, also seat the M6 × 45 head in the second pocket.
 8. **Cradle on the upright.**
@@ -191,9 +209,13 @@ It reads the print transforms from the SCAD, places all eight STLs with them, an
 - **Hub interface:** the M4 holes and the Ø34 port are open with straight access from behind. The root nuts and washers behind the hub and the hub bolt heads behind the plate are clear. The joint countersinks sit between the port, the hub bolts and the rim.
 
 ### `scripts/check-printability.py cad/STL/simple-*.stl`
-All eight parts pass: nothing steeper than 45° and no flat ceilings.
+All eight parts pass: nothing steeper than 45° and no flat ceilings. The same holds for parts exported from the app at the smallest (M3 / M6 / M4) and largest (M5 / M10 / M6) sizes, and for the tripod base with M10 clamps and M6 leg bolts.
+
+### Bolt sizes
+- `tests/integration.test.mjs`: at the default sizes, the app's cuts on the blanks reproduce all eight complete STLs (difference under 0.5 mm³, the same number of holes), and the hole diameters follow each size setting.
+- `scripts/check-scad.mjs`: `cad/simple-mount.scad` rendered with `joint_m = 5`, `clamp_m = 10`, `stand_m = 6` and `hub_m = 3` matches the app's parts to float rounding.
 
 ### Regenerating
-`python3 scripts/pack-mount.py --export` re-exports every STL variant from the SCAD and rebuilds `dist/mount-meshes.js`, with each part's frame and the inverse of its SCAD print transform. `python3 scripts/render-mount.py` redraws these images.
+`python3 scripts/pack-mount.py --export` re-exports every complete STL variant and every blank (`cad/STL/blank/`) from the SCAD and rebuilds `dist/mount-meshes.js` from the blanks, with each part's frame, the inverse of its SCAD print transform and the constants the cuts need. `python3 scripts/render-mount.py` redraws these images.
 
 These are geometry checks. Grip and creep need a physical test: set the dish at 0°, tighten everything, leave it somewhere warm for 48–72 hours, re-tighten once after the first day, then check the angle again.

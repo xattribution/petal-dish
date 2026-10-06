@@ -3,20 +3,21 @@
 // Each socket is an octagonal frustum around its leg axis; the flats face the tangential direction, so one cross bolt
 // through the leg bears on two flat faces. The base prints top face down, so the sockets rise from the bed side,
 // leaning out by the splay (at most 30°), with a round blind bore, its floor at the base, and a teardrop bolt hole.
-import {solid,cylinder} from './solid.js';
+import {cylinder,loft} from './solid.js';
 import {octagon,teardrop} from './sockets.js';
-import {loft} from './solid.js';
-import {mountMeshes} from './mount-meshes.js';
-import {apply} from './scene.js';
+import {mountMesh} from './mount-fasteners.js';
+import {FASTENER} from './params.js';
 export const TRIPOD={embed:4,top:3,rimR:55,nutClear:11,clearance:.4,minEngagement:35,engagement:2.5,tipWall:[3,.15],rootWall:[5,.25],stability:1.5,ground:20,legMargin:3,density:{print:1.24,aluminum:2.7}};
-const BOLTS=[[14,3,3.4,7,4],[20,4,4.5,9,5],[Infinity,5,5.5,10,5]];   // leg Ø below, M size, clearance hole, washer OD, nyloc height
+const BOLTS=[[14,3],[20,4],[Infinity,5]],NYLOC={3:4,4:5,5:5,6:6};   // Auto: leg Ø below -> M size; nyloc heights (ISO 10511)
 export function tripodGeometry(p){
  const T=TRIPOD,d=p.legDiameter,s=p.legSplay*Math.PI/180,bore=d+T.clearance,boreR=bore/2,E=Math.max(T.minEngagement,T.engagement*d);
  const tipWall=Math.max(T.tipWall[0],T.tipWall[1]*d),rootWall=Math.max(T.rootWall[0],T.rootWall[1]*d),afRoot=bore+2*rootWall,afTip=bore+2*tipWall,z0=T.embed;
  // Local t runs along the leg from the root center (Z = embed). The bore floor's highest edge sits 1 mm below the base
  // bottom; the open end is at S. Above the root the socket carries on at full width into the base and is cut off flat
  // at Z = top, inside the plate, so no end face is left exposed under the base.
- const c=(z0+1+boreR*Math.sin(s))/Math.cos(s),S=c+E,[,bolt,hole,washer,nut]=BOLTS.find(([lim])=>d<lim),boltAt=S-E/2,af=t=>t<0?afRoot:afRoot+(afTip-afRoot)*t/S;
+ const bolt=p.legBolt||BOLTS.find(([lim])=>d<lim)[1],{clear:hole,washer}=FASTENER[bolt],nut=NYLOC[bolt];
+ if(hole>d/2+1e-9)throw Error(`M${bolt} leg bolts need legs of at least Ø${2*hole} mm. Pick a smaller leg bolt.`);
+ const c=(z0+1+boreR*Math.sin(s))/Math.cos(s),S=c+E,boltAt=S-E/2,af=t=>t<0?afRoot:afRoot+(afTip-afRoot)*t/S;
  const R0=afRoot/2/Math.cos(Math.PI/8),t0=-((T.top-z0+R0*Math.sin(s))/Math.cos(s)+1);
  // Socket corner lines inside the plate (0 <= Z <= top): radial offset a from the root center and tangential offset y.
  const corners=[];for(let i=0;i<=160;i++){const t=t0+(S-t0)*i/160,R=af(t)/2/Math.cos(Math.PI/8);for(let k=0;k<8;k++){const q=Math.PI/8+k*Math.PI/4,x=R*Math.cos(q),y=R*Math.sin(q),z=z0+x*Math.sin(s)-t*Math.cos(s);if(z>=0&&z<=T.top)corners.push([x*Math.cos(s)+t*Math.sin(s),y]);}}
@@ -32,16 +33,12 @@ export function tripodGeometry(p){
  return{d,splay:p.legSplay,bore,engagement:E,tipWall,rootWall,afRoot,afTip,rootRadius:rc,innerRadius:inner,boreFloor:c,length:S,start:t0,
   bolt:{size:bolt,hole,washer,length:boltLength,fromOpenEnd:S-boltAt,acrossFlats:boltAF},legs};
 }
-// Print-frame base mesh with the sockets: the bundled stand-screw-free base, sockets unioned in the model frame.
+// Print-frame base mesh with the sockets: the base blank, sockets unioned and bores cut in the model frame, then the
+// azimuth bolt and nut cuts for the selected size (no stand screws).
 export function tripodBase(p,t=tripodGeometry(p)){
- const src=mountMeshes['base-legs'],M=src.toModel,R=[0,1,2].map(i=>M[i].slice(0,3)),inv=q=>{const w=q.map((x,i)=>x-M[i][3]);return[0,1,2].map(j=>R[0][j]*w[0]+R[1][j]*w[1]+R[2][j]*w[2]);};
- let body=solid({v:src.v.map(q=>apply(M,q)),f:src.f});
- for(const L of t.legs){const frame=([x,y,z])=>L.at(z,x,y);
-  body=body.union(loft([octagon(t.afRoot,t.start),octagon(t.afRoot,0),octagon(t.afTip,t.length)]).transform(frame).trim([0,0,-1],-TRIPOD.top));}
- for(const L of t.legs){body=body.subtract(cylinder(L.boreEnd,L.at(t.length+1),t.bore/2,64));
-  const w=t.bolt.acrossFlats/2+2;body=body.subtract(teardrop(L.at(t.length-t.bolt.fromOpenEnd,0,-w),L.at(t.length-t.bolt.fromOpenEnd,0,w),t.bolt.hole/2,[0,0,-1]));}
- const mesh=body.mesh();
- return{v:mesh.v.map(inv),f:mesh.f,frame:'world',toModel:M,source_sha256:src.source_sha256};
+ const sockets=t.legs.map(L=>{const frame=([x,y,z])=>L.at(z,x,y);return loft([octagon(t.afRoot,t.start),octagon(t.afRoot,0),octagon(t.afTip,t.length)]).transform(frame).trim([0,0,-1],-TRIPOD.top);});
+ const w=t.bolt.acrossFlats/2+2,cut=t.legs.flatMap(L=>[cylinder(L.boreEnd,L.at(t.length+1),t.bore/2,64),teardrop(L.at(t.length-t.bolt.fromOpenEnd,0,-w),L.at(t.length-t.bolt.fromOpenEnd,0,w),t.bolt.hole/2,[0,0,-1])]);
+ return mountMesh('base-legs',p,{add:sockets.reduce((a,b)=>a.union(b)),cut});
 }
 // Static checks for the selected dish. `points` are dish-frame-free cradle-frame points (elevation axis at the
 // origin, Y = boresight at el 0); `masses` are [cradle-frame point, grams] for everything turning in elevation and

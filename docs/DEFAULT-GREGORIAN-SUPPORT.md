@@ -21,7 +21,7 @@ Magnification M = (1 + e) / (1 − e) = 2.85, with eccentricity e = c / a = 0.48
 - Collector bowl, Ø85.3 mm, 3 mm shell. The wall thickens into 3 rod seats between the flat top and the rim, so nothing hangs below the rim. Prints on its flat top with the reflecting face up; no supports.
 - Mast foot: bolts to the hub front through the four mount holes. Prints flange down.
 - Insert cup: Ø30 mm bore, 12.0 mm deep, on the mast tube. Prints socket down.
-- Mast tube: Ø16 mm, cut 72.8 mm. Aluminum or rigid conduit; the insert cable runs inside it.
+- Mast tube: Ø16 mm, cut 71.8 mm. Aluminum or rigid conduit; the insert cable runs inside it.
 
 ## Assembly
 
@@ -34,7 +34,7 @@ Magnification M = (1 + e) / (1 − e) = 2.85, with eccentricity e = c / a = 0.48
 
 ## Checks
 
-- Heights run along the dish axis from the paraboloid vertex; the hub front is at z = 3.0 mm.
+- Heights run along the dish axis from the paraboloid vertex; the hub front is at z = 4.0 mm.
 - Bowl vertex z = 206.5 mm, rim z = 188.3 mm.
 - Bowl apex to insert: 109.7 mm.
 - Shadow cone half-angle from the prime focus: 15.0°. Keep everything under the bowl inside it.

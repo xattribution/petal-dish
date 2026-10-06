@@ -2,4 +2,4 @@ leg,stock,diameter_mm,datum_span_mm,lower_face_crossing_mm,upper_bore_entrance_m
 1,smooth solid aluminum,6.35,217.959,4.910,13.000,18,11,229.049,9.0177,0.000,48.302,33.040,204.064
 2,smooth solid aluminum,6.35,217.959,4.910,13.000,18,11,229.049,9.0177,120.000,48.302,33.040,204.064
 3,smooth solid aluminum,6.35,217.959,4.910,13.000,18,11,229.049,9.0177,240.000,48.302,33.040,204.064
-mast,tube with the insert cable inside,16,,,,,,72.824,2.8671,,90,9.013,81.838
+mast,tube with the insert cable inside,16,,,,,,71.820,2.8275,,90,10.018,81.838

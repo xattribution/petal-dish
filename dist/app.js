@@ -1,6 +1,6 @@
 import {setupWorkspace,workspaceSettings,overridesUseClips} from './workspace-ui.js';
 import {VERSION,BUILD_ID} from './version.js';
-import {defaults,limits,validate,clipStrain,usesClips,usesLevers,seamBolt} from './params.js';
+import {defaults,limits,validate,clipStrain,usesClips,usesLevers,seamBolt,FASTENER} from './params.js';
 import {binarySTL,volume,plateRows,manualPlates,packAll} from './mesh.js';
 import {Viewer} from './viewer.js';
 import {startEngine} from './engine-client.js';
@@ -25,7 +25,7 @@ function optionUI(){
  const seam=Number($('seamJoint').value),clips=usesClips({seamJoint:seam})||overridesUseClips(),feed=Number($('feedMode').value),auto=$('rodSizing').value==='auto';
  $('rodDiameter').disabled=$('rodUnits').disabled=auto;$('rod-manual').hidden=auto;$('payload-field').hidden=!auto;$('feedPayload').disabled=!auto;
  for(const k in UNIT_FIELDS){$(k).min=(k==='rodDiameter'?2:limits[k][0])/unitScale(k);$(k).max=limits[k][1]/unitScale(k);}
- $('mount-settings').hidden=!Number($('mountMode').value);$('leg-settings').hidden=Number($('mountBase').value)!==2;$('elevation').min=seam?'-7.5':'-10';
+ $('mount-settings').hidden=!Number($('mountMode').value);$('leg-settings').hidden=Number($('mountBase').value)!==2;$('stand-bolt-field').hidden=Number($('mountBase').value)===2;$('elevation').min=seam?'-7.5':'-10';
  for(const id of ['clipMaterial','clipAllowableStrain','clipFit','clipDetent'])$(id).disabled=!clips;$('clip-tuning').hidden=!clips;
  $('seamBolt').disabled=seam===1;$('seam-bolt-field').hidden=seam===1;
  $('feed-settings').hidden=!feed;$('prime-settings').hidden=feed!==1&&feed!==3;$('secondary-settings').hidden=feed!==2;$('collector-settings').hidden=$('mast-field').hidden=feed!==3;$('sizing-settings').hidden=feed!==2&&feed!==3;
@@ -34,8 +34,8 @@ function optionUI(){
  $('sizing-label').textContent=bowl?'Bowl sizing':'Secondary sizing';$('waves-label').textContent=bowl?'Bowl diameter':'Secondary diameter';
  const sizing=$('autoSecondary').options;sizing[0].text=bowl?'Smallest that hides the insert':'From frequency when specified';sizing[1].text=bowl?'Enter diameter':'Manual geometric experiment';
  const tip=bowl?'Auto uses the smallest bowl whose shadow covers the insert, or the wavelength count when a frequency is set, whichever is larger.':'Geometric prototype. Secondary size, diffraction and rear-feed clearance need RF validation.';$('sizing-tip').dataset.tip=tip;$('sizing-tip').setAttribute('aria-label',tip);
- $('facet-settings').hidden=!Number($('rearStyle').value);
- const inserts=!(Number($('mountThrough').value)===1&&Number($('rootThrough').value)===1);$('insertDiameter').disabled=!inserts;$('insert-field').hidden=!inserts;
+ $('facet-settings').hidden=!Number($('rearStyle').value);$('segmentGoal').disabled=Number($('sectors').value)>0&&Number($('rows').value)>0;
+ const inserts=!(Number($('mountThrough').value)===1&&Number($('rootThrough').value)===1)||Number($('mountMode').value)===1;$('insertDiameter').disabled=!inserts;$('insert-field').hidden=!inserts;
  workspaceUI?.seamChanged();
 }
 function buttons(){$('apply-plates').disabled=!valid||busy;$('auto-plates').disabled=!valid||busy;for(const id of ['export-all','export-scad','export-pdf'])$(id).disabled=!valid||busy||plateDirty;$('export-part').disabled=!valid||busy||plateDirty||!selected;}
@@ -73,14 +73,14 @@ function apply(next){
  $('clip-result').textContent=model.connectionCounts?`${model.connectionCounts.clip} clip stations · ${model.connectionCounts.lever[3]+model.connectionCounts.lever[4]} lever stations`:usesClips(p)?`Jaw strain ${(100*clipStrain(p)).toFixed(2)}% of ${p.clipAllowableStrain}% · ${fitted.installed} clips + ${fitted.spares} spares`:usesLevers(p)?`${fitted.installed} lever sets + ${fitted.spares} spares for Ø${fitted.spec.hole_d} holes`+(model.boltStations?` · ${model.boltStations} junction stations take M${p.seamBolt} bolts`:''):'';
  $('mount-result').textContent=model.mount?.tripod?tripodResult(model.mount.tripod):model.mount?`Clearance below the ${model.mount.base?'base':'yoke plate'}: ${model.mount.standClearance.toFixed(1)} mm now · ${model.mount.sweepStandClearance.toFixed(1)} mm over ${model.mount.elevationRange[0]}…${model.mount.elevationRange[1]}°`:'';
  $('rf-result').textContent=p.frequencyGHz?`λ ${(299.792458/p.frequencyGHz).toFixed(2)} mm · surface target ≤ ${(299.792458/p.frequencyGHz/50).toFixed(2)} mm RMS`:'';
- $('hub-tip').dataset.tip=`Flat prints cleanly and sits up to ${(1800/(4*p.diameter*p.fd)).toFixed(2)} mm off the parabola near the center opening, inside the feed's shadow. Curved follows the parabola.`;$('hub-tip').setAttribute('aria-label',$('hub-tip').dataset.tip);
+ $('hub-tip').dataset.tip=`Flat prints cleanly. It sits level with the petals at the hub's corners, chamfers down to them along each edge, and stands up to ${(((45/Math.cos(Math.PI/model.layout.n))**2-225)/(4*p.diameter*p.fd)).toFixed(2)} mm above the parabola near the center opening, inside the feed's shadow. Curved follows the parabola.`;$('hub-tip').setAttribute('aria-label',$('hub-tip').dataset.tip);
  $('feed-result').textContent=model.feed?.bowl?collectorResult(model):model.feed?`${p.feedLegs} rods Ø${+model.feed.rodDiameter.toFixed(4)} × ${model.feed.cutLength.toFixed(1)} mm · ${model.feed.rodAngle.toFixed(1)}° · carrier z ${model.feed.carrierFace.toFixed(1)} mm`+(model.feed.secondary?` · secondary Ø${(2*model.feed.secondary.radius).toFixed(1)} mm`:'')+(model.feed.lambda?` · RMS target ${model.feed.surfaceRmsBudget.toFixed(3)} mm`:''):'';
  valid=!queued;plateDirty=false;workspaceUI?.update();renderPlates();
  if(viewer?.mode==='layout')$('view-caption').textContent=p.packPlates?'Packed print beds · all quantities':'Individual print beds';
  $('packing-result').textContent=p.packPlates?model.plates.length+(model.plates.length===1?' shared bed':' shared beds'):'';
  const screw=seamBolt(p).screw.replace(' socket head','');
- $('hardware-type').textContent=model.connectionCounts?'Mixed connections · see the joint map and hardware schedule':[`${screw} seams`,'Snap-clip seams',`${screw} or clip seams`,`Seam levers${model.boltStations?' + '+model.boltStations+' × '+screw:''}`][p.seamJoint]+(p.rootThrough?' · M4 × 20 roots · nuts and washers':' · M4 × 12 roots · short M4 inserts');
- $('mount-style').textContent=p.mountThrough?'Ø4.6 through holes · M4 nuts':'Blind M4 mount inserts';
+ $('hardware-type').textContent=model.connectionCounts?'Mixed connections · see the joint map and hardware schedule':[`${screw} seams`,'Snap-clip seams',`${screw} or clip seams`,`Seam levers${model.boltStations?' + '+model.boltStations+' × '+screw:''}`][p.seamJoint]+(p.rootThrough?` · ${model.rootScrew} roots · nuts and washers`:` · ${model.rootScrew} roots · short M${p.rootBolt} inserts`);
+ $('mount-style').textContent=p.mountThrough?`Ø${+(FASTENER[p.mountBolt].clear+.1).toFixed(1)} through holes · M${p.mountBolt} nuts`:`Blind M${p.mountBolt} mount inserts`;$('mount-pattern').textContent=`4 × M${p.mountBolt} / 60 mm BCD`;
  $('error').hidden=true;if(!queued){$('fit-badge').textContent='Fits bed';$('fit-badge').className='badge';}
  $('model-title').textContent=`${p.diameter} / ${model.layout.n}P${model.layout.rows>1?' × '+model.layout.rows+'R':''}`;
  $('depth-stat').innerHTML=`${model.depth.toFixed(1)} <small>mm</small>`;$('focal-stat').innerHTML=`${model.focal.toFixed(1)} <small>mm</small>`;
@@ -95,7 +95,7 @@ function apply(next){
 function schedule(){valid=false;queued=true;buttons();clearTimeout(timer);timer=setTimeout(generate,260);}
 for(const [k,units] of Object.entries(UNIT_FIELDS))$(units).addEventListener('input',()=>{const scale=unitScale(k);$(k).value=Number((Number($(k).value)*previousScale[k]/scale).toPrecision(12));previousScale[k]=scale;optionUI();schedule();});$('rodSizing').addEventListener('input',()=>{optionUI();schedule();});
 $('parameters').addEventListener('submit',e=>e.preventDefault());
-const geometryKeys=['diameter','fd','sectors','rows','staggerRings','bedX','bedY','bedZ','feedMode','feedLegs'];
+const geometryKeys=['diameter','fd','sectors','rows','segmentGoal','staggerRings','bedX','bedY','bedZ','feedMode','feedLegs'];
 for(const k in defaults){$(k).addEventListener('input',()=>{if($(k+'-range'))$(k+'-range').value=$(k).value;if(k.startsWith('bed'))syncBed();if(geometryKeys.includes(k))workspaceUI.geometryChanged();optionUI();schedule();});if($(k+'-range'))$(k+'-range').addEventListener('input',()=>{$(k).value=$(k+'-range').value;if(geometryKeys.includes(k))workspaceUI.geometryChanged();schedule();});}
 $('bedPreset').addEventListener('change',()=>{if($('bedPreset').value==='custom')return;const [x,y,z]=$('bedPreset').value.split(',');$('bedX').value=x;$('bedY').value=y;$('bedZ').value=z;workspaceUI.geometryChanged();generate();});
 $('reset').onclick=()=>{workspaceUI.reset();setFields(defaults);generate();};$('home').onclick=()=>viewer?.reset();

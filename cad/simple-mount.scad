@@ -1,10 +1,10 @@
 // PETAL simple alt-az mount. Millimeters. One clamp per axis; the two arms are bolted on with heat-set inserts.
 //   base    - flat disc on your stand; captures the azimuth nut, carries the azimuth scale on its rim (optional)
 //   yoke    - turntable plate on the base (azimuth); without the base it screws straight onto the stand
-//   upright - elevation arm; M4 flat-heads come up through the yoke plate into its inserts
-//   cradle  - hub plate (Ø94 × 12, Ø34 port, 4 × M4 on a 60 mm circle)
-//   cheek   - elevation arm on the cradle; M4 flat-heads from the hub face go into its inserts
-// Each axis: two flat faces, one M8 bolt. Azimuth: hex key from above. Elevation: one wing nut,
+//   upright - elevation arm; flat-heads (joint_m) come up through the yoke plate into its inserts
+//   cradle  - hub plate (Ø94 × 12, Ø34 port, 4 × hub_m on a 60 mm circle)
+//   cheek   - elevation arm on the cradle; flat-heads (joint_m) from the hub face go into its inserts
+// Each axis: two flat faces, one clamp_m bolt. Azimuth: hex key from above. Elevation: one wing nut,
 // plus an optional M6 bolt in an arc slot (arc_lock).
 // Every part prints without supports in its export orientation (printing = true):
 //   base   top face down            yoke   bottom (bearing) face down
@@ -16,6 +16,13 @@ printing = false;
 arc_lock = false;     // M6 arc-slot lock bolt: slot in the upright, hole + head pocket in the cheek
 stand_holes = false;  // no base: 4 × M5 countersunk holes from the top of the yoke plate; assembly omits the base
 base_screws = true;   // base: 4 × M5 flat-head holes to a stand. The app's tripod base turns them off and adds leg sockets
+fasteners = true;     // false: every bolt hole, insert pilot and nut or head pocket left out. The app bundles these blanks
+                      // and cuts the holes for the selected sizes itself (dist/mount-fasteners.js mirrors the cuts below)
+// Fastener sizes (metric): joint flat-heads into inserts, the two clamp bolts, stand screws, hub-to-mount bolts
+joint_m = 4;   // [3,4,5]
+clamp_m = 8;   // [6,8,10]
+stand_m = 5;   // [4,5,6]
+hub_m = 4;     // [3,4,5]
 dish_d = 400; dish_fd = 0.42;
 el = 30; az = 0; show_dish = true;
 $fn = 96;
@@ -39,13 +46,23 @@ up_half = 44;                       // upright foot half-width (Y)
 foot_out = 76; foot_h = 14;         // outer foot flange x 60..76, 14 tall at its edge, 45° up into the upright
 lobe_x = 80; lobe_y = 48;           // yoke plate extends past the disc to carry the upright foot
 shoulder = 8; sh_gap = 0.2;         // locating shoulder on the yoke plate along the upright's inner face
-plate_t = 12; plate_r = 47; bcd_r = 30; port_d = 34; m4 = 4.5;
+// Fastener table: medium clearance holes; 90° countersinks about 1 mm over the ISO 10642 head; heat-set insert pilots;
+// hex nut / head pockets 0.3 mm over across-flats and 0.2 mm over height (ISO 4032 nuts, ISO 4017 heads)
+function clr(m) = m == 3 ? 3.4 : m == 4 ? 4.5 : m == 5 ? 5.5 : m == 6 ? 6.6 : m == 8 ? 8.5 : 10.5;
+function csd(m) = m == 3 ? 7.7 : m == 4 ? 10.0 : m == 5 ? 12.0 : 14.4;
+function insd(m) = m == 3 ? 4.2 : m == 4 ? 5.6 : 6.4;
+function hexaf(m) = m == 6 ? 10.3 : m == 8 ? 13.3 : 16.3;
+function nuth(m) = m == 6 ? 5.4 : m == 8 ? 7 : 8.6;
+function headk(m) = m == 6 ? 4.2 : m == 8 ? 5.5 : 6.6;
+plate_t = 12; plate_r = 47; bcd_r = 30; port_d = 34; m4 = clr(hub_m);
 ch_z = 21;                          // cheek end face half-height: its corners (x 40, z ±21) sit inside the plate's flat rear face (r 45.5)
-m8 = 8.5; m8_af = 13.3; m8_nut = 7; m8_head = 5.5;
+m8 = clr(clamp_m); m8_af = hexaf(clamp_m); m8_nut = nuth(clamp_m); m8_head = headk(clamp_m);   // clamp bolts (M8 by default)
+jm = clr(joint_m);                  // joint flat-head clearance
+m5 = clr(stand_m); cs5_d = csd(stand_m);
 
-// joints: M4 heat-set inserts (≤ 6 mm long) in Ø5.6 × 8 blind pilots, M4 ISO 10642 flat-heads
-ins_d = 5.6; ins_deep = 8; ins_len = 6;
-cs4_d = 10.0;                       // 90° countersink at the face: M4 head (Ø8.96 max) sits ~0.5 below
+// joints: heat-set inserts (≤ 6 mm long) in blind pilots 8 mm deep, ISO 10642 flat-heads entering 6 mm
+ins_d = insd(joint_m); ins_deep = 8; ins_len = 6;
+cs4_d = csd(joint_m);               // 90° countersink at the face: the head sits ~0.5 below
 up_screws = [[48, -32], [48, 32], [69, -32], [69, 32]];   // (x, y): two under the upright, two in the foot flange
 ch_x = 33; ch_screws = [-14, 0, 14];                       // cheek: three along z at x = 33
 up_screw_len = yoke_t + ins_len; ch_screw_len = plate_t + ins_len;   // flat-head length includes the head: plate + insert (16, 18)
@@ -63,7 +80,7 @@ gus_w = 20; gus_h = 8; gus_len = 24;
 up_tenon2d = [[up_in, -up_half], [foot_out, -up_half], [foot_out, up_half], [up_in, up_half]];   // (x, y): the whole upright footprint
 // stand holes (no base): M5 flat-head from the top of the yoke plate, away from the upright
 stand_pts = [[20, -45], [20, 45], [-44, -20], [-44, 20]];
-cs5_d = 12.0; m5 = 5.5;
+base_stand_r = 44;                  // base: stand screws on this radius at 45° + k·90°
 // arc lock: M6 hex bolt, head captive in the cheek, washer + nyloc on the upright's outside
 arc_r = 28; arc_phi = -20;          // hole in the cheek at r 28, 20° below the boresight direction
 arc_w = 6.6; arc_margin = 1.5;      // slot width; extra degrees at each end
@@ -128,9 +145,9 @@ module arc_slot2d() {
 // ---------- base (modeled upright; prints with its top face on the bed) ----------
 module base() difference() {
   plate(base_t, bed_bottom=false) circle(r=disc_R, $fn=144);
-  translate([0,0,-1]) rotate(30) cylinder(r=m8_af/sqrt(3), h=m8_nut + 1.5, $fn=6);   // azimuth nut
-  translate([0,0,-1]) cylinder(d=m8, h=base_t + 2, $fn=hfn);
-  if (base_screws) for (a=[45:90:359]) rotate(a) translate([44, 0, base_t]) mirror([0,0,1]) cs_hole(m5, cs5_d, base_t + 1);   // 4 × M5 flat-head
+  if (fasteners) translate([0,0,-1]) rotate(30) cylinder(r=m8_af/sqrt(3), h=m8_nut + 1.5, $fn=6);   // azimuth nut
+  if (fasteners) translate([0,0,-1]) cylinder(d=m8, h=base_t + 2, $fn=hfn);
+  if (fasteners && base_screws) for (a=[45:90:359]) rotate(a) translate([base_stand_r, 0, base_t]) mirror([0,0,1]) cs_hole(m5, cs5_d, base_t + 1);   // 4 × M5 flat-head
   // azimuth scale: grooves down the rim every 5°, wide every 10°, read at the yoke's rear groove
   for (a=[0:5:355]) rotate(270 + a) translate([disc_R - 1, a % 10 == 0 ? -0.6 : -0.3, -1])
     cube([3, a % 10 == 0 ? 1.2 : 0.6, base_t + 2]);
@@ -143,11 +160,11 @@ module yoke() difference() {
     // locating shoulder along the upright's inner face, 45° on the inside
     translate([0,0,0]) xz(2*(up_half - 6)) polygon([[up_in - sh_gap - shoulder, top - 0.01], [up_in - sh_gap, top - 0.01], [up_in - sh_gap, top + shoulder]]);
   }
-  translate([0,0,yoke_z - 1]) cylinder(d=m8, h=yoke_t + shoulder + 2, $fn=hfn);   // azimuth bolt
+  if (fasteners) translate([0,0,yoke_z - 1]) cylinder(d=m8, h=yoke_t + shoulder + 2, $fn=hfn);   // azimuth bolt
   translate([-0.5, -disc_R - 1, yoke_z - 1]) cube([1, 1.6, yoke_t + 2]);          // azimuth pointer groove (rear)
   translate([0,0,top - inset]) linear_extrude(inset + shoulder + 1) offset(delta=fit) polygon(up_tenon2d);   // pocket for the upright's tenon
-  for (s=up_screws) translate([s[0], s[1], yoke_z]) cs_hole(m4, cs4_d, yoke_t + 1); // upright joint, heads under the plate
-  if (stand_holes) for (s=stand_pts) translate([s[0], s[1], top]) mirror([0,0,1]) cs_hole(m5, cs5_d, yoke_t + 1);
+  if (fasteners) for (s=up_screws) translate([s[0], s[1], yoke_z]) cs_hole(jm, cs4_d, yoke_t + 1); // upright joint, heads under the plate
+  if (fasteners && stand_holes) for (s=stand_pts) translate([s[0], s[1], top]) mirror([0,0,1]) cs_hole(m5, cs5_d, yoke_t + 1);
 }
 
 // ---------- upright: bolts onto the yoke plate ----------
@@ -160,9 +177,9 @@ module upright() difference() {
       xz(200) polygon([[up_out - 0.01, top], [foot_out, top], [foot_out, top + foot_h], [up_out - 0.01, top + foot_h + foot_out - up_out + 0.01]]);
     }
   }
-  translate([up_in - 1, 0, Z_el]) rotate([0,90,0]) cylinder(d=m8, h=up_out - up_in + 2, $fn=hfn);   // elevation bolt
+  if (fasteners) translate([up_in - 1, 0, Z_el]) rotate([0,90,0]) cylinder(d=m8, h=up_out - up_in + 2, $fn=hfn);   // elevation bolt
   // inserts: pilots horizontal in print, pointed roofs toward +X (print up)
-  for (s=up_screws) translate([s[0], s[1], top - inset - 0.01]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 0);
+  if (fasteners) for (s=up_screws) translate([s[0], s[1], top - inset - 0.01]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 0);
   if (arc_lock) yz(up_in - 1, up_out + 1) translate([0, Z_el]) arc_slot2d();
 }
 
@@ -170,9 +187,9 @@ module upright() difference() {
 module cradle() difference() {
   translate([0, L, 0]) rotate([90,0,0]) plate(plate_t) circle(r=plate_r, $fn=144);
   translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) cylinder(d=port_d, h=plate_t + 2, $fn=64);
-  for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=hfn);
+  if (fasteners) for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=hfn);
   // cheek joint: flat-heads from the hub face, heads flush (the dish hub bears on this face)
-  for (z=ch_screws) translate([ch_x, L, z]) rotate([90,0,0]) cs_hole(m4, cs4_d, plate_t + 1);
+  if (fasteners) for (z=ch_screws) translate([ch_x, L, z]) rotate([90,0,0]) cs_hole(jm, cs4_d, plate_t + 1);
   // pocket for the cheek's tenon: the tenon's end and the cheek's end face both bear on the plate
   translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) mirror([0,1,0]) linear_extrude(inset + 1) offset(delta=fit) polygon(ch_tenon2d);
 }
@@ -188,10 +205,10 @@ module cheek() difference() {
       polygon([[cr_in + 0.01, L - plate_t - gus_len], [cr_in + 0.01, L - plate_t], [cr_in - gus_h, L - plate_t]]);
   }
   // elevation bolt: hex head in a pocket on the inner face (opens upward in print)
-  translate([cr_in - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m8_head + 1) rotate(90) hex(m8_af);
-  translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=m8, h=cr_out - cr_in + 2, $fn=hfn);
+  if (fasteners) translate([cr_in - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m8_head + 1) rotate(90) hex(m8_af);
+  if (fasteners) translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=m8, h=cr_out - cr_in + 2, $fn=hfn);
   // inserts in the end face: pilots horizontal in print, pointed roofs toward -X (print up)
-  for (z=ch_screws) translate([ch_x, L - plate_t + inset + 0.01, z]) rotate([90,0,0]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 180);
+  if (fasteners) for (z=ch_screws) translate([ch_x, L - plate_t + inset + 0.01, z]) rotate([90,0,0]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 180);
   if (arc_lock) translate([0, arc_r*cos(arc_phi), arc_r*sin(arc_phi)]) {
     translate([cr_in - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m6_head + 1) rotate(90) hex(m6_af);
     translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=arc_w, h=cr_out - cr_in + 2, $fn=hfn);
@@ -240,4 +257,5 @@ if (part == "matrices") {
   echo(UP_SCREWS = up_screws); echo(CH_SCREWS = ch_screws); echo(STAND = stand_pts);
   echo(INSET = [inset, fit, lead, ch_shoulder]); echo(GUSSET = [gus_w, gus_h, gus_len]);
   echo(ARC = [arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len]);
+  echo(CUTS = [shoulder, bcd_r, base_stand_r, yoke_z, top, ins_deep, hfn]);
 }
