@@ -46,6 +46,14 @@ To update, run this one line from anywhere. It pulls the latest build, rebuilds 
 git -C ~/petal-dish pull --ff-only && docker compose -f ~/petal-dish/compose.yaml up -d --build && docker image prune -f
 ```
 
+If Docker needs `sudo` on your server, use this form instead:
+
+```bash
+sudo git -C ~/petal-dish pull --ff-only && sudo docker compose -f ~/petal-dish/compose.yaml up -d --build && sudo docker image prune -f
+```
+
+Each build loads its script and styles under new URLs, so a normal reload shows the update.
+
 ### 4. Run from source
 
 ```bash
@@ -75,14 +83,15 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 | Choice | Options |
 |---|---|
 | **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) |
-| **Petal roots to hub** | Blind heat-set inserts, keeping the reflecting face closed (default) · through bolts in recessed seats. M3, M4 (default) or M5 |
-| **Hub to mount** | Through bolts (default) · blind inserts. Four M3, M4 (default) or M5 on a 60 mm bolt circle around a clear Ø30 mm center |
+| **Petal roots to hub** | Blind heat-set inserts, keeping the reflecting face closed (default) · through bolts, in recessed seats (default) or plain holes. M3, M4 (default) or M5 |
+| **Hub to mount** | Through bolts, in recessed seats (default) or plain holes · blind inserts. Four M3, M4 (default) or M5 on a 60 mm bolt circle around a clear Ø30 mm center |
+| **Hub clearance** | 0 mm (default) to 0.6 mm of extra gap at the hub's edges and root holes, so the petals line up on their seams before the root bolts clamp them to the hub. The mount holes stay put |
 | **Hub front** | Flat (default): level with the petals at the hub's corners and chamfered down to them along each edge, so it prints cleanly · curved, following the dish |
 | **Underside** | Smooth curved shell (default) · small flat facets |
 | **Automatic sizing** | Largest petals: the fewest pieces and seams (default) · fewest print plates: may use more, smaller petals when they pack onto fewer beds |
 | **Large dishes** | Staggered rings (default) · aligned rings |
 | **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on 3 or 4 aluminum rods with generated cut lengths |
-| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6 ([details](docs/SIMPLE-MOUNT.md)) |
+| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or countersinks (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
 
 All seam hardware stays behind the reflecting face.
 

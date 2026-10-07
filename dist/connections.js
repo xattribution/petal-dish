@@ -26,9 +26,9 @@ export function connectionCatalog(m){
  const seams=new Map(),roots=[];
  for(const ins of m.instances.filter(i=>i.part.kind==='panel')){
   for(const f of ins.part.spec.flanges){const id=jointKey(f.frame,f.start,f.end,ins.a);if(!seams.has(id))seams.set(id,{id,family:f.family||(f.frame.o.every(x=>x===0)?'radial':'ring'),row:ins.part.row,method:f.joint??m.p.seamJoint,size:f.bolt??m.p.seamBolt,parts:[],stations:f.stations.length});seams.get(id).parts.push({part:ins.part.id,angle:ins.a});}
-  if(ins.part.row===0){const index=Math.round(ins.a/(2*Math.PI/m.layout.n))%m.layout.n;roots.push({id:'root:'+index,family:'root',index,method:rootChoice(m.p,index),size:4,part:ins.part.id,angle:ins.a});}
+  if(ins.part.row===0){const index=Math.round(ins.a/(2*Math.PI/m.layout.n))%m.layout.n;roots.push({id:'root:'+index,family:'root',index,method:rootChoice(m.p,index),size:m.p.rootBolt,part:ins.part.id,angle:ins.a});}
  }
  const joints=[...seams.values()];joints.sort((a,b)=>a.family.localeCompare(b.family)||a.row-b.row||a.id.localeCompare(b.id));const numbering={radial:0,ring:0};joints.forEach(j=>j.label=j.family==='radial'?`Petal seam ${++numbering.radial} · ring ${j.row+1}`:`Ring ${j.row+1} → ${j.row+2} · seam ${++numbering.ring}`);
  roots.sort((a,b)=>a.index-b.index);roots.forEach(j=>j.label='Petal '+(j.index+1)+' → hub');
- return [...joints,...roots,...Array.from({length:4},(_,index)=>({id:'mount:'+index,family:'mount',index,method:mountChoice(m.p,index),size:4,label:'Hub → mount '+(index+1)}))];
+ return [...joints,...roots,...Array.from({length:4},(_,index)=>({id:'mount:'+index,family:'mount',index,method:mountChoice(m.p,index),size:m.p.mountBolt,label:'Hub → mount '+(index+1)}))];
 }

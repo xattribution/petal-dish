@@ -30,18 +30,22 @@ const tdrop=(d,up,z0,z1)=>{const pts=[...Array.from({length:N()},(_,i)=>2*PI*i/N
 const csHole=(d,cs,depth)=>[cyl(d,-1,depth),cyl(cs,-1,.01),cone(cs,d-.01,0,(cs-d)/2+.005)];
 const place=(M,...shapes)=>shapes.map(pts=>pts.map(q=>apply(M,q)));
 // Cuts for one part in its model frame (world or cradle frame), as lists of points whose hulls are subtracted.
-export function mountCuts(part,s,p,{stand=false,baseScrews=true}={}){
+export function mountCuts(part,s,p,{stand=false,baseScrews=true,arc=false}={}){
  const C=F.cuts,j=mountHoles(s.joint,p),c=mountHoles(s.clamp),st=mountHoles(s.stand),h=mountHoles(s.hub),[upIn,upOut]=F.upright,[crIn,crOut]=F.cheek,ins=F.insert.inset,deep=C.pilotDepth,out=[];
- if(part==='base'){out.push(...place(chain(T(0,0,-1),Rz(30)),hexPrism(c.af,0,0,c.nut+1.5)),cyl(c.clear,-1,F.baseT+1));
+ // Seats: p.nutSeat, p.headSeat and p.standSeat set to 1 leave plain holes instead of the nut pocket, the cheek's head
+ // pockets and the countersunk stand holes (cad/simple-mount.scad: nut_pocket, head_pockets, stand_countersink = false).
+ if(part==='base'){if(!p?.nutSeat)out.push(...place(chain(T(0,0,-1),Rz(30)),hexPrism(c.af,0,0,c.nut+1.5)));out.push(cyl(c.clear,-1,F.baseT+1));
   if(baseScrews)for(const a of [45,135,225,315])out.push(...place(chain(Rz(a),T(C.baseStandR,0,F.baseT),Mz),...csHole(st.clear,st.cs,F.baseT+1)));}
  if(part==='yoke'){out.push(...place(T(0,0,C.yokeZ-1),cyl(c.clear,0,F.yokeT+C.shoulder+2)));
   for(const [x,y] of F.uprightScrews.at)out.push(...place(T(x,y,C.yokeZ),...csHole(j.clear,j.cs,F.yokeT+1)));
-  if(stand)for(const [x,y] of F.standHoles)out.push(...place(chain(T(x,y,C.top),Mz),...csHole(st.clear,st.cs,F.yokeT+1)));}
+  if(stand)for(const [x,y] of F.standHoles)out.push(...(p?.standSeat?place(T(x,y,C.yokeZ-1),cyl(st.clear,0,F.yokeT+2)):place(chain(T(x,y,C.top),Mz),...csHole(st.clear,st.cs,F.yokeT+1))));}
  if(part==='upright'){out.push(...place(chain(T(upIn-1,0,F.axisZ),Ry(90)),cyl(c.clear,0,upOut-upIn+2)));
   for(const [x,y] of F.uprightScrews.at)out.push(...place(T(x,y,C.top-ins-.01),tdrop(j.pilot,0,0,deep+ins+.01)));}
  if(part==='cradle'){for(const a of [45,135,225,315])out.push(...place(chain(T(C.bcd*cos(a*deg),F.hubL-F.plateT-1,C.bcd*sin(a*deg)),Rx(-90)),cyl(h.clear,0,F.plateT+2)));
   for(const z of F.cheekScrews.z)out.push(...place(chain(T(F.cheekScrews.x,F.hubL,z),Rx(90)),...csHole(j.clear,j.cs,F.plateT+1)));}
- if(part==='cheek'){out.push(...place(chain(T(crIn-1,0,0),Ry(90)),hexPrism(c.af,90+30,0,c.head+1),cyl(c.clear,0,crOut-crIn+2)));
+ if(part==='cheek'){const at=chain(T(crIn-1,0,0),Ry(90)),A=F.arc,arcAt=chain(T(crIn-1,A.radius*cos(A.phi*deg),A.radius*sin(A.phi*deg)),Ry(90));
+  out.push(...place(at,...(p?.headSeat?[]:[hexPrism(c.af,90+30,0,c.head+1)]),cyl(c.clear,0,crOut-crIn+2)));
+  if(arc&&!p?.headSeat)out.push(...place(arcAt,hexPrism(A.headAF,90+30,0,A.head+1)));
   for(const z of F.cheekScrews.z)out.push(...place(chain(T(F.cheekScrews.x,F.hubL-F.plateT+ins+.01,z),Rx(90)),tdrop(j.pilot,180,0,deep+ins+.01)));}
  return out;
 }
@@ -54,7 +58,7 @@ export function mountSolid(variant,p,{add=null,cut=[]}={}){
  const src=mountMeshes[blankOf(variant)],toPrint=invert(src.toModel),part=blankOf(variant).replace('-arc',''),print=s=>s.transform(q=>apply(toPrint,q));
  let body=solid(src);
  if(add)body=body.union(print(add));
- for(const pts of mountCuts(part,mountSizes(p),p,{stand:variant==='yoke-stand',baseScrews:variant==='base'}))body=body.subtract(hullPoints(pts.map(q=>apply(toPrint,q))));
+ for(const pts of mountCuts(part,mountSizes(p),p,{stand:variant==='yoke-stand',baseScrews:variant==='base',arc:variant.endsWith('-arc')}))body=body.subtract(hullPoints(pts.map(q=>apply(toPrint,q))));
  for(const c of cut)body=body.subtract(print(c));
  return{body,src};
 }

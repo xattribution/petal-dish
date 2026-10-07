@@ -22,14 +22,20 @@ for(const f of fs.readdirSync('cad/STL/blank'))assert(mountMeshes[f.slice(7,-4)]
  for(const [m,clear] of [[3,3.4],[4,4.5],[5,5.5]]){assert(probe('cradle',{mountBolt:m},[21.2132,62,21.2132],[21.2132,76,21.2132],clear/2-.05)<.01,'M'+m+' hub hole');assert(probe('cradle',{mountBolt:m},[21.2132,62,21.2132],[21.2132,76,21.2132],clear/2+.3)>1,'M'+m+' hub hole is not oversize');
   assert(probe('yoke',{jointBolt:m},[48,32,15],[48,32,23],clear/2-.05)<.01,'M'+m+' joint hole');}
  for(const [m,clear] of [[4,4.5],[6,6.6]])assert(probe('base',{standBolt:m},[31.11,31.11,-1],[31.11,31.11,8],clear/2-.05)<.01,'M'+m+' stand hole');
- console.log('PASS mount holes follow the selected bolt sizes');}
+ // Plain holes instead of the nut pocket, the cheek's head pockets and the stand countersinks.
+ const solidAround=(variant,cfg,a,b,r)=>probe(variant,cfg,a,b,r);
+ assert(solidAround('base',{},[0,0,1],[0,0,5],6)<20&&solidAround('base',{nutSeat:1},[0,0,1],[0,0,5],6)>200,'azimuth nut pocket or plain hole');
+ assert(solidAround('cheek',{},[26.5,0,0],[30,0,0],6)<20&&solidAround('cheek',{headSeat:1},[26.5,0,0],[30,0,0],6)>150,'elevation head pocket or plain hole');
+ {const y=28*Math.cos(-20*Math.PI/180),z=28*Math.sin(-20*Math.PI/180);assert(solidAround('cheek-arc',{},[26.5,y,z],[29,y,z],4.5)<20&&solidAround('cheek-arc',{headSeat:1},[26.5,y,z],[29,y,z],4.5)>60,'arc lock head pocket or plain hole');}
+ assert(solidAround('yoke-stand',{},[20,45,22.5],[20,45,23.9],5)<20&&solidAround('yoke-stand',{standSeat:1},[20,45,22.5],[20,45,23.9],5)>60,'stand countersink or plain hole');
+ console.log('PASS mount holes follow the selected bolt sizes and seats');}
 import {build,defaults,connectionCoupon,clipStrain,hardwareSchedule,binarySTL} from '../dist/geometry.js';
 import {bounds} from '../dist/mesh.js';
 import {scenePoint,dishPoint,sceneBounds} from '../dist/scene.js';
 import {manifest,guide,scadSource} from '../dist/exports.js';
 import {mountHardware} from '../dist/mount.js';
 fs.mkdirSync('tmp/system-validation',{recursive:true});
-for(const cfg of [{mountMode:1,rootThrough:1},{mountMode:1,mountThrough:0},{mountMode:1,mountBase:0,mountArcLock:1},{mountMode:1,mountArcLock:1,elevation:-10},{mountMode:1,mountBase:0,elevation:100},{mountMode:1,seamJoint:1,elevation:-7.5},{mountMode:1,seamJoint:3,elevation:-7.5,mountArcLock:1},{mountMode:1,seamJoint:2,diameter:600,bedX:300,bedY:300,bedZ:300,feedMode:1,feedLegs:4,rows:2,azimuth:90,elevation:20},{mountMode:1,feedMode:2,frequencyGHz:24,elevation:90},{mountMode:1,mountBase:2},{mountMode:1,mountBase:2,legDiameter:25.4,legSplay:30,feedMode:3,elevation:-10,azimuth:60},{mountMode:1,mountBase:2,legDiameter:8,legSplay:10,diameter:600,bedX:300,bedY:300,bedZ:300,seamJoint:1,elevation:10}]){
+for(const cfg of [{mountMode:1,rootThrough:1},{mountMode:1,headSeat:1,nutSeat:1,mountArcLock:1,rootThrough:1,rootSeat:1,mountSeat:1},{mountMode:1,mountBase:0,standSeat:1,headSeat:1},{mountMode:1,mountBase:2,nutSeat:1},{mountMode:1,mountThrough:0},{mountMode:1,mountBase:0,mountArcLock:1},{mountMode:1,mountArcLock:1,elevation:-10},{mountMode:1,mountBase:0,elevation:100},{mountMode:1,seamJoint:1,elevation:-7.5},{mountMode:1,seamJoint:3,elevation:-7.5,mountArcLock:1},{mountMode:1,seamJoint:2,diameter:600,bedX:300,bedY:300,bedZ:300,feedMode:1,feedLegs:4,rows:2,azimuth:90,elevation:20},{mountMode:1,feedMode:2,frequencyGHz:24,elevation:90},{mountMode:1,mountBase:2},{mountMode:1,mountBase:2,legDiameter:25.4,legSplay:30,feedMode:3,elevation:-10,azimuth:60},{mountMode:1,mountBase:2,legDiameter:8,legSplay:10,diameter:600,bedX:300,bedY:300,bedZ:300,seamJoint:1,elevation:10}]){
  const m=build(cfg),base=cfg.mountBase??1,arc=cfg.mountArcLock??0,ids=m.parts.filter(p=>p.kind==='mount').map(p=>p.id);
  assert.deepEqual(ids,[...(base?['mount-base']:[]),'mount-yoke','mount-upright','mount-cradle','mount-cheek']);assert.equal(m.mount.base,!!base);assert.equal(m.mount.arcLock,!!arc);
  assert.equal(m.parts.find(p=>p.id==='mount-yoke').spec.variant,base?'yoke':'yoke-stand');assert.equal(m.parts.find(p=>p.id==='mount-cheek').spec.variant,arc?'cheek-arc':'cheek');

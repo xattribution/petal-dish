@@ -35,6 +35,16 @@ Set them in PETAL under **Aiming mount**, or in `cad/simple-mount.scad`:
 | Hub to mount (Connections tab) | `hub_m` | M3, **M4**, M5 | The four cradle holes, matching the hub's mount bolts |
 | Leg cross bolt | (app only) | **Auto**, M3–M6 | Auto picks M3, M4 or M5 by leg diameter. The hole may take up to half the leg diameter |
 
+### Seats
+
+| App setting | SCAD parameter | Options (default) | What changes |
+|---|---|---|---|
+| Clamp heads | `head_pockets` | **Hex pocket**, plain hole | Pocket: the elevation (and arc lock) bolt head is held in the cheek, so one hand turns the wing nut. Plain: a through hole; the head and a washer sit on the cheek's inner face. The bolts grow to M8 × 50 and M6 × 50 |
+| Azimuth nut | `nut_pocket` | **Pocket**, plain hole | Pocket: the nut is captured under the base. Plain: a through hole; the nut and a washer sit under the base. The screw grows to M8 × 40. A stand under the printed base needs a clearance hole; the tripod base has room between its sockets |
+| Stand seats (no base) | `stand_countersink` | **Countersunk**, plain hole | Plain: socket heads and washers on top of the yoke plate |
+
+The joint screws stay countersunk, and so do the printed base's stand screws: their heads sit in the faces the yoke and the dish hub bear on.
+
 The arc lock stays M6. The insert pilots follow the **Insert pilot** setting, which is the M4 value; M3 and M5 move by the same amount.
 
 The STLs in `cad/STL/` are the default sizes. For other sizes export the parts from the app, or set the parameters above in the SCAD.

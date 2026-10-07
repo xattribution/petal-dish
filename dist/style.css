@@ -63,6 +63,7 @@ input:disabled,select:disabled{opacity:.5}
 .double,.triple{display:grid;gap:8px;align-items:end}
 .double{grid-template-columns:1fr 1fr}
 .double.sized{grid-template-columns:minmax(0,1fr) 84px}
+.double.single{grid-template-columns:1fr}
 .controls .double+.double{margin-top:12px}
 .triple{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:12px}
 .support-toggle{display:flex;align-items:center;gap:8px;min-height:24px}

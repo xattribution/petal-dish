@@ -25,7 +25,7 @@ function optionUI(){
  const seam=Number($('seamJoint').value),clips=usesClips({seamJoint:seam})||overridesUseClips(),feed=Number($('feedMode').value),auto=$('rodSizing').value==='auto';
  $('rodDiameter').disabled=$('rodUnits').disabled=auto;$('rod-manual').hidden=auto;$('payload-field').hidden=!auto;$('feedPayload').disabled=!auto;
  for(const k in UNIT_FIELDS){$(k).min=(k==='rodDiameter'?2:limits[k][0])/unitScale(k);$(k).max=limits[k][1]/unitScale(k);}
- $('mount-settings').hidden=!Number($('mountMode').value);$('leg-settings').hidden=Number($('mountBase').value)!==2;$('stand-bolt-field').hidden=Number($('mountBase').value)===2;$('elevation').min=seam?'-7.5':'-10';
+ $('mount-settings').hidden=!Number($('mountMode').value);$('leg-settings').hidden=Number($('mountBase').value)!==2;{const base=Number($('mountBase').value);$('stand-fields').hidden=base===2;$('stand-seat-field').hidden=base!==0;$('nut-seat-field').hidden=base===0;}$('elevation').min=seam?'-7.5':'-10';
  for(const id of ['clipMaterial','clipAllowableStrain','clipFit','clipDetent'])$(id).disabled=!clips;$('clip-tuning').hidden=!clips;
  $('seamBolt').disabled=seam===1;$('seam-bolt-field').hidden=seam===1;
  $('feed-settings').hidden=!feed;$('prime-settings').hidden=feed!==1&&feed!==3;$('secondary-settings').hidden=feed!==2;$('collector-settings').hidden=$('mast-field').hidden=feed!==3;$('sizing-settings').hidden=feed!==2&&feed!==3;
@@ -35,7 +35,7 @@ function optionUI(){
  const sizing=$('autoSecondary').options;sizing[0].text=bowl?'Smallest that hides the insert':'From frequency when specified';sizing[1].text=bowl?'Enter diameter':'Manual geometric experiment';
  const tip=bowl?'Auto uses the smallest bowl whose shadow covers the insert, or the wavelength count when a frequency is set, whichever is larger.':'Geometric prototype. Secondary size, diffraction and rear-feed clearance need RF validation.';$('sizing-tip').dataset.tip=tip;$('sizing-tip').setAttribute('aria-label',tip);
  $('facet-settings').hidden=!Number($('rearStyle').value);$('segmentGoal').disabled=Number($('sectors').value)>0&&Number($('rows').value)>0;
- const inserts=!(Number($('mountThrough').value)===1&&Number($('rootThrough').value)===1)||Number($('mountMode').value)===1;$('insertDiameter').disabled=!inserts;$('insert-field').hidden=!inserts;
+ const inserts=!(Number($('mountThrough').value)===1&&Number($('rootThrough').value)===1)||Number($('mountMode').value)===1;$('insertDiameter').disabled=!inserts;$('insert-field').hidden=!inserts;{const rt=Number($('rootThrough').value)===1,mt=Number($('mountThrough').value)===1;$('root-seat-field').hidden=!rt;$('mount-seat-field').hidden=!mt;$('seat-fields').hidden=!rt&&!mt;$('seat-fields').classList.toggle('single',rt!==mt);}
  workspaceUI?.seamChanged();
 }
 function buttons(){$('apply-plates').disabled=!valid||busy;$('auto-plates').disabled=!valid||busy;for(const id of ['export-all','export-scad','export-pdf'])$(id).disabled=!valid||busy||plateDirty;$('export-part').disabled=!valid||busy||plateDirty||!selected;}

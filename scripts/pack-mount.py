@@ -90,7 +90,7 @@ def main():
     frame = {'baseT': base_t, 'yokeT': yoke_t, 'axisZ': z_el, 'hubL': L, 'plateT': plate_t, 'cheek': [cr_in, cr_out], 'upright': [up_in, up_out], 'capR': cap_r,
              'insert': {'pilot': ins_d, 'depth': ins_deep + info['INSET'][0], 'length': ins_len, 'inset': info['INSET'][0], 'recess': 0.5}, 'uprightScrews': {'count': n_up, 'length': up_len, 'at': info['UP_SCREWS']},
              'cheekScrews': {'count': n_ch, 'length': ch_len, 'x': ch_x, 'z': info['CH_SCREWS']}, 'standHoles': info['STAND'],
-             'arc': {'radius': arc_r, 'phi': arc_phi, 'slot': arc_w, 'range': [el_min, el_max], 'boltLength': arc_len}}
+             'arc': {'radius': arc_r, 'phi': arc_phi, 'slot': arc_w, 'range': [el_min, el_max], 'boltLength': arc_len, 'headAF': m6_af, 'head': m6_head}}
     shoulder, bcd_r, base_stand_r, yoke_z, top, _, hfn = info['CUTS']
     frame['cuts'] = {'shoulder': shoulder, 'bcd': bcd_r, 'baseStandR': base_stand_r, 'yokeZ': yoke_z, 'top': top, 'pilotDepth': ins_deep, 'segments': hfn}
     js = ('// Generated from cad/simple-mount.scad and cad/STL/blank/simple-*.stl by scripts/pack-mount.py; do not hand-edit.\n'
