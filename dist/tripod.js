@@ -29,7 +29,8 @@ export function tripodGeometry(p){
   const u=[Math.sin(s)*er[0],Math.sin(s)*er[1],-Math.cos(s)],n=[Math.cos(s)*er[0],Math.cos(s)*er[1],Math.sin(s)],y=et.map(v=>-v),root=[rc*er[0],rc*er[1],z0];
   const at=(t,a=0,b=0)=>root.map((v,i)=>v+t*u[i]+a*n[i]+b*y[i]);
   return{number:k+1,azimuth:phi*180/Math.PI,root,axis:u,tangent:et,normal:n,cross:y,at,boreEnd:at(c),open:at(S),bolt:at(boltAt)};});
- const boltAF=af(boltAt),grip=boltAF+2*1,boltLength=Math.ceil((grip+nut+2)/5)*5;
+ // grip: the socket across flats at the bolt plus a washer each side (ISO 7089 thickness); then the nyloc and 2 mm of thread
+ const boltAF=af(boltAt),grip=boltAF+2*{3:.5,4:.8,5:1,6:1.6}[bolt],boltLength=Math.ceil((grip+nut+2)/5)*5;
  return{d,splay:p.legSplay,bore,engagement:E,tipWall,rootWall,afRoot,afTip,rootRadius:rc,innerRadius:inner,boreFloor:c,length:S,start:t0,
   bolt:{size:bolt,hole,washer,length:boltLength,fromOpenEnd:S-boltAt,acrossFlats:boltAF},legs};
 }

@@ -32,35 +32,9 @@ export function bounds(mesh){const min=[Infinity,Infinity,Infinity],max=[-Infini
 export function printMesh(mesh,tilt=0){const c=Math.cos(tilt),s=Math.sin(tilt);let m={v:mesh.v.map(([x,y,z])=>[c*x+s*z,y,-s*x+c*z]),f:mesh.f};const b=bounds(m);m.v=m.v.map(v=>v.map((x,k)=>x-(k===2?b.min[k]:(b.min[k]+b.max[k])/2)));return m;}
 export function rotateBed(mesh,degrees){const c=Math.cos(degrees*PI/180),s=Math.sin(degrees*PI/180);return{v:mesh.v.map(([x,y,z])=>[c*x-s*y,s*x+c*y,z]),f:mesh.f};}
 export function mergeMeshes(meshes){const v=[],f=[];for(const mesh of meshes){const off=v.length;for(const point of mesh.v)v.push(point);for(const face of mesh.f)f.push(face.map(i=>i+off));}return{v,f};}
-export function binarySTL(mesh){mesh=compactMesh({v:mesh.v.map(p=>p.map(Math.fround)),f:mesh.f});const ab=new ArrayBuffer(84+mesh.f.length*50),d=new DataView(ab);new Uint8Array(ab,0,80).set(new TextEncoder().encode('PETAL / millimetres / procedural mesh'));d.setUint32(80,mesh.f.length,true);let k=84;for(const face of mesh.f){const [a,b,c]=face.map(i=>mesh.v[i]),u=b.map((x,i)=>x-a[i]),v=c.map((x,i)=>x-a[i]);let norm=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],len=Math.hypot(...norm);norm=norm.map(x=>x/(len||1));for(const x of [...norm,...a,...b,...c]){d.setFloat32(k,x,true);k+=4;}d.setUint16(k,0,true);k+=2;}return ab;}
+export function binarySTL(mesh){mesh=compactMesh({v:mesh.v.map(p=>p.map(Math.fround)),f:mesh.f});const ab=new ArrayBuffer(84+mesh.f.length*50),d=new DataView(ab);new Uint8Array(ab,0,80).set(new TextEncoder().encode('PETAL / millimeters / procedural mesh'));d.setUint32(80,mesh.f.length,true);let k=84;for(const face of mesh.f){const [a,b,c]=face.map(i=>mesh.v[i]),u=b.map((x,i)=>x-a[i]),v=c.map((x,i)=>x-a[i]);let norm=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],len=Math.hypot(...norm);norm=norm.map(x=>x/(len||1));for(const x of [...norm,...a,...b,...c]){d.setFloat32(k,x,true);k+=4;}d.setUint16(k,0,true);k+=2;}return ab;}
 export function volume(mesh){let sum=0;for(const [i,j,k]of mesh.f){const a=mesh.v[i],b=mesh.v[j],c=mesh.v[k];sum+=a[0]*(b[1]*c[2]-b[2]*c[1])+a[1]*(b[2]*c[0]-b[0]*c[2])+a[2]*(b[0]*c[1]-b[1]*c[0]);}return sum/6;}
-export function packParts(parts,p){
- const W=p.bedX-2*p.margin,H=p.bedY-2*p.margin,gap=6,plates=[];
- const options=new Map(parts.map(part=>[part,Array.from({length:12},(_,i)=>{const yaw=i*15,b=bounds(rotateBed(part.output,yaw));return{yaw,b,w:b.size[0]+gap,h:b.size[1]+gap};}).filter(o=>o.w<=W+gap+1e-6&&o.h<=H+gap+1e-6)]));
- const items=parts.flatMap(part=>Array.from({length:part.qty},()=>part)).sort((a,b)=>Math.max(...b.dim.slice(0,2))-Math.max(...a.dim.slice(0,2)));
- for(const part of items){
-  let best;
-  for(let bi=0;bi<=plates.length;bi++){
-   const free=bi===plates.length?[{x:0,y:0,w:W+gap,h:H+gap}]:plates[bi].free;
-   for(let fi=0;fi<free.length;fi++)for(const o of options.get(part)){
-    const r=free[fi];if(o.w>r.w+1e-6||o.h>r.h+1e-6)continue;
-    const score=bi*1e9+o.w*o.h+.01*r.w*r.h+.001*Math.min(r.w-o.w,r.h-o.h);
-    if(!best||score<best.score)best={bi,fi,o,r,score};
-   }
-   if(best)break;
-  }
-  if(!best)throw Error('No packed plate fits '+part.name);
-  const {bi,fi,o,r}=best;if(bi===plates.length)plates.push({free:[r],placements:[]});
-  const plate=plates[bi];plate.free.splice(fi,1);
-  if(r.w-o.w>1e-6)plate.free.push({x:r.x+o.w,y:r.y,w:r.w-o.w,h:r.h});
-  if(r.h-o.h>1e-6)plate.free.push({x:r.x,y:r.y+o.h,w:o.w,h:r.h-o.h});
-  plate.placements.push({part,yaw:o.yaw,x:r.x-W/2-o.b.min[0],y:r.y-H/2-o.b.min[1],bounds:[r.x,r.y,o.w-gap,o.h-gap]});
- }
- const copies=new Map();for(const plate of plates)for(const x of plate.placements){const i=(copies.get(x.part.id)||0)+1;copies.set(x.part.id,i);x.copy=`${x.part.id}:${i}`;}
- return plates.map(({placements})=>({placements}));
-}
-// TPU springs can't share a bed with rigid parts on a single-material printer: pack them on their own plates.
-export const packAll=(parts,p)=>[...packParts(parts.filter(x=>x.printIncluded!==false&&!x.flex),p),...packParts(parts.filter(x=>x.printIncluded!==false&&x.flex),p)];
+export {packParts,packAll,plateRows,manualPlates,movePlacement,footprint,PACK} from './pack.js';
 export function packedPlateMesh(plate){return mergeMeshes(plate.placements.map(({part,yaw,x,y})=>{const mesh=rotateBed(part.output,yaw);return{v:mesh.v.map(v=>[v[0]+x,v[1]+y,v[2]]),f:mesh.f};}));}
 export function layeredPatch(spec,p){const boxes=spec.gridBoxes||[],rr=unique([...spaced(spec.r0,spec.r1,Math.max(1,Math.ceil((spec.r1-spec.r0)/p.resolution))),...(spec.extraR||[]),...boxes.flatMap(h=>boreCuts(h,'r')).filter(r=>r>spec.r0&&r<spec.r1)]),aa=unique([...spaced(spec.a0,spec.a1,Math.max(2,Math.ceil((spec.a1-spec.a0)*spec.r1/p.resolution))),...boxes.flatMap(h=>boreCuts(h,'a')).filter(a=>a>spec.a0&&a<spec.a1)]),nr=rr.length,na=aa.length,full=Math.abs(spec.a1-spec.a0-TAU)<1e-7,nc=full?na-1:na,nl=spec.layers.length,id=(i,j,l)=>l*nr*nc+i*nc+(j%nc),groups=boreGroups(boxes),v=[];
  for(let l=0;l<=nl;l++)for(const r of rr)for(let j=0;j<nc;j++)v.push([...warpBores(r*Math.cos(aa[j]),r*Math.sin(aa[j]),groups),l]);const active=spec.layers.map(layer=>Array.from({length:nr-1},(_,i)=>Array.from({length:na-1},(_,j)=>{const r=(rr[i]+rr[i+1])/2,a=(aa[j]+aa[j+1])/2;return (!layer.regions||layer.regions.some(h=>inRect(r,a,h)))&&!(layer.exclude||[]).some(h=>inRect(r,a,h))&&!(layer.holes||[]).some(h=>inRect(r,a,h));}))),is=(i,j,l)=>{if(full)j=(j+na-1)%(na-1);return l>=0&&l<nl&&i>=0&&i<nr-1&&j>=0&&j<na-1&&active[l][i][j];},f=[];
@@ -69,12 +43,31 @@ export function layeredPatch(spec,p){const boxes=spec.gridBoxes||[],rr=unique([.
  const mesh={v:split.v.map(([x,y,w])=>{const i=Math.min(nl-1,Math.floor(w)),t=w-i;return[x,y,levels[i](x,y)*(1-t)+levels[i+1](x,y)*t];}),f:split.f};return compactMesh(mesh);}
 // Crease intersections can land within numerical noise of a bore-grid vertex.
 // Weld those coincident points before repairing flat triangles; otherwise a
-// vanishing edge can cause an endless split/repair cycle.
-export function compactMesh(mesh,precision=1e6){
+// vanishing edge can cause an endless split/repair cycle. The first pass welds
+// only exactly equal points. If that pinches two surfaces together (the kernel
+// works in double precision, so two sheets a few micrometers apart can share a
+// point once written as Float32), the touching vertices are moved apart instead
+// (pinchFree). Later passes round coarser.
+export function compactMesh(mesh,precision=Infinity){
+ try{return weldRepair(mesh,precision);}catch(e){
+  if(precision===Infinity){const freed=pinchFree(mesh);if(freed)try{return weldRepair(freed,Infinity);}catch{}}
+  if(precision>1e4)return compactMesh(mesh,precision===Infinity?1e6:precision/10);throw e;}
+}
+// Vertices that exact welding would join into an edge shared by more than two triangles each move 0.2 µm into the
+// solid along their own normal, so the two surfaces separate. Returns null when welding pinches nothing.
+function pinchFree(mesh){
+ const pos=new Map(),weld=mesh.v.map((q,i)=>{const k=q.join(',');if(!pos.has(k))pos.set(k,i);return pos.get(k);}),count=new Map();
+ for(const face of mesh.f){const w=face.map(i=>weld[i]);if(new Set(w).size<3)continue;for(let j=0;j<3;j++){const a=w[j],b=w[(j+1)%3],k=Math.min(a,b)+':'+Math.max(a,b);count.set(k,(count.get(k)||0)+1);}}
+ const hit=new Set();for(const[k,c]of count)if(c>2)for(const i of k.split(':'))hit.add(+i);if(!hit.size)return null;
+ const normal=mesh.v.map(()=>[0,0,0]);for(const face of mesh.f){const[a,b,c]=face.map(i=>mesh.v[i]),u=b.map((x,k)=>x-a[k]),w=c.map((x,k)=>x-a[k]),n=[u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]];for(const i of face)for(let k=0;k<3;k++)normal[i][k]+=n[k];}
+ const v=mesh.v.map((q,i)=>{if(!hit.has(weld[i]))return q;const n=normal[i],l=Math.hypot(...n);return l>0?q.map((x,k)=>x-2e-4*n[k]/l):q;});
+ return{v,f:mesh.f};
+}
+function weldRepair(mesh,precision){
  const used=new Map(),positions=new Map(),v=[];
  let f=mesh.f.map(face=>face.map(i=>{
   if(!used.has(i)){
-   const point=mesh.v[i],key=point.map(x=>Math.round(x*precision)).join(',');
+   const point=mesh.v[i],key=(precision===Infinity?point:point.map(x=>Math.round(x*precision))).join(',');
    if(!positions.has(key)){positions.set(key,v.length);v.push(point);}
    used.set(i,positions.get(key));
   }
@@ -82,16 +75,16 @@ export function compactMesh(mesh,precision=1e6){
  })).filter(face=>new Set(face).size===3);
  // Collapse sub-resolution connected edges across quantization-cell boundaries.
  const parent=v.map((_,i)=>i),root=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
- for(const face of f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3];if(Math.hypot(...v[a].map((x,k)=>x-v[b][k]))<Math.max(.00001,1/precision))parent[root(b)]=root(a);}
+ for(const face of f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3];if(Math.hypot(...v[a].map((x,k)=>x-v[b][k]))<(precision===Infinity?1e-9:Math.max(.00001,1/precision)))parent[root(b)]=root(a);}
  f=f.map(face=>face.map(root)).filter(face=>new Set(face).size===3);
- try{const repaired=repairFlatTriangles({v,f}),pairs=new Map(),drop=new Set();
+ const repaired=repairFlatTriangles({v,f}),pairs=new Map(),drop=new Set();
  // Float32 Boolean seams can leave coincident, oppositely wound zero-volume
  // triangle pairs. Cancel both, preserving the surrounding closed surface.
  repaired.f.forEach((face,i)=>{const key=[...face].sort((a,b)=>a-b).join(':');if(pairs.has(key)){const j=pairs.get(key),other=repaired.f[j],k=other.indexOf(face[0]);if(other[(k+1)%3]===face[2]){drop.add(i);drop.add(j);pairs.delete(key);}}else pairs.set(key,i);});
  const result={v:repaired.v,f:repaired.f.filter((_,i)=>!drop.has(i))},edges=new Map();
  for(const face of result.f)for(let j=0;j<3;j++){const a=face[j],b=face[(j+1)%3],key=Math.min(a,b)+':'+Math.max(a,b),e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);}
  if([...edges.values()].some(([count,winding])=>count!==2||winding!==0))throw Error('Mesh has an unresolved seam. Change mesh spacing or segmentation and regenerate; no printable export was produced.');
- return removeNumericalIslands(result);}catch(e){if(precision>1e4)return compactMesh(mesh,precision/10);throw e;}
+ return removeNumericalIslands(result);
 }
 // Boolean intersections can leave a closed, flat tetrahedron with Float32-scale
 // volume. Remove only tiny closed islands; never discard a substantive component.
@@ -104,20 +97,4 @@ const inRect=(r,a,h)=>r>h.r0&&r<h.r1&&a>h.a0&&a<h.a1;
 
 // Manual overrides retain a stable identity for every physical copy. Coordinates
 // are the output mesh origin relative to the bed center; only in-plane yaw changes.
-export function plateRows(plates){return plates.flatMap((plate,i)=>plate.placements.map(x=>({copy:x.copy,part:x.part.id,plate:i+1,x:x.x,y:x.y,yaw:x.yaw})));}
-export function manualPlates(parts,p,rows){
- const expected=new Map(parts.flatMap(part=>Array.from({length:part.qty},(_,i)=>[`${part.id}:${i+1}`,part]))),seen=new Set(),plates=[];
- if(!Array.isArray(rows)||rows.length!==expected.size)throw Error('Every printed copy must appear exactly once.');
- for(const r of rows){const part=expected.get(r.copy);if(!part||seen.has(r.copy))throw Error('Unknown or duplicate printed copy.');seen.add(r.copy);
-  if(!Number.isInteger(r.plate)||r.plate<1||r.plate>expected.size)throw Error('Plate number must be from 1 to '+expected.size+'.');
-  if(![r.x,r.y,r.yaw].every(Number.isFinite))throw Error('Placement coordinates and rotation must be finite numbers.');
-  const yaw=((r.yaw%360)+360)%360,b=bounds(rotateBed(part.output,yaw)),W=p.bedX-2*p.margin,H=p.bedY-2*p.margin,x=b.min[0]+r.x+W/2,y=b.min[1]+r.y+H/2,w=b.size[0],h=b.size[1];
-  if(x<-.00001||y<-.00001||x+w>W+.00001||y+h>H+.00001||b.max[2]>p.bedZ-2+.00001)throw Error(`${r.copy} is outside the usable print volume on plate ${r.plate}.`);
-  const plate=plates[r.plate-1]??(plates[r.plate-1]={placements:[]});
-  for(const q of plate.placements){const[X,Y,A,B]=q.bounds;if(!(x>=X+A+5.99999||X>=x+w+5.99999||y>=Y+B+5.99999||Y>=y+h+5.99999))throw Error(`${r.copy} overlaps the 6 mm clearance of ${q.copy} on plate ${r.plate}.`);}
-  if(plate.placements.some(q=>Boolean(q.part.flex)!==Boolean(part.flex)))throw Error(`${r.copy} is a ${part.flex?'TPU':'rigid'} part; keep TPU springs on their own plates.`);
-  plate.placements.push({part,copy:r.copy,yaw,x:r.x,y:r.y,bounds:[x,y,w,h]});
- }
- // Keep intentional empty plates so the requested plate numbers remain stable.
- return Array.from({length:plates.length},(_,i)=>plates[i]||{placements:[]});
-}
+

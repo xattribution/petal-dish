@@ -4,7 +4,7 @@
 
 A cam-lever clamp for seam stations. Flip the handle down to clamp, flip it out to release. No screws. Use bolts where a seam should be permanent.
 
-In the app, choose **Seam fastening → Seam levers**. The petals get the same stations as **Both** (bolt hole, clip window, guide ridges), and the kit includes a lever, draw bar, keeper and spring for every station plus spares, sized to the selected **Seam bolt size** (M3 or M4 holes). The assembly view shows each set installed. At ring junctions where a neighbouring flange is in the way, the set is turned to the other side of the seam; if neither side has room, that station takes a bolt, and the hardware list says how many. TPU springs are packed on their own print plates.
+In the app, choose **Seam fastening → Seam levers**. The petals get the same stations as **Both** (bolt hole, clip window, guide ridges), and the kit includes a lever, draw bar, keeper and spring for every station plus spares, sized to the selected **Seam bolt size** (M3 or M4 holes). The assembly view shows each set installed. At ring junctions where a neighboring flange is in the way, the set is turned to the other side of the seam; if neither side has room, that station takes a bolt, and the hardware list says how many. TPU springs are packed on their own print plates.
 
 | | |
 |---|---|

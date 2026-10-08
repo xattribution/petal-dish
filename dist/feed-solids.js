@@ -65,8 +65,10 @@ export function collectorBodies(p,g){
  const flareAt=(hb+4)/re,anchors=[],along=q=>(q[0]-Bx)*c-(q[2]-Bz)*sn;for(const ph of [-flareAt,0,flareAt])for(const z of [ze+.4,ze+wall-.4])anchors.push([(re-.4)*Math.cos(ph),(re-.4)*Math.sin(ph),z]);   // just inside the rim wall
  const flare=anchors.every(q=>along(q)>=Q.bolt+Q.washer/2+.5)?hullPoints([...anchors,...sec(Q.length-.3,lower.map(([a,y])=>[a*.97,y*.97]))]).trim([0,0,-1],-top):null;
  const cuts=[teardrop(P(Q.floor),P(80),rb,[0,0,-1],48),teardrop(P(Q.bolt,0,-hb-1),P(Q.bolt,0,hb+1),bolt.hole,[0,0,-1])];
- const assemble=seat=>{let out=bowl;for(const a of g.legs.map(l=>l.angle)){const turn=q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(a)*q[1],q[2]];
-  out=out.union(seat.transform(turn));for(const cut of cuts)out=out.subtract(cut.transform(turn));}return out.subtract(cavity);};
+ // All seats in one union and all bores plus the cavity in one subtraction (the seats sit apart, so the order of the
+ // operations does not matter).
+ const assemble=seat=>{const turns=g.legs.map(({angle:a})=>q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(a)*q[1],q[2]]);
+  return turns.reduce((out,turn)=>out.union(seat.transform(turn)),bowl).subtract(turns.flatMap(turn=>cuts.map(cut=>cut.transform(turn))).reduce((x,y)=>x.union(y),cavity));};
  // The core is printable by construction. Keep the flare only when the finished bowl has no face under 45° in print
  // (print-down is +z here; the flat top on the bed is exempt).
  if(flare){const withFlare=assemble(core.union(flare));if(overhangArea(withFlare,top)<1){bowl=withFlare;}else bowl=assemble(core);}else bowl=assemble(core);

@@ -92,7 +92,7 @@ def main():
              'cheekScrews': {'count': n_ch, 'length': ch_len, 'x': ch_x, 'z': info['CH_SCREWS']}, 'standHoles': info['STAND'],
              'arc': {'radius': arc_r, 'phi': arc_phi, 'slot': arc_w, 'range': [el_min, el_max], 'boltLength': arc_len, 'headAF': m6_af, 'head': m6_head}}
     shoulder, bcd_r, base_stand_r, yoke_z, top, _, hfn = info['CUTS']
-    frame['cuts'] = {'shoulder': shoulder, 'bcd': bcd_r, 'baseStandR': base_stand_r, 'yokeZ': yoke_z, 'top': top, 'pilotDepth': ins_deep, 'segments': hfn}
+    frame['cuts'] = {'shoulder': shoulder, 'bcd': bcd_r, 'baseStandR': base_stand_r, 'yokeZ': yoke_z, 'top': top, 'pilotDepth': ins_deep, 'segments': hfn, 'step': info['COUNTERBORE'][3]}
     js = ('// Generated from cad/simple-mount.scad and cad/STL/blank/simple-*.stl by scripts/pack-mount.py; do not hand-edit.\n'
           'export const mountFrame=' + json.dumps(frame, separators=(',', ':')) + ';\n'
           'export const mountMeshes=' + json.dumps(parts, separators=(',', ':')) + ';\n')

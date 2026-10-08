@@ -20,12 +20,19 @@ export function setupWorkspace({changed,getModel,showJoint}){
  const show=name=>{for(const t of tabs)t.setAttribute('aria-selected',String(t.dataset.category===name));for(const p of panels)p.hidden=p.dataset.categoryPanel!==name;};
  for(const t of tabs)t.onclick=()=>show(t.dataset.category);show('Shape');
  // Info tips: one floating bubble on the page, so panel scrolling never clips it. Hover, focus or tap shows it.
- for(const t of document.querySelectorAll('.tip'))t.setAttribute('aria-label',t.dataset.tip);
+ // A tip inside a field's label describes that field instead of joining its name: the control points at it with
+ // aria-describedby, the tip leaves the tab order, and keyboard focus on the control shows the bubble.
+ let tipCount=0;
+ for(const t of document.querySelectorAll('.tip')){t.setAttribute('aria-label',t.dataset.tip);const host=t.closest('label'),control=host&&(host.control||host.querySelector('input,select'));
+  if(control){t.id||=`tip-${++tipCount}`;control.setAttribute('aria-describedby',[control.getAttribute('aria-describedby'),t.id].filter(Boolean).join(' '));t.setAttribute('aria-hidden','true');t.removeAttribute('tabindex');}}
+ const tipFor=el=>{const id=el instanceof Element&&el.getAttribute('aria-describedby')?.split(' ').find(x=>x.startsWith('tip-'));return id?document.getElementById(id):null;};
  const bubble=document.createElement('div');bubble.className='tip-bubble';bubble.setAttribute('role','tooltip');bubble.hidden=true;document.body.append(bubble);
- const showTip=t=>{bubble.textContent=t.dataset.tip;bubble.hidden=false;const r=t.getBoundingClientRect(),b=bubble.getBoundingClientRect();let y=r.bottom+8;if(y+b.height>innerHeight-8)y=r.top-b.height-8;bubble.style.left=Math.min(innerWidth-b.width-8,Math.max(8,r.left+r.width/2-b.width/2))+'px';bubble.style.top=Math.max(8,y)+'px';};
+ const showTip=(t,above=false)=>{bubble.textContent=t.dataset.tip;bubble.hidden=false;const r=t.getBoundingClientRect(),b=bubble.getBoundingClientRect();let y=above&&r.top-b.height-8>=8?r.top-b.height-8:r.bottom+8;if(y+b.height>innerHeight-8)y=r.top-b.height-8;bubble.style.left=Math.min(innerWidth-b.width-8,Math.max(8,r.left+r.width/2-b.width/2))+'px';bubble.style.top=Math.max(8,y)+'px';};
  const tipOf=e=>e.target instanceof Element?e.target.closest('.tip'):null;
  document.addEventListener('pointerover',e=>{const t=tipOf(e);if(t)showTip(t);});document.addEventListener('pointerout',e=>{if(tipOf(e)&&document.activeElement!==tipOf(e))bubble.hidden=true;});
- document.addEventListener('focusin',e=>{const t=tipOf(e);if(t)showTip(t);else bubble.hidden=true;});document.addEventListener('focusout',e=>{if(tipOf(e))bubble.hidden=true;});
+ // Tabbing onto a described field shows its tip above the label, clear of the field itself.
+ let keyboard=false;document.addEventListener('keydown',e=>{if(e.key==='Tab')keyboard=true;},true);document.addEventListener('pointerdown',()=>{keyboard=false;},true);
+ document.addEventListener('focusin',e=>{const own=tipOf(e),t=own||(keyboard&&tipFor(e.target));if(t)showTip(t,!own);else bubble.hidden=true;});document.addEventListener('focusout',e=>{if(tipOf(e)||tipFor(e.target))bubble.hidden=true;});
  // A tap on a tip inside a label or summary shows the tip instead of focusing the field or toggling the section.
  document.addEventListener('click',e=>{const t=tipOf(e);if(t){e.preventDefault();t.focus();showTip(t);}});
  document.addEventListener('scroll',()=>{bubble.hidden=true;},true);

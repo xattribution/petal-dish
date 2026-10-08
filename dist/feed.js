@@ -5,6 +5,8 @@ export const FEED={revision:7,engagement:18,minEngagement:16,maxEngagement:19,pu
 const FEED_TAU=2*Math.PI;
 const fz=(r,p)=>r*r/(4*p.diameter*p.fd);
 export function feedDatum(p){const r=p.diameter/2-20;return{r,front:fz(r,p),rear:fz(r,p)-p.thickness-3,slope:r/(2*p.diameter*p.fd),holes:[]};}
+// Conservative: the outer ring's inner edge is taken at the full radius's share (45 + (R - 45)(rows - 1)/rows), a few mm
+// outside the polygon's true inner edge, so the rod socket also clears the ring seam's flange and gusset.
 export function feedFits(p,n,rows){if(!p.feedMode)return true;if(n%p.feedLegs)return false;const d=feedDatum(p),r0=45+(rows-1)*(p.diameter/2-45)/rows;return d.r-23>Math.max(78,r0+8)&&d.r*Math.sin(Math.PI/n)>27;}
 function hyperbola(p,ratio){
  const f=p.diameter*p.fd,g=p.backFocus,zv=f*ratio,zc=(f+g)/2,c=(f-g)/2,a=zv-zc,b2=c*c-a*a;

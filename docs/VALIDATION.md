@@ -299,3 +299,44 @@ Fewest plates ranks candidates on a packed estimate, then packs the real petals 
 **Seats.** Through-bolt seats on the dish front can be recessed (default) or plain holes. A plain seat keeps only a flat spot face at the lowest point under the washer: none on the flat hub, up to about 1.5 mm at the outer edge of a root seat. On the mount, the cheek's head pockets, the base's azimuth nut pocket and the no-base stand countersinks can be plain holes. `cad/simple-mount.scad` with `head_pockets`, `nut_pocket` and `stand_countersink` set to false matches the app's parts within 0.12 mm³. The plain parts pass the overhang scan; the plain-seat petals flag exactly the same areas as the default petals. Integration tests check that each pocket or countersink is present or solid as selected, and that the bolt lengths grow (elevation M8 × 50, azimuth M8 × 40, arc lock M6 × 50).
 
 **Hub clearance.** An optional 0–0.6 mm moves the hub's edges in and enlarges the hub's root holes by the same amount; the mount holes do not move. The hub chamfer now reaches the petal's edge height exactly at the hub edge. Measured step from hub to petal across the gap: 0.10 mm on the default dish (0.11 mm with 0.3 mm clearance) and 0.25 mm at 260 mm, f/D 0.25 (0.31 mm with 0.6 mm clearance), most of it the parabola rising across the gap. Structure tests check the hub edge line and the hub's root hole size.
+
+## Counterbores, nested plates, plate moves and a review pass (2026-10-08)
+
+**Socket heads in counterbores.** The mount's joint and stand screws are ISO 4762 socket heads, which have a flat underside, in counterbores 1 mm wider than the head and 0.5 mm deeper. The heads sit below the faces that the next part or the dish hub bears on, so a flat face mates with a flat face. Where a counterbore opens toward the bed, its ceiling steps up in two 0.4 mm layers, a slot as wide as the hole and then a square, so each layer bridges a short span. Joint screws are M4 × 10 into the upright and M4 × 12 into the cheek, and the same lengths hold at M3 and M5.
+
+- `scripts/check-simple-mount.py` passes: heads 0.5 mm below the face, tips short of the pilot ends, joints flush (29.6 cm² and 6.2 cm²), azimuth contact 100 cm², travel −10° to 100°, hex key access −10° to 30°.
+- `cad/simple-mount.scad` matches the app's cut parts in 23 comparisons (sizes, plain seats, `stand_counterbore = false`), within 0.12 mm³.
+
+**Overhang criteria** (`scripts/check-printability.py`). A part fails on any downward face more than 60° from vertical, except a flat ceiling (within 20° of flat) no more than 10 mm across, which prints as a bridge, and a step within 0.3 mm of the bed. Faces between 45° and 60° are listed as minor: at 0.2 mm layers each layer steps out at most 0.35 mm. Normals of faces under 0.005 mm² are ignored. Every part below passes:
+
+- the eight mount STLs, and app-exported mount parts at the smallest and largest sizes, with plain seats, without the base, and the tripod base with M10 clamps and Ø25.4 mm legs on M6 bolts (largest bridge 6.3 mm);
+- petals and hub with bolts, M4 bolts, clips, both and seam levers, two-ring 600 mm dishes with clips and with both, through-bolt roots and plain seats (largest bridge 8.4 mm, a clip window roof on a ring petal; largest minor area 121 mm², on the same petal);
+- the clip and the four seam-lever parts.
+
+The clip stations were reshaped to get there: the guide ridges slope toward the clip, each window is wider by the ridge, bolt-hole roofs point along the true print-up direction at each station, the blind root pilot has a teardrop roof, and the flange end is trimmed square.
+
+**Nested plates.** Packing now uses each part's outline in every 4 mm height band instead of its bounding box. Plates holding petals or the hub, largest-petals sizing, bed height the larger of 250 mm and the bed width:
+
+| Dish / bed | Bounding boxes | Nested |
+|---|---|---|
+| 400 / 220 (default) | 3 | 2 |
+| 500 / 256 | 3 | 2 |
+| 600 / 220 | 5 | 4 |
+| 600 / 300 | 3 | 2 |
+| 800 / 256 | 7 | 4 |
+| 900 / 300 | 4 | 4 |
+| 1200 / 350 | 8 (5 with fewest plates) | 4 |
+
+With nesting, the fewest-plates goal picks the same layout as largest petals in all seven cases. Clearance is checked independently of the packer's grid: `tests/structure.test.mjs` slices every pair of parts on each plate every 1 mm up their shared height, grows each section by 2.95 mm and requires that they never meet, across all 32 structural configurations.
+
+**Moving parts between plates.** `tests/plates.test.mjs` moves a copy onto a new plate and back (the emptied plate is dropped), moves one within its plate, rejects invalid targets, and re-checks every result through the untrusted manual path. On 437, 500 and 700 mm beds (1.5 and 3 mm grids) a part 0.2 mm narrower than the usable area still packs and nothing reaches past it. In headless Chromium, dragging a petal from plate 1 onto the empty slot made a third plate; changing the seam bolt size then kept that arrangement, and a click on empty space cleared the selection, with no console errors.
+
+**Printer presets.** Prusa CORE One L 300 × 300 × 330 mm and CORE One L+ INDX 298 × 275 × 330 mm (Prusa product pages); Bambu Lab H2D 325 × 320 × 325 mm and H2C 325 × 320 × 320 mm, their single-nozzle volumes (Bambu Lab H2 series page).
+
+**Review fixes.**
+
+- **Meshing.** Some rod-mount petal sizes failed with "unresolved seam": the kernel works in double precision and two surfaces micrometers apart shared a point once written as Float32. Meshing now welds only exact duplicates first and moves pinched vertices 0.2 µm apart. 556 mm prime focus, 478 and 520 mm with four rods, and 513 mm Cassegrain at 74 GHz with four rods now build; the first two are in the feed tests.
+- **Hub mount bolts with the collector.** The grip ran to the recessed seat floor, 5 mm short, though the mast foot sits on the hub front. It now runs to the top of the foot's flange: M4 × 30 plus the adapter instead of 25.
+- **Leg cross bolts** count ISO 7089 washer thickness for their size instead of 1 mm.
+- **Speed.** A change to the aiming mount or its pose reuses the dish's segmentation, petal and hub meshes (an elevation change on the default dish with the mount: 1.5 s to 0.4–0.6 s). The hub's holes and the collector's seat bores are cut in one subtraction each (default build 1.25 s to 0.96 s). Fewest-plates sizing ranks layouts on a 2 mm grid (1000 mm dish on a 300 mm bed: 10.4 s to 6.9 s of planning). Each petal and the hub free their intermediate solids before the next starts.
+- **Interface.** Typed plate positions are checked in the engine. A hand arrangement survives a rebuild when every copy still fits, and the page says so when it does not. A drop that cannot be placed says why. Status messages appear over the preview on every screen size. Field tips describe their control to screen readers instead of joining its name. Hidden or disabled fields no longer block a build, errors name the field by its label, an empty inch field is no longer read as zero, and the selection and keyboard focus survive a rebuild.

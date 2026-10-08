@@ -60,7 +60,7 @@ Each build loads its script and styles under new URLs, so a normal reload shows 
 git clone https://github.com/xattribution/petal-dish.git && cd petal-dish
 npm ci
 npm run build                      # rebuilds dist/app.bundle.js and the offline file
-python3 -m http.server 8080 -d dist  # then open http://localhost:8080
+python3 -m http.server 56317 -d dist  # then open http://localhost:56317
 ```
 
 ## Using it
@@ -71,12 +71,14 @@ The editor has four tabs.
 
 1. **Shape:** dish diameter, focal ratio (f/D), shell thickness, an optional frequency, and the hub front.
 2. **Connections:** pick the seam method from the four cards, the seam bolt size and the hub joints. **Edit individual joints** changes one seam family or one joint; **Show in model** highlights it.
-3. **Accessories:** a prime-focus or Cassegrain rod support and the aiming mount. Each has a checkbox to leave its parts off the print plates when you already have them.
-4. **Print:** your printer volume and plate packing. PETAL chooses how many petals and rings are needed, aiming for either the largest petals or the fewest print plates.
+3. **Accessories:** a feed support (prime focus, Cassegrain or Gregorian collector) and the aiming mount. Each has a checkbox to leave its parts off the print plates when you already have them.
+4. **Print:** your printer and plate packing. PETAL chooses how many petals and rings are needed, aiming for either the largest petals or the fewest print plates.
 
 Then **Export kit (ZIP)**: every STL in its print orientation, packed plates, `ASSEMBLY.pdf`, `HARDWARE.csv` and the fit-test parts. **Print the two seam test strips first**, then one full petal, before printing the whole dish.
 
-The default 400 mm dish is six petals plus one hub: two unique parts, each with a flat flange down on the bed.
+The default 400 mm dish is six petals plus one hub: two unique parts, each with a flat flange down on the bed. Packed, they fit on two 220 × 220 mm beds: the petals lean the same way and nest. Drag a part to the empty slot to give it a bed of its own.
+
+![Print parts view: five petals nested on the first 220 mm bed, the sixth petal and the hub on the second, and an empty slot for a new bed](docs/snapshots/plates.png)
 
 ## Options at a glance
 
@@ -90,8 +92,10 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 | **Underside** | Smooth curved shell (default) · small flat facets |
 | **Automatic sizing** | Largest petals: the fewest pieces and seams (default) · fewest print plates: may use more, smaller petals when they pack onto fewer beds |
 | **Large dishes** | Staggered rings (default) · aligned rings |
+| **Printer** | Presets for the Prusa CORE One L (with or without the INDX tool changer), Bambu Lab H2D and H2C, common volumes, or any custom volume. The last valid volume is remembered in the browser |
+| **Print plates** | Copies share beds and keep 6 mm apart at every height, so side-printed petals that lean the same way nest like spoons. In **Print parts**, drag a part onto another bed (or the empty slot after the last one): it lands in the nearest spot that fits, turning if it has to. Exact positions can also be typed in |
 | **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on 3 or 4 aluminum rods with generated cut lengths |
-| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or countersinks (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
+| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. Joint and stand screws are socket heads in counterbores. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or counterbores (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
 
 All seam hardware stays behind the reflecting face.
 
@@ -105,7 +109,7 @@ All seam hardware stays behind the reflecting face.
 
 Seams take M3 or M4. Petal roots and hub mounts take M3, M4 or M5; M4 is the default interface. Kits with joint overrides include `CONNECTIONS.csv` and individually named petal variants. Help for each setting is in its **ⓘ** tooltip, and the full print and assembly instructions are in the generated PDF.
 
-Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera.
+Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera. In **Print parts**, press a part to select it and drag it to move it to another bed.
 
 Feed revision 7 uses a small rounded taper around each direct petal rod hole and a compact side-screw ear. The large underside pyramid, separate rim shoes, backing plates and paired mounting bolts are gone. Only the bore changes angle as dish size or focal distance changes; the exterior blends into the dish underside. The circular bearing has 45° roof shoulders and a **0.8 mm bridge** for the exported side-print orientation.
 
@@ -133,7 +137,7 @@ PETAL is an **engineering prototype**. Test prints fit as designed, but a closed
 
 ```bash
 npm ci
-npm test              # geometry, feed, plates, rings, integration
+npm test              # geometry, feed, plates, rings, integration, lever motion, connections, viewer
 npm run test:ui       # builds, then drives the offline app in jsdom
 npm run test:scad     # snapshot renders vs. JS geometry (needs OpenSCAD)
 npm run test:pdf      # manual PDF fixtures (needs Python)
@@ -147,6 +151,7 @@ The app sources live in `dist/`:
 - `engine.js`: the geometry worker (build and every export); `engine-client.js` starts it, or runs it on the page if workers are unavailable
 - `params.js`: defaults, limits and validation, shared by the page and the worker
 - `geometry.js`: dish, flanges, hub and seam fasteners
+- `pack.js`: plate packing (per-height footprints, nested stacks, drag-and-drop moves)
 - `mount.js`: the aiming mount
 - `feed.js`: optics and feed supports
 - `exports.js`, `zip.js`: kit, guide, manifest and the deflated ZIP

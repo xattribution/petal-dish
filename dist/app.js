@@ -1,25 +1,51 @@
 import {setupWorkspace,workspaceSettings,overridesUseClips} from './workspace-ui.js';
 import {VERSION,BUILD_ID} from './version.js';
 import {defaults,limits,validate,clipStrain,usesClips,usesLevers,seamBolt,FASTENER} from './params.js';
-import {binarySTL,volume,plateRows,manualPlates,packAll} from './mesh.js';
+import {binarySTL,volume,plateRows,manualPlates} from './mesh.js';
 import {Viewer} from './viewer.js';
 import {startEngine} from './engine-client.js';
 const $=id=>document.getElementById(id);
 let model,viewer,selected='',timer,busy=false,valid=false,plateDirty=false,workspaceUI;
 let building=null,rebuild=false,firstModel=true,buildSeq=0,queued=false;
 $('app-version').textContent=VERSION;$('app-version').title='Build '+BUILD_ID;$('build-info').textContent=`${VERSION} · ${BUILD_ID}`;document.title='PETAL '+VERSION;
-for(let n=6;n<=24;n+=2)$('sectors').add(new Option(`${n} petals`,String(n)));for(let n=1;n<=8;n++)$('rows').add(new Option(`${n} ring${n===1?'':'s'}`,String(n)));
+for(let n=6;n<=16;n+=2)$('sectors').add(new Option(`${n} petals`,String(n)));for(let n=1;n<=8;n++)$('rows').add(new Option(`${n} ring${n===1?'':'s'}`,String(n)));
 try{viewer=new Viewer($('canvas'));}catch(e){$('view-error').hidden=false;$('view-error').textContent=e.message;}
+// Short status messages over the preview (a live region, shown on every screen size).
+let flashTimer=0;const flash=text=>{const el=$('view-flash');el.textContent=text;clearTimeout(flashTimer);flashTimer=setTimeout(()=>{el.textContent='';},3200);};
+const printed=m=>m.parts.filter(p=>p.printIncluded!==false);
+const packingResult=()=>{const n=model.plates.length;$('packing-result').textContent=model.p.packPlates?`${n} shared ${n===1?'bed':'beds'}${model.manualPacking?' · arranged by hand':''}`:'';};
+// Plate view: a short press on a part selects it; dragging it onto another plate (or the empty slot after the last one)
+// moves that copy there, wherever it fits nearest the drop point. Other plates keep their arrangement.
+const dragBlock=()=>plateDirty?'Apply or reset the typed plate edits first.':busy||building||queued?'Wait for the update to finish.':!valid?'Fix the settings first.':'';
+if(viewer){viewer.onPickPart=id=>{if(id!==selected)select(id);};
+ viewer.canDrag=()=>!dragBlock();viewer.onDragRefused=()=>flash(dragBlock());
+ viewer.onDropPart=async({copy,plate,x,y})=>{const block=dragBlock();if(block||!model?.p.packPlates){viewer.settle();if(block)flash(block);return;}
+  const[id,n]=copy.split(':'),name=`${model.parts.find(q=>q.id===id)?.name??id} · copy ${n}`,key=model.key;busy=true;buttons();flash('Placing '+name+'…');
+  let rows;try{rows=await engine.call('move',{key,plates:model.manualPacking?plateRows(model.plates):null,copy,target:plate,x,y});}catch(e){viewer.settle();flash(e.message);return;}finally{busy=false;buttons();}
+  if(model.key!==key)return;if(!rows){viewer.settle();flash(`${name} does not fit on plate ${plate+1}`);return;}
+  let next;try{next=manualPlates(printed(model),model.p,rows,true);}catch(e){viewer.settle();flash(e.message);return;}
+  model.plates=next;model.manualPacking=true;renderPlates();packingResult();viewer.setModel(model);flash(`${name} → plate ${next.findIndex(pl=>pl.placements.some(q=>q.copy===copy))+1}`);};}
 const showFatal=e=>{valid=false;$('error').hidden=false;$('error').textContent=e.message;$('fit-badge').textContent='Unavailable';$('fit-badge').className='badge bad';buttons();};
 const engine=startEngine(globalThis.PETAL_ENGINE_SOURCE,showFatal);
 
 // Stock diameters can be entered in mm or inches; the model always takes mm.
 const UNIT_FIELDS={rodDiameter:'rodUnits',mastDiameter:'mastUnits',legDiameter:'legUnits'};
 const unitScale=k=>$(UNIT_FIELDS[k]).value==='in'?25.4:1,previousScale=Object.fromEntries(Object.keys(UNIT_FIELDS).map(k=>[k,1]));
-const fieldValue=k=>k==='rodDiameter'&&$('rodSizing').value==='auto'?0:UNIT_FIELDS[k]?Number($(k).value)*unitScale(k):$(k).type==='checkbox'?Number($(k).checked):$(k).value===''?NaN:Number($(k).value);
-function read(){return {...workspaceSettings(),...Object.fromEntries(Object.keys(defaults).map(k=>[k,fieldValue(k)]))};}
+const fieldValue=k=>k==='rodDiameter'&&$('rodSizing').value==='auto'?0:$(k).type==='checkbox'?Number($(k).checked):$(k).value.trim()===''?NaN:UNIT_FIELDS[k]?Number($(k).value)*unitScale(k):Number($(k).value);
+// A field that is disabled or hidden does not apply to the current design, so an out-of-range value left in it falls
+// back to the last valid value instead of blocking the build.
+let lastGood={...defaults};
+const inRange=(k,v)=>Number.isFinite(v)&&v>=limits[k][0]&&v<=limits[k][1];
+function read(){return {...workspaceSettings(),...Object.fromEntries(Object.keys(defaults).map(k=>{const v=fieldValue(k),el=$(k);return[k,(el.disabled||el.closest('[hidden]'))&&!inRange(k,v)?lastGood[k]:v];}))};}
+// Validation messages name settings by their label, not their internal key.
+const labelOf=k=>{const l=$(k)?.labels?.[0];const text=l?[...l.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join(' ').replace(/\s+/g,' ').trim():'';return text||k;};
+const readable=message=>message.replace(/^(\w+) must/,(m,k)=>k in defaults?`${labelOf(k)} must`:m);
 function setFields(p){for(const k in defaults){if($(k).type==='checkbox')$(k).checked=Boolean(p[k]);else if(k==='rodDiameter'){$('rodSizing').value=p[k]===0?'auto':'manual';$(k).value=(p[k]||6.35)/unitScale(k);}else if(UNIT_FIELDS[k])$(k).value=Number((p[k]/unitScale(k)).toPrecision(12));else $(k).value=p[k];if($(k+'-range'))$(k+'-range').value=p[k];}syncBed();optionUI();}
 function syncBed(){const v=[$('bedX').value,$('bedY').value,$('bedZ').value].join(',');$('bedPreset').value=[...$('bedPreset').options].some(o=>o.value===v)?v:'custom';}
+// The printer volume of the last valid build is remembered on this device (best effort: storage may be unavailable).
+const BED_KEY='petal.printer';
+function saveBed(p){try{localStorage.setItem(BED_KEY,JSON.stringify([p.bedX,p.bedY,p.bedZ]));}catch{}}
+function savedBed(){try{const v=JSON.parse(localStorage.getItem(BED_KEY)||'null');return Array.isArray(v)&&v.length===3&&v.every((x,i)=>Number.isFinite(x)&&x>=limits[['bedX','bedY','bedZ'][i]][0]&&x<=limits[['bedX','bedY','bedZ'][i]][1])?{bedX:v[0],bedY:v[1],bedZ:v[2]}:null;}catch{return null;}}
 // Show only the controls that apply. Fields stay disabled as well as hidden so read-only state is explicit.
 function optionUI(){
  const seam=Number($('seamJoint').value),clips=usesClips({seamJoint:seam})||overridesUseClips(),feed=Number($('feedMode').value),auto=$('rodSizing').value==='auto';
@@ -53,22 +79,25 @@ function profile(m){
  $('profile').innerHTML=svg;}
 const tripodResult=t=>`${t.poseClear?'':'The dish meets a leg at this pose · '}Legs ${t.minLegLength} mm or longer · feet on a Ø${Math.round(2*t.footRadius)} mm circle · M${t.bolt.size} × ${t.bolt.length} cross bolts · ${t.blocked?`dish clears the legs above ${t.clearFrom}°`:'dish clears the legs at every pose'}`;
 const collectorResult=m=>{const g=m.feed,b=g.bowl,t=g.mast;return `Bowl Ø${(2*b.radius).toFixed(1)} mm${b.waves?` (${b.waves.toFixed(1)} λ)`:''} · insert ±${b.insertAngle}° at ${b.apexToInsert.toFixed(1)} mm below the bowl · ${(100*b.blockage).toFixed(1)}% blockage · ${m.p.feedLegs} rods Ø${+g.rodDiameter.toFixed(4)} × ${g.cutLength.toFixed(1)} mm · ${t.tube?`mast Ø${+t.diameter.toFixed(3)} × ${t.cutLength.toFixed(1)} mm`:'printed pedestal'}`;};
-function select(id){selected=id===selected?'':id;for(const b of $('parts').children)b.setAttribute('aria-pressed',b.dataset.id===selected?'true':'false');const p=model?.parts.find(x=>x.id===selected);const facts=p?[p.dim.map(x=>x.toFixed(1)).join(' × ')+' mm · '+(volume(p.mesh)/1000).toFixed(1)+' cm³']:[];if(p?.kind==='panel'){if(p.wallRange)facts.push('Wall '+p.wallRange.map(x=>x.toFixed(1)).join('–')+' mm');facts.push('Side-printed · bed rotation '+p.bedRotation+'°');}else if(p?.gripRange)facts.push('Grip '+p.gripRange.map(x=>x.toFixed(1)).join('–')+' mm');if(p&&p.printIncluded===false)facts.push('Left off the plates and STL export');$('selected-info').textContent=p?facts.join('\n'):'Select a part';if(viewer){viewer.selected=selected;viewer.jointSelection=null;viewer.draw();}buttons();}
+function select(id){selected=id===selected?'':id;showSelection();}
+function showSelection(){for(const b of $('parts').children)b.setAttribute('aria-pressed',b.dataset.id===selected?'true':'false');const p=model?.parts.find(x=>x.id===selected);const facts=p?[p.dim.map(x=>x.toFixed(1)).join(' × ')+' mm · '+(volume(p.mesh)/1000).toFixed(1)+' cm³']:[];if(p?.kind==='panel'){if(p.wallRange)facts.push('Wall '+p.wallRange.map(x=>x.toFixed(1)).join('–')+' mm');facts.push('Side-printed · bed rotation '+p.bedRotation+'°');}else if(p?.gripRange)facts.push('Grip '+p.gripRange.map(x=>x.toFixed(1)).join('–')+' mm');if(p&&p.printIncluded===false)facts.push('Left off the plates and STL export');$('selected-info').textContent=p?facts.join('\n'):'Select a part';if(viewer){viewer.selected=selected;viewer.jointSelection=null;viewer.draw();}buttons();}
 function setBusyBadge(on){if(on){$('fit-badge').textContent='Updating…';$('fit-badge').className='badge busy';}}
 // One build at a time: changes made while a build runs are folded into a single follow-up build.
 function generate(){optionUI();clearTimeout(timer);queued=false;$('export-status').textContent='';
  if(building){rebuild=true;return building;}
  let p;try{p=validate(read());}catch(e){showError(e);return Promise.resolve(null);}
  const key=++buildSeq;setBusyBadge(true);valid=false;buttons();
- building=engine.call('build',{key,params:p}).then(m=>({m}),error=>({error})).then(({m,error})=>{building=null;
+ // A hand arrangement goes along; the engine keeps it if every copy still fits where it was put.
+ const plates=model?.manualPacking&&model.p.packPlates&&p.packPlates?plateRows(model.plates):null;
+ building=engine.call('build',{key,params:p,plates}).then(m=>({m}),error=>({error})).then(({m,error})=>{building=null;
   if(rebuild){rebuild=false;return generate();}
   if(error){showError(error);return null;}
   m.key=key;apply(m);return m;});
  return building;
 }
-function showError(e){valid=false;$('error').hidden=false;$('error').textContent=e.message+(model?' The preview shows the last valid model.':'');$('fit-badge').textContent='Needs adjustment';$('fit-badge').className='badge bad';buttons();}
+function showError(e){valid=false;$('error').hidden=false;$('error').textContent=readable(e.message)+(model?' The preview shows the last valid model.':'');$('fit-badge').textContent='Needs adjustment';$('fit-badge').className='badge bad';buttons();}
 function apply(next){
- model=next;const p=model.p;
+ model=next;const p=model.p;lastGood=Object.fromEntries(Object.keys(defaults).map(k=>[k,p[k]]));saveBed(p);if(model.arrangementLost)flash('The hand arrangement no longer fits, so the plates were packed again.');
  const fitted=model.parts.find(q=>q.kind==='clip'||q.id.startsWith('seam-lever-lever'));
  $('clip-result').textContent=model.connectionCounts?`${model.connectionCounts.clip} clip stations · ${model.connectionCounts.lever[3]+model.connectionCounts.lever[4]} lever stations`:usesClips(p)?`Jaw strain ${(100*clipStrain(p)).toFixed(2)}% of ${p.clipAllowableStrain}% · ${fitted.installed} clips + ${fitted.spares} spares`:usesLevers(p)?`${fitted.installed} lever sets + ${fitted.spares} spares for Ø${fitted.spec.hole_d} holes`+(model.boltStations?` · ${model.boltStations} junction stations take M${p.seamBolt} bolts`:''):'';
  $('mount-result').textContent=model.mount?.tripod?tripodResult(model.mount.tripod):model.mount?`Clearance below the ${model.mount.base?'base':'yoke plate'}: ${model.mount.standClearance.toFixed(1)} mm now · ${model.mount.sweepStandClearance.toFixed(1)} mm over ${model.mount.elevationRange[0]}…${model.mount.elevationRange[1]}°`:'';
@@ -77,7 +106,7 @@ function apply(next){
  $('feed-result').textContent=model.feed?.bowl?collectorResult(model):model.feed?`${p.feedLegs} rods Ø${+model.feed.rodDiameter.toFixed(4)} × ${model.feed.cutLength.toFixed(1)} mm · ${model.feed.rodAngle.toFixed(1)}° · carrier z ${model.feed.carrierFace.toFixed(1)} mm`+(model.feed.secondary?` · secondary Ø${(2*model.feed.secondary.radius).toFixed(1)} mm`:'')+(model.feed.lambda?` · RMS target ${model.feed.surfaceRmsBudget.toFixed(3)} mm`:''):'';
  valid=!queued;plateDirty=false;workspaceUI?.update();renderPlates();
  if(viewer?.mode==='layout')$('view-caption').textContent=p.packPlates?'Packed print beds · all quantities':'Individual print beds';
- $('packing-result').textContent=p.packPlates?model.plates.length+(model.plates.length===1?' shared bed':' shared beds'):'';
+ packingResult();
  const screw=seamBolt(p).screw.replace(' socket head','');
  $('hardware-type').textContent=model.connectionCounts?'Mixed connections · see the joint map and hardware schedule':[`${screw} seams`,'Snap-clip seams',`${screw} or clip seams`,`Seam levers${model.boltStations?' + '+model.boltStations+' × '+screw:''}`][p.seamJoint]+(p.rootThrough?` · ${model.rootScrew} roots · nuts and washers`:` · ${model.rootScrew} roots · short M${p.rootBolt} inserts`);
  $('mount-style').textContent=p.mountThrough?`Ø${+(FASTENER[p.mountBolt].clear+.1).toFixed(1)} through holes · M${p.mountBolt} nuts`:`Blind M${p.mountBolt} mount inserts`;$('mount-pattern').textContent=`4 × M${p.mountBolt} / 60 mm BCD`;
@@ -87,9 +116,12 @@ function apply(next){
  $('count-stat').innerHTML=`${model.parts.reduce((s,q)=>s+q.qty,0)} <small>/ ${model.parts.length} unique</small>`;
  $('volume-stat').innerHTML=`${(model.parts.reduce((s,q)=>s+volume(q.mesh)*q.qty,0)/1000).toFixed(0)} <small>cm³</small>`;
  $('bolts').textContent=model.bolts;
+ const focused=document.activeElement?.closest?.('#parts .part-row')?.dataset.id;
  $('parts').replaceChildren(...model.parts.map(q=>{const b=document.createElement('button');b.className='part-row '+q.kind;b.dataset.id=q.id;if(q.printIncluded===false)b.dataset.excluded='';b.setAttribute('aria-pressed','false');b.innerHTML=`<span class="part-swatch" aria-hidden="true"></span><span class="part-name">${q.name}<small>${q.dim.map(x=>x.toFixed(1)).join(' × ')} mm</small></span><span class="qty">×${q.qty}</span>`;b.onclick=()=>select(q.id);return b;}));
- selected='';if(viewer){viewer.selected='';viewer.jointSelection=null;viewer.setModel(model);}
- profile(model);$('selected-info').textContent='Select a part';buttons();
+ // the selection and keyboard focus survive a rebuild when the part still exists
+ if(!model.parts.some(q=>q.id===selected))selected='';if(focused)[...$('parts').children].find(b=>b.dataset.id===focused)?.focus();
+ if(viewer){viewer.jointSelection=null;viewer.setModel(model);}
+ profile(model);showSelection();
  if(firstModel){firstModel=false;document.body.dataset.ready='true';}
 }
 function schedule(){valid=false;queued=true;buttons();clearTimeout(timer);timer=setTimeout(generate,260);}
@@ -98,8 +130,8 @@ $('parameters').addEventListener('submit',e=>e.preventDefault());
 const geometryKeys=['diameter','fd','sectors','rows','segmentGoal','staggerRings','bedX','bedY','bedZ','feedMode','feedLegs'];
 for(const k in defaults){$(k).addEventListener('input',()=>{if($(k+'-range'))$(k+'-range').value=$(k).value;if(k.startsWith('bed'))syncBed();if(geometryKeys.includes(k))workspaceUI.geometryChanged();optionUI();schedule();});if($(k+'-range'))$(k+'-range').addEventListener('input',()=>{$(k).value=$(k+'-range').value;if(geometryKeys.includes(k))workspaceUI.geometryChanged();schedule();});}
 $('bedPreset').addEventListener('change',()=>{if($('bedPreset').value==='custom')return;const [x,y,z]=$('bedPreset').value.split(',');$('bedX').value=x;$('bedY').value=y;$('bedZ').value=z;workspaceUI.geometryChanged();generate();});
-$('reset').onclick=()=>{workspaceUI.reset();setFields(defaults);generate();};$('home').onclick=()=>viewer?.reset();
-for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{for(const x of document.querySelectorAll('[data-view]')){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',x===b?'true':'false');}$('explosion-control').hidden=b.dataset.view!=='exploded';$('view-caption').textContent=b.dataset.view==='layout'?(model?.p.packPlates?'Packed print beds · all quantities':'Individual print beds'):'';if(viewer){viewer.mode=b.dataset.view;if(viewer.mode==='layout'){viewer.pan=[0,0];viewer.pitch=.85;viewer.yaw=0;viewer.zoom=1;}else viewer.reset();viewer.rebuild();}};
+$('reset').onclick=()=>{workspaceUI.reset();setFields({...defaults,bedX:lastGood.bedX,bedY:lastGood.bedY,bedZ:lastGood.bedZ});generate();};$('home').onclick=()=>viewer?.reset();
+for(const b of document.querySelectorAll('[data-view]'))b.onclick=()=>{for(const x of document.querySelectorAll('[data-view]')){x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',x===b?'true':'false');}$('explosion-control').hidden=b.dataset.view!=='exploded';$('view-caption').textContent=b.dataset.view==='layout'?(model?.p.packPlates?'Packed print beds · all quantities':'Individual print beds'):'';if(viewer){viewer.mode=b.dataset.view;viewer.reset();viewer.rebuild();}};
 $('rear-view').onclick=()=>{document.querySelector('[data-view=assembled]').click();if(viewer){viewer.pitch=2.3;viewer.draw();}};
 $('pan-view').onclick=()=>{if(viewer){viewer.navigation=viewer.navigation==='pan'?'orbit':'pan';$('pan-view').setAttribute('aria-pressed',String(viewer.navigation==='pan'));}};
 $('focus').onchange=()=>{if(viewer){viewer.focus=$('focus').checked;viewer.rebuildOverlays();}};$('wire').onchange=()=>{if(viewer){viewer.wire=$('wire').checked;viewer.rebuild();}};$('explosion').oninput=()=>{if(viewer){viewer.explode=Number($('explosion').value);viewer.requestDraw();}};
@@ -151,7 +183,7 @@ $('guide-close').onclick=()=>$('guide').close();
 $('guide').addEventListener('close',()=>{$('guide-toggle').setAttribute('aria-expanded','false');$('guide-toggle').focus();});
 
 workspaceUI=setupWorkspace({changed:generate,getModel:()=>model,showJoint:j=>{if(viewer){viewer.jointSelection=j.parts||[{part:j.part||'hub',angle:j.angle||0}];viewer.draw();}}});
-setFields(defaults);generate();
+setFields({...defaults,...savedBed()});generate();
 // Optional browser agent interface; it shares the visible form and generation path.
 if(document.modelContext?.registerTool){const abort=new AbortController();window.addEventListener('pagehide',()=>abort.abort(),{once:true});const register=t=>{try{Promise.resolve(document.modelContext.registerTool(t,{signal:abort.signal})).catch(()=>{});}catch{}};
 register({name:'inspect_dish_geometry',description:'Read the current valid dish dimensions, print parts and quantities. Does not download files.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:false},async execute(){return valid?await fromEngine('manifest'):{error:'The form has invalid settings.'};}});
@@ -160,8 +192,14 @@ register({name:'configure_dish_geometry',description:'Update geometric and print
 function renderPlates(){
  $('plate-editor').hidden=!model.p.packPlates;
  $('plate-status').textContent='';
- $('plate-rows').replaceChildren(...plateRows(model.plates).map(r=>{const el=document.createElement('fieldset');el.className='plate-copy';el.dataset.copy=r.copy;const title=document.createElement('legend');title.textContent=r.copy.replace(':',' · copy ');el.append(title);for(const [key,title]of [['plate','Plate'],['x','X mm'],['y','Y mm'],['yaw','Rotation °']]){const label=document.createElement('label'),input=document.createElement('input');label.textContent=title;input.type='number';input.dataset.key=key;input.value=r[key];input.step=key==='plate'?'1':'any';if(key==='plate')input.min=1;label.append(input);el.append(label);}return el;}));
+ $('plate-rows').replaceChildren(...plateRows(model.plates).map(r=>{const el=document.createElement('fieldset');el.className='plate-copy';el.dataset.copy=r.copy;const title=document.createElement('legend');title.textContent=`${model.parts.find(q=>q.id===r.part)?.name??r.part} · copy ${r.copy.split(':')[1]}`;el.append(title);for(const [key,title]of [['plate','Plate'],['x','X mm'],['y','Y mm'],['yaw','Rotation °']]){const label=document.createElement('label'),input=document.createElement('input');label.textContent=title;input.type='number';input.dataset.key=key;input.value=r[key];input.step=key==='plate'?'1':'any';if(key==='plate')input.min=1;label.append(input);el.append(label);}return el;}));
 }
-$('apply-plates').onclick=()=>{if(!valid||busy)return;try{const rows=[...$('plate-rows').children].map(el=>({copy:el.dataset.copy,...Object.fromEntries([...el.querySelectorAll('input')].map(i=>[i.dataset.key,i.value.trim()===''?NaN:Number(i.value)]))}));const plates=manualPlates(model.parts.filter(p=>p.printIncluded!==false),model.p,rows);model.plates=plates;model.manualPacking=true;plateDirty=false;buttons();renderPlates();$('plate-status').textContent='Arrangement applied to the preview and exports.';$('packing-result').textContent=plates.length+' beds · manual arrangement';viewer?.setModel(model);document.querySelector('[data-view=layout]').click();}catch(e){$('plate-status').textContent=e.message+' The previous arrangement is kept.';}};
-$('auto-plates').onclick=()=>{if(!valid||busy)return;model.plates=packAll(model.parts,model.p);model.manualPacking=false;plateDirty=false;buttons();renderPlates();$('packing-result').textContent=model.plates.length+' shared beds · automatic';viewer?.setModel(model);};
+// Typed arrangements are checked in the engine, where the parts' footprints are cached, so the page stays responsive.
+$('apply-plates').onclick=async()=>{if(!valid||busy)return;const rows=[...$('plate-rows').children].map(el=>({copy:el.dataset.copy,...Object.fromEntries([...el.querySelectorAll('input')].map(i=>[i.dataset.key,i.value.trim()===''?NaN:Number(i.value)]))})),key=model.key;
+ busy=true;buttons();$('plate-status').textContent='Checking the arrangement…';let checked;
+ try{checked=await engine.call('plates',{key,plates:rows});}catch(e){$('plate-status').textContent=e.message+' The previous arrangement is kept.';return;}finally{busy=false;buttons();}
+ if(model.key!==key)return;try{model.plates=manualPlates(printed(model),model.p,checked,true);}catch(e){$('plate-status').textContent=e.message;return;}
+ model.manualPacking=true;plateDirty=false;buttons();renderPlates();$('plate-status').textContent='Arrangement applied to the preview and exports.';packingResult();viewer?.setModel(model);document.querySelector('[data-view=layout]').click();};
+$('auto-plates').onclick=async()=>{if(!valid||busy)return;const key=model.key;busy=true;buttons();let rows;try{rows=await engine.call('pack',{key});}catch(e){$('plate-status').textContent=e.message;return;}finally{busy=false;buttons();}if(model.key!==key)return;
+ try{model.plates=manualPlates(printed(model),model.p,rows,true);}catch(e){$('plate-status').textContent=e.message;return;}model.manualPacking=false;plateDirty=false;buttons();renderPlates();packingResult();viewer?.setModel(model);};
 $('plate-rows').addEventListener('input',()=>{plateDirty=true;buttons();$('plate-status').textContent='Unapplied edits. Apply or reset before exporting.';});

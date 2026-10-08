@@ -14,7 +14,8 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(['openscad', '-o', str(out), '-D', 'part="matrices"', str(SCAD)], check=True, capture_output=True)
     INFO = {k: json.loads(v) for k, v in re.findall(r'ECHO: (\w+) = (.*)', out.read_text())}
 base_t, yoke_t, Z_el, L, plate_t, cr_in, cr_out, up_in, up_out, cap_r = INFO['FRAME']
-ins_d, ins_deep, ins_len, cs4_d, up_len, ch_len, n_up, n_ch, ch_x = INFO['JOINT']
+ins_d, ins_deep, ins_len, cb4_d, up_len, ch_len, n_up, n_ch, ch_x = INFO['JOINT']
+cb4_h, cb5_d, cb5_h, step = INFO['COUNTERBORE']
 arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len = INFO['ARC']
 inset, fit, lead, ch_shoulder = INFO['INSET']
 gus_w, gus_h, gus_len = INFO['GUSSET']
@@ -83,17 +84,17 @@ def contact(a, b, d): return vol(place(a, T(np.array(d) * 0.2)), b) / 0.2
 az_bolt = place(cyl(4, 25), T([0, 0, top + 1.6 - 12.5]))
 az_head = place(cyl(8, 9.6), T([0, 0, top + 4.8]))
 # elevation: M8 x 40 hex bolt, head in the cheek's pocket (cradle frame); fender washer Ø30 and a DIN 315 wing nut
-# (wings Ø39) outside the upright, modelled as their swept envelope
+# (wings Ø39) outside the upright, modeled as their swept envelope
 el_bolt0 = along_x(cone(4, 4, 40), cr_in + m8_head) + along_x(place(hexp(13, 5.3), T([0, 0, 2.65])), cr_in + 0.2)
 el_wing = along_x(cone(15, 15, 1.6), up_out) + along_x(cone(19.5, 19.5, 20), up_out + 1.6)
-# joint screws: ISO 10642 flat-heads (head Ø8.96 x 2.48) with the head top exactly flush with the face
-def flathead(length, r_head=4.48, k=2.48, r=2.0): return cone(r_head, r, k) + cone(r, r, length)
+# joint screws: ISO 4762 socket heads (M4: head Ø7 x 4) in counterbores, head 0.5 mm below the face; length under the head
+def capscrew(length, r_head=3.5, k=4.0, r=2.0, sink=0.5): return place(cone(r_head, r_head, k), T([0, 0, sink])) + place(cone(r, r, length), T([0, 0, sink + k]))
 def insert_at(length): return cone(ins_d / 2 - 0.05, ins_d / 2 - 0.05, length)
-up_scr = union([place(flathead(up_len), T([x, y, yoke_z])) for x, y in INFO['UP_SCREWS']])            # world
+up_scr = union([place(capscrew(up_len), T([x, y, yoke_z])) for x, y in INFO['UP_SCREWS']])            # world
 up_ins = union([place(insert_at(ins_len), T([x, y, top - inset + 0.5])) for x, y in INFO['UP_SCREWS']])   # seated 0.5 below the tenon face
 up_ring = union([place(cone(4.8, 4.8, ins_len) - cone(ins_d / 2, ins_d / 2, ins_len), T([x, y, top - inset])) for x, y in INFO['UP_SCREWS']])
 to_minus_y = Rx(90)   # +Z -> -Y
-ch_scr = union([place(flathead(ch_len), T([ch_x, L, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])   # cradle frame
+ch_scr = union([place(capscrew(ch_len), T([ch_x, L, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])   # cradle frame
 ch_ins = union([place(insert_at(ins_len), T([ch_x, L - plate_t + inset - 0.5, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])
 ch_ring = union([place(cone(4.8, 4.8, ins_len) - cone(ins_d / 2, ins_d / 2, ins_len), T([ch_x, L - plate_t + inset, z]) @ to_minus_y) for z in INFO['CH_SCREWS']])
 # hub bolts behind the cradle plate: M4 socket head Ø7 x 4 on a Ø9 x 1 washer, shank through the plate (cradle frame)
@@ -105,8 +106,8 @@ arc_head = place(along_x(place(hexp(10, 4), T([0, 0, 2])), cr_in + 0.3), T([0, a
 arc_shaft = place(along_x(cone(3, 3, arc_len), cr_in + 0.3 + 4), T([0, ay, az_]))
 arc_out = place(along_x(cone(6, 6, 1.6) + place(hexp(10, 8), T([0, 0, 1.6 + 4])), up_out), T([0, ay, az_]))
 arc_hw0 = arc_head + arc_shaft + arc_out
-# stand screws (no base): M5 flat-heads (head Ø11 x 3) flush with the yoke top, into the stand below
-st_scr = union([place(cone(5.5, 2.5, 3) + cone(2.5, 2.5, 30), T([x, y, top]) @ Rx(180)) for x, y in INFO['STAND']])
+# stand screws (no base): M5 socket heads (Ø8.5 x 5) in the yoke top's counterbores, into the stand below
+st_scr = union([place(capscrew(30, 4.25, 5.0, 2.5), T([x, y, top]) @ Rx(180)) for x, y in INFO['STAND']])
 
 # dish envelope: hub, then the seam flanges and bolts (17 mm behind the front)
 prof = [(0, zAt(45) - 16), (60, zAt(45) - 16)] + [(r, zAt(r) - 17) for r in range(60, 201, 10)] + [(r, zAt(r)) for r in range(200, -1, -10)]
@@ -125,7 +126,7 @@ for nm, yk, up, ck in (("default", yoke, upright, cheek0), ("arc lock", yoke, up
     ov = vol(up, yk) + vol(ck, cradle0)
     check(cu > 1500 and cc > 600 and ov < 0.5, f"{nm}: upright sits flush on the yoke plate ({cu/100:.1f} cm²), cheek flush on the cradle plate ({cc/100:.1f} cm²), overlap {ov:.2f} mm³")
     v = [vol(up_scr, yk), vol(up_scr, up), vol(ch_scr, cradle0), vol(ch_scr, ck), vol(up_ins, up), vol(ch_ins, ck)]
-    check(max(v) < 0.5, f"{nm}: {n_up} x M4 x {up_len} and {n_ch} x M4 x {ch_len} flat-heads seat with heads flush and stop short of the pilot ends; inserts fit their pilots (max overlap {max(v):.2f} mm³)")
+    check(max(v) < 0.5, f"{nm}: {n_up} x M4 x {up_len} and {n_ch} x M4 x {ch_len} socket heads sit 0.5 mm below the face in their counterbores and stop short of the pilot ends; inserts fit their pilots (max overlap {max(v):.2f} mm³)")
 def plane_area(n, M, normal, axis, value):   # area of the part's faces lying in a plane, in the assembly frame
     m = P[n].copy().apply_transform(np.linalg.inv(np.array(INFO[M])))
     sel = (m.face_normals @ np.array(normal) > 0.999) & (abs(m.triangles_center[:, axis] - value) < 1e-3)
@@ -205,10 +206,10 @@ ang = np.radians(np.arange(0, 360, 2))
 pr = np.array([[r * np.cos(a), L - y, r * np.sin(a)] for a in ang for r in (48.2, 52.5, 56.8) for y in (0.5, 2.5, 4.5)])
 check(not cr.contains(pr).any() and not ck.contains(pr).any(), "cradle + cheek: root nut and washer band (r 48-57, 4.5 mm behind the hub) clear")
 pts = np.array([[ch_x, L + 0.01, z] for z in INFO['CH_SCREWS']])
-check(not cr.contains(pts).any() and all(math.hypot(ch_x, z) + cs4_d / 2 < 47 - 0.6 and math.hypot(ch_x, z) - cs4_d / 2 > 17 + 1 and
-          min(math.hypot(ch_x - 30 * math.cos(math.radians(a)), z - 30 * math.sin(math.radians(a))) for a in (45, 135, 225, 315)) - cs4_d / 2 - 2.25 > 2
+check(not cr.contains(pts).any() and all(math.hypot(ch_x, z) + cb4_d / 2 < 47 - 0.6 and math.hypot(ch_x, z) - cb4_d / 2 > 17 + 1 and
+          min(math.hypot(ch_x - 30 * math.cos(math.radians(a)), z - 30 * math.sin(math.radians(a))) for a in (45, 135, 225, 315)) - cb4_d / 2 - 2.25 > 2
           for z in INFO['CH_SCREWS']),
-      "cradle: joint countersinks on the hub face sit between the port, the hub bolts and the rim (≥ 1 mm / 2 mm / 0.6 mm), heads flush")
+      "cradle: joint counterbores on the hub face sit between the port, the hub bolts and the rim (≥ 1 mm / 2 mm / 0.6 mm), heads below the face")
 
 # ---- arc lock ----
 print("-- arc lock")
@@ -231,7 +232,7 @@ check(min(ce) > 2000, f"arc lock: clamp face contact {min(ce)/100:.0f}–{max(ce
 # ---- no base: stand holes ----
 print("-- no base")
 v = [vol(st_scr, yoke_s), vol(st_scr, upright), vol(st_scr, up_scr)]
-check(max(v) < 0.5, f"4 x M5 flat-heads seat flush in the yoke plate's top countersinks, clear of the upright and joint screws ({max(v):.2f} mm³)")
+check(max(v) < 0.5, f"4 x M5 socket heads sit below the yoke plate's top in their counterbores, clear of the upright and joint screws ({max(v):.2f} mm³)")
 drv = union([place(cyl(5, 300), T([x, y, top + 150.2])) for x, y in INFO['STAND']])
 d0 = vol(drv, upright + yoke_s); d1 = [th for th in (EL_RANGE[0], 0, 30, 60, 90) if vol(drv, upright + yoke_s + at_el(cradle0 + cheek0 + dish0, th)) < 0.5]
 check(d0 < 0.5, f"stand screws: a Ø10 driver reaches every head straight down with the upright fitted ({d0:.2f} mm³); with the dish fitted at el {d1}")

@@ -43,7 +43,7 @@ try{
   assert.equal(run.status,0,run.stderr);
   solidScope(()=>{const {body}=mountSolid(part,{...defaults,...sizes}),ref=solid(readSTL(output)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();assert(diff<.5,`${part}: SCAD and app cuts differ by ${diff} mm³`);console.log('PASS simple-mount.scad sizes match the app cuts',part,D,'differ',diff.toFixed(3),'mm³');});}
  // plain holes: SCAD switches against the app's seat options
- for(const [variant,part,D,cfg] of [['cheek-arc','cheek',{arc_lock:'true',head_pockets:'false'},{headSeat:1}],['base','base',{nut_pocket:'false',clamp_m:10},{nutSeat:1,clampBolt:10}],['yoke-stand','yoke',{stand_holes:'true',stand_countersink:'false',stand_m:6},{standSeat:1,standBolt:6}]]){const output=path.join(dir,variant+'-plain.stl');
+ for(const [variant,part,D,cfg] of [['cheek-arc','cheek',{arc_lock:'true',head_pockets:'false'},{headSeat:1}],['base','base',{nut_pocket:'false',clamp_m:10},{nutSeat:1,clampBolt:10}],['yoke-stand','yoke',{stand_holes:'true',stand_counterbore:'false',stand_m:6},{standSeat:1,standBolt:6}]]){const output=path.join(dir,variant+'-plain.stl');
   const run=spawnSync('openscad',['--export-format','binstl','-o',output,'-D',`part="${part}"`,'-D','printing=true',...Object.entries(D).flatMap(([k,v])=>['-D',`${k}=${v}`]),'cad/simple-mount.scad'],{encoding:'utf8',timeout:300000});
   assert.equal(run.status,0,run.stderr);
   solidScope(()=>{const {body}=mountSolid(variant,{...defaults,...cfg}),ref=solid(readSTL(output)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();assert(diff<.5,`${variant}: SCAD and app plain holes differ by ${diff} mm³`);console.log('PASS simple-mount.scad plain holes match the app',variant,D,'differ',diff.toFixed(3),'mm³');});}

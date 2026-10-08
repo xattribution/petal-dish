@@ -22,12 +22,12 @@ for(const f of fs.readdirSync('cad/STL/blank'))assert(mountMeshes[f.slice(7,-4)]
  for(const [m,clear] of [[3,3.4],[4,4.5],[5,5.5]]){assert(probe('cradle',{mountBolt:m},[21.2132,62,21.2132],[21.2132,76,21.2132],clear/2-.05)<.01,'M'+m+' hub hole');assert(probe('cradle',{mountBolt:m},[21.2132,62,21.2132],[21.2132,76,21.2132],clear/2+.3)>1,'M'+m+' hub hole is not oversize');
   assert(probe('yoke',{jointBolt:m},[48,32,15],[48,32,23],clear/2-.05)<.01,'M'+m+' joint hole');}
  for(const [m,clear] of [[4,4.5],[6,6.6]])assert(probe('base',{standBolt:m},[31.11,31.11,-1],[31.11,31.11,8],clear/2-.05)<.01,'M'+m+' stand hole');
- // Plain holes instead of the nut pocket, the cheek's head pockets and the stand countersinks.
+ // Plain holes instead of the nut pocket, the cheek's head pockets and the stand counterbores.
  const solidAround=(variant,cfg,a,b,r)=>probe(variant,cfg,a,b,r);
  assert(solidAround('base',{},[0,0,1],[0,0,5],6)<20&&solidAround('base',{nutSeat:1},[0,0,1],[0,0,5],6)>200,'azimuth nut pocket or plain hole');
  assert(solidAround('cheek',{},[26.5,0,0],[30,0,0],6)<20&&solidAround('cheek',{headSeat:1},[26.5,0,0],[30,0,0],6)>150,'elevation head pocket or plain hole');
  {const y=28*Math.cos(-20*Math.PI/180),z=28*Math.sin(-20*Math.PI/180);assert(solidAround('cheek-arc',{},[26.5,y,z],[29,y,z],4.5)<20&&solidAround('cheek-arc',{headSeat:1},[26.5,y,z],[29,y,z],4.5)>60,'arc lock head pocket or plain hole');}
- assert(solidAround('yoke-stand',{},[20,45,22.5],[20,45,23.9],5)<20&&solidAround('yoke-stand',{standSeat:1},[20,45,22.5],[20,45,23.9],5)>60,'stand countersink or plain hole');
+ assert(solidAround('yoke-stand',{},[20,45,22.5],[20,45,23.9],5)<20&&solidAround('yoke-stand',{standSeat:1},[20,45,22.5],[20,45,23.9],5)>60,'stand counterbore or plain hole');
  console.log('PASS mount holes follow the selected bolt sizes and seats');}
 import {build,defaults,connectionCoupon,clipStrain,hardwareSchedule,binarySTL} from '../dist/geometry.js';
 import {bounds} from '../dist/mesh.js';
@@ -69,3 +69,15 @@ assert(100*clipStrain(defaults)<defaults.clipAllowableStrain);
  assert(guide(build({mountMode:1,mountBase:2})).includes('Leg sockets'));
  console.log('PASS tripod sockets, bolt sizes, leg length and leg clearance');}
 console.log('PASS strain gate, unique coupons and clip orientation');
+// Hub-to-mount through bolts: grip from the hub rear to the nut in the front seat, or on top of a collector mast foot.
+{const {mountScrew,mountGrip,hubMountGrip,rootBottom}=await import('../dist/geometry.js');
+ const plain=build({}),collector=build({feedMode:3}),t=collector.feed.mast,row=m=>hardwareSchedule(m).find(r=>r.item==='external mount screw');
+ assert.equal(mountGrip(plain),hubMountGrip(plain.p,plain.layout.n));assert.equal(mountScrew(plain),Math.ceil(mountGrip(plain)+2*.8+3.2+1.5),'M4: two 0.8 mm washers and a 3.2 mm nut');
+ assert(Math.abs(mountGrip(collector)-(t.footZ+t.flange-(rootBottom(collector.p)-6)))<1e-9,'collector: hub rear to the top of the foot flange');
+ assert(mountScrew(collector)>=mountScrew(plain)+t.flange,'the foot flange adds to the grip');
+ assert(row(collector).note.includes('collector mast foot')&&row(collector).spec.includes(`× ${Math.ceil((mountScrew(collector)+12)/5)*5} `));
+ assert(guide(collector).includes(`on top of the ${t.flange} mm collector mast foot`)&&guide(collector).includes(`as ${mountScrew(collector)} mm plus`));
+ assert(guide(build({rootThrough:1,mountThrough:1,feedMode:1})).includes('The petal roots and hub mount need no heat-set inserts (the feed support has its own M3 inserts).'));
+ // the arc lock with the largest clamp bolt: every mount part closed
+ const arc=build({mountMode:1,mountArcLock:1,clampBolt:10});for(const part of arc.parts.filter(p=>p.kind==='mount')){const es=new Map();for(const f of part.mesh.f)for(let i=0;i<3;i++){const a=f[i],b=f[(i+1)%3],k=Math.min(a,b)+':'+Math.max(a,b);es.set(k,(es.get(k)||0)+1);}assert([...es.values()].every(n=>n===2),part.id+' closed');}
+ console.log('PASS hub mount bolt lengths with and without the collector foot, insert wording, M10 clamp with the arc lock');}

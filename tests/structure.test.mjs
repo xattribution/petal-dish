@@ -9,6 +9,13 @@ import {kit,manifest} from '../dist/exports.js';
 const rotate=a=>q=>[Math.cos(a)*q[0]-Math.sin(a)*q[1],Math.sin(a)*q[0]+Math.cos(a)*q[1],q[2]];
 function checkMesh(mesh,name){const edges=new Map();for(const f of mesh.f)for(let i=0;i<3;i++){const a=f[i],b=f[(i+1)%3],key=[Math.min(a,b),Math.max(a,b)].join(':'),e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);}assert([...edges.values()].every(([n,w])=>n===2&&w===0),name+' manifold topology');assert(volume(mesh)>0,name+' positive volume');}
 fs.mkdirSync('/tmp/petal5-validation',{recursive:true});
+// Packing clearance, checked independently of the packer's grid footprints: slice each pair of parts on a plate every
+// 1 mm up their shared height, grow each section by just under half the 6 mm gap and require that they never meet.
+function plateClearance(m){solidScope(()=>{for(const[pi,plate]of m.plates.entries()){
+ const placed=plate.placements.map(x=>{const c=Math.cos(x.yaw*Math.PI/180),s=Math.sin(x.yaw*Math.PI/180),out=x.part.output,body=solid({v:out.v.map(([X,Y,Z])=>[c*X-s*Y+x.x,s*X+c*Y+x.y,Z]),f:out.f});return{copy:x.copy,body,box:body.raw.boundingBox()};});
+ for(let i=0;i<placed.length;i++)for(let j=0;j<i;j++){const A=placed[i],B=placed[j];if([0,1].some(k=>A.box.min[k]>B.box.max[k]+6||B.box.min[k]>A.box.max[k]+6))continue;
+  for(let z=.5;z<Math.min(A.box.max[2],B.box.max[2]);z+=1){const a=A.body.raw.slice(z),b=B.body.raw.slice(z),ga=a.offset(2.95,'Round',2,32),gb=b.offset(2.95,'Round',2,32),both=ga.intersect(gb),area=both.area();for(const x of [a,b,ga,gb,both])x.delete();
+   assert(area<1e-6,`packing clearance: ${A.copy} and ${B.copy} closer than 6 mm at z = ${z} on plate ${pi+1}`);}}}});}
 const cases=[{}, {rearStyle:1},{diameter:260},{diameter:600},{diameter:800,bedX:300,bedY:300,bedZ:300},{diameter:400,sectors:8,rows:2},{fd:.25},{fd:.8},{thickness:1.6},{thickness:6},{bedZ:120},{rearStyle:1,facetSize:30,resolution:10},{mountThrough:0},{rootThrough:1,hubFlat:0},{rootThrough:1,rootSeat:1,mountSeat:1,rootBolt:5},{rootThrough:1,rootSeat:1,mountSeat:1,hubFlat:0},{hubFloat:.3,rootThrough:1},{seamJoint:1},{seamJoint:1,clipDetent:2,clipAllowableStrain:7},{seamJoint:2,diameter:600},{seamJoint:1,diameter:800,rows:3,sectors:8,bedX:300,bedY:300,bedZ:300,feedMode:1,feedLegs:4},{diameter:600,staggerRings:0},{seamBolt:4},{seamJoint:2,seamBolt:4,diameter:600},{seamJoint:3},{seamJoint:3,seamBolt:4,diameter:600,rows:2,bedX:300,bedY:300,bedZ:300},{diameter:800,rows:3,sectors:8,bedX:300,bedY:300,bedZ:300}];
 cases.push({fd:.25,seamBolt:4},{diameter:260,fd:.25,seamBolt:4},{diameter:600,fd:.8,seamBolt:4,bedX:300,bedY:300,bedZ:300},{diameter:1200,fd:.25,bedX:400,bedY:400,bedZ:400},{diameter:1200,fd:.8,bedX:400,bedY:400,bedZ:400});
 for(const[c,cfg]of cases.entries()){
@@ -62,12 +69,12 @@ for(const[c,cfg]of cases.entries()){
   assert(hub.intersect(cylinder(at(e+.02,-5,top+.05),at(e+.02,5,top+.05),.01,8)).raw.volume()<1e-6&&hub.intersect(cylinder(at(e-.05,-5,top+.5),at(e-.05,5,top+.5),.01,8)).raw.volume()>0,'hub edge at the clearance line');
   const x=52.5*u[0],y=52.5*u[1];assert(hub.intersect(cylinder([x,y,top-7],[x,y,top+1],rootHole(m.p).hubR+(m.p.hubFloat||0)-.05,32)).raw.volume()<.001,'hub root hole with clearance');}}
  });
- assert.equal(m.plates.flatMap(p=>p.placements).length,m.parts.reduce((s,p)=>s+p.qty,0));for(const plate of m.plates){const boxes=plate.placements.map(p=>{const[x,y,w,h]=p.bounds;assert(x>=-1e-6&&y>=-1e-6&&x+w<=m.p.bedX-2*m.p.margin+1e-5&&y+h<=m.p.bedY-2*m.p.margin+1e-5);return[x,y,w,h];});for(let i=0;i<boxes.length;i++)for(let j=0;j<i;j++){const[a,b,w,h]=boxes[i],[x,y,W,H]=boxes[j];assert(a>=x+W+5.99||x>=a+w+5.99||b>=y+H+5.99||y>=b+h+5.99,'packing clearance');}}
+ assert.equal(m.plates.flatMap(p=>p.placements).length,m.parts.reduce((s,p)=>s+p.qty,0));for(const plate of m.plates){const boxes=plate.placements.map(p=>{const[x,y,w,h]=p.bounds;assert(x>=-1e-6&&y>=-1e-6&&x+w<=m.p.bedX-2*m.p.margin+1e-5&&y+h<=m.p.bedY-2*m.p.margin+1e-5);return[x,y,w,h];});}plateClearance(m);
  const coupon=connectionCoupon(m)[0];checkMesh(coupon.mesh,'coupon');assert.equal(coupon.qty,2);assert.equal(manifest(m).interface_revision,12);if(!m.p.seamJoint)assert.equal(hardwareSchedule(m)[0].quantity,m.parts.filter(part=>part.kind==='panel').reduce((sum,part)=>sum+part.qty*part.spec.flanges.reduce((n,f)=>n+f.stations.length,0),0)/2);
  console.log('PASS structure, closed solids, bed fit, mating, insertion, flat seats, root/hub fasteners, coupons and packing',cfg,m.layout);
 }
 const p={...defaults,rearStyle:1};for(let x=45;x<200;x+=3.1)for(let y=-80;y<80;y+=4.3){const ideal=(x*x+y*y)/(4*p.diameter*p.fd)-p.thickness,d=ideal-backZ(x,y,p);assert(d>=-1e-9&&d<=p.facetSize**2/(8*p.diameter*p.fd)+1e-9);}
-const m=build(defaults);assert.equal(m.plates.length,3,'two three-petal beds plus hub');fs.writeFileSync('/tmp/petal5-validation/default-kit.zip',Buffer.from(await kit(m).arrayBuffer()));
+const m=build(defaults);assert.equal(m.plates.length,2,'six nested petals and the hub on two beds');fs.writeFileSync('/tmp/petal5-validation/default-kit.zip',Buffer.from(await kit(m).arrayBuffer()));
 console.log('PASS tangent facet thickness bound and complete kit export');
 {const m=build({seamJoint:3,seamBolt:4}),man=manifest(m),files=await unzip(kit(m)),text=Object.keys(files).join('\n')+new TextDecoder().decode(files['ASSEMBLY.md']);
  assert.equal(man.seam_bolt,'M4');assert.equal(man.seam_levers.hole_mm,4.5);assert(man.parts.some(x=>x.file.startsWith('seam-lever-spring')&&x.material==='TPU 95A'));

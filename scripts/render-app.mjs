@@ -17,4 +17,8 @@ await page.click('[data-category=Connections]');
 await page.evaluate(()=>{const c=document.getElementById('canvas');c.dispatchEvent(new KeyboardEvent('keydown',{key:'+'}));});
 await page.waitForTimeout(800);
 fs.mkdirSync('docs/snapshots',{recursive:true});await page.screenshot({path:'docs/snapshots/app.png'});
-await browser.close();server.close();console.log('rendered docs/snapshots/app.png');
+// Print plates (docs/snapshots/plates.png): the default dish on 220 mm beds, its petals nested, Print tab open.
+await page.click('#reset');await page.waitForTimeout(400);await settle();
+await page.click('[data-category=Print]');await page.click('[data-view=layout]');await page.waitForTimeout(1200);
+await page.screenshot({path:'docs/snapshots/plates.png'});
+await browser.close();server.close();console.log('rendered docs/snapshots/app.png and plates.png');
