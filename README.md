@@ -80,6 +80,18 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 
 ![Print parts view: five petals nested on the first 220 mm bed, the sixth petal and the hub on the second, and an empty slot for a new bed](docs/snapshots/plates.png)
 
+### Sharing a design
+
+The button at the top right shows the design's **configuration ID**, such as `PX64-0211`. It covers every setting, joint choice and hand-placed plate, and it changes with any edit, so two people who see the same ID are looking at the same design.
+
+Click it to:
+
+- **Copy code** (for example `P1.wyFMlJFgv-EMhdpaAA`) or **Copy link**. Anyone who loads the code or opens the link gets the exact design. The address bar always holds the current link, so a reload keeps your design.
+- **Load** a code, a link, a saved file, or the `parameters.json` from a kit you already exported.
+- **Save** named designs in this browser, or **Save file** to keep one with a kit or move it to another device.
+
+Every assembly PDF shows the ID on each page and the full code on the build record page, and the kit's `parameters.json` holds both. A code from another PETAL version still loads, with a note that its parts may differ.
+
 ## Options at a glance
 
 | Choice | Options |
@@ -94,7 +106,7 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 | **Large dishes** | Staggered rings (default) · aligned rings |
 | **Printer** | Presets for the Prusa CORE One L (with or without the INDX tool changer), Bambu Lab H2D and H2C, common volumes, or any custom volume. The last valid volume is remembered in the browser |
 | **Print plates** | Copies share beds and keep 6 mm apart at every height (adjustable, for wider brims), so side-printed petals that lean the same way nest like spoons. In **Print parts**, drag a part onto another bed (or the empty slot after the last one): it lands in the nearest spot that fits, turning if it has to. Exact positions can also be typed in. **Largest dish** finds the biggest dish whose kit fits a number of plates on your printer, with any petal and ring count |
-| **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on 3 or 4 aluminum rods with generated cut lengths |
+| **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on aluminum rods with generated cut lengths: four with 8, 12 or 16 petals, three with 6, or a fixed count |
 | **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. The elevation clamp goes on the right, the left (a slip then tightens it) or both sides, a U with two clamps. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. Joint and stand screws are socket heads in counterbores. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or counterbores (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
 
 All seam hardware stays behind the reflecting face.

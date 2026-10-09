@@ -369,3 +369,16 @@ With the mount fitted on a 220 mm bed, two or three plates are refused with the 
 **Gap between parts.** The packing gap is now a setting (3–30 mm, default 6) so wide brims stay separate. The independent slice check in the structure tests uses the setting, and a 600 mm dish at a 16 mm gap is among its cases.
 
 **Printing large petals.** Research and settings for long ASA-GF, ASA-CF and PCTG prints are in PRINTING-LARGE-PETALS.md. No geometry change was made for warping: thickness mostly changes stiffness in use, and a cross rib would not shorten the long layer paths that drive warping.
+
+## Configuration codes and automatic rod count (2026-10-09)
+
+**Configuration codes.** `dist/config.js` turns a design into a code (`P1.` and deflated JSON in URL-safe base64) and an 8-character ID. The code holds every setting that differs from a frozen P1 baseline, joint overrides, accessories left off the plates and any hand arrangement of the plates. `tests/config.test.mjs` checks:
+
+- Exact round trips for plain settings, joint overrides, print selection and a hand-moved hub, through a real build: the rebuilt model gives the same code, rows and positions within 1e-6 mm.
+- Key order and float noise do not change the code or the ID, and 72 different settings give 72 different IDs.
+- Links, codes split over lines with text around them, saved files and kit `parameters.json` (with a code, or an older kit's parameters only) all load. Unknown settings are reported and skipped; out-of-range settings, damaged codes and codes from a newer format are refused with a reason.
+- A frozen fixture code made today still loads as the same design and ID.
+
+Typical lengths: the defaults are 11 characters, a 600 mm CORE One L dish 18, a 1000 mm dish with feed and U mount 49, and a 600 mm kit with a hand-moved hub 218. The UI test covers the header ID, copy, save, load from a code, the saved list, a file and a link, plus refusals. A Chromium run checked the clipboard, a link opened in a new tab (same ID), a reload keeping the design, and the header at 360, 390 and 1440 px wide with no horizontal scroll. The PDF check finds the ID on every page and the full code on the build record page.
+
+**Automatic rod count.** The default rod count is now automatic: four rods with 8, 12 or 16 petals and three with 6. Ten and fourteen petals cannot space rods evenly, so automatic segmentation skips them while a feed is on, and choosing them by hand is refused with a reason. A fixed count of 3 or 4 is still available. With automatic rods, a 1200 mm prime-focus or collector dish now builds on a 220 mm bed (16 petals × 3 rings, 4 rods, 580 mm and 659 mm cuts); the Cassegrain secondary is still larger than that bed.

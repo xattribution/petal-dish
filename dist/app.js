@@ -4,9 +4,12 @@ import {defaults,limits,validate,clipStrain,usesClips,usesLevers,seamBolt,FASTEN
 import {binarySTL,volume,plateRows,manualPlates} from './mesh.js';
 import {Viewer} from './viewer.js';
 import {startEngine} from './engine-client.js';
+import {modelConfig,configId,encodeConfig,isBaseline,readConfig,resolveConfig} from './config.js';
 const $=id=>document.getElementById(id);
 let model,viewer,selected='',timer,busy=false,valid=false,plateDirty=false,workspaceUI;
 let building=null,rebuild=false,firstModel=true,buildSeq=0,queued=false;
+// The configuration on screen ({cfg, id, code}) and a loaded hand arrangement waiting for its build.
+let shown=null,pendingRows=null;
 $('app-version').textContent=VERSION;$('app-version').title='Build '+BUILD_ID;$('build-info').textContent=`${VERSION} · ${BUILD_ID}`;document.title='PETAL '+VERSION;
 for(let n=6;n<=16;n+=2)$('sectors').add(new Option(`${n} petals`,String(n)));for(let n=1;n<=8;n++)$('rows').add(new Option(`${n} ring${n===1?'':'s'}`,String(n)));
 try{viewer=new Viewer($('canvas'));}catch(e){$('view-error').hidden=false;$('view-error').textContent=e.message;}
@@ -65,7 +68,7 @@ function optionUI(){
  $('plateGap').closest('label').hidden=!$('packPlates').checked;
  workspaceUI?.seamChanged();
 }
-function buttons(){$('fit-plates').disabled=busy;$('apply-plates').disabled=!valid||busy;$('auto-plates').disabled=!valid||busy;for(const id of ['export-all','export-scad','export-pdf'])$(id).disabled=!valid||busy||plateDirty;$('export-part').disabled=!valid||busy||plateDirty||!selected;}
+function buttons(){$('config-toggle').classList.toggle('stale',!valid);$('fit-plates').disabled=busy;$('apply-plates').disabled=!valid||busy;$('auto-plates').disabled=!valid||busy;for(const id of ['export-all','export-scad','export-pdf'])$(id).disabled=!valid||busy||plateDirty;$('export-part').disabled=!valid||busy||plateDirty||!selected;}
 // Cross-section: dish, prime focus and, with a secondary or collector bowl, its profile, F2 and four traced rays.
 function profile(m){
  const D=m.p.diameter,R=D/2,f=m.focal,b=m.feed?.bowl,s=m.feed?.secondary,sub=b?.profile??s?.profile,F2=b?b.insertFocus:s?.backFocus;
@@ -79,7 +82,7 @@ function profile(m){
  svg+=`<circle class="focus" cx="${cx}" cy="${Y(f)}" r="3"/><text x="${(cx+9+(b?b.radius*scale:0)).toFixed(2)}" y="${+Y(f)+4}">${sub?'F1':'focus'} ${f.toFixed(0)} mm</text>`;
  $('profile').innerHTML=svg;}
 const tripodResult=t=>`${t.poseClear?'':'The dish meets a leg at this pose · '}Legs ${t.minLegLength} mm or longer · feet on a Ø${Math.round(2*t.footRadius)} mm circle · M${t.bolt.size} × ${t.bolt.length} cross bolts · ${t.blocked?`dish clears the legs above ${t.clearFrom}°`:'dish clears the legs at every pose'}`;
-const collectorResult=m=>{const g=m.feed,b=g.bowl,t=g.mast;return `Bowl Ø${(2*b.radius).toFixed(1)} mm${b.waves?` (${b.waves.toFixed(1)} λ)`:''} · insert ±${b.insertAngle}° at ${b.apexToInsert.toFixed(1)} mm below the bowl · ${(100*b.blockage).toFixed(1)}% blockage · ${m.p.feedLegs} rods Ø${+g.rodDiameter.toFixed(4)} × ${g.cutLength.toFixed(1)} mm · ${t.tube?`mast Ø${+t.diameter.toFixed(3)} × ${t.cutLength.toFixed(1)} mm`:'printed pedestal'}`;};
+const collectorResult=m=>{const g=m.feed,b=g.bowl,t=g.mast;return `Bowl Ø${(2*b.radius).toFixed(1)} mm${b.waves?` (${b.waves.toFixed(1)} λ)`:''} · insert ±${b.insertAngle}° at ${b.apexToInsert.toFixed(1)} mm below the bowl · ${(100*b.blockage).toFixed(1)}% blockage · ${g.rodCount} rods Ø${+g.rodDiameter.toFixed(4)} × ${g.cutLength.toFixed(1)} mm · ${t.tube?`mast Ø${+t.diameter.toFixed(3)} × ${t.cutLength.toFixed(1)} mm`:'printed pedestal'}`;};
 function select(id){selected=id===selected?'':id;showSelection();}
 function showSelection(){for(const b of $('parts').children)b.setAttribute('aria-pressed',b.dataset.id===selected?'true':'false');const p=model?.parts.find(x=>x.id===selected);const facts=p?[p.dim.map(x=>x.toFixed(1)).join(' × ')+' mm · '+(volume(p.mesh)/1000).toFixed(1)+' cm³']:[];if(p?.kind==='panel'){if(p.wallRange)facts.push('Wall '+p.wallRange.map(x=>x.toFixed(1)).join('–')+' mm');facts.push('Side-printed · bed rotation '+p.bedRotation+'°');}else if(p?.gripRange)facts.push('Grip '+p.gripRange.map(x=>x.toFixed(1)).join('–')+' mm');if(p&&p.printIncluded===false)facts.push('Left off the plates and STL export');$('selected-info').textContent=p?facts.join('\n'):'Select a part';if(viewer){viewer.selected=selected;viewer.jointSelection=null;viewer.draw();}buttons();}
 function setBusyBadge(on){if(on){$('fit-badge').textContent='Updating…';$('fit-badge').className='badge busy';}}
@@ -89,7 +92,7 @@ function generate(){optionUI();clearTimeout(timer);queued=false;$('export-status
  let p;try{p=validate(read());}catch(e){showError(e);return Promise.resolve(null);}
  const key=++buildSeq;setBusyBadge(true);valid=false;buttons();
  // A hand arrangement goes along; the engine keeps it if every copy still fits where it was put.
- const plates=model?.manualPacking&&model.p.packPlates&&p.packPlates?plateRows(model.plates):null;
+ const plates=pendingRows&&p.packPlates?pendingRows:model?.manualPacking&&model.p.packPlates&&p.packPlates?plateRows(model.plates):null;pendingRows=null;
  building=engine.call('build',{key,params:p,plates}).then(m=>({m}),error=>({error})).then(({m,error})=>{building=null;
   if(rebuild){rebuild=false;return generate();}
   if(error){showError(error);return null;}
@@ -104,7 +107,7 @@ function apply(next){
  $('mount-result').textContent=model.mount?.tripod?tripodResult(model.mount.tripod):model.mount?`Clearance below the ${model.mount.base?'base':'yoke plate'}: ${model.mount.standClearance.toFixed(1)} mm now · ${model.mount.sweepStandClearance.toFixed(1)} mm over ${model.mount.elevationRange[0]}…${model.mount.elevationRange[1]}°`:'';
  $('rf-result').textContent=p.frequencyGHz?`λ ${(299.792458/p.frequencyGHz).toFixed(2)} mm · surface target ≤ ${(299.792458/p.frequencyGHz/50).toFixed(2)} mm RMS`:'';
  $('hub-tip').dataset.tip=`Flat prints cleanly. It sits level with the petals at the hub's corners, chamfers down to them along each edge, and stands up to ${(((45/Math.cos(Math.PI/model.layout.n))**2-225)/(4*p.diameter*p.fd)).toFixed(2)} mm above the parabola near the center opening, inside the feed's shadow. Curved follows the parabola.`;$('hub-tip').setAttribute('aria-label',$('hub-tip').dataset.tip);
- $('feed-result').textContent=model.feed?.bowl?collectorResult(model):model.feed?`${p.feedLegs} rods Ø${+model.feed.rodDiameter.toFixed(4)} × ${model.feed.cutLength.toFixed(1)} mm · ${model.feed.rodAngle.toFixed(1)}° · carrier z ${model.feed.carrierFace.toFixed(1)} mm`+(model.feed.secondary?` · secondary Ø${(2*model.feed.secondary.radius).toFixed(1)} mm`:'')+(model.feed.lambda?` · RMS target ${model.feed.surfaceRmsBudget.toFixed(3)} mm`:''):'';
+ $('feed-result').textContent=model.feed?.bowl?collectorResult(model):model.feed?`${model.feed.rodCount} rods Ø${+model.feed.rodDiameter.toFixed(4)} × ${model.feed.cutLength.toFixed(1)} mm · ${model.feed.rodAngle.toFixed(1)}° · carrier z ${model.feed.carrierFace.toFixed(1)} mm`+(model.feed.secondary?` · secondary Ø${(2*model.feed.secondary.radius).toFixed(1)} mm`:'')+(model.feed.lambda?` · RMS target ${model.feed.surfaceRmsBudget.toFixed(3)} mm`:''):'';
  valid=!queued;plateDirty=false;workspaceUI?.update();renderPlates();
  if(viewer?.mode==='layout')$('view-caption').textContent=p.packPlates?'Packed print beds · all quantities':'Individual print beds';
  packingResult();
@@ -122,7 +125,7 @@ function apply(next){
  // the selection and keyboard focus survive a rebuild when the part still exists
  if(!model.parts.some(q=>q.id===selected))selected='';if(focused)[...$('parts').children].find(b=>b.dataset.id===focused)?.focus();
  if(viewer){viewer.jointSelection=null;viewer.setModel(model);}
- profile(model);showSelection();
+ profile(model);showSelection();showConfig();
  if(firstModel){firstModel=false;document.body.dataset.ready='true';}
 }
 function schedule(){valid=false;queued=true;buttons();clearTimeout(timer);timer=setTimeout(generate,260);}
@@ -183,8 +186,60 @@ $('guide-toggle').onclick=()=>{setPanel('',false);$('guide').showModal();$('guid
 $('guide-close').onclick=()=>$('guide').close();
 $('guide').addEventListener('close',()=>{$('guide-toggle').setAttribute('aria-expanded','false');$('guide-toggle').focus();});
 
+// Configuration codes: the ID in the header, the share / save / load dialog, and the address bar, which always holds
+// the code of the design on screen (nothing for the defaults), so a reload or a copied address keeps it.
+function showConfig(){const cfg=modelConfig(model),id=configId(cfg),code=encodeConfig(cfg);shown={cfg,id,code};
+ const t=$('config-toggle');t.disabled=false;t.textContent=id;t.setAttribute('aria-label','Configuration '+id);if($('config-dialog').open)renderConfig();
+ // A page opened from a file cannot use replaceState in some browsers; a fragment-only location.replace still works there.
+ {const want=isBaseline(cfg)?'':'#'+code;if(location.hash!==want)try{history.replaceState(history.state,'',want||location.pathname+location.search);}catch{try{location.replace(want||'#');}catch{}}}}
+// Read and check a configuration without touching the form, so a bad code leaves the design as it was.
+function prepareConfig(input){const cfg=readConfig(input);let r;try{r=resolveConfig(cfg);}catch(e){throw Error(readable(e.message));}
+ for(const[k,v]of Object.entries(r.params)){const el=$(k);if(el?.tagName==='SELECT'&&![...el.options].some(o=>o.value===String(v)))throw Error(`${labelOf(k)} has no option ${v} in this version.`);}
+ return{cfg,...r};}
+async function applyConfig({cfg,params,rows,unknown}){
+ workspaceUI.restore(params);setFields(params);pendingRows=rows;
+ const m=await generate();if(!m)throw Error($('error').textContent||'This configuration does not build.');
+ const notes=[`Loaded ${shown.id}.`],want=configId(cfg);
+ if(unknown.length)notes.push(`Skipped ${unknown.join(', ')}, which this version does not have.`);
+ if(cfg.noArrangement)notes.push('The file has no hand arrangement, so the plates were packed again.');else if(rows&&!m.manualPacking)notes.push('The hand arrangement no longer fits, so the plates were packed again.');
+ if(want!==shown.id)notes.push(`The code's ID was ${want}.`);
+ if(cfg.app&&cfg.app!==VERSION)notes.push(`Made with PETAL ${cfg.app}; parts may differ from that version's.`);
+ return notes.join(' ');}
+const SAVED_KEY='petal.configurations',configStatus=text=>{$('config-status').textContent=text;};
+function savedConfigs(){try{const v=JSON.parse(localStorage.getItem(SAVED_KEY)||'[]');return Array.isArray(v)?v.filter(x=>x&&typeof x.name==='string'&&typeof x.code==='string'&&typeof x.id==='string').sort((a,b)=>String(b.at).localeCompare(String(a.at))):[];}catch{return[];}}
+function storeConfigs(list){try{localStorage.setItem(SAVED_KEY,JSON.stringify(list));return true;}catch{return false;}}
+const savedDate=at=>{const d=new Date(at);return Number.isNaN(+d)?'':d.toLocaleDateString(undefined,d.getFullYear()===new Date().getFullYear()?{month:'short',day:'numeric'}:{year:'numeric',month:'short',day:'numeric'});};
+function renderConfig(){if(!shown)return;$('config-id').textContent=shown.id;$('config-app').textContent='PETAL '+VERSION;$('config-code').value=shown.code;$('copy-link').hidden=location.protocol==='file:';
+ $('config-list').replaceChildren(...savedConfigs().map(entry=>{const li=document.createElement('li'),load=document.createElement('button'),del=document.createElement('button'),name=document.createElement('span'),meta=document.createElement('small');
+  if(entry.id===shown.id)li.setAttribute('aria-current','true');name.textContent=entry.name;meta.textContent=[entry.id,savedDate(entry.at)].filter(Boolean).join(' · ');
+  load.type=del.type='button';load.className='config-load';load.append(name,meta);load.onclick=()=>loadFromDialog(entry.code);
+  del.className='config-delete';del.textContent='×';del.setAttribute('aria-label','Delete '+entry.name);del.onclick=()=>{storeConfigs(savedConfigs().filter(x=>!(x.name===entry.name&&x.at===entry.at)));renderConfig();configStatus(`Deleted “${entry.name}”.`);};
+  li.append(load,del);return li;}));}
+async function copyText(text,what){try{await navigator.clipboard.writeText(text);configStatus(what+' copied.');}catch{const el=$('config-code');el.focus();el.select();configStatus('This browser blocked copying. The code is selected; copy it with the keyboard.');}}
+async function loadFromDialog(input){let prep;try{prep=prepareConfig(input);}catch(e){configStatus(e.message);return;}
+ if(busy){configStatus('Wait for the update to finish.');return;}
+ configStatus('Loading…');try{const note=await applyConfig(prep);$('config-input').value='';$('config-dialog').close();flash(note);}catch(e){configStatus(e.message);}}
+$('config-toggle').onclick=()=>{setPanel('',false);configStatus('');renderConfig();$('config-dialog').showModal();$('config-toggle').setAttribute('aria-expanded','true');};
+$('config-close').onclick=()=>$('config-dialog').close();
+$('config-dialog').addEventListener('close',()=>{$('config-toggle').setAttribute('aria-expanded','false');$('config-toggle').focus();});
+$('copy-code').onclick=()=>{if(shown)copyText(shown.code,'Code');};
+$('copy-link').onclick=()=>{if(shown)copyText(location.href.split('#')[0]+'#'+shown.code,'Link');};
+$('load-config').onclick=()=>loadFromDialog($('config-input').value);
+$('save-config').onclick=()=>{if(!shown)return;const name=$('config-name').value.trim()||$('model-title').textContent,list=savedConfigs().filter(x=>x.name!==name);
+ list.unshift({name,id:shown.id,code:shown.code,app:VERSION,at:new Date().toISOString()});if(!storeConfigs(list.slice(0,100))){configStatus('This browser is not keeping saved designs. Use Save file instead.');return;}
+ $('config-name').value='';renderConfig();configStatus(`Saved “${name}”.`);};
+$('config-name').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('save-config').click();}});
+// The file carries the code (which loads it) and, for reading, the changed settings and any hand arrangement.
+$('export-config').onclick=()=>{if(!shown)return;const name=$('config-name').value.trim(),c=shown.cfg,file=(name||shown.id).replace(/[^\w.-]+/g,'-').replace(/^-+|-+$/g,'')||shown.id;
+ download(new Blob([JSON.stringify({petal_configuration:1,name:name||shown.id,id:shown.id,app:VERSION,build:BUILD_ID,saved:new Date().toISOString(),code:shown.code,changed_settings:c.p,...(c.c?{connections:c.c}:{}),...(c.s?{left_off_plates:c.s}:{}),...(c.pl?{plates:c.pl.map(([copy,plate,x,y,yaw])=>({copy,plate,x,y,yaw}))}:{})},null,2)+'\n'],{type:'application/json'}),`PETAL-${file}.json`);configStatus('File saved.');};
+$('import-config').onclick=()=>$('config-file').click();
+$('config-file').onchange=()=>{const input=$('config-file'),file=input.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{input.value='';loadFromDialog(String(reader.result));};reader.onerror=()=>configStatus('That file could not be read.');reader.readAsText(file);};
+// A different code pasted into the address bar of this tab loads without a reload.
+addEventListener('hashchange',()=>{const code=decodeURIComponent(location.hash.slice(1));if(!/P1\./.test(code)||code===shown?.code)return;let prep;try{prep=prepareConfig(code);}catch(e){flash(e.message);return;}applyConfig(prep).then(flash,e=>flash(e.message));});
 workspaceUI=setupWorkspace({changed:generate,getModel:()=>model,showJoint:j=>{if(viewer){viewer.jointSelection=j.parts||[{part:j.part||'hub',angle:j.angle||0}];viewer.draw();}}});
-setFields({...defaults,...savedBed()});generate();
+// A link that carries a configuration code opens that design; otherwise the defaults on this device's printer.
+{let start=null;try{start=/P1\./.test(location.hash)?prepareConfig(decodeURIComponent(location.hash.slice(1))):null;}catch(e){flash(e.message);}
+ if(start)applyConfig(start).then(note=>flash(note),e=>flash(e.message));else{setFields({...defaults,...savedBed()});generate();}}
 // Optional browser agent interface; it shares the visible form and generation path.
 if(document.modelContext?.registerTool){const abort=new AbortController();window.addEventListener('pagehide',()=>abort.abort(),{once:true});const register=t=>{try{Promise.resolve(document.modelContext.registerTool(t,{signal:abort.signal})).catch(()=>{});}catch{}};
 register({name:'inspect_dish_geometry',description:'Read the current valid dish dimensions, print parts and quantities. Does not download files.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true,untrustedContentHint:false},async execute(){return valid?await fromEngine('manifest'):{error:'The form has invalid settings.'};}});

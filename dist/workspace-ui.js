@@ -70,6 +70,8 @@ export function setupWorkspace({changed,getModel,showJoint}){
    // Show a print toggle only for accessories this design has.
    for(const el of document.querySelectorAll('.accessory-toggle')){const kind=el.dataset.for;el.hidden=!m.parts.some(p=>p.kind===kind);}
    drawSeamCards();refresh();},
-  reset(){state.connections={};state.print={feed:true,mount:true,clip:true,lever:true};for(const i of document.querySelectorAll('[data-accessory]'))i.checked=true;}
+  reset(){state.connections={};state.print={feed:true,mount:true,clip:true,lever:true};for(const i of document.querySelectorAll('[data-accessory]'))i.checked=true;},
+  // A loaded configuration's joint overrides and print selection.
+  restore({connections,printSelection}){state.connections=structuredClone(connections||{});state.print={feed:true,mount:true,clip:true,lever:true,...printSelection};for(const i of document.querySelectorAll('[data-accessory]'))i.checked=state.print[i.dataset.accessory]!==false;}
  };
 }

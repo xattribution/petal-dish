@@ -8,7 +8,7 @@ The rod passes directly through an angled hole in a selected outer petal. A comp
 
 Small circular tapers blend into the underside. The rod bore has 45° roof shoulders and a 0.8 mm bridge in the actual side-print direction; the side insert pilot is circular. These new petal sockets are designed for support-free printing in the exported orientation. The unchanged carrier and secondary still need their own slicer support review.
 
-Three rods use the fewest parts; four remain available. Regenerate mounting petals, carrier and rod cuts together. Changing rod count can change segmentation. Use the generated PDF and hardware CSV: the petal uses **short M3 heat-set inserts**, maximum 4 mm long, compatible with a 4.2 mm pilot, while the carrier uses **M3 hex nuts**.
+The rod count follows the petal count by default: four rods with 8, 12 or 16 petals and three with 6. Each rod lands on its own petal, so 10 and 14 petals cannot space rods evenly, and automatic segmentation skips them while a feed is on. You can still fix the count at 3 or 4; the petal count then has to divide by it. Regenerate mounting petals, carrier and rod cuts together. Use the generated PDF and hardware CSV: the petal uses **short M3 heat-set inserts**, maximum 4 mm long, compatible with a 4.2 mm pilot, while the carrier uses **M3 hex nuts**.
 
 The lower rod datum is now under the reflector. Its crossing of the front face is solved for the chosen dish curve; cuts and angles are recalculated. The 18 mm front-face insertion mark includes any rear protrusion through the open bore, rather than promising 18 mm continuous plastic contact. The carrier keeps its 16–19 mm engagement range. No strength rating follows from geometry checks alone.
 

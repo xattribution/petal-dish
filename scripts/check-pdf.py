@@ -7,6 +7,9 @@ for name in sys.argv[1:] or ['default','custom','secondary','collector','mixed']
     meta=json.loads((root/f'{name}.json').read_text());reader=PdfReader(root/f'{name}.pdf');text='\n'.join(p.extract_text() for p in reader.pages)
     for phrase in [f"{meta['diameter']} mm",meta['build'],'exploded view','Printed parts','Hardware / quantities','Build record']:
         assert phrase in text,(name,phrase)
+    # The configuration ID is on every page and the full code (wrapped) on the build record page.
+    assert f"configuration {meta['config']['id']}" in text and text.count(meta['config']['id'])>=len(reader.pages),(name,'configuration id')
+    assert meta['config']['code'] in ''.join(text.split()),(name,'configuration code')
     for p in meta['parts']:
         if p.get('printIncluded') is False:assert 'Reuse compatible existing parts' in text;continue
         assert f"{p['id']}_qty-{p['qty']}.stl" in text,(name,p)
@@ -23,5 +26,6 @@ with zipfile.ZipFile(root/'kit.zip') as z:
     assert z.testzip() is None
     assert z.read('ASSEMBLY.pdf')[:5]==b'%PDF-'
     assert 'ASSEMBLY.md' in z.namelist()
+    assert json.loads(z.read('parameters.json'))['configuration']['code'].startswith('P1.')
     PdfReader(__import__('io').BytesIO(z.read('ASSEMBLY.pdf')))
-print('PASS ZIP contains a readable illustrated ASSEMBLY.pdf and original instructions')
+print('PASS ZIP contains a readable illustrated ASSEMBLY.pdf, original instructions and the configuration code')
