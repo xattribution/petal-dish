@@ -11,9 +11,14 @@
 //   upright clamp face (x = 40) down  cradle hub face down    cheek clamp face (x = 40) down
 // Frame: Z up, +Y = boresight at az 0 / el 0, elevation axis along X. Base bottom at Z 0.
 
-part = "assembly";  // [assembly,base,yoke,upright,cradle,cheek,matrices]
+part = "assembly";  // [assembly,base,yoke,upright,cradle,cheek,upright_left,cheek_left,matrices]
 printing = false;
 arc_lock = false;     // M6 arc-slot lock bolt: slot in the upright, hole + head pocket in the cheek
+// Elevation clamp side, seen from behind the dish: "right"; "left", the mirror image (with right-hand threads a slip
+// that lets the dish nod down turns the captive bolt the way that tightens its wing nut); "both", a U with an upright
+// and a cheek on each side, two clamps. Heads stay captive inside the cheeks and the wing nuts outside. The arc lock
+// sits on the right in "both" (part = "upright_left" / "cheek_left" give the mirrored arms).
+sides = "right";      // [right, left, both]
 stand_holes = false;  // no base: 4 counterbored stand_m holes from the top of the yoke plate; assembly omits the base
 base_screws = true;   // base: 4 counterbored stand_m holes to a stand. The app's tripod base turns them off and adds leg sockets
 fasteners = true;     // false: every bolt hole, insert pilot and nut or head pocket left out. The app bundles these blanks
@@ -89,6 +94,8 @@ gus_w = 20; gus_h = 8; gus_len = 24;
 up_tenon2d = [[up_in, -up_half], [foot_out, -up_half], [foot_out, up_half], [up_in, up_half]];   // (x, y): the whole upright footprint
 // stand holes (no base): M5 socket heads from the top of the yoke plate, away from the upright
 stand_pts = [[20, -45], [20, 45], [-44, -20], [-44, 20]];
+stand_dual = [[20, -45], [20, 45], [-20, -45], [-20, 45]];   // both sides: clear of both uprights
+both = sides == "both"; left_arc = arc_lock && sides == "left";
 base_stand_r = 44;                  // base: stand screws on this radius at 45° + k·90°
 // arc lock: M6 hex bolt, head captive in the cheek, washer + nyloc on the upright's outside
 arc_r = 28; arc_phi = -20;          // hole in the cheek at r 28, 20° below the boresight direction
@@ -112,6 +119,9 @@ M_yoke = Tm([0,0,-yoke_z]);                     // world frame -> print
 M_upright = Tm([Z_el,0,-up_in]) * Rym(-90);     // world frame -> print (x = 40 face on the bed)
 M_cradle = Tm([0,0,L]) * Rxm(-90);              // cradle frame -> print (hub face on the bed)
 M_cheek = Tm([0,0,cr_out]) * Rym(90);           // cradle frame -> print (x = 40 face on the bed)
+Mxm = [[-1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+M_upright_left = Mxm * M_upright * Mxm;          // the mirrored arms print as mirror images of the right ones
+M_cheek_left = Mxm * M_cheek * Mxm;
 
 // ---------- helpers ----------
 module tdrop(d, up) union() { circle(d=d, $fn=hfn); rotate(up) polygon([[d/2*cos(45), -d/2*sin(45)], [d/sqrt(2), 0], [d/2*cos(45), d/2*sin(45)]]); }
@@ -170,24 +180,31 @@ module base() difference() {
 }
 
 // ---------- yoke: turntable plate ----------
-module yoke() difference() {
+// One clamp side's features: the locating shoulder (added), the upright's pocket and its joint counterbores (cut).
+module yoke_shoulder() xz(2*(up_half - 6)) polygon([[up_in - sh_gap - shoulder, top - 0.01], [up_in - sh_gap, top - 0.01], [up_in - sh_gap, top + shoulder]]);
+module yoke_side_cuts() {
+  translate([0,0,top - inset]) linear_extrude(inset + shoulder + 1) offset(delta=fit) polygon(up_tenon2d);   // pocket for the upright's tenon
+  if (fasteners) for (s=up_screws) translate([s[0], s[1], yoke_z]) cb_hole(jm, cb4_d, cb4_h, yoke_t + 1, true); // upright joint, heads under the plate
+}
+module yoke_core(dual) difference() {
   union() {
-    translate([0,0,yoke_z]) plate(yoke_t) yoke2d();
-    // locating shoulder along the upright's inner face, 45° on the inside
-    translate([0,0,0]) xz(2*(up_half - 6)) polygon([[up_in - sh_gap - shoulder, top - 0.01], [up_in - sh_gap, top - 0.01], [up_in - sh_gap, top + shoulder]]);
+    translate([0,0,yoke_z]) plate(yoke_t) { yoke2d(); if (dual) mirror([1,0,0]) yoke2d(); }
+    yoke_shoulder();                                                              // locating shoulder along the upright's inner face, 45° on the inside
+    if (dual) mirror([1,0,0]) yoke_shoulder();
   }
   if (fasteners) translate([0,0,yoke_z - 1]) cylinder(d=m8, h=yoke_t + shoulder + 2, $fn=hfn);   // azimuth bolt
   translate([-0.5, -disc_R - 1, yoke_z - 1]) cube([1, 1.6, yoke_t + 2]);          // azimuth pointer groove (rear)
-  translate([0,0,top - inset]) linear_extrude(inset + shoulder + 1) offset(delta=fit) polygon(up_tenon2d);   // pocket for the upright's tenon
-  if (fasteners) for (s=up_screws) translate([s[0], s[1], yoke_z]) cb_hole(jm, cb4_d, cb4_h, yoke_t + 1, true); // upright joint, heads under the plate
-  if (fasteners && stand_holes) for (s=stand_pts) {
+  yoke_side_cuts();
+  if (dual) mirror([1,0,0]) yoke_side_cuts();
+  if (fasteners && stand_holes) for (s=dual ? stand_dual : stand_pts) {
     if (stand_counterbore) translate([s[0], s[1], top]) mirror([0,0,1]) cb_hole(m5, cb5_d, cb5_h, yoke_t + 1, false);
     else translate([s[0], s[1], yoke_z - 1]) cylinder(d=m5, h=yoke_t + 2, $fn=hfn);
   }
 }
+module yoke() if (sides == "left") mirror([1,0,0]) yoke_core(false); else yoke_core(both);
 
 // ---------- upright: bolts onto the yoke plate ----------
-module upright() difference() {
+module upright(arc=arc_lock) difference() {
   union() {
     yzslab(up_in, up_out, up_in) up2d();
     translate([0,0,top]) tenon(up_tenon2d);                                        // drops into the yoke plate's pocket
@@ -199,22 +216,27 @@ module upright() difference() {
   if (fasteners) translate([up_in - 1, 0, Z_el]) rotate([0,90,0]) cylinder(d=m8, h=up_out - up_in + 2, $fn=hfn);   // elevation bolt
   // inserts: pilots horizontal in print, pointed roofs toward +X (print up)
   if (fasteners) for (s=up_screws) translate([s[0], s[1], top - inset - 0.01]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 0);
-  if (arc_lock) yz(up_in - 1, up_out + 1) translate([0, Z_el]) arc_slot2d();
+  if (arc) yz(up_in - 1, up_out + 1) translate([0, Z_el]) arc_slot2d();
 }
 
 // ---------- cradle: hub plate (elevation axis at the origin, el = 0; prints hub face down) ----------
-module cradle() difference() {
+// One clamp side's cuts: the cheek's joint counterbores (socket heads from the hub face, sunk below it; the dish hub bears
+// on this face) and the pocket for the cheek's tenon (its end and the cheek's end face both bear on the plate).
+module cradle_side_cuts() {
+  if (fasteners) for (z=ch_screws) translate([ch_x, L, z]) rotate([90,0,0]) cb_hole(jm, cb4_d, cb4_h, plate_t + 1, true);
+  translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) mirror([0,1,0]) linear_extrude(inset + 1) offset(delta=fit) polygon(ch_tenon2d);
+}
+module cradle_core(dual) difference() {
   translate([0, L, 0]) rotate([90,0,0]) plate(plate_t) circle(r=plate_r, $fn=144);
   translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) cylinder(d=port_d, h=plate_t + 2, $fn=64);
   if (fasteners) for (a=[45:90:359]) translate([bcd_r*cos(a), L - plate_t - 1, bcd_r*sin(a)]) rotate([-90,0,0]) cylinder(d=m4, h=plate_t + 2, $fn=hfn);
-  // cheek joint: socket heads from the hub face, sunk below it (the dish hub bears on this face)
-  if (fasteners) for (z=ch_screws) translate([ch_x, L, z]) rotate([90,0,0]) cb_hole(jm, cb4_d, cb4_h, plate_t + 1, true);
-  // pocket for the cheek's tenon: the tenon's end and the cheek's end face both bear on the plate
-  translate([0, L - plate_t - 1, 0]) rotate([-90,0,0]) mirror([0,1,0]) linear_extrude(inset + 1) offset(delta=fit) polygon(ch_tenon2d);
+  cradle_side_cuts();
+  if (dual) mirror([1,0,0]) cradle_side_cuts();
 }
+module cradle() if (sides == "left") mirror([1,0,0]) cradle_core(false); else cradle_core(both);
 
 // ---------- cheek: bolts onto the back of the cradle plate ----------
-module cheek() difference() {
+module cheek(arc=arc_lock) difference() {
   union() {
     yzslab(cr_in, cr_out, cr_out) cheek2d();
     // tenon on the end face, flush with the clamp face, dropping into the cradle plate's pocket
@@ -228,7 +250,7 @@ module cheek() difference() {
   if (fasteners) translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=m8, h=cr_out - cr_in + 2, $fn=hfn);
   // inserts in the end face: pilots horizontal in print, pointed roofs toward -X (print up)
   if (fasteners) for (z=ch_screws) translate([ch_x, L - plate_t + inset + 0.01, z]) rotate([90,0,0]) linear_extrude(ins_deep + inset + 0.01) tdrop(ins_d, 180);
-  if (arc_lock) translate([0, arc_r*cos(arc_phi), arc_r*sin(arc_phi)]) {
+  if (arc) translate([0, arc_r*cos(arc_phi), arc_r*sin(arc_phi)]) {
     if (fasteners && head_pockets) translate([cr_in - 1, 0, 0]) rotate([0,90,0]) linear_extrude(m6_head + 1) rotate(90) hex(m6_af);
     translate([cr_in - 1, 0, 0]) rotate([0,90,0]) cylinder(d=arc_w, h=cr_out - cr_in + 2, $fn=hfn);
   }
@@ -242,22 +264,29 @@ module wingnut() color("silver") { cylinder(d=24, h=2, $fn=48); translate([0,0,2
   for (s=[-1,1]) translate([s*10, 0, 6]) cube([14, 3, 10], center=true); }
 module capscrew(len) color("silver") { translate([0,0,-4]) cylinder(d=7, h=4, $fn=24); cylinder(d=4, h=len, $fn=16); }
 
+right_side = sides != "left"; left_side = sides != "right";
+module side(on_left) if (on_left) mirror([1,0,0]) children(); else children();
+module arc_hardware() color("silver") translate([cr_in + 0.5, arc_r*cos(arc_phi), arc_r*sin(arc_phi)]) rotate([0,90,0]) {
+  rotate(30) cylinder(r=10/sqrt(3), h=4, $fn=6); cylinder(d=6, h=arc_len, $fn=16);
+  translate([0,0,up_out - cr_in - 0.5]) { cylinder(d=12, h=1.6, $fn=24); translate([0,0,1.6]) rotate(30) cylinder(r=10/sqrt(3), h=8, $fn=6); }
+}
 if (part == "assembly") {
   if (!stand_holes) color("slategray") base();
   rotate([0,0,-az]) {
     color("steelblue") yoke();
-    color("cornflowerblue") upright();
-    for (s=up_screws) translate([s[0], s[1], yoke_z + cb4_h]) capscrew(up_screw_len);
+    for (l=[false, true]) if (l ? left_side : right_side) side(l) {
+      color("cornflowerblue") upright(l ? left_arc : arc_lock);
+      for (s=up_screws) translate([s[0], s[1], yoke_z + cb4_h]) capscrew(up_screw_len);
+      translate([up_out, 0, Z_el]) rotate([0,90,0]) wingnut();
+    }
     color("silver") translate([0,0,top]) { cylinder(d=16, h=1.6); translate([0,0,1.6]) cylinder(d=13, h=8, $fn=24); }
-    translate([up_out, 0, Z_el]) rotate([0,90,0]) wingnut();
     translate([0,0,Z_el]) rotate([el,0,0]) {
       color("orange") cradle();
-      color("gold") cheek();
-      for (z=ch_screws) translate([ch_x, L - cb4_h, z]) rotate([90,0,0]) capscrew(ch_screw_len);
-      color("silver") translate([cr_in + 0.2, 0, 0]) rotate([0,90,0]) rotate(30) cylinder(r=13/sqrt(3), h=5.3, $fn=6);
-      if (arc_lock) color("silver") translate([cr_in + 0.5, arc_r*cos(arc_phi), arc_r*sin(arc_phi)]) rotate([0,90,0]) {
-        rotate(30) cylinder(r=10/sqrt(3), h=4, $fn=6); cylinder(d=6, h=arc_len, $fn=16);
-        translate([0,0,up_out - cr_in - 0.5]) { cylinder(d=12, h=1.6, $fn=24); translate([0,0,1.6]) rotate(30) cylinder(r=10/sqrt(3), h=8, $fn=6); }
+      for (l=[false, true]) if (l ? left_side : right_side) side(l) {
+        color("gold") cheek(l ? left_arc : arc_lock);
+        for (z=ch_screws) translate([ch_x, L - cb4_h, z]) rotate([90,0,0]) capscrew(ch_screw_len);
+        color("silver") translate([cr_in + 0.2, 0, 0]) rotate([0,90,0]) rotate(30) cylinder(r=13/sqrt(3), h=5.3, $fn=6);
+        if (l ? left_arc : arc_lock) arc_hardware();
       }
       dish();
     }
@@ -268,13 +297,17 @@ if (part == "yoke")    { if (printing) multmatrix(M_yoke) yoke(); else yoke(); }
 if (part == "upright") { if (printing) multmatrix(M_upright) upright(); else upright(); }
 if (part == "cradle")  { if (printing) multmatrix(M_cradle) cradle(); else cradle(); }
 if (part == "cheek")   { if (printing) multmatrix(M_cheek) cheek(); else cheek(); }
+// the left-hand arms ("left" and "both"): mirror images of the right ones, with the arc lock only for "left"
+if (part == "upright_left") { if (printing) multmatrix(M_upright_left) mirror([1,0,0]) upright(left_arc); else mirror([1,0,0]) upright(left_arc); }
+if (part == "cheek_left")   { if (printing) multmatrix(M_cheek_left) mirror([1,0,0]) cheek(left_arc); else mirror([1,0,0]) cheek(left_arc); }
 if (part == "matrices") {
   // print transforms (model frame -> print) and the frame constants, read by scripts/pack-mount.py and the checks
   echo(M_base = M_base); echo(M_yoke = M_yoke); echo(M_upright = M_upright); echo(M_cradle = M_cradle); echo(M_cheek = M_cheek);
   echo(FRAME = [base_t, yoke_t, Z_el, L, plate_t, cr_in, cr_out, up_in, up_out, cap_r]);
   echo(JOINT = [ins_d, ins_deep, ins_len, cb4_d, up_screw_len, ch_screw_len, len(up_screws), len(ch_screws), ch_x]);
   echo(COUNTERBORE = [cb4_h, cb5_d, cb5_h, step]);
-  echo(UP_SCREWS = up_screws); echo(CH_SCREWS = ch_screws); echo(STAND = stand_pts);
+  echo(M_upright_left = M_upright_left); echo(M_cheek_left = M_cheek_left);
+  echo(UP_SCREWS = up_screws); echo(CH_SCREWS = ch_screws); echo(STAND = stand_pts); echo(STAND_DUAL = stand_dual);
   echo(INSET = [inset, fit, lead, ch_shoulder]); echo(GUSSET = [gus_w, gus_h, gus_len]);
   echo(ARC = [arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len]);
   echo(CUTS = [shoulder, bcd_r, base_stand_r, yoke_z, top, ins_deep, hfn]);

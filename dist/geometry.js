@@ -5,7 +5,7 @@ import {defaults,limits,CLIP,clipOuter,boltY,usesClips,usesLevers,seamHoles,SEAM
 export {defaults,limits,CLIP,boltY,usesClips,usesLevers,seamHoles,SEAM_BOLT,seamBolt,clipStrain,JOINT,validate} from './params.js';
 import {appendMount} from './mount.js';
 import {affine,rz} from './scene.js';
-import {feedFits,petalRodSocket,appendFeedParts} from './feed.js';
+import {feedFits,feedRow,petalRodSocket,appendFeedParts} from './feed.js';
 import {leverMeshes} from './lever-meshes.js';
 export {binarySTL,volume,packedPlateMesh,bounds,printMesh,rotateBed,zAt,packAll} from './mesh.js';
 export const ROOT={seatR:4.8,seatDepth:5};
@@ -61,7 +61,30 @@ export function petalFootprints(p,n,rows){if(!feedFits(p,n,rows))return null;con
   const m=solidScope(()=>{let s=solid(patch(spec,p));if(p.staggerRings&&a>45.001){let inner=cylinder([0,0,-100],[0,0,p.diameter],p.diameter,32);for(const t of [-h/2,h/2])inner=inner.trim([-Math.cos(t),-Math.sin(t),0],-a);s=s.subtract(inner);}else s=s.trim([1,0,0],a);return s.rawMesh();});const choice=chooseBed(sidePrint(m,n),p);if(!choice)return null;result.push(choice);}
  return result;}
 const HUB_FOOTPRINT=(()=>{const k=32,v=[],f=[];for(let i=0;i<k;i++){const a=i*TAU/k;v.push([60*Math.cos(a),60*Math.sin(a),0],[60*Math.cos(a),60*Math.sin(a),16]);}for(let i=0;i<k;i++){const j=(i+1)%k;f.push([2*i,2*j,2*j+1],[2*i,2*j+1,2*i+1]);if(i>0&&i<k-1)f.push([0,2*j,2*i],[1,2*i+1,2*j+1]);}return{v,f};})();
-export function estimatePlates(p,n,footprints,cell){const parts=[{name:'hub',output:HUB_FOOTPRINT,dim:[120,120,16],qty:1},...footprints.map((c,j)=>({name:'petal '+(j+1),output:c.mesh,dim:c.dim,qty:n}))];return packParts(parts,p,cell).length;}
+// `extras`: other printed parts to pack with them (accessories); TPU parts get beds of their own, as packAll does.
+export function estimatePlates(p,n,footprints,cell,extras=[]){const parts=[{name:'hub',output:HUB_FOOTPRINT,dim:[120,120,16],qty:1},...footprints.map((c,j)=>({name:'petal '+(j+1),output:c.mesh,dim:c.dim,qty:n,kind:'panel',row:j})),...extras.filter(x=>!x.flex)],flex=extras.filter(x=>x.flex);
+ return packParts(parts,p,cell).length+(flex.length?packParts(flex,p,cell).length:0);}
+// Largest dish whose kit packs onto `plates` beds, with any petal count and rings and every other setting as given.
+// Binary search on the diameter in 5 mm steps, on packed estimates (the petals' coarse footprints on the packer's own grid,
+// the hub, and the accessories of the model on screen, `extras`); the answer is then built for real and stepped down while it needs more
+// beds. `progress(text)` reports each step. Returns {diameter, sectors, rows, plates}.
+export function largestDish(input,plates,extras=[],progress=()=>{}){
+ const base=validate({...defaults,...input,sectors:0,rows:0}),[minD,maxD]=limits.diameter,printed=extras.filter(x=>x.printIncluded!==false);
+ const best=D=>{const p=validate({...base,diameter:D}),coarse={...p,resolution:Math.max(p.resolution,12)};let pick=null;
+  if(Math.min(p.bedX,p.bedY)-2*p.margin<120)return null;
+  for(let rows=1;rows<=8;rows++){for(const n of [6,8,10,12,14,16]){const fp=petalFootprints(coarse,n,rows);if(!fp)continue;const count=estimatePlates(p,n,fp,undefined,printed);if(!pick||count<pick.plates||count===pick.plates&&n*rows<pick.n*pick.rows)pick={n,rows,plates:count};}
+   if(pick&&rows>=pick.rows+1)break;}
+  return pick;};
+ const fits=D=>{const b=best(D);progress(`${D} mm: ${b?b.plates+(b.plates===1?' plate':' plates'):'no layout'}`);return b&&b.plates<=plates?b:null;};
+ let lo=minD,hi=maxD,at=fits(lo);
+ if(!at){const rigid=printed.filter(x=>!x.flex),flex=printed.filter(x=>x.flex),own=(rigid.length?packParts(rigid,base).length:0)+(flex.length?packParts(flex,base).length:0);
+  throw Error(`Even a ${minD} mm dish needs more than ${plates} ${plates===1?'plate':'plates'} on this printer with these settings${own?`; the accessories alone take ${own}`:''}.`);}
+ const top=fits(hi);if(top){lo=hi;at=top;}else while(hi-lo>5){const mid=Math.round((lo+hi)/10)*5,b=fits(mid);if(b){lo=mid;at=b;}else hi=mid;}
+ // confirm with a real build: every part, real meshes, the full packer
+ for(let D=lo;D>=minD;D-=5){const b=D===lo?at:fits(D);if(!b)continue;progress(`Checking ${D} mm with ${b.n} petals × ${b.rows} ${b.rows===1?'ring':'rings'}`);
+  let m;try{m=build({...base,diameter:D,sectors:b.n,rows:b.rows});}catch{continue;}
+  if(m.plates.length<=plates)return{diameter:D,sectors:b.n,rows:b.rows,plates:m.plates.length};}
+ throw Error(`No dish of ${minD} mm or more fits ${plates} ${plates===1?'plate':'plates'} once built.`);}
 export function plan(p){validate(p);if(Math.min(p.bedX,p.bedY)-2*p.margin<120)throw Error('The 120 mm hub needs more usable bed space.');
  const rowsList=p.rows?[p.rows]:[1,2,3,4,5,6,7,8],nList=p.sectors?[p.sectors]:[6,8,10,12,14,16];
  // The real petals (flanges, root boss, ring flanges) are checked whenever the estimate comes within 15 mm of the bed.
@@ -197,9 +220,9 @@ let dishMemo={key:null,map:new Map()};
 // print orientation of a reused petal or hub mesh (the same output object also keeps the packer's cached footprints)
 const bedChoices=new WeakMap();
 function dishPart(p,name,fn){const key=JSON.stringify(Object.keys(p).filter(k=>!POSE_KEYS.has(k)).sort().map(k=>[k,p[k]]));if(dishMemo.key!==key)dishMemo={key,map:new Map()};if(!dishMemo.map.has(name))dishMemo.map.set(name,fn());return dishMemo.map.get(name);}
-export function build(input){const p=validate({...defaults,...input}),layout=dishPart(p,'plan',()=>plan(p));return solidScope(()=>{const{n,rows}=layout,parts=[],instances=[],step=TAU/n;const add=(id,name,mesh,qty,angles,kind,row,spec={})=>{let choice=bedChoices.get(mesh);if(!choice){const pm=kind==='panel'?sidePrint(mesh,n):kind==='clip'?printMesh({v:mesh.v.map(([x,y,z])=>[x,z,-y]),f:mesh.f}):printMesh(mesh);choice=chooseBed(pm,p);if(choice&&(kind==='panel'||kind==='hub'))bedChoices.set(mesh,choice);}if(!choice)throw Error(name+' exceeds the print volume after adding joints. Increase print volume or segmentation.');const part={id,name,mesh,print:choice.mesh,output:choice.mesh,dim:choice.dim,qty,kind,row,spec,angle:90,bedRotation:choice.yaw,supportMeshes:[]};parts.push(part);angles.forEach(a=>instances.push({part,a}));return part;};
- if(p.connections){ for(let j=0;j<rows;j++){const groups=new Map();for(let i=0;i<n;i++){const angle=i*step+(p.staggerRings?(j%2)*PI/n:0),mount=Boolean(p.feedMode&&j===rows-1&&i%(n/p.feedLegs)===0),local={...p,rootThrough:rootChoice(p,i)},signature=petalSignature(local,n,rows,j,mount,angle);if(groups.has(signature))groups.get(signature).angles.push(angle);else groups.set(signature,{...dishPart(p,`panel:${j}:${signature}`,()=>meshedPanel(local,n,rows,j,mount,angle)),angles:[angle],mount});}let v=0;for(const group of groups.values()){v++;add(`petal-${j+1}-variant-${v}`,`Petal ${j+1} · variant ${v}${group.mount?' · rod mount':''}`,group.mesh,group.angles.length,group.angles,'panel',j,group.spec);}}
-}else{ for(let j=0;j<rows;j++)for(const mount of [false,true]){const angles=Array.from({length:n},(_,i)=>i).filter(i=>Boolean(p.feedMode&&j===rows-1&&i%(n/p.feedLegs)===0)===mount).map(i=>i*step+(p.staggerRings?(j%2)*PI/n:0));if(!angles.length)continue;const{mesh,spec}=dishPart(p,`panel:${j}:${mount}`,()=>meshedPanel(p,n,rows,j,mount));add(`petal-${j+1}${mount?'-mount':''}`,`Petal ${j+1}${mount?' · rod mount':''}`,mesh,angles.length,angles,'panel',j,spec);}
+export function build(input){const p=validate({...defaults,...input}),layout=dishPart(p,'plan',()=>plan(p));return solidScope(()=>{const{n,rows}=layout,parts=[],instances=[],step=TAU/n,rodRow=p.feedMode?feedRow(p,n,rows):-1;const add=(id,name,mesh,qty,angles,kind,row,spec={})=>{let choice=bedChoices.get(mesh);if(!choice){const pm=kind==='panel'?sidePrint(mesh,n):kind==='clip'?printMesh({v:mesh.v.map(([x,y,z])=>[x,z,-y]),f:mesh.f}):printMesh(mesh);choice=chooseBed(pm,p);if(choice&&(kind==='panel'||kind==='hub'))bedChoices.set(mesh,choice);}if(!choice)throw Error(name+' exceeds the print volume after adding joints. Increase print volume or segmentation.');const part={id,name,mesh,print:choice.mesh,output:choice.mesh,dim:choice.dim,qty,kind,row,spec,angle:90,bedRotation:choice.yaw,supportMeshes:[]};parts.push(part);angles.forEach(a=>instances.push({part,a}));return part;};
+ if(p.connections){ for(let j=0;j<rows;j++){const groups=new Map();for(let i=0;i<n;i++){const angle=i*step+(p.staggerRings?(j%2)*PI/n:0),mount=Boolean(p.feedMode&&j===rodRow&&i%(n/p.feedLegs)===0),local={...p,rootThrough:rootChoice(p,i)},signature=petalSignature(local,n,rows,j,mount,angle);if(groups.has(signature))groups.get(signature).angles.push(angle);else groups.set(signature,{...dishPart(p,`panel:${j}:${signature}`,()=>meshedPanel(local,n,rows,j,mount,angle)),angles:[angle],mount});}let v=0;for(const group of groups.values()){v++;add(`petal-${j+1}-variant-${v}`,`Petal ${j+1} · variant ${v}${group.mount?' · rod mount':''}`,group.mesh,group.angles.length,group.angles,'panel',j,group.spec);}}
+}else{ for(let j=0;j<rows;j++)for(const mount of [false,true]){const angles=Array.from({length:n},(_,i)=>i).filter(i=>Boolean(p.feedMode&&j===rodRow&&i%(n/p.feedLegs)===0)===mount).map(i=>i*step+(p.staggerRings?(j%2)*PI/n:0));if(!angles.length)continue;const{mesh,spec}=dishPart(p,`panel:${j}:${mount}`,()=>meshedPanel(p,n,rows,j,mount));add(`petal-${j+1}${mount?'-mount':''}`,`Petal ${j+1}${mount?' · rod mount':''}`,mesh,angles.length,angles,'panel',j,spec);}
 }
  add('hub','Hub · clear center',dishPart(p,'hub',()=>solidScope(()=>hubSolid(p,n).mesh())),1,[0],'hub',-1);const seams=seamStations(parts);
  const m={p,layout,parts,instances,ringPhases:Array.from({length:rows},(_,j)=>p.staggerRings?(j%2)*PI/n:0),depth:zAt(p.diameter/2,p),focal:p.diameter*p.fd,bolts:0};

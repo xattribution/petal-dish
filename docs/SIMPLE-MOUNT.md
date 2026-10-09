@@ -23,7 +23,8 @@ Set them in PETAL under **Aiming mount**, or in `cad/simple-mount.scad`:
 | Azimuth base: *Printed base with azimuth scale* (default) | `stand_holes = false` | Base + yoke turntable with the azimuth clamp and the scale |
 | Azimuth base: *No base · turntable bolts to the stand* | `stand_holes = true` | No base part. The yoke plate gets 4 counterbored stand screw holes (M5 by default) from its top and screws straight onto a flat stand. No azimuth clamp: turn the stand to aim in azimuth |
 | Azimuth base: *Tripod leg sockets* | `base_screws = false`, plus sockets added by the app | The base without its stand screw holes, with three splayed, tapered leg sockets on its underside. See [Tripod base](#tripod-base) |
-| Elevation lock: *Add arc-slot lock bolt* | `arc_lock = true` | An M6 bolt runs in an arc slot through the upright, from a captive head in the cheek, for extra grip. It covers the whole −10° to 100° range |
+| Elevation lock: *Add arc-slot bolt* | `arc_lock = true` | An M6 bolt runs in an arc slot through the upright, from a captive head in the cheek, for extra grip. It covers the whole −10° to 100° range |
+| Elevation clamp: *Right side* (default), *Left side*, *Both sides* | `sides = "right"`, `"left"`, `"both"` | Seen from behind the dish. Left is the mirror image of right. Both sides is a U: a second upright and cheek, mirrored, on the left, so the dish is clamped at two faces and nothing twists it sideways. The bolt heads stay captive inside the cheeks and the wing nuts outside. With both sides the arc lock goes on the right. See [Keeping it from slipping](#keeping-it-from-slipping) |
 
 ### Bolt sizes
 
@@ -73,6 +74,37 @@ The kinematic frame is the same for every option: elevation axis 94 mm above the
 
 ![Elevation clamp and arc lock from the outside](simple-mount-clamps.png)
 
+## Keeping it from slipping
+
+The elevation clamp holds the dish by friction alone, so how much it holds depends on how hard the wing nut is turned and how grippy the two faces are. The chart compares the dish's weight torque with an estimate of what each setup holds, counting only half of each estimate to allow for creep and a light hand.
+
+![Dish weight torque against clamp hold, by dish size](mount-holding.png)
+
+| Setup | Estimated hold | Usable (half) | Holds, with a 100 g feed |
+|---|---|---|---|
+| One clamp, hand-tight M8 wing nut | 5.1 N·m | 2.5 N·m | up to about 600 mm |
+| Both sides | 10.2 N·m | 5.1 N·m | up to about 800 mm |
+| One clamp with a 1 mm rubber or cork pad between the cheek and the upright | 12.2 N·m | 6.1 N·m | up to about 900 mm |
+| One clamp plus the arc lock, its M6 nyloc snug with a wrench | 16.8 N·m | 8.4 N·m | up to about 1100 mm |
+| Both sides plus the arc lock | 21.8 N·m | 10.9 N·m | up to 1200 mm, with little margin |
+
+How the estimates are made:
+
+- **Preload.** A hand-tight M8 wing nut takes about 1.5 N·m, which with a nut factor of 0.2 clamps with about 940 N.
+- **Friction.** PETG or ASA on itself has a friction coefficient of about 0.25; a rubber or cork pad about 0.6. The clamp disc's mean friction radius is 21.7 mm.
+- **Arc lock.** The arc lock bolt is tightened with a wrench (about 2 N·m on M6, roughly 1,700 N) and sits 28 mm from the axis, so it adds more than the wing nut does. Snug it; do not crush the plastic under its 12 mm washer.
+- **Dish torque.** The app's own masses: the printed parts solid at 1.24 g/cm³, the rods, and the feed payload at its focus, at the elevation where the torque is largest.
+
+These are estimates for comparing options. Test the real thing (see [Validation](#validation)).
+
+![The elevation clamp on both sides: a second, mirrored upright and cheek](simple-mount-both.png)
+
+**Which side.** The bolt head is held in the cheek, so when the dish slips the bolt turns with it. On the right side, a slip that lets the dish nod down turns the bolt the way that unscrews it from the wing nut, so a slip loosens the clamp further. On the left side the same slip screws the bolt further into the nut and tightens it. With right-hand threads the left side is the better choice. With both sides the left clamp tightens as the right one loosens.
+
+**Pads.** A thin rubber, EPDM or cork disc between the cheek and the upright more than doubles the grip and keeps some preload as the plastic creeps. It works with one clamp. With both sides there is no room for it: the cradle fits between the uprights with no designed gap.
+
+**Larger dishes.** Past about 1000 mm, friction is not a dependable way to hold elevation. The reliable answer is a screw drive: a threaded rod between a pivot on the yoke and a pivot under the cradle, turned by a knob. The thread locks itself, so it cannot slip. In a first layout, with the cradle pivot 70 mm from the axis and the yoke pivot 90 mm from it, an M8 rod moves the dish about 1.3° per turn at mid-range, needs about 100 mm of travel (about 80 turns) for the full −10° to 100°, and holds a 1200 mm dish with about 200 N of thrust. It adds two printed pivots, a knob, the rod and two nuts. It is not built yet.
+
 ## Tripod base
 
 ![Tripod base from below with 20 mm legs](simple-mount-tripod.png)
@@ -114,6 +146,9 @@ STLs are in `cad/STL/`, already in print orientation, at the default bolt sizes.
 | Upright | `simple-upright.stl`; with arc lock `simple-upright-arc.stl` | Lying on its clamp face (x = 40) | 112 × 88 × 36 |
 | Cradle | `simple-cradle.stl` | Hub face down | Ø94 × 12 |
 | Cheek | `simple-cheek.stl`; with arc lock `simple-cheek-arc.stl` | Lying on its clamp face (x = 40) | 97 × 64 × 22 |
+| Both sides | `simple-yoke-dual.stl` (without the base `simple-yoke-dual-stand.stl`), `simple-cradle-dual.stl`, plus `simple-upright-left.stl` and `simple-cheek-left.stl` with the right-hand upright and cheek | As above; the left arms are mirror images | Yoke 160 × 116 × 18 |
+
+For the left side alone, mirror the yoke, upright, cradle and cheek in your slicer, or export them from the app.
 
 ![Print orientation](simple-mount-print.png)
 
@@ -168,7 +203,8 @@ Default sizes; the generated PDF uses yours.
    - Push the 4 × M4 × 35 with washers through the cradle plate from behind, then through the hub.
    - Put a washer and nut on each in the Ø10 seats on the hub front and tighten.
 7. **Elevation bolt.** Seat the M8 × 40 head in its pocket on the inside of the cheek. With the arc lock, also seat the M6 × 45 head in the second pocket.
-8. **Cradle on the upright.**
+8. **Both sides.** Do steps 1, 2, 5 and 7 for each arm. The cradle fits between the uprights with no designed gap; each upright's tenon has 0.2 mm of play. Screw the left upright down, offer the cradle with both cheeks fitted, then screw the right upright down while pressing it against its cheek. Build the whole U on the bench before setting the yoke on the base: the upright screws are reached from under the yoke plate. Tighten both wing nuts evenly.
+9. **Cradle on the upright.**
    - Slide the M8 out through the upright, and the M6 into the arc slot.
    - Add the fender washer and wing nut on the outside, and the M6 washer and nyloc.
 
@@ -213,6 +249,7 @@ It reads the print transforms from the SCAD, places all eight STLs with them, an
 - **Hardware:** the bolts, heads and wing nut sit in their holes and pockets at every angle.
 - **Elevation travel:** −10° to 100°, clear of the yoke, upright and hardware. The first contact is at −22.5°.
 - **Arc lock:** the M6 runs clear through the slot from −10° to 100°, and its washer stays inside both clamp faces and clear of the M8 fender washer and wing nut at every angle. The slot ends stop travel at about −12° and 102°.
+- **Both sides:** the left upright and cheek are exact mirror images of the right ones. Each arm sits flush on the dual yoke and cradle with its screws seated, each clamp keeps 36–38 cm² of contact over the range, and both bolts sit in their holes and pockets with the heads inside and the wing nuts outside. The cradle tilts from −10° to 100° (with the arc lock too), the dish clears both uprights, everything that turns clears the base, the hex key still reaches the azimuth bolt from −10° to 30°, the hub bolts and port stay open, and without the base the four stand screws clear both uprights and are reached straight down.
 - **Dish clearance:** the dish clears the yoke, upright and base over the same range. With snap-clip seams, modeled as a ring 26 mm deep behind the dish, it clears from −7.5° to 100°.
 - **Azimuth sweep:** everything that turns clears the base all the way around, at −10°, 0°, 45° and 90°.
 - **Tool access:** the hex key reaches the azimuth bolt, and a Ø10 driver reaches each stand screw with the upright fitted.
@@ -223,7 +260,7 @@ All eight parts pass. A part fails on any downward face more than 60° from vert
 
 ### Bolt sizes
 - `tests/integration.test.mjs`: at the default sizes, the app's cuts on the blanks reproduce all eight complete STLs (difference under 0.5 mm³, the same number of holes), the hole diameters follow each size setting, and each plain-hole seat option removes its pocket or counterbore.
-- `scripts/check-scad.mjs`: `cad/simple-mount.scad` rendered with `joint_m = 5`, `clamp_m = 10`, `stand_m = 6` and `hub_m = 3` matches the app's parts to float rounding.
+- `scripts/check-scad.mjs`: `cad/simple-mount.scad` rendered with `joint_m = 5`, `clamp_m = 10`, `stand_m = 6` and `hub_m = 3` matches the app's parts to float rounding, including the dual yoke and cradle and a left upright with `sides = "both"`.
 
 ### Regenerating
 `python3 scripts/pack-mount.py --export` re-exports every complete STL variant and every blank (`cad/STL/blank/`) from the SCAD and rebuilds `dist/mount-meshes.js` from the blanks, with each part's frame, the inverse of its SCAD print transform and the constants the cuts need. `python3 scripts/render-mount.py` redraws these images.

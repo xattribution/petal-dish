@@ -32,3 +32,9 @@ console.log('PASS plate identity, manual assignment / yaw, bounds, clearances, d
   const plates=packParts(parts,p);for(const pl of plates)for(const x of pl.placements){const[x0,y0,w,h]=x.bounds;assert(x0>=-1e-9&&y0>=-1e-9&&x0+w<=W+1e-9&&y0+h<=W+1e-9,`inside the ${bed} mm bed`);}
   assert.equal(plates.length,1,`${bed} mm bed: one plate`);}
  console.log('PASS drag to a new plate and back, same-plate move, invalid drops, grid cells and exact-size packing');}
+// Largest dish on a number of plates: the answer is built for real and fits; too few plates for the accessories fails.
+{const {largestDish}=await import('../dist/geometry.js');const steps=[];
+ const r=largestDish({},2,[],t=>steps.push(t));assert(r.diameter>=400&&r.plates<=2,`2 plates on 220 mm beds: ${JSON.stringify(r)}`);assert(steps.length>3);
+ const m=build({diameter:r.diameter,sectors:r.sectors,rows:r.rows});assert(m.plates.length<=2);
+ const mounted=build({mountMode:1});assert.throws(()=>largestDish({mountMode:1},2,mounted.parts.filter(p=>p.kind==='mount')),/accessories alone take/);
+ console.log('PASS largest dish on 2 plates of 220 mm:',r.diameter,'mm,',r.sectors,'petals ×',r.rows,'ring(s)');}

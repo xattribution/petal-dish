@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {build,defaults,volume,bounds} from '../dist/geometry.js';
 import {scadSource} from '../dist/exports.js';
-import {mountSolid} from '../dist/mount-fasteners.js';
+import {mountSolid,mountMesh} from '../dist/mount-fasteners.js';
 import {solid,solidScope} from '../dist/solid.js';
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'petal-scad-'));
 const kernel='';
@@ -47,4 +47,9 @@ try{
   const run=spawnSync('openscad',['--export-format','binstl','-o',output,'-D',`part="${part}"`,'-D','printing=true',...Object.entries(D).flatMap(([k,v])=>['-D',`${k}=${v}`]),'cad/simple-mount.scad'],{encoding:'utf8',timeout:300000});
   assert.equal(run.status,0,run.stderr);
   solidScope(()=>{const {body}=mountSolid(variant,{...defaults,...cfg}),ref=solid(readSTL(output)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();assert(diff<.5,`${variant}: SCAD and app plain holes differ by ${diff} mm³`);console.log('PASS simple-mount.scad plain holes match the app',variant,D,'differ',diff.toFixed(3),'mm³');});}
+ // elevation clamp on both sides (a U), at non-default sizes: the dual yoke (with stand holes) and cradle, and a left arm
+ for(const [variant,part,extra] of [['yoke-dual-stand','yoke',{stand_holes:'true'}],['cradle-dual','cradle',{}],['upright-left','upright_left',{}]]){const output=path.join(dir,variant+'.stl');
+  const run=spawnSync('openscad',['--export-format','binstl','-o',output,'-D',`part="${part}"`,'-D','printing=true','-D','sides="both"',...Object.entries({...D,...extra}).flatMap(([k,v])=>['-D',`${k}=${v}`]),'cad/simple-mount.scad'],{encoding:'utf8',timeout:300000});
+  assert.equal(run.status,0,run.stderr);
+  solidScope(()=>{const cfg={...defaults,...sizes},body=variant.endsWith('-left')?solid(mountMesh(variant,cfg)):mountSolid(variant,cfg).body,ref=solid(readSTL(output)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();assert(diff<.5,`${variant}: SCAD and app differ by ${diff} mm³`);console.log('PASS simple-mount.scad both sides match the app',variant,D,'differ',diff.toFixed(3),'mm³');});}
 }finally{fs.rmSync(dir,{recursive:true,force:true});}

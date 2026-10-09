@@ -8,7 +8,9 @@ export function startEngine(source,onFatal){
  const receive=msg=>{
   if(msg?.op==='ready'){ready=true;markReady();return;}
   if(msg?.op==='fatal'){fail('Could not initialize geometry: '+msg.error);return;}
-  const p=pending.get(msg?.id);if(!p)return;pending.delete(msg.id);
+  const p=pending.get(msg?.id);if(!p)return;
+  if(msg.progress!==undefined){p.onProgress?.(msg.progress);return;}   // a long request reporting a step; the reply follows
+  pending.delete(msg.id);
   // On the page, give the caller its own copy so page-side edits never reach the engine's cached model.
   if(!msg.ok){p.reject(Error(msg.error));return;}
   try{p.resolve(inPage&&p.op==='build'?structuredClone(msg.result):msg.result);}catch(e){p.reject(e);}
@@ -31,6 +33,6 @@ export function startEngine(source,onFatal){
  }catch{runInPage();}
  return{
   get inPage(){return inPage;},
-  call(op,payload={}){return readyPromise.then(()=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject,op});send({id,op,...payload});}));}
+  call(op,payload={},onProgress){return readyPromise.then(()=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject,op,onProgress});send({id,op,...payload});}));}
  };
 }

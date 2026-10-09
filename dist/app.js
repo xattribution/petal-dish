@@ -62,9 +62,10 @@ function optionUI(){
  const tip=bowl?'Auto uses the smallest bowl whose shadow covers the insert, or the wavelength count when a frequency is set, whichever is larger.':'Geometric prototype. Secondary size, diffraction and rear-feed clearance need RF validation.';$('sizing-tip').dataset.tip=tip;$('sizing-tip').setAttribute('aria-label',tip);
  $('facet-settings').hidden=!Number($('rearStyle').value);$('segmentGoal').disabled=Number($('sectors').value)>0&&Number($('rows').value)>0;
  const inserts=!(Number($('mountThrough').value)===1&&Number($('rootThrough').value)===1)||Number($('mountMode').value)===1;$('insertDiameter').disabled=!inserts;$('insert-field').hidden=!inserts;{const rt=Number($('rootThrough').value)===1,mt=Number($('mountThrough').value)===1;$('root-seat-field').hidden=!rt;$('mount-seat-field').hidden=!mt;$('seat-fields').hidden=!rt&&!mt;$('seat-fields').classList.toggle('single',rt!==mt);}
+ $('plateGap').closest('label').hidden=!$('packPlates').checked;
  workspaceUI?.seamChanged();
 }
-function buttons(){$('apply-plates').disabled=!valid||busy;$('auto-plates').disabled=!valid||busy;for(const id of ['export-all','export-scad','export-pdf'])$(id).disabled=!valid||busy||plateDirty;$('export-part').disabled=!valid||busy||plateDirty||!selected;}
+function buttons(){$('fit-plates').disabled=busy;$('apply-plates').disabled=!valid||busy;$('auto-plates').disabled=!valid||busy;for(const id of ['export-all','export-scad','export-pdf'])$(id).disabled=!valid||busy||plateDirty;$('export-part').disabled=!valid||busy||plateDirty||!selected;}
 // Cross-section: dish, prime focus and, with a secondary or collector bowl, its profile, F2 and four traced rays.
 function profile(m){
  const D=m.p.diameter,R=D/2,f=m.focal,b=m.feed?.bowl,s=m.feed?.secondary,sub=b?.profile??s?.profile,F2=b?b.insertFocus:s?.backFocus;
@@ -202,4 +203,11 @@ $('apply-plates').onclick=async()=>{if(!valid||busy)return;const rows=[...$('pla
  model.manualPacking=true;plateDirty=false;buttons();renderPlates();$('plate-status').textContent='Arrangement applied to the preview and exports.';packingResult();viewer?.setModel(model);document.querySelector('[data-view=layout]').click();};
 $('auto-plates').onclick=async()=>{if(!valid||busy)return;const key=model.key;busy=true;buttons();let rows;try{rows=await engine.call('pack',{key});}catch(e){$('plate-status').textContent=e.message;return;}finally{busy=false;buttons();}if(model.key!==key)return;
  try{model.plates=manualPlates(printed(model),model.p,rows,true);}catch(e){$('plate-status').textContent=e.message;return;}model.manualPacking=false;plateDirty=false;buttons();renderPlates();packingResult();viewer?.setModel(model);};
+// Largest dish on N plates: the engine searches the diameter (any petal and ring count) and reports each step.
+$('fit-plates').onclick=async()=>{if(busy)return;let p;try{p=validate(read());}catch(e){$('fit-status').textContent=readable(e.message);return;}
+ const N=Number($('plateBudget').value);if(!Number.isInteger(N)||N<1||N>40){$('fit-status').textContent='Plates must be a whole number from 1 to 40.';return;}
+ busy=true;buttons();$('fit-status').textContent='Searching…';let r;
+ try{r=await engine.call('fit',{key:model?.key,params:p,plates:N},text=>{$('fit-status').textContent=text;});}catch(e){$('fit-status').textContent=e.message;return;}finally{busy=false;buttons();}
+ $('diameter').value=r.diameter;if($('diameter-range'))$('diameter-range').value=r.diameter;$('sectors').value=String(r.sectors);$('rows').value=String(r.rows);workspaceUI.geometryChanged();
+ $('fit-status').textContent=`${r.diameter} mm · ${r.sectors} petals × ${r.rows} ${r.rows===1?'ring':'rings'} · ${r.plates} ${r.plates===1?'plate':'plates'}`;await generate();};
 $('plate-rows').addEventListener('input',()=>{plateDirty=true;buttons();$('plate-status').textContent='Unapplied edits. Apply or reset before exporting.';});

@@ -22,7 +22,7 @@ For frequency ν in GHz, wavelength in mm is `λ = 299.792458 / ν`. The primary
 | Frequency + automatic bowl sizing (collector) | Bowl diameter in wavelengths when that exceeds the smallest bowl that shades the insert; ellipse, F2, rods and mast follow |
 | Actual feed phase offset in mm | Prime-focus puck position and rod angles/cuts |
 | Known feed phase offset in wavelengths | Converts the supplied feed-specific offset using frequency, then recalculates puck and rods |
-| Automatic solid-rod diameter | Chooses 4, 5, 6, 6.35 or 8 mm from span, entered payload and deflection budget |
+| Automatic solid-rod diameter | Chooses 4, 5, 6, 6.35, 8, 10, 12 or 12.7 mm from span, entered payload and deflection budget |
 | Manual solid-rod diameter | Uses a user-entered 2–12.7 mm diameter, in mm or inches; warns if over the screening deflection budget |
 | Frequency in either optical mode | Reports wavelength and surface-error screening budget |
 
@@ -84,6 +84,8 @@ At 10 GHz a 400 mm, f/D 0.42 dish gets a 4 λ (120 mm) bowl by default, which th
 **Mechanics.** The reflecting face is the exact ellipsoid; a ray cast against the printed mesh finds it within 0.01 mm everywhere inside the rim. The bowl prints on its flat top with the reflecting face up and no supports: the back follows the face at 3 mm or a 45° cone, whichever is steeper. Where each rod goes in, the wall thickens between the flat top and the rim, so nothing hangs below the rim or into the signal path. The rod runs just above the back cone, enters at the rim and stops inside the thickened wall, with 1.5 mm of wall over the reflecting face and 1 mm under the top. Each seat is the rod's collar swept at 45° up to the flat top, so it stands on the bed in print. One cross bolt (M3 for rods 6 mm and up, M2 below) passes through flat side faces in open air and is match-drilled through the rod. The bowl end takes 1.6 rod diameters of engagement (at least 8–10 mm), because the bolt pins it. The mast foot bolts to the flat hub front on the four hub-to-mount through bolts; the cup and foot each take an M3 set screw into a short heat-set insert. The cable runs inside the mast and out through the hub center. Very deep dishes leave no room for a tube, and the cup then stands on a printed pedestal.
 
 ## Rod cuts, tolerances and retention
+
+**Where the rods start.** The lower datum is 20 mm inside the rim when that rod is at most 580 mm long. On a larger dish the datum moves in toward the hub, in 5 mm steps, to the outermost radius whose rod is 580 mm or shorter and no steeper than 62° (the steepest bore the petal sockets have been checked for), and the sockets go on whichever ring holds that radius (with room for the socket and 8 mm to each ring seam). When no datum meets both (a long focus, a Cassegrain carrier or a collector bowl on a large dish, where the rise alone is most of the rod), the datum stays at the rim: moving in would barely shorten the rod and would narrow the support. No rod may exceed 1 m. On a 1200 mm dish at f/D 0.42 on a 300 mm bed, that puts the prime-focus datum at r 370 mm on ring 2 of 3 (580 mm rods); the Cassegrain and collector rods start at the rim (679 and 659 mm). A 1200 mm dish at f/D 0.8 needs rods over 1 m and is refused.
 
 The underside petal datum and carrier datum determine span S. The lower front-face crossing is solved from the parabola; the upper entrance remains 22 mm from its datum:
 

@@ -2,7 +2,9 @@
 Usage: python3 scripts/check-simple-mount.py <stl dir>      (exit status 1 on any failure; needs OpenSCAD on PATH)
 Parts are placed with the SCAD's own print transforms (read through part = "matrices"), inverted; a mismatch
 shows up as interference or missing contact.
-Variants: default (base, yoke, upright, cradle, cheek), arc lock (upright-arc, cheek-arc), no base (yoke-stand).
+Variants: default (base, yoke, upright, cradle, cheek), arc lock (upright-arc, cheek-arc), no base (yoke-stand), and the
+elevation clamp on both sides (yoke-dual, yoke-dual-stand, cradle-dual and the mirrored upright-left and cheek-left).
+The left-only option is the mirror image of the default, so it shares the default's checks.
 """
 import sys, math, json, re, pathlib, subprocess, tempfile
 import numpy as np, trimesh, manifold3d as m3
@@ -48,7 +50,7 @@ def cone(r0, r1, h, n=48):   # along +Z from z = 0 (radius r0) to z = h (radius 
 def along_x(Mn, x0): return place(Mn, T([x0, 0, 0]) @ Ry(90))   # a +Z solid turned to run along +X from x0
 
 # ---- load, bed fit, overhang scan (print orientation) ----
-NAMES = ["base", "yoke", "yoke-stand", "upright", "upright-arc", "cradle", "cheek", "cheek-arc"]
+NAMES = ["base", "yoke", "yoke-stand", "upright", "upright-arc", "cradle", "cheek", "cheek-arc", "yoke-dual", "yoke-dual-stand", "cradle-dual", "upright-left", "cheek-left"]
 P = {n: trimesh.load(f"{D}/simple-{n}.stl") for n in NAMES}
 COS45 = math.cos(math.radians(44.85))   # flag faces more than 45.15° past vertical
 for n, m in P.items():
@@ -241,6 +243,49 @@ dh = [th for th in np.arange(CLIP_RANGE[0], EL_RANGE[1] + 0.1, 2.5) if vol(at_el
 check(not dh, f"no base: dish (with clips) clears the yoke and upright {dh[:4]}")
 ca = contact(yoke_s, place(cyl(70, 2), T([0, 0, yoke_z - 1])), [0, 0, -1])
 check(ca > 8000, f"no base: yoke bottom bears {ca/100:.0f} cm² on a flat stand")
+
+# ---- both sides: a second, mirrored upright and cheek ----
+print("-- both sides")
+MX = np.diag([-1.0, 1, 1, 1]); mir = lambda Mn: place(Mn, MX)
+yoke_d, yoke_ds, cradle_d = W("yoke-dual", "M_yoke"), W("yoke-dual-stand", "M_yoke"), W("cradle-dual", "M_cradle")
+upright_l, cheek_l = W("upright-left", "M_upright_left"), W("cheek-left", "M_cheek_left")
+diff = lambda a, b: (a - b).volume() + (b - a).volume()
+v = [diff(upright_l, mir(upright)), diff(cheek_l, mir(cheek0))]
+check(max(v) < 0.5, f"left upright and cheek are mirror images of the right ones (difference {max(v):.2f} mm³)")
+for nm, up, ckm, us, cs, dn in (("right", upright, cheek0, up_scr, ch_scr, [1, 0, 0]), ("left", upright_l, cheek_l, mir(up_scr), mir(ch_scr), [-1, 0, 0])):
+    cu, cc = contact(up, yoke_d, [0, 0, -1]), contact(ckm, cradle_d, [0, 1, 0])
+    ov = vol(up, yoke_d) + vol(ckm, cradle_d) + max(vol(us, yoke_d), vol(us, up), vol(cs, cradle_d), vol(cs, ckm))
+    check(cu > 1500 and cc > 600 and ov < 0.5, f"{nm} arm: upright flush on the dual yoke ({cu/100:.1f} cm²), cheek flush on the dual cradle ({cc/100:.1f} cm²), screws seated (overlap {ov:.2f} mm³)")
+    ce = [contact(at_el(ckm, th), up, dn) for th in ELS]
+    check(min(ce) > 2500, f"{nm} clamp: contact {min(ce)/100:.0f}–{max(ce)/100:.0f} cm² over the range")
+wings = el_wing + mir(el_wing); bolts0 = el_bolt0 + mir(el_bolt0)
+v = [vol(at_el(bolts0, th), upright + upright_l) + vol(at_el(bolts0, th), at_el(cheek0 + cheek_l, th)) for th in ELS] + [vol(wings, upright + upright_l)]
+check(max(v) < 0.5, f"both elevation bolts sit in their holes and pockets, heads inside, wing nuts outside, at every angle (max {max(v):.2f} mm³)")
+yk_d = yoke_d + upright + upright_l
+travel(yk_d + az_head + wings, cradle_d + cheek0 + cheek_l + ch_scr + mir(ch_scr) + hub_bolts, "both sides")
+travel(yoke_d + upright_a + upright_l + az_head + wings, cradle_d + cheek0_a + cheek_l + ch_scr + mir(ch_scr) + hub_bolts + arc_hw0, "both sides, arc lock on the right")
+dh = [th for th in np.arange(EL_RANGE[0], EL_RANGE[1] + 0.1, 2.5) if vol(at_el(dish0, th), yk_d + base) > 0.5]
+dc = [th for th in np.arange(CLIP_RANGE[0], CLIP_RANGE[1] + 0.1, 2.5) if vol(at_el(dishc, th), yk_d + base) > 0.5]
+check(not dh and not dc, f"both sides: the dish clears both uprights, the yoke and the base from {EL_RANGE[0]}° ({CLIP_RANGE[0]}° with clips) to {EL_RANGE[1]}° {dh[:4]} {dc[:4]}")
+bad = []
+for th in sorted({EL_RANGE[0], CLIP_RANGE[0], 0, 45, 90}):
+    turning = yk_d + az_head + wings + up_scr + mir(up_scr) + at_el(cradle_d + cheek0 + cheek_l + bolts0 + ch_scr + mir(ch_scr) + hub_bolts, th)
+    for A in range(15, 360, 30):
+        if vol(place(turning + at_el(dish0 if th < CLIP_RANGE[0] else dishc, th), Rz(-A)), base) > 0.5: bad.append((th, A))
+check(not bad, f"both sides: everything that turns clears the base all the way round {bad[:6]}")
+ov = max(vol(place(yk_d, Rz(a)), base) for a in (0, 37, 90, 200)); ca = contact(yoke_d, base, [0, 0, -1])
+check(ov < 0.5 and ca > 3000, f"both sides: the dual yoke turns on the base without overlap ({ov:.2f} mm³); azimuth contact {ca/100:.0f} cm²")
+reach = [th for th in range(-10, 101, 10) if vol(key, yk_d + at_el(cradle_d + cheek0 + cheek_l, th) + at_el(dish0, th)) < 0.5]
+check(reach and min(reach) <= 0, f"both sides: hex key reaches the azimuth bolt straight down at el {min(reach)}° to {max(reach)}°")
+crd = trimesh.load(f"{D}/simple-cradle-dual.stl").apply_transform(np.linalg.inv(np.array(INFO["M_cradle"])))
+ckl = trimesh.load(f"{D}/simple-cheek-left.stl").apply_transform(np.linalg.inv(np.array(INFO["M_cheek_left"])))
+both_c = trimesh.util.concatenate([crd, ck, ckl])
+check(open_along(both_c, ph, [0, 1, 0]).all() and not any(m_.contains(pr).any() for m_ in (crd, ck, ckl)),
+      "both sides: 4 x M4 on 60 BCD and Ø34 port open from behind; root nut and washer band clear")
+st_d = union([place(capscrew(30, 4.25, 5.0, 2.5), T([x, y, top]) @ Rx(180)) for x, y in INFO['STAND_DUAL']])
+v = [vol(st_d, yoke_ds), vol(st_d, upright + upright_l), vol(st_d, up_scr + mir(up_scr))]
+drv = union([place(cyl(5, 300), T([x, y, top + 150.2])) for x, y in INFO['STAND_DUAL']])
+check(max(v) < 0.5 and vol(drv, upright + upright_l + yoke_ds) < 0.5, f"both sides, no base: 4 x M5 socket heads below the top in their counterbores, clear of both uprights, reached straight down ({max(v):.2f} mm³)")
 
 print("ALL PASS" if ok else "SOME CHECKS FAILED")
 sys.exit(0 if ok else 1)

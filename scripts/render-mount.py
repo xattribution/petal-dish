@@ -1,6 +1,7 @@
 """Render the simple mount's documentation images with OpenSCAD (uses xvfb-run when present, for headless use).
 Usage: python3 scripts/render-mount.py [outdir]     (default docs/)
 Writes simple-mount.png (assembly with the dish), simple-mount-clamps.png (elevation clamp and arc lock),
+simple-mount-both.png (the elevation clamp on both sides),
 simple-mount-print.png (all parts in print orientation), simple-mount-joints.png (the bolted joints, exploded) and
 simple-mount-tripod.png (the tripod base from the app's generator with its default 20 mm legs, from below).
 """
@@ -29,11 +30,11 @@ translate([230, 10, 0]) color("gold") multmatrix(M_cheek) cheek();
 EXPLODED = f'''include <{SCAD}>
 color("slategray") translate([0,0,-45]) base();
 color("steelblue") yoke();
-for (s=up_screws) translate([s[0], s[1], yoke_z - 35]) flathead(up_screw_len);
+for (s=up_screws) translate([s[0], s[1], yoke_z - 35]) capscrew(up_screw_len);
 color("cornflowerblue") translate([0,0,40]) upright();
 translate([-45, 0, Z_el + 40]) rotate([el,0,0]) {{
   color("orange") translate([0, 45, 0]) cradle();
-  for (z=ch_screws) translate([ch_x, L + 80, z]) rotate([90,0,0]) flathead(ch_screw_len);
+  for (z=ch_screws) translate([ch_x, L + 80, z]) rotate([90,0,0]) capscrew(ch_screw_len);
   color("gold") cheek();
 }}
 '''
@@ -42,6 +43,7 @@ if __name__ == '__main__':
     OUT.mkdir(exist_ok=True)
     render('simple-mount.png', '520,-330,330,10,60,60', ['el=20', 'arc_lock=true'])
     render('simple-mount-clamps.png', '330,-220,210,30,10,75', ['el=20', 'show_dish=false', 'arc_lock=true'])
+    render('simple-mount-both.png', '300,-330,250,0,20,75', ['el=20', 'show_dish=false', 'sides="both"'])
     with tempfile.TemporaryDirectory() as d:
         # Tripod base: the app adds the leg sockets in JavaScript, so export its model-frame mesh and three leg stubs.
         js = f"""import('./dist/geometry.js').then(async g=>{{const fs=await import('node:fs'),{{binarySTL}}=await import('./dist/mesh.js'),{{apply}}=await import('./dist/scene.js'),{{solidScope,cylinder}}=await import('./dist/solid.js');

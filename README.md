@@ -93,9 +93,9 @@ The default 400 mm dish is six petals plus one hub: two unique parts, each with 
 | **Automatic sizing** | Largest petals: the fewest pieces and seams (default) · fewest print plates: may use more, smaller petals when they pack onto fewer beds |
 | **Large dishes** | Staggered rings (default) · aligned rings |
 | **Printer** | Presets for the Prusa CORE One L (with or without the INDX tool changer), Bambu Lab H2D and H2C, common volumes, or any custom volume. The last valid volume is remembered in the browser |
-| **Print plates** | Copies share beds and keep 6 mm apart at every height, so side-printed petals that lean the same way nest like spoons. In **Print parts**, drag a part onto another bed (or the empty slot after the last one): it lands in the nearest spot that fits, turning if it has to. Exact positions can also be typed in |
+| **Print plates** | Copies share beds and keep 6 mm apart at every height (adjustable, for wider brims), so side-printed petals that lean the same way nest like spoons. In **Print parts**, drag a part onto another bed (or the empty slot after the last one): it lands in the nearest spot that fits, turning if it has to. Exact positions can also be typed in. **Largest dish** finds the biggest dish whose kit fits a number of plates on your printer, with any petal and ring count |
 | **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on 3 or 4 aluminum rods with generated cut lengths |
-| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. Joint and stand screws are socket heads in counterbores. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or counterbores (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
+| **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. The elevation clamp goes on the right, the left (a slip then tightens it) or both sides, a U with two clamps. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. Joint and stand screws are socket heads in counterbores. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or counterbores (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
 
 All seam hardware stays behind the reflecting face.
 
@@ -113,7 +113,7 @@ Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom towa
 
 Feed revision 7 uses a small rounded taper around each direct petal rod hole and a compact side-screw ear. The large underside pyramid, separate rim shoes, backing plates and paired mounting bolts are gone. Only the bore changes angle as dish size or focal distance changes; the exterior blends into the dish underside. The circular bearing has 45° roof shoulders and a **0.8 mm bridge** for the exported side-print orientation.
 
-In **Accessories → Feed support**, choose **Enter diameter**, then enter your measured rod diameter in **mm or inches** (2–12.7 mm / approximately 0.079–0.5 inches). For example, 0.25 inches is exactly 6.35 mm. Both petal and carrier bores use this diameter plus the selected diametral clearance. Switching units preserves physical size. **Auto** still screens the available 4, 5, 6, 6.35 and 8 mm stock sizes. Exported geometry, manifest and rod schedule use millimeters; the CSV also includes cut lengths in inches.
+In **Accessories → Feed support**, choose **Enter diameter**, then enter your measured rod diameter in **mm or inches** (2–12.7 mm / approximately 0.079–0.5 inches). For example, 0.25 inches is exactly 6.35 mm. Both petal and carrier bores use this diameter plus the selected diametral clearance. Switching units preserves physical size. **Auto** screens 4, 5, 6, 6.35, 8, 10, 12 and 12.7 mm stock. On large dishes the rods start further in from the rim, on whichever ring holds that radius, where that keeps them under about 580 mm. No rod is longer than 1 m. Exported geometry, manifest and rod schedule use millimeters; the CSV also includes cut lengths in inches.
 
 Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set insert**, maximum 4 mm long, compatible with a 4.2 mm pilot. Carrier hex nuts remain unchanged. Regenerate mounting petals, carrier and rod cuts together; previous feed revisions are not interchangeable. Test one mounting petal for your rod and insert fit first. The carrier and secondary still need their own slicer support review.
 
@@ -126,6 +126,7 @@ Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set in
 - [Reflective surface](docs/REFLECTOR.md): foil tape and conductive coatings.
 - [Feed optics and rod supports](docs/FEED-OPTICS.md)
 - [Aiming mount](docs/SIMPLE-MOUNT.md) · [Seam lever](docs/SEAM-LEVER.md)
+- [Printing large petals](docs/PRINTING-LARGE-PETALS.md): warping, settings for the CORE One L and H2D/H2C, shell thickness
 - [Engineering limits](docs/ENGINEERING.md) · [Validation record](docs/VALIDATION.md)
 - [Self-hosting](docs/SELF-HOSTING.md)
 

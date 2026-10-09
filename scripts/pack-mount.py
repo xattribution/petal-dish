@@ -26,10 +26,17 @@ VARIANTS = {
     'cradle':      ('cradle',  {},                      'cradle', 'M_cradle'),
     'cheek':       ('cheek',   {},                      'cradle', 'M_cheek'),
     'cheek-arc':   ('cheek',   {'arc_lock': 'true'},    'cradle', 'M_cheek'),
+    # both sides (a U): the yoke and cradle carry an arm on each side; the left arms are mirror images of the right ones
+    'yoke-dual':       ('yoke',         {'sides': '"both"'},                         'world',  'M_yoke'),
+    'yoke-dual-stand': ('yoke',         {'sides': '"both"', 'stand_holes': 'true'},  'world',  'M_yoke'),
+    'cradle-dual':     ('cradle',       {'sides': '"both"'},                         'cradle', 'M_cradle'),
+    'upright-left':    ('upright_left', {'sides': '"both"'},                         'world',  'M_upright_left'),
+    'cheek-left':      ('cheek_left',   {'sides': '"both"'},                         'cradle', 'M_cheek_left'),
 }
-# blanks: no fastener cuts (stand holes and the base's stand screws are fastener cuts, so yoke-stand and the tripod
-# base share the yoke and base blanks)
-BLANKS = {k: (part, {**extra, 'fasteners': 'false'}, frame, mat) for k, (part, extra, frame, mat) in VARIANTS.items() if k != 'yoke-stand'}
+# blanks: no fastener cuts (stand holes and the base's stand screws are fastener cuts, so the stand yokes and the tripod
+# base share the yoke and base blanks). The app mirrors the right arms for the left ones, so they need no blanks.
+BLANKS = {k: (part, {**extra, 'fasteners': 'false'}, frame, mat) for k, (part, extra, frame, mat) in VARIANTS.items()
+          if k not in ('yoke-stand', 'yoke-dual-stand', 'upright-left', 'cheek-left')}
 
 def scad_info():
     """Print transforms and constants echoed by cad/simple-mount.scad (part = "matrices")."""
@@ -89,7 +96,7 @@ def main():
     arc_r, arc_phi, arc_w, arc_margin, el_min, el_max, m6_af, m6_head, arc_len = info['ARC']
     frame = {'baseT': base_t, 'yokeT': yoke_t, 'axisZ': z_el, 'hubL': L, 'plateT': plate_t, 'cheek': [cr_in, cr_out], 'upright': [up_in, up_out], 'capR': cap_r,
              'insert': {'pilot': ins_d, 'depth': ins_deep + info['INSET'][0], 'length': ins_len, 'inset': info['INSET'][0], 'recess': 0.5}, 'uprightScrews': {'count': n_up, 'length': up_len, 'at': info['UP_SCREWS']},
-             'cheekScrews': {'count': n_ch, 'length': ch_len, 'x': ch_x, 'z': info['CH_SCREWS']}, 'standHoles': info['STAND'],
+             'cheekScrews': {'count': n_ch, 'length': ch_len, 'x': ch_x, 'z': info['CH_SCREWS']}, 'standHoles': info['STAND'], 'standHolesDual': info['STAND_DUAL'],
              'arc': {'radius': arc_r, 'phi': arc_phi, 'slot': arc_w, 'range': [el_min, el_max], 'boltLength': arc_len, 'headAF': m6_af, 'head': m6_head}}
     shoulder, bcd_r, base_stand_r, yoke_z, top, _, hfn = info['CUTS']
     frame['cuts'] = {'shoulder': shoulder, 'bcd': bcd_r, 'baseStandR': base_stand_r, 'yokeZ': yoke_z, 'top': top, 'pilotDepth': ins_deep, 'segments': hfn, 'step': info['COUNTERBORE'][3]}

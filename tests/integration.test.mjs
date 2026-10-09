@@ -2,18 +2,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import {mountMeshes,mountFrame} from '../dist/mount-meshes.js';
-import {mountSolid} from '../dist/mount-fasteners.js';
+import {mountSolid,mountMesh} from '../dist/mount-fasteners.js';
 import {solid,solidScope,cylinder} from '../dist/solid.js';
 // Bundled blanks (no fastener holes) match cad/STL/blank; the app cuts the holes for the selected sizes.
-assert.deepEqual(Object.keys(mountMeshes).sort(),['base','cheek','cheek-arc','cradle','upright','upright-arc','yoke']);
+assert.deepEqual(Object.keys(mountMeshes).sort(),['base','cheek','cheek-arc','cradle','cradle-dual','upright','upright-arc','yoke','yoke-dual']);
 for(const [name,mesh] of Object.entries(mountMeshes)){assert.equal(mesh.source_sha256,createHash('sha256').update(fs.readFileSync(`cad/STL/blank/simple-${name}.stl`)).digest('hex'),'Regenerate bundled mount mesh after CAD changes');assert(['world','cradle'].includes(mesh.frame));assert.equal(mesh.toModel.length,3);}
 assert.equal(mountFrame.insert.depth,10);assert.equal(mountFrame.insert.recess,.5);assert.equal(mountFrame.axisZ,94);assert.equal(mountFrame.hubL,75);assert.equal(mountFrame.baseT,14);
-const COMPLETE=['base','cheek','cheek-arc','cradle','upright','upright-arc','yoke','yoke-stand'];
+const COMPLETE=['base','cheek','cheek-arc','cradle','upright','upright-arc','yoke','yoke-stand','yoke-dual','yoke-dual-stand','cradle-dual','upright-left','cheek-left'];
 assert.deepEqual(fs.readdirSync('cad/STL').filter(f=>f.startsWith('simple-')).sort(),COMPLETE.map(n=>`simple-${n}.stl`).sort(),'complete mount STLs');
 for(const f of fs.readdirSync('cad/STL/blank'))assert(mountMeshes[f.slice(7,-4)],'Obsolete blank STL '+f);
 // At the default sizes the app's cuts reproduce the complete OpenSCAD parts (float32 STL rounding only).
 {const read=f=>{const b=fs.readFileSync(f),n=b.readUInt32LE(80),key=new Map(),v=[],faces=[];for(let i=0;i<n;i++){const t=[];for(let k=0;k<3;k++){const o=84+i*50+12+k*12,q=[b.readFloatLE(o),b.readFloatLE(o+4),b.readFloatLE(o+8)],s=q.join();if(!key.has(s)){key.set(s,v.length);v.push(q);}t.push(key.get(s));}faces.push(t);}return{v,f:faces};};
- solidScope(()=>{for(const name of COMPLETE){const {body}=mountSolid(name,defaults),ref=solid(read(`cad/STL/simple-${name}.stl`)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();
+ solidScope(()=>{for(const name of COMPLETE){const body=name.endsWith('-left')?solid(mountMesh(name,defaults)):mountSolid(name,defaults).body,ref=solid(read(`cad/STL/simple-${name}.stl`)),diff=body.subtract(ref).raw.volume()+ref.subtract(body).raw.volume();
   assert(diff<.5,`${name}: app cuts differ from the complete STL by ${diff.toFixed(3)} mm³`);assert.equal(body.raw.genus(),ref.raw.genus(),name+' hole count');}});
  console.log('PASS default-size mount cuts reproduce cad/STL/simple-*.stl');}
 // Other sizes: the hole diameters follow the selection.
@@ -81,3 +81,11 @@ console.log('PASS strain gate, unique coupons and clip orientation');
  // the arc lock with the largest clamp bolt: every mount part closed
  const arc=build({mountMode:1,mountArcLock:1,clampBolt:10});for(const part of arc.parts.filter(p=>p.kind==='mount')){const es=new Map();for(const f of part.mesh.f)for(let i=0;i<3;i++){const a=f[i],b=f[(i+1)%3],k=Math.min(a,b)+':'+Math.max(a,b);es.set(k,(es.get(k)||0)+1);}assert([...es.values()].every(n=>n===2),part.id+' closed');}
  console.log('PASS hub mount bolt lengths with and without the collector foot, insert wording, M10 clamp with the arc lock');}
+// Elevation clamp sides: left mirrors every sided part, both adds a mirrored arm on each side; hardware doubles.
+{const {mountHardware}=await import('../dist/mount.js');
+ for(const [mountSides,ids] of [[1,['mount-base','mount-yoke','mount-upright','mount-cradle','mount-cheek']],[2,['mount-base','mount-yoke','mount-upright','mount-upright-left','mount-cradle','mount-cheek','mount-cheek-left']]]){
+  const m=build({mountMode:1,mountSides,mountArcLock:1}),parts=m.parts.filter(p=>p.kind==='mount');assert.deepEqual(parts.map(p=>p.id),ids);assert(m.mount.maxOverlap<.1);
+  const hw=mountHardware(m),q=item=>hw.find(h=>h.item===item).quantity;assert.equal(q('elevation clamp bolt'),mountSides===2?2:1);assert.equal(q('elevation nut'),mountSides===2?2:1);assert.equal(q('mount heat-set insert'),mountSides===2?14:7);assert.equal(q('arc lock bolt'),1);
+  if(mountSides===1){const r=build({mountMode:1,mountArcLock:1}).parts.find(p=>p.id==='mount-upright'),l=parts.find(p=>p.id==='mount-upright');solidScope(()=>{const a=solid(r.mesh).transform(([x,y,z])=>[-x,y,z]),b=solid(l.mesh);assert(Math.abs(a.raw.volume()-b.raw.volume())<.01&&a.subtract(b).raw.volume()<.05,'left upright is the mirror image');});}
+  assert(guide(m).includes(mountSides===2?'The elevation clamp is on both sides':'The elevation clamp is on the left'));}
+ console.log('PASS elevation clamp on the left or on both sides: parts, mirroring, hardware and guide');}

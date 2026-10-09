@@ -1,12 +1,13 @@
 // Geometry engine. Runs in a Web Worker so model generation and kit export never freeze the page; app.js falls back
 // to running this same code on the page when workers are unavailable (it then supplies __PETAL_ENGINE_PORT__).
 // Messages in:  {id, op:'build', key, params, plates} | {id, op:'kit'|'pdf'|'scad'|'manifest'|'plates', key, plates}
-//               | {id, op:'pack', key} | {id, op:'move', key, plates, copy, target, x, y}
+//               | {id, op:'pack', key} | {id, op:'move', key, plates, copy, target, x, y} | {id, op:'fit', key, params, plates}
 // plates: plate rows (plateRows), or null for the model's own packing. Rows sent with a build are a hand arrangement to
 // keep if it still fits the new parts; 'plates' checks typed rows and returns them on the packing grid; 'move' trusts
 // its rows, which are always ones the engine produced.
-// Messages out: {op:'ready'} once the WASM kernel is loaded, then {id, ok:true, result} or {id, ok:false, error}.
-import {build} from './geometry.js';
+// Messages out: {op:'ready'} once the WASM kernel is loaded, then {id, ok:true, result} or {id, ok:false, error}; a long
+// request ('fit') may first send {id, progress} messages.
+import {build,largestDish} from './geometry.js';
 import {manualPlates,packAll,plateRows,movePlacement} from './mesh.js';
 import {kit,assemblyPDF,scadSource,manifest} from './exports.js';
 const port=globalThis.__PETAL_ENGINE_PORT__||self;
@@ -26,6 +27,8 @@ port.onmessage=({data:msg})=>{
   if(op==='build'){current=null;const model=build(msg.params);
    if(msg.plates&&model.p.packPlates){try{model.plates=manualPlates(printed(model),model.p,msg.plates);model.manualPacking=true;}catch{model.arrangementLost=true;}}
    current={key:msg.key,model};port.postMessage({id,ok:true,result:forPage(model)});return;}
+  // Largest dish on a number of plates; the model on screen supplies the accessories to pack with it.
+  if(op==='fit'){const extras=current&&current.key===msg.key?current.model.parts.filter(x=>x.kind!=='panel'&&x.kind!=='hub'):[];port.postMessage({id,ok:true,result:largestDish(msg.params,msg.plates,extras,text=>port.postMessage({id,progress:text}))});return;}
   if(op==='plates'){port.postMessage({id,ok:true,result:plateRows(exported(msg.key,msg.plates).plates)});return;}
   // Plate arrangement runs here too, where the parts' footprints from packing are already cached.
   if(op==='pack'){const m=exported(msg.key,null);port.postMessage({id,ok:true,result:plateRows(packAll(m.parts,m.p))});return;}

@@ -1,6 +1,6 @@
 # PETAL compact rod support · prime-focus
 
-Accessory revision 7: rods fasten directly into the underside of the selected outer petals. There are no rim shoes, backing plates or paired mounting bolts. Regenerate the mount petals, carrier and rod cuts as a matching kit; earlier rods and petals do not interchange. Seam/hub interface remains revision 12. Changing rod count may change segmentation.
+Accessory revision 7: rods fasten directly into the underside of the selected petals, 20 mm inside the rim. There are no rim shoes, backing plates or paired mounting bolts. Regenerate the mount petals, carrier and rod cuts as a matching kit; earlier rods and petals do not interchange. Seam/hub interface remains revision 12. Changing rod count may change segmentation.
 
 ## Rods and attachment
 
@@ -26,7 +26,7 @@ Frequency alone does not move the focus of a fixed parabola. Prime focus remains
 
 Place the actual feed PHASE CENTER at the focus, not automatically its mouth or flange. A zero offset remains unverified. The feed points toward the main dish.
 
-Auto rod sizing screens 4, 5, 6, 6.35 and 8 mm SOLID aluminum using E=69 GPa and a deliberately conservative single cantilever with the entire entered 100 g payload applied transversely over the exposed span: δ=FL³/(3EI). Selected-rod result 0.361 mm. Include feed/secondary, puck, adapter and cable loads in the payload input; wind, joint compliance, resonance and creep are excluded. This is not an allowable-load calculation or an RF guarantee. Manual diameter overrides retain an over-budget warning.
+Auto rod sizing screens 4, 5, 6, 6.35, 8, 10, 12 and 12.7 mm SOLID aluminum using E=69 GPa and a deliberately conservative single cantilever with the entire entered 100 g payload applied transversely over the exposed span: δ=FL³/(3EI). Selected-rod result 0.361 mm. Include feed/secondary, puck, adapter and cable loads in the payload input; wind, joint compliance, resonance and creep are excluded. This is not an allowable-load calculation or an RF guarantee. Manual diameter overrides retain an over-budget warning.
 
 - Prototype: no wind, payload or RF performance rating. Small radial screws require physical slip and warm-creep tests.
 - Frequency unspecified: wavelength-dependent dimensions and RF tolerances are unavailable.

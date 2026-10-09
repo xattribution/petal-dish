@@ -29,7 +29,8 @@ for(const [index,cfg]of [{feedMode:1,rodDiameter:3.175},{feedMode:1,rodDiameter:
  {feedMode:1,fd:.25,rodDiameter:8,rodClearance:.7,thickness:6},
  {feedMode:1,fd:.8,rodDiameter:4,rodClearance:.15,thickness:1.6}].entries()){
  const{minimumRise,...settings}=cfg,parameters={...defaults,...settings,packPlates:0,bedX:400,bedY:400,bedZ:400};
- if(minimumRise)parameters.phaseOffset=parameters.diameter*parameters.fd+8-feedDatum(parameters).rear-minimumRise;
+ // the datum can move with the carrier height (rods past the target length start further in), so settle the two together
+ if(minimumRise)for(let i=0;i<8;i++)parameters.phaseOffset=parameters.diameter*parameters.fd+8-feedDatum(parameters).rear-minimumRise;
  const m=build(parameters),id=`edge-${index}`;
  for(const part of m.parts.filter(p=>p.kind==='feed'||p.spec.feedMount))fs.writeFileSync(`${folder}/${id}-${part.id}.stl`,Buffer.from(binarySTL(part.output)));
  fs.writeFileSync(`${folder}/${id}.json`,JSON.stringify({parameters,feed:m.feed,layout:m.layout,parts:m.parts.filter(p=>p.kind==='feed'||p.spec.feedMount).map(p=>({id:p.id,mesh:p.mesh}))}));

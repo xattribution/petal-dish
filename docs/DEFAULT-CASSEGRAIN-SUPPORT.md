@@ -1,6 +1,6 @@
 # PETAL compact rod support · cassegrain
 
-Accessory revision 7: rods fasten directly into the underside of the selected outer petals. There are no rim shoes, backing plates or paired mounting bolts. Regenerate the mount petals, carrier and rod cuts as a matching kit; earlier rods and petals do not interchange. Seam/hub interface remains revision 12. Changing rod count may change segmentation.
+Accessory revision 7: rods fasten directly into the underside of the selected petals, 20 mm inside the rim. There are no rim shoes, backing plates or paired mounting bolts. Regenerate the mount petals, carrier and rod cuts as a matching kit; earlier rods and petals do not interchange. Seam/hub interface remains revision 12. Changing rod count may change segmentation.
 
 ## Rods and attachment
 
@@ -26,7 +26,7 @@ Frequency alone does not move the focus of a fixed parabola. Prime focus remains
 
 The secondary is a convex hyperboloid toward the main dish: vertex z=137.760 mm, diameter 80.336 mm, rear focus z=-20.000 mm. Automatic mode targets the entered secondary wavelength count (minimum 56 mm mechanical diameter), solves its position and then recalculates rod lengths and angles. Above 25% dish diameter it rejects the combination; choose prime focus or a larger dish. These are engineering screening limits, not optimized RF dimensions. The 3 mm reflective shell has a central 10 mm boss with one blind Ø5.6×7 mm insert pocket. Install a short M4 insert at least 0.5 mm recessed, maximum 6 mm long; use M4×55 with a 4 mm metal washer/spacer stack through the 46 mm puck/stem stack. Verify actual engagement and leave the reflective face intact. Secondary prints with its boss down; support the surrounding back shell in the slicer. The rear RF feed, phase center, polarization and illumination must be designed separately.
 
-Auto rod sizing screens 4, 5, 6, 6.35 and 8 mm SOLID aluminum using E=69 GPa and a deliberately conservative single cantilever with the entire entered 100 g payload applied transversely over the exposed span: δ=FL³/(3EI). Selected-rod result 0.400 mm. Include feed/secondary, puck, adapter and cable loads in the payload input; wind, joint compliance, resonance and creep are excluded. This is not an allowable-load calculation or an RF guarantee. Manual diameter overrides retain an over-budget warning.
+Auto rod sizing screens 4, 5, 6, 6.35, 8, 10, 12 and 12.7 mm SOLID aluminum using E=69 GPa and a deliberately conservative single cantilever with the entire entered 100 g payload applied transversely over the exposed span: δ=FL³/(3EI). Selected-rod result 0.400 mm. Include feed/secondary, puck, adapter and cable loads in the payload input; wind, joint compliance, resonance and creep are excluded. This is not an allowable-load calculation or an RF guarantee. Manual diameter overrides retain an over-budget warning.
 
 - Prototype: no wind, payload or RF performance rating. Small radial screws require physical slip and warm-creep tests.
 - Frequency unspecified: wavelength-dependent dimensions and RF tolerances are unavailable.

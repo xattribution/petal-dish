@@ -340,3 +340,32 @@ With nesting, the fewest-plates goal picks the same layout as largest petals in 
 - **Leg cross bolts** count ISO 7089 washer thickness for their size instead of 1 mm.
 - **Speed.** A change to the aiming mount or its pose reuses the dish's segmentation, petal and hub meshes (an elevation change on the default dish with the mount: 1.5 s to 0.4–0.6 s). The hub's holes and the collector's seat bores are cut in one subtraction each (default build 1.25 s to 0.96 s). Fewest-plates sizing ranks layouts on a 2 mm grid (1000 mm dish on a 300 mm bed: 10.4 s to 6.9 s of planning). Each petal and the hub free their intermediate solids before the next starts.
 - **Interface.** Typed plate positions are checked in the engine. A hand arrangement survives a rebuild when every copy still fits, and the page says so when it does not. A drop that cannot be placed says why. Status messages appear over the preview on every screen size. Field tips describe their control to screen readers instead of joining its name. Hidden or disabled fields no longer block a build, errors name the field by its label, an empty inch field is no longer read as zero, and the selection and keyboard focus survive a rebuild.
+
+## Large dishes with rods, largest dish on N plates, clamp sides (2026-10-08)
+
+**Rod supports on large dishes.** A 1200 mm dish with a rod support used to stop with "Rod geometry is outside the compact fitting envelope", because a rod from 20 mm inside the rim to the focus is longer than 600 mm. The rods now start further in when that helps: the outermost radius whose rod is 580 mm or shorter and no steeper than 62°, on whichever ring holds that radius with room for the socket. Otherwise they stay at the rim, and no rod may be over 1 m. Automatic stock sizing now goes up to 10, 12 and 12.7 mm. All of these build on the CORE One L, CORE One L + INDX and H2D volumes:
+
+| 1200 mm dish | 3 rods | 4 rods |
+|---|---|---|
+| Prime focus | rods from r 370 mm on ring 2 of 3, 580 mm cut | same datum, ring 2 of 2 |
+| Cassegrain | rods from the rim, 679 mm cut (moving in would save little) | builds |
+| Gregorian collector | rods from the rim, 659 mm cut | builds |
+
+On a 220 mm bed, three rods still have no fitting petal count at 1200 mm (12 petals are too large and 18 is past the 16-petal limit), and the Cassegrain secondary is larger than the bed; both are reported. The feed tests add the 1200 mm cases, check each rod, its angle and the socket ring, refuse a 1200 mm dish at f/D 0.8 (rods over 1 m), and the deflection screen still rejects a 2 kg payload at 50 GHz. The feed envelope sweep (64 cases: 58 build, 6 are refused with a reason), with its independent mesh, fit and overhang checks, passes.
+
+**Largest dish on N plates.** The search runs on packed estimates and then builds the answer for real:
+
+| Printer | Plates | Result |
+|---|---|---|
+| 220 × 220 × 250 | 2 | 415 mm, 6 petals × 1 ring |
+| CORE One L | 2 | 670 mm, 8 × 2 |
+| CORE One L | 4 | 990 mm, 10 × 2 (17 s in headless Chromium) |
+| H2D | 6 | 1200 mm, 16 × 2 |
+
+With the mount fitted on a 220 mm bed, two or three plates are refused with the reason: the mount alone takes three.
+
+**Elevation clamp sides.** Left mirrors every part with a side; both sides adds a mirrored upright and cheek and a dual yoke and cradle (`cad/STL/simple-*-dual*.stl`, `simple-*-left.stl`). `scripts/check-simple-mount.py` checks the mirror images, both joints, both clamps (36–38 cm² each over the range), both bolts, travel from −10° to 100° with and without the arc lock, dish and azimuth clearance, hex-key reach, the hub interface and the no-base stand screws: all pass. The app's cuts reproduce the new complete STLs, and the SCAD matches the app at non-default sizes. The new parts pass the overhang scan. Holding estimates and the reasoning for the left side are in SIMPLE-MOUNT.md.
+
+**Gap between parts.** The packing gap is now a setting (3–30 mm, default 6) so wide brims stay separate. The independent slice check in the structure tests uses the setting, and a 600 mm dish at a 16 mm gap is among its cases.
+
+**Printing large petals.** Research and settings for long ASA-GF, ASA-CF and PCTG prints are in PRINTING-LARGE-PETALS.md. No geometry change was made for warping: thickness mostly changes stiffness in use, and a cross rib would not shorten the long layer paths that drive warping.
