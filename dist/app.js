@@ -63,7 +63,7 @@ function optionUI(){
  $('sizing-label').textContent=bowl?'Bowl sizing':'Secondary sizing';$('waves-label').textContent=bowl?'Bowl diameter':'Secondary diameter';
  const sizing=$('autoSecondary').options;sizing[0].text=bowl?'Smallest that hides the insert':'From frequency when specified';sizing[1].text=bowl?'Enter diameter':'Manual geometric experiment';
  const tip=bowl?'Auto uses the smallest bowl whose shadow covers the insert, or the wavelength count when a frequency is set, whichever is larger.':'Geometric prototype. Secondary size, diffraction and rear-feed clearance need RF validation.';$('sizing-tip').dataset.tip=tip;$('sizing-tip').setAttribute('aria-label',tip);
- $('facet-settings').hidden=!Number($('rearStyle').value);$('segmentGoal').disabled=Number($('sectors').value)>0&&Number($('rows').value)>0;
+ $('facet-settings').hidden=!Number($('rearStyle').value);{const band=Number($('rimBand').value)>0,ribs=Number($('ribs').value)>0;$('rim-depth-field').hidden=!band;$('rimDepth').disabled=!band;$('rib-fields').hidden=!ribs;$('ribHeight').disabled=$('ribPitch').disabled=!ribs;}$('segmentGoal').disabled=Number($('sectors').value)>0&&Number($('rows').value)>0;
  const inserts=!(Number($('mountThrough').value)===1&&Number($('rootThrough').value)===1)||Number($('mountMode').value)===1;$('insertDiameter').disabled=!inserts;$('insert-field').hidden=!inserts;{const rt=Number($('rootThrough').value)===1,mt=Number($('mountThrough').value)===1;$('root-seat-field').hidden=!rt;$('mount-seat-field').hidden=!mt;$('seat-fields').hidden=!rt&&!mt;$('seat-fields').classList.toggle('single',rt!==mt);}
  $('plateGap').closest('label').hidden=!$('packPlates').checked;
  workspaceUI?.seamChanged();

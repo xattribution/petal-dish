@@ -7,6 +7,7 @@ import {appendMount} from './mount.js';
 import {affine,rz} from './scene.js';
 import {feedFits,feedRow,rodCount,petalRodSocket,appendFeedParts} from './feed.js';
 import {leverMeshes} from './lever-meshes.js';
+import {rimBandSolid,rimReach,ribSolids} from './stiffeners.js';
 export {binarySTL,volume,packedPlateMesh,bounds,printMesh,rotateBed,zAt,packAll} from './mesh.js';
 export const ROOT={seatR:4.8,seatDepth:5};
 // Root and hub-to-mount fastener geometry for the selected sizes (M4 gives the revision-12 interface exactly).
@@ -116,12 +117,19 @@ function clipped(s,p,n,a,b,gap=0){const h=PI/n;
   if(Number.isFinite(b))for(const t of [-h/2,h/2])s=s.trim([-Math.cos(t),-Math.sin(t),0],-b+gap/2);
  }else s=s.trim([1,0,0],a+gap/2).trim([-1,0,0],Number.isFinite(b)?-b+gap/2:-p.diameter);
  return s.intersect(cylinder([0,0,-100],[0,0,p.diameter],p.diameter/2,Math.max(96,Math.ceil(PI*p.diameter/p.resolution))));}
+// Station span of a radial seam: with a rim band, the last station keeps clear of the band by its hardware's size
+// (bolt seat and driver, clip and fingers, or lever), so the stations of a long seam move a little toward the hub.
+// The station count stays as it was; only a seam too short to keep the stations apart (30 mm with clips or levers,
+// 20 mm with bolts) loses one.
+function rimSpan(p,frame,start,end,ramp,h,count){let span=end-start-ramp;const{o}=frame;if(!p.rimBand||o[0]!==0||o[1]!==0||end<p.diameter/2-1.5)return[span,count];
+ const keep=rimReach(p,h)+(p.seamJoint===3?14:p.seamJoint?10:seamBolt(p).seatR+4),gap=p.seamJoint?30:20,last=(sp,c)=>start+ramp+sp*(c-.5)/c;
+ let c=count;for(;;){let sp=span;while(sp>8&&last(sp,c)>end-keep)sp-=.5;if(c===1||sp/c>=gap)return[sp,c];c--;}}
 // Integral edge flange: a 3 mm wall with a 45° root gusset and solid screw pads.
 function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s,t,z)=>[o[0]+s*e[0]+t*v[0],o[1]+s*e[1]+t*v[1],z],back=s=>{const q=point(s,0,0);return backZ(q[0],q[1],p);},backT=(s,t)=>{const q=point(s,t,0);return backZ(q[0],q[1],p);};
  // Station height. With clips, drop it by the shell's slope across the clip so the jaws clear the shell everywhere.
  // With clips the station is tilted to follow the shell along the seam; it drops only for the shell's slope across the seam.
  const tilt=s=>p.seamJoint?Math.atan((back(s+1)-back(s-1))/2):0,level=s=>p.seamJoint?back(s)-(7+Math.max(0,CLIP.top+.25-7+Math.abs(backT(s,1)-backT(s,-1))/2*7.6))/Math.cos(tilt(s)):back(s)-7;
- const frameAt=s=>{const z=level(s),a=tilt(s),c=Math.cos(a),sn=Math.sin(a);return(X,Y,U)=>point(s+U*c-Y*sn,X,z+U*sn+Y*c);},hy=boltY(p);const ramp=p.seamJoint&&o[0]===0&&o[1]===0?Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))+6:0,span=end-start-ramp,countBolts=p.seamJoint?Math.max(1,Math.min(Math.round(span/40),Math.floor(span/34))):2*Math.max(1,Math.ceil(span/240)),stations=Array.from({length:countBolts},(_,i)=>start+ramp+span*(i+.5)/countBolts),mid=(start+end)/2,cs=0,W=p.seamJoint?CLIP.wall:3,D=14+(p.seamJoint?(sl=>Math.max(0,5*sl+7.6*Math.abs(sl)))((backT((start+end)/2,1)-backT((start+end)/2,-1))/2):0),dAt=s=>male&&o[0]===0?Math.min(D,.5+(s-start)*(D-.5)/Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))):D;
+ const frameAt=s=>{const z=level(s),a=tilt(s),c=Math.cos(a),sn=Math.sin(a);return(X,Y,U)=>point(s+U*c-Y*sn,X,z+U*sn+Y*c);},hy=boltY(p);const ramp=p.seamJoint&&o[0]===0&&o[1]===0?Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))+6:0,countOf=sp=>p.seamJoint?Math.max(1,Math.min(Math.round(sp/40),Math.floor(sp/34))):2*Math.max(1,Math.ceil(sp/240)),[span,countBolts]=rimSpan(p,frame,start,end,ramp,h,countOf(end-start-ramp)),stations=Array.from({length:countBolts},(_,i)=>start+ramp+span*(i+.5)/countBolts),mid=(start+end)/2,cs=0,W=p.seamJoint?CLIP.wall:3,D=14+(p.seamJoint?(sl=>Math.max(0,5*sl+7.6*Math.abs(sl)))((backT((start+end)/2,1)-backT((start+end)/2,-1))/2):0),dAt=s=>male&&o[0]===0?Math.min(D,.5+(s-start)*(D-.5)/Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))):D;
  const profile=s=>{const d=dAt(s);const outline=male?[[cs,-d],[W,-d],[W+d,0],[W+d,.5],[cs,.5]]:[[cs,-d],[W,-d],[W,-4],[W+4,0],[W+4,.5],[cs,.5]];return outline.map(([t,z])=>{const q=point(s,t,0);return point(s,t,backZ(q[0],q[1],p)+z);});};
  const count=Math.max(2,Math.ceil((end-start+2*overlap)/p.resolution)),rings=Array.from({length:count+1},(_,i)=>profile(start-overlap+(end-start+2*overlap)*i/count));let body=loft(rings);
  // An end face whose outward normal (along ±e) points down more than 45° in the side print is cut back at the smallest
@@ -189,11 +197,21 @@ function flangeFrames(p,n,rows,j){const h=PI/n,[a,b]=rowBounds(p,n,rows,j),R=p.d
  return defs;}
 // Petals with the same root fastener, rod mount and seam choices are identical solids.
 const petalSignature=(p,n,rows,j,mount,angle)=>JSON.stringify([mount,j===0?p.rootThrough:null,flangeFrames(p,n,rows,j).map(([frame,start,end])=>{const c=seamChoice(p,frame,start,end,angle);return[c.seamJoint,c.seamBolt];})]);
+// Where ribs may not run: around every seam station (bolt seats and their driver space, clip windows, levers) on this
+// petal's side of the seam, and around the rod socket with its side screw's access from the -y side.
+function ribKeepOut(flanges,socket){const zones=flanges.flatMap(f=>{const{o,e,v}=f.frame,K=f.joint===3?16:f.joint?14:(SEAM_BOLT[f.bolt]||SEAM_BOLT[3]).seatR+4;
+  return f.stations.map(s=>(x,y)=>{const dx=x-o[0],dy=y-o[1],S=dx*e[0]+dy*e[1],T=dx*v[0]+dy*v[1];return Math.abs(S-s)<K&&T>-10&&T<24;});});
+ if(socket){const[sx]=socket.frame.A;zones.push((x,y)=>Math.hypot(x-sx,y)<22||Math.abs(x-sx)<9&&y<0);}
+ return(x,y)=>zones.some(z=>z(x,y));}
 export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=rowBounds(p,n,rows,j),R=p.diameter/2;const lines=[];if(p.rearStyle)for(let k=-Math.ceil(R/p.facetSize);k<=Math.ceil(R/p.facetSize);k++)for(const normal of [[1,0],[0,1]])lines.push([...normal,(k+.5)*p.facetSize]);let body=clipped(solid(patch({r0:Math.max(1,a-2),r1:R,a0:-h,a1:h,backFn:(x,y)=>backZ(x,y,p),creaseLines:lines},p)),p,n,a,b,p.gap);
  const makeFlange=(frame,start,end,...args)=>{const choice=seamChoice(p,frame,start,end,angle),f=flange({...p,...choice},frame,start,end,...args);return {...f,id:choice.id,family:choice.family,joint:choice.seamJoint,bolt:choice.seamBolt};};const flanges=flangeFrames(p,n,rows,j).map(([frame,start,end,...args])=>makeFlange(frame,start,end,...args));
  // Clip flange bodies to the seam planes (flat mating faces).
  // Seats clear every flange's gusset (a seat near a corner also opens the neighbor's), never the shell or a bolt pad.
  for(const f of flanges){let fb=f.body;for(const g of flanges)if(g.seats)fb=fb.subtract(g.seats);for(const w of f.windows)fb=fb.subtract(w);body=body.union(f.pads?fb.union(f.pads):fb);}
+ // Stiffeners: the rim band on the outer ring and the underside ribs, clear of seam hardware and the rod socket.
+ const back=(x,y)=>backZ(x,y,p),socket=feed?petalRodSocket(p,{n,rows},back):null;
+ if(p.rimBand&&j===rows-1)body=body.union(rimBandSolid(p,h,back,zAt(R,p)-p.thickness));
+ if(p.ribs){const ribs=ribSolids(p,h,back,{rMin:j===0?64/Math.cos(h)+4:a-6,rMax:j<rows-1?b+6:p.rimBand?R+6:R-3,keepOut:ribKeepOut(flanges,socket)});if(ribs)body=body.union(ribs);}
  body=clipped(body,p,n,a,b);
  if(j===0){const bottom=rootBottom(p);let boss=solid(patch({r0:43,r1:64/Math.cos(h),a0:-h,a1:h,topFn:(x,y)=>backZ(x,y,p)+.5,backFn:()=>bottom},p)).trim([1,0,0],45).trim([-1,0,0],-63).trim([0,-1,0],-8);body=body.union(boss);
   const RH=rootHole(p);
@@ -204,7 +222,7 @@ export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=row
    const seat=rootSeatFloor(p),top=zAt(70,p)+5;
    body=body.subtract(bore(drop(RH.r),bottom-1,top).union(bore(roofR(RH.r),bottom-1,top)).union(bore(drop(RH.seatR),seat,top)).union(bore(roofR(RH.seatR),seat,top)));
   }else body=body.subtract(bore(drop(RH.pilot/2),bottom-1,bottom+RH.depth).union(bore(roofR(RH.pilot/2),bottom-1,bottom+RH.depth)));}
- if(feed){const socket=petalRodSocket(p,{n,rows},(x,y)=>backZ(x,y,p));body=body.union(socket.body);for(const cut of socket.cuts)body=body.subtract(cut);}
+ if(socket){body=body.union(socket.body);for(const cut of socket.cuts)body=body.subtract(cut);}
 
  for(const f of flanges)for(const cut of f.cuts)body=body.subtract(cut);
  return{body,spec:{a,b,row:j,flanges:flanges.map(({stations,levels,tilts,key,frame,start,end,id,family,joint,bolt})=>({stations,levels,tilts,key,frame,start,end,id,family,joint,bolt})),feedMount:feed,rootThrough:p.rootThrough}};}

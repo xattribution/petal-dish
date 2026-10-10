@@ -1,6 +1,6 @@
 # Printing large petals in ASA-GF, ASA-CF and PCTG
 
-This is a plan for getting long petal prints right the first time in expensive filament. It covers what makes these parts warp, the settings that matter most on the Prusa CORE One L and the Bambu Lab H2D and H2C, and what changing the shell thickness, walls, infill or adding ribs would do.
+This is a plan for getting long petal prints right the first time in expensive filament. It covers what makes these parts warp, the settings that matter most on the Prusa CORE One L and the Bambu Lab H2D and H2C, what changing the shell thickness, walls or infill would do, and the rim band and ribs that stiffen the petal while it prints.
 
 ## What is at risk in this part
 
@@ -62,9 +62,27 @@ The plate count does not change at any of these thicknesses.
 - **Make the shell all walls.** With 0.45 mm lines, a 2.4 mm shell is five to six walls and a 2.8 mm shell six to seven. Set enough walls that the slicer preview shows only walls across the shell, with no gap fill or infill inside it.
 - **Do not use 100% infill.** Infill only fills the thicker parts: the root boss, the bolt pads and the clip walls. Denser infill raises the residual stress, and Bambu's guidance is to stay under 50%. Use 15–25% gyroid there and more walls instead.
 
-## Ribs
+## Rim band and underside ribs
 
-A rib across the middle of the petal, from one seam flange to the other, would print as a wall leaning 30° (fine without supports) and stiffen the petal. It would not shorten the long layer paths that drive warping, it adds material where warping starts, and it would have to step around the clip stations, the seam levers and the rod sockets. It is not added. If a test petal comes off the bed twisted, that is the case where a rib would help, and it can be added as an option.
+![One print layer at the rim end of a petal with no band, an L, a U and a triangle](rim-band-layers.png)
+
+Every layer of a side-printed petal is one long curve that ends at the rim. That end is a free 2.4 mm edge standing up to 300 mm tall, so it flexes when the nozzle reaches it and turns around, and the layer lands slightly off. **Rim band** (Shape tab) puts a wall behind the rim of each outer petal, so that every layer ends in a hook instead:
+
+| Band | Section | Extra material, 600 mm petal | Notes |
+|---|---|---|---|
+| None | free edge | — | |
+| L (default) | 3 mm wall, 14 mm deep, 45° fillet to the shell | +8% | |
+| U | wall, a round 90° bend toward the hub and a 2 mm lip | +9% | On a deep dish the lip can meet the shell and close into a tube |
+| Triangle | wall and a 45° brace from its foot back to the shell | +12% | A closed triangular tube: the stiffest |
+
+- The band's end face sits on the bed with the flange, so the bed contact becomes an L at the end of the strip, where lifting starts.
+- Assembled, the bands of all the outer petals form one ring around the dish, which also stiffens the rim in use.
+- The depth is adjustable (6–30 mm). With 6 petals the band leans inward up to 37° so that no face prints steeper than 45°; from 8 petals up it runs parallel to the dish axis.
+- Seam stations near the rim move toward the hub just far enough to keep their bolts, clips or levers clear of the band. A short seam that would crowd its stations loses one.
+
+**Underside ribs** (Shape tab, off by default) add a diamond grid of low ribs, 2.5 mm tall and 50 mm apart by default, across the underside of every petal. Their 45° sides print without supports in any direction, they stop short of seam hardware and the rod socket, and the grid is mirrored on each petal so the ribs meet the next petal's at the seams. On a 600 mm, 8-petal dish they add about 9% material.
+
+![Rear of a 600 mm dish with the L band and diamond ribs](stiffeners-rear.png)
 
 ## Annealing
 

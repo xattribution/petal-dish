@@ -382,3 +382,17 @@ With the mount fitted on a 220 mm bed, two or three plates are refused with the 
 Typical lengths: the defaults are 11 characters, a 600 mm CORE One L dish 18, a 1000 mm dish with feed and U mount 49, and a 600 mm kit with a hand-moved hub 218. The UI test covers the header ID, copy, save, load from a code, the saved list, a file and a link, plus refusals. A Chromium run checked the clipboard, a link opened in a new tab (same ID), a reload keeping the design, and the header at 360, 390 and 1440 px wide with no horizontal scroll. The PDF check finds the ID on every page and the full code on the build record page.
 
 **Automatic rod count.** The default rod count is now automatic: four rods with 8, 12 or 16 petals and three with 6. Ten and fourteen petals cannot space rods evenly, so automatic segmentation skips them while a feed is on, and choosing them by hand is refused with a reason. A fixed count of 3 or 4 is still available. With automatic rods, a 1200 mm prime-focus or collector dish now builds on a 220 mm bed (16 petals × 3 rings, 4 rods, 580 mm and 659 mm cuts); the Cassegrain secondary is still larger than that bed.
+
+## Rim band and underside ribs (2026-10-09)
+
+A first ASA petal flexed at its free rim edge each time the nozzle reached the end of a layer and turned around. Each outer petal now has a **rim band** by default: a 3 mm wall behind the rim, 14 mm deep, so every print layer ends in a hook. U (a round bend toward the hub with a 2 mm lip) and triangle (a 45° brace back to the shell) are options, as are **diamond-grid ribs** on the underside. Geometry: `dist/stiffeners.js`; the print-layer sections and a rear view are in PRINTING-LARGE-PETALS.md.
+
+`tests/stiffeners.test.mjs` checks nine designs: L, U and triangle on 400 and 600 mm dishes with 6 and 8 petals, deep (f/D 0.25) and shallow (0.8) dishes, 6 and 30 mm depths, the faceted rear, two staggered rings with levers, and a prime-focus feed with clips and ribs. For every petal:
+
+- The solid and its print mesh are closed manifolds.
+- No face is steeper than 45° in the side print beyond those the plain petal already has. With 6 petals the band leans inward (37°) to keep that; from 8 petals up it is parallel to the dish axis.
+- Nothing reaches in front of the reflecting face (the band is cut back to the shell's rear surface).
+- The last seam station keeps clear of the band by its hardware's size, and a seam keeps its station count or loses one only where it would crowd.
+- Assembled, the outer petals' bands close into one ring: a circle through the middle of the wall, half way down, is at least 97% inside material.
+
+The structure tests run with the L band (now the default) in every case and add U, triangle and rib cases with bolts, clips, levers and staggered rings, so clip fit, lever clearance, bolt seats, mating, radial insertion and packing are all checked with the stiffeners on. A band that closes into a tube (the triangle, or a U on a deep dish) encloses a sealed void between the seam flanges; the connectivity check now counts only solid pieces. The default 400 mm dish still packs on two 220 mm beds, and the feed envelope sweep runs with the band on.
