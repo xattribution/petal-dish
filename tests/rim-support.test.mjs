@@ -13,7 +13,7 @@ function downward(mesh){const out=[];for(const[i,j,k]of mesh.f){const a=mesh.v[i
  if(c[2]/l<-Math.SQRT1_2-.01)out.push([l/2,Math.asin(Math.min(1,-c[2]/l))*180/Math.PI]);}return out;}
 assert.equal(defaults.rimSupport,1);
 const cases=[{},{sectors:8},{diameter:600,sectors:12,bedX:300,bedY:300,bedZ:330},{diameter:800,rows:2,bedX:300,bedY:300,bedZ:330},{rimBand:0},{rimBand:2,rimLip:3,ribs:3},
- {supportWall:6,supportGap:.6,tinePitch:10,tineWidth:1},{fd:.25,rimDepth:30},{fd:.8,seamJoint:1},{feedMode:1,diameter:600,bedX:300,bedY:300,bedZ:330}];
+ {supportWall:6,supportGap:.6,tinePitch:10,tineWidth:1,supportRibs:4},{supportRibs:0,supportLean:30},{fd:.25,rimDepth:30},{fd:.8,seamJoint:1},{feedMode:1,diameter:600,bedX:300,bedY:300,bedZ:330}];
 for(const c of cases){const m=build({...defaults,...c}),plain=build({...defaults,...c,rimSupport:0}),rows=m.layout.rows,label=JSON.stringify(c);
  assert.deepEqual([m.layout.n,rows],[plain.layout.n,plain.layout.rows],label+' same segmentation');
  for(const part of m.parts.filter(p=>p.kind==='panel')){const base=plain.parts.find(p=>p.id===part.id),name=label+' '+part.id,outer=part.row===rows-1;
@@ -28,7 +28,7 @@ for(const c of cases){const m=build({...defaults,...c}),plain=build({...defaults
   assert(bs.max[2]<=bp.max[2]+1e-6,name+' support no taller than the petal');
   assert(Math.abs(part.dim[0]-base.dim[0])<.25||Math.abs(part.dim[1]-base.dim[1])<.25,name+' support stays inside the rim outline along the bed');
   assert(Math.max(...part.dim)<=Math.max(...base.dim)+.25,name+' no longer than the petal');
-  const grow=part.dim[0]+part.dim[1]-base.dim[0]-base.dim[1];assert(grow<=m.p.supportGap+m.p.supportWall+.6,`${name}: footprint grows ${grow.toFixed(2)} mm`);
+  const grow=part.dim[0]+part.dim[1]-base.dim[0]-base.dim[1];assert(grow<=m.p.supportGap+m.p.supportWall+(m.p.supportRibs?16:0)+.6,`${name}: footprint grows ${grow.toFixed(2)} mm`);
   // joined only by the tines: their overlap with the petal is tiny, and the wall without them stays a gap away
   solidScope(()=>{const P=solid(part.print),S=solid(sup),both=P.union(S),overlap=P.intersect(S).raw.volume(),per=overlap/info.tines;
    assert(per>.02&&per<.3,`${name}: ${per.toFixed(3)} mm³ of each tine inside the rim`);

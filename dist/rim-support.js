@@ -4,7 +4,7 @@
 // The support is a solid wall supportWall thick standing on the bed just in front of that edge, its face vertical and
 // parallel to it, supportGap away. Its outer edge follows the rim; its inner edge runs from the rim's top almost straight
 // down to the bed, leaning supportLean out (12° by default), so the wall is wide at the bed and every layer is one solid island (no travel across
-// a window, no strings). Tines, 0.3 mm tall (one or two layers), bridge the gap: each narrows from the wall to tineWidth
+// a window, no strings). Optional ribs stand square to the wall on its outer face (supportRibs). Tines, 0.3 mm tall (one or two layers), bridge the gap: each narrows from the wall to tineWidth
 // where it meets the rim's front, so it snaps there and leaves only a small nub on the rim's outer edge. They run from
 // 1 mm above the bed to the top, evenly, never more than tinePitch apart.
 // Everything prints without support: the outer edge steps in as it rises, the inner edge leans at most 30°, and a tine is a
@@ -33,6 +33,15 @@ export function rimSupport(p,n,mesh,{tines:withTines=true}={}){
  const wall=prism(outline,0,T);
  // prism z (0..T) is the depth in front of the face
  let support=wall.transform(([x,y,z])=>toLocal([x,face-z,y])),count=0;
+ // ribs square to the wall on its outer face, so it also resists pushes across its face: the first along the inner edge
+ // (an L in plan), the others spread across the foot, all leaning like that edge. Each is a triangle, deepest at the
+ // bed (12% of its height, 6–16 mm) and running back into the wall at its top, so its outer edge steps in as it rises.
+ if(p.supportRibs){const tl=Math.tan(p.supportLean*Math.PI/180),back=face-T,ribs=[];
+  for(let k=0;k<p.supportRibs;k++){const x0=Lb+(XR(Zb)-Lb)*k/p.supportRibs,x=Z=>x0-(Z-Zb)*tl;
+   let top=Zt;if(k){top=Zb;while(top<Zt&&x(top)+T<XR(top)-2)top+=1;top=Zb+.85*(top-Zb);}
+   const h=top-Zb;if(h<10)continue;const D=Math.max(6,Math.min(16,.12*h)),q=(X,Y,Z)=>toLocal([X,Y,Z]);
+   ribs.push(hullPoints([q(x0,back+.5,Zb),q(x0+T,back+.5,Zb),q(x0,back-D,Zb),q(x0+T,back-D,Zb),q(x(top),back+.5,top),q(x(top)+T,back+.5,top)]));}
+  if(ribs.length)support=support.union(ribs.reduce((a,b)=>a.union(b)));}
  if(withTines){
   // the rim's front at radius r (it falls back from the edge as r gets smaller)
   const zR=zAt(R,p),front=r=>Yf+zR-zAt(r,p),tw=p.tineWidth,W0=Math.max(1.2,tw+.6),T2=S.tineH/2,t2=Math.sin(top),c2=Math.cos(top);

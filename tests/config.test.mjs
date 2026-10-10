@@ -16,7 +16,7 @@ const cases=[{diameter:600,bedX:300,bedY:300,bedZ:330},{diameter:1000,fd:.38,bed
  {diameter:600,bedX:300,bedY:300,bedZ:330,feedMode:3,frequencyGHz:10.5,mountMode:1,mountBase:2,legDiameter:19.05,seamJoint:3,connections:{families:{ring:{seamJoint:0,seamBolt:4}}},printSelection:{...ALL,mount:false}}];
 const ids=new Set([configId(base)]);
 for(const c of cases){const p={...defaults,printSelection:ALL,...c},cfg=configOf(p),code=encodeConfig(cfg),back=roundTrip(cfg);
- assert(code.startsWith('P1.')&&code.length<140,code);assert.equal(back.app,VERSION);assert.equal(configId(back),configId(cfg));assert.equal(encodeConfig(back),code);
+ assert(code.startsWith('P1.')&&code.length<170,code);assert.equal(back.app,VERSION);assert.equal(configId(back),configId(cfg));assert.equal(encodeConfig(back),code);
  const {params,rows,unknown}=resolveConfig(back);assert.equal(rows,null);assert.deepEqual(unknown,[]);for(const k in defaults)assert.equal(params[k],p[k],k);assert.deepEqual(params.printSelection,p.printSelection);assert.deepEqual(params.connections,c.connections);
  const shuffled=Object.fromEntries(Object.entries(p).reverse().map(([k,v])=>[k,typeof v==='number'?v*(1+1e-14):v]));assert.equal(encodeConfig(configOf(shuffled)),code);
  ids.add(configId(cfg));}
