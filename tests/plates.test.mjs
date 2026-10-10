@@ -34,7 +34,9 @@ console.log('PASS plate identity, manual assignment / yaw, bounds, clearances, d
  console.log('PASS drag to a new plate and back, same-plate move, invalid drops, grid cells and exact-size packing');}
 // Largest dish on a number of plates: the answer is built for real and fits; too few plates for the accessories fails.
 {const {largestDish}=await import('../dist/geometry.js');const steps=[];
- const r=largestDish({},2,[],t=>steps.push(t));assert(r.diameter>=400&&r.plates<=2,`2 plates on 220 mm beds: ${JSON.stringify(r)}`);assert(steps.length>3);
- const m=build({diameter:r.diameter,sectors:r.sectors,rows:r.rows});assert(m.plates.length<=2);
+ // without the rim support the default 400 mm dish nests onto two plates; with it each nested petal sits 4 mm further on
+ const r=largestDish({rimSupport:0},2,[],t=>steps.push(t));assert(r.diameter>=400&&r.plates<=2,`2 plates on 220 mm beds: ${JSON.stringify(r)}`);assert(steps.length>3);
+ const m=build({diameter:r.diameter,sectors:r.sectors,rows:r.rows,rimSupport:0});assert(m.plates.length<=2);
+ const rs=largestDish({},2);assert(rs.diameter>=300&&rs.diameter<=r.diameter&&rs.plates<=2,`with the rim support: ${JSON.stringify(rs)}`);assert(build({diameter:rs.diameter,sectors:rs.sectors,rows:rs.rows}).plates.length<=2);
  const mounted=build({mountMode:1});assert.throws(()=>largestDish({mountMode:1},2,mounted.parts.filter(p=>p.kind==='mount')),/accessories alone take/);
- console.log('PASS largest dish on 2 plates of 220 mm:',r.diameter,'mm,',r.sectors,'petals ×',r.rows,'ring(s)');}
+ console.log('PASS largest dish on 2 plates of 220 mm:',r.diameter,'mm,',r.sectors,'petals ×',r.rows,'ring(s); with the rim support',rs.diameter,'mm');}

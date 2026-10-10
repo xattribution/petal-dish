@@ -9,10 +9,10 @@ import {localPoint} from '../dist/scene.js';
 import {rimReach,RIM} from '../dist/stiffeners.js';
 function closed(mesh,name){const edges=new Map();for(const f of mesh.f)for(let i=0;i<3;i++){const a=f[i],b=f[(i+1)%3],key=Math.min(a,b)+':'+Math.max(a,b),e=edges.get(key)||[0,0];e[0]++;e[1]+=a<b?1:-1;edges.set(key,e);}
  assert([...edges.values()].every(([n,w])=>n===2&&w===0),name+' is a closed manifold');assert(volume(mesh)>0,name+' has positive volume');}
-// Faces of the print mesh (z up, bed at 0) that face down more than 45°, not counting the first 0.5 mm (the bed face and
+// Faces of the petal's print mesh (z up, bed at 0; without the breakaway rim support, tested on its own) that face down more than 45°, not counting the first 0.5 mm (the bed face and
 // the shell's 0.2 mm seam gap there), with how far down
 // they face and their radius in the dish (the print mesh keeps the dish mesh's vertex and face order).
-function steep(part){const out=part.output,list=[];out.f.forEach(([i,j,k],n)=>{const a=out.v[i],b=out.v[j],d=out.v[k];if(a[2]<.5&&b[2]<.5&&d[2]<.5)return;
+function steep(part){const out=part.print,list=[];out.f.forEach(([i,j,k],n)=>{const a=out.v[i],b=out.v[j],d=out.v[k];if(a[2]<.5&&b[2]<.5&&d[2]<.5)return;
  const u=b.map((x,q)=>x-a[q]),w=d.map((x,q)=>x-a[q]),c=[u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]],l=Math.hypot(...c);if(!(l>0)||c[2]/l>=-Math.SQRT1_2-.02)return;
  const m=part.mesh.v,r=Math.hypot(...[0,1].map(q=>(m[i][q]+m[j][q]+m[k][q])/3));list.push({area:l/2,down:Math.asin(Math.min(1,-c[2]/l))*180/Math.PI,r});});return list;}
 const sum=list=>list.reduce((s,x)=>s+x.area,0);

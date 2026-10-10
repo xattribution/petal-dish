@@ -92,6 +92,35 @@ Every layer of a side-printed petal is one long curve that ends at the rim. That
 
 ![Rear of a 600 mm dish with the frame band, diamond ribs and center ring](stiffeners-rear.png)
 
+## Breakaway rim support
+
+![A 400 mm petal in print orientation with the rim support in front of its rim, and a section through one tine](rim-support.png)
+
+The rim band holds each layer's end from behind. **Breakaway rim support** (Print tab, on by default) holds it from the front: a wall printed in front of the rim of each outer petal, joined to the rim's front edge by small tines that snap off. It is in the same STL as the petal and is not part of the dish.
+
+| | Default | Range |
+|---|---|---|
+| Wall thickness | 3 mm | 2–8 mm |
+| Gap to the rim's front edge | 0.3 mm | 0.15–0.8 mm |
+| Tine width at the rim | 0.6 mm (1.2 mm at the wall) | 0.4–1.2 mm |
+| Tine height | 0.3 mm, one or two layers | fixed |
+| Tine spacing | at most 4 mm, from 1 mm above the bed to the top | 2–12 mm |
+
+- The wall stands on the bed and its face is vertical, parallel to the rim's front edge, which is at one depth all the way up. Its outline follows the rim: a bow along the rim and a straight string from the rim's foot to its top, with a window between them. The string braces the bow against pushes along the bed. Everything prints without support: the bow steps in as it rises, the string and the window's sides lean at most 45°, and each tine is a bridge of about 1 mm.
+- Each tine narrows from 1.2 mm at the wall to the tine width where it meets the rim, 0.25 mm in from the rim's outer edge. With ASA-CF and ASA-GF the fibers lie along each bead, so a bead is strong along its length; the narrow neck makes the break happen at the rim instead of pulling material out of the lip.
+- The numbers follow published designed-in supports: a 0.2–0.4 mm standoff, contact tines about one nozzle bead wide and one layer tall, a few millimeters apart.
+- Default 400 mm dish: 44 tines and 7.4 cm³ per petal, about 8% of the petal.
+- **Removal:** let the petal cool on the bed. Then twist the wall away from the rim, starting at the top. Trim any nub flush with a sharp blade.
+- **Tuning:** if tines break during the print or the wall moves, widen them to 0.7–0.8 mm or space them closer. If they leave chunks in the lip, narrow them to 0.5 mm. With a 0.6 mm nozzle use at least 0.6 mm.
+- **Plates:** in a nested stack the next petal's rim band sits just in front of this rim, so each nested petal moves about 4 mm further on. On your printers' volumes the 400 and 600 mm dishes keep their plate counts. The default 400 mm dish on a 220 mm bed goes from 2 plates to 3, and an 800 mm dish on the CORE One L from 3 to 4. Turn the support off where the plate matters more.
+
+**Brim: in the slicer.** A brim drawn into the model would be tied to one first-layer height, and the gap that lets a brim peel cleanly (0.1 mm) is finer than the slicer resolves in a mesh. The slicer's brim is cleaner and adjustable:
+
+- PrusaSlicer: Print settings → Skirt and brim: Brim type *Outer brim only*, Brim width 8–10 mm, Brim separation gap 0.1 mm.
+- Bambu Studio and OrcaSlicer: Brim type *Outer*, Brim width 8–10 mm, Brim-object gap 0.1 mm.
+
+The brim also runs around the support's foot and into the space between it and the rim at the bed, and peels off with the rest.
+
 ## Annealing
 
 - **ASA and ASA-CF:** skip it. Prusa's tests found almost no strength gain for ASA and bad warping from 110 °C. Bambu allows 80–90 °C for 6–12 hours for its ASA-CF but warns that larger parts can deform.
@@ -118,6 +147,11 @@ Every layer of a side-printed petal is one long curve that ends at the rim. That
 - Bambu automatic brim: https://github.com/bambulab/BambuStudio/blob/master/src/libslic3r/Brim.cpp
 - Prusa ASA and satin sheet: https://help.prusa3d.com/article/asa_5078 and https://help.prusa3d.com/article/satin-steel-sheet_196526
 - Prusa nozzles for abrasive filament: https://help.prusa3d.com/article/prusa-nozzle-types-for-nextruder-printers_928993
+- Designed-in support fins and tines (gap, tine size and spacing): https://github.com/gittrahan/support-fins/wiki and https://hackaday.com/2026/09/23/forget-trees-add-fins-to-your-3d-prints-instead/
+- Slant 3D's support fins with sprue tips: https://weblog.masukomi.org/2024/03/11/manual-support-fins-for-3d-printing/
+- Clough42's separate-body support: https://hackaday.com/2026/01/22/touchless-support-leaves-no-mark/
+- Prusa skirt and brim: https://help.prusa3d.com/article/skirt-and-brim_133969
+- OrcaSlicer brim settings: https://www.orcaslicer.com/wiki/print_settings/others/others_settings_brim
 - Prusa annealing tests: https://blog.prusa3d.com/how-to-improve-your-3d-prints-with-annealing_31088/
 - Bambu ASA-CF data sheet (third-party mirror): https://www.lesimprimantes3d.fr/dl/Bambus_ASA-CF_Technical_Data_Sheet.pdf
 - Siraya ASA-GF: https://siraya.tech/pages/siraya-tech-asa-gf-filament-user-manual

@@ -16,7 +16,7 @@ const cases=[{diameter:600,bedX:300,bedY:300,bedZ:330},{diameter:1000,fd:.38,bed
  {diameter:600,bedX:300,bedY:300,bedZ:330,feedMode:3,frequencyGHz:10.5,mountMode:1,mountBase:2,legDiameter:19.05,seamJoint:3,connections:{families:{ring:{seamJoint:0,seamBolt:4}}},printSelection:{...ALL,mount:false}}];
 const ids=new Set([configId(base)]);
 for(const c of cases){const p={...defaults,printSelection:ALL,...c},cfg=configOf(p),code=encodeConfig(cfg),back=roundTrip(cfg);
- assert(code.startsWith('P1.')&&code.length<120,code);assert.equal(back.app,VERSION);assert.equal(configId(back),configId(cfg));assert.equal(encodeConfig(back),code);
+ assert(code.startsWith('P1.')&&code.length<140,code);assert.equal(back.app,VERSION);assert.equal(configId(back),configId(cfg));assert.equal(encodeConfig(back),code);
  const {params,rows,unknown}=resolveConfig(back);assert.equal(rows,null);assert.deepEqual(unknown,[]);for(const k in defaults)assert.equal(params[k],p[k],k);assert.deepEqual(params.printSelection,p.printSelection);assert.deepEqual(params.connections,c.connections);
  const shuffled=Object.fromEntries(Object.entries(p).reverse().map(([k,v])=>[k,typeof v==='number'?v*(1+1e-14):v]));assert.equal(encodeConfig(configOf(shuffled)),code);
  ids.add(configId(cfg));}
@@ -39,8 +39,8 @@ const sweep=new Set();for(const d of [260,300,400,500,600,800,1000,1200])for(con
 {const cfg=configOf({...defaults,diameter:700,bedX:300,bedY:300,bedZ:330,mountMode:1,printSelection:ALL}),code=encodeConfig(cfg),id=configId(cfg);
  for(const text of [code,'https://petal.example/#'+code,`Try this: ${code.slice(0,9)}\n  ${code.slice(9)}  thanks`,JSON.stringify({petal_configuration:1,code}),JSON.stringify({configuration:{id,code},parameters:{diameter:1}})])assert.equal(configId(readConfig(text)),id,text);
  // an older kit's parameters.json has no code: its parameters rebuild the settings, without a hand arrangement
- const legacy=readConfig(JSON.stringify({generator:'PETAL 5.2 prototype',parameters:Object.fromEntries(Object.entries({...defaults,diameter:700,bedX:300,bedY:300,bedZ:330,mountMode:1}).filter(([k])=>!['rimBand','rimDepth','ribs','ribHeight','ribPitch'].includes(k))),print_selection:ALL,manual_packing:true}));
- assert.equal(legacy.app,'5.2');assert.equal(legacy.noArrangement,true);assert.equal(resolveConfig(legacy).params.rimBand,0,'an older kit had no rim band');}
+ const legacy=readConfig(JSON.stringify({generator:'PETAL 5.2 prototype',parameters:Object.fromEntries(Object.entries({...defaults,diameter:700,bedX:300,bedY:300,bedZ:330,mountMode:1}).filter(([k])=>!['rimBand','rimDepth','ribs','ribHeight','ribPitch','rimLip','ringHeight','rimSupport','supportGap','supportWall','tinePitch','tineWidth'].includes(k))),print_selection:ALL,manual_packing:true}));
+ assert.equal(legacy.app,'5.2');assert.equal(legacy.noArrangement,true);assert.equal(resolveConfig(legacy).params.rimBand,0,'an older kit had no rim band');assert.equal(resolveConfig(legacy).params.rimSupport,0,'or rim support');}
 // Settings this version lacks are reported and skipped; settings out of range are refused.
 {const cfg=configOf({...defaults,diameter:500,printSelection:ALL});cfg.p.futureSetting=3;const r=resolveConfig(roundTrip(cfg));assert.deepEqual(r.unknown,['futureSetting']);assert.equal(r.params.diameter,500);
  const bad=configOf({...defaults,printSelection:ALL});bad.p.diameter=5000;assert.throws(()=>resolveConfig(roundTrip(bad)),/diameter must be between/);
@@ -50,7 +50,9 @@ for(const[text,message]of [['hello',/Paste a PETAL code/],['P1.AAAA',/damaged/],
 // Frozen format: this code was made with P1 on 2026-10-09. It must keep loading as exactly this design.
 {const fixture='P1.wyGM022YnsEMBnjKxAgX5JQKDEFEJjC00EFOb0Z6FrW1AA',cfg=readConfig(fixture),{params}=resolveConfig(cfg);
  assert.equal(configId(cfg),'QABF-VBBF');
- for(const[k,v]of Object.entries({diameter:1000,bedX:325,bedY:320,bedZ:325,feedMode:1,mountMode:1,mountSides:2,mountArcLock:1,thickness:2.8,plateGap:18,fd:.42,feedLegs:0,sectors:0,rows:0,seamJoint:0,packPlates:1,rimBand:0,ribs:0,rimLip:0}))assert.equal(params[k],v,k);}
+ for(const[k,v]of Object.entries({diameter:1000,bedX:325,bedY:320,bedZ:325,feedMode:1,mountMode:1,mountSides:2,mountArcLock:1,thickness:2.8,plateGap:18,fd:.42,feedLegs:0,sectors:0,rows:0,seamJoint:0,packPlates:1,rimBand:0,ribs:0,rimLip:0,rimSupport:0}))assert.equal(params[k],v,k);}
 // The app's defaults need no code in the address bar, and they include the rim band, so their code carries it.
-assert(isBaseline(configOf({...defaults,printSelection:ALL})));assert.equal(resolveConfig(readConfig(encodeConfig(configOf({...defaults,printSelection:ALL})))).params.rimBand,defaults.rimBand);
+assert(isBaseline(configOf({...defaults,printSelection:ALL})));{const back=resolveConfig(readConfig(encodeConfig(configOf({...defaults,printSelection:ALL})))).params;assert.equal(back.rimBand,defaults.rimBand);assert.equal(back.rimSupport,defaults.rimSupport);}
+// rim support settings round-trip
+{const cfg=configOf({...defaults,rimSupport:1,supportWall:4.5,supportGap:.25,tinePitch:6,tineWidth:.8,printSelection:ALL}),{params}=resolveConfig(roundTrip(cfg));for(const[k,v]of Object.entries({rimSupport:1,supportWall:4.5,supportGap:.25,tinePitch:6,tineWidth:.8}))assert.equal(params[k],v,k);}
 console.log('PASS configuration codes: exact round trips with joint overrides and hand-placed plates, stable IDs, links, files, kit manifests, refusals and the frozen P1 fixture');

@@ -1,5 +1,5 @@
 import {jointKey,seamChoice,rootChoice,mountChoice} from './connections.js';
-import {patch,bounds,printMesh,rotateBed,packAll,packParts,zAt} from './mesh.js';
+import {patch,bounds,printMesh,rotateBed,packAll,packParts,zAt,mergeMeshes,volume} from './mesh.js';
 import {solidScope,solid,cylinder,loft,sphere,prism} from './solid.js';
 import {defaults,limits,CLIP,clipOuter,boltY,usesClips,usesLevers,seamHoles,SEAM_BOLT,seamBolt,clipStrain,JOINT,validate,FASTENER,insertPilot,stockLength,stockDown} from './params.js';
 export {defaults,limits,CLIP,boltY,usesClips,usesLevers,seamHoles,SEAM_BOLT,seamBolt,clipStrain,JOINT,validate} from './params.js';
@@ -8,6 +8,7 @@ import {affine,rz} from './scene.js';
 import {feedFits,feedRow,rodCount,petalRodSocket,appendFeedParts} from './feed.js';
 import {leverMeshes} from './lever-meshes.js';
 import {rimBandSolid,rimReach,ribSolids} from './stiffeners.js';
+import {rimSupport} from './rim-support.js';
 export {binarySTL,volume,packedPlateMesh,bounds,printMesh,rotateBed,zAt,packAll} from './mesh.js';
 export const ROOT={seatR:4.8,seatDepth:5};
 // Root and hub-to-mount fastener geometry for the selected sizes (M4 gives the revision-12 interface exactly).
@@ -51,7 +52,16 @@ export function hubTop(p,n){const H=hubFace(p,n),w=Math.max(2,H-zAt(45,p)),e=hub
  return{H,w,lines:c.map(([x,y])=>[x,y,e-w]),fn:(x,y)=>{let k=0,best=-Infinity;for(let i=0;i<n;i++){const s=x*c[i][0]+y*c[i][1];if(s>best){best=s;k=i;}}
   const d=e-best;if(d>=w)return H;const t=-x*c[k][1]+y*c[k][0],edge=zAt(Math.hypot(45,t),p);return edge+(H-edge)*Math.max(0,d)/w;}};}
 export function rowBounds(p,n,rows,j){const end=p.diameter/2*Math.cos(PI/n);return[45+(end-45)*j/rows,j===rows-1?Infinity:45+(end-45)*(j+1)/rows];}
-export function sidePrint(mesh,n){const h=PI/n,c=Math.cos(h),s=Math.sin(h);return printMesh({v:mesh.v.map(([x,y,z])=>[c*x-s*y,-z,s*x+c*y]),f:mesh.f});}
+const sideRaw=(mesh,n)=>{const h=PI/n,c=Math.cos(h),s=Math.sin(h);return{v:mesh.v.map(([x,y,z])=>[c*x-s*y,-z,s*x+c*y]),f:mesh.f};};
+export function sidePrint(mesh,n){return printMesh(sideRaw(mesh,n));}
+// An outer petal with its breakaway rim support: the bed choice is made for both together (output, the file that is
+// printed), and the petal alone (print) and the support alone are placed exactly as they sit in it.
+function supportedBed(mesh,p,n){const support=rimSupport(p,n,mesh);if(!support)return null;
+ const sm=support.solid.mesh(),both=solid(mesh).union(support.solid).mesh(),b=bounds(sideRaw(both,n)),shift=[(b.min[0]+b.max[0])/2,(b.min[1]+b.max[1])/2,b.min[2]];
+ const choice=chooseBed(sidePrint(both,n),p);if(!choice)return null;const place=m=>rotateBed({v:sideRaw(m,n).v.map(v=>v.map((x,k)=>x-shift[k])),f:m.f},choice.yaw);
+ return{...choice,print:place(mesh),support:place(sm),rimSupport:{tines:support.tines,volume:volume(sm),height:support.height}};}
+// The petal mesh with its support's wall added, for fit checks (bounds only).
+const withSupport=(p,n,rows,j,mesh)=>p.rimSupport&&j===rows-1?mergeMeshes([mesh,solidScope(()=>rimSupport(p,n,mesh,{tines:false})?.solid.rawMesh()??{v:[],f:[]})]):mesh;
 function chooseBed(mesh,p){for(let yaw=0;yaw<180;yaw+=15){const m=rotateBed(mesh,yaw),dim=bounds(m).size;if(dim[0]<=p.bedX-2*p.margin&&dim[1]<=p.bedY-2*p.margin&&dim[2]<=p.bedZ-2)return{mesh:m,dim,yaw};}return null;}
 // Segmentation. Automatic petal count and rings either use the largest petals that fit the bed (fewest pieces and
 // seams; segmentGoal 0) or the layout that packs onto the fewest shared print beds (segmentGoal 1), which may use more,
@@ -59,7 +69,7 @@ function chooseBed(mesh,p){for(let yaw=0;yaw<180;yaw+=15){const m=rotateBed(mesh
 export function petalFootprints(p,n,rows){if(!feedFits(p,n,rows))return null;const h=PI/n,R=p.diameter/2,span=(R-45/Math.cos(h))/rows;if(span<66||45*Math.tan(h)<8.5)return null;const result=[];
  for(let j=0;j<rows;j++){const[a,b]=rowBounds(p,n,rows,j),r1=Math.min(R,b/Math.cos(h));if(rows>1&&j<rows-1&&(p.staggerRings?2*b*Math.tan(h/2)<36:2*b*Math.tan(h)<62))return null;const spec={r0:Math.max(1,a-2),r1,a0:-h,a1:h,backFn:(x,y)=>backZ(x,y,p)-17};
   // inner edge as clipped() cuts it: with staggered rings an outer petal's inner edge is a V that reaches r = a
-  const m=solidScope(()=>{let s=solid(patch(spec,p));if(p.staggerRings&&a>45.001){let inner=cylinder([0,0,-100],[0,0,p.diameter],p.diameter,32);for(const t of [-h/2,h/2])inner=inner.trim([-Math.cos(t),-Math.sin(t),0],-a);s=s.subtract(inner);}else s=s.trim([1,0,0],a);return s.rawMesh();});const choice=chooseBed(sidePrint(m,n),p);if(!choice)return null;result.push(choice);}
+  const m=solidScope(()=>{let s=solid(patch(spec,p));if(p.staggerRings&&a>45.001){let inner=cylinder([0,0,-100],[0,0,p.diameter],p.diameter,32);for(const t of [-h/2,h/2])inner=inner.trim([-Math.cos(t),-Math.sin(t),0],-a);s=s.subtract(inner);}else s=s.trim([1,0,0],a);return withSupport(p,n,rows,j,s.rawMesh());});const choice=chooseBed(sidePrint(m,n),p);if(!choice)return null;result.push(choice);}
  return result;}
 const HUB_FOOTPRINT=(()=>{const k=32,v=[],f=[];for(let i=0;i<k;i++){const a=i*TAU/k;v.push([60*Math.cos(a),60*Math.sin(a),0],[60*Math.cos(a),60*Math.sin(a),16]);}for(let i=0;i<k;i++){const j=(i+1)%k;f.push([2*i,2*j,2*j+1],[2*i,2*j+1,2*i+1]);if(i>0&&i<k-1)f.push([0,2*j,2*i],[1,2*i+1,2*j+1]);}return{v,f};})();
 // `extras`: other printed parts to pack with them (accessories); TPU parts get beds of their own, as packAll does.
@@ -89,7 +99,7 @@ export function largestDish(input,plates,extras=[],progress=()=>{}){
 export function plan(p){validate(p);if(Math.min(p.bedX,p.bedY)-2*p.margin<120)throw Error('The 120 mm hub needs more usable bed space.');
  const rowsList=p.rows?[p.rows]:[1,2,3,4,5,6,7,8],nList=p.sectors?[p.sectors]:[6,8,10,12,14,16];
  // The real petals (flanges, root boss, ring flanges) are checked whenever the estimate comes within 15 mm of the bed.
- const real=(n,rows)=>solidScope(()=>Array.from({length:rows},(_,j)=>chooseBed(sidePrint(panelSolid(p,n,rows,j,false).body.rawMesh(),n),p))),
+ const real=(n,rows)=>solidScope(()=>Array.from({length:rows},(_,j)=>chooseBed(sidePrint(withSupport(p,n,rows,j,panelSolid(p,n,rows,j,false).body.rawMesh()),n),p))),
   fitsReal=(n,rows)=>real(n,rows).every(Boolean),near=fp=>fp.some(c=>c.dim[0]>p.bedX-2*p.margin-15||c.dim[1]>p.bedY-2*p.margin-15||c.dim[2]>p.bedZ-2-15);
  // Fewest pieces first; for the same count, fewer rings.
  const order=rowsList.flatMap(rows=>nList.map(n=>({n,rows}))).sort((x,y)=>x.n*x.rows-y.n*y.rows||x.rows-y.rows);let best;
@@ -239,7 +249,7 @@ let dishMemo={key:null,map:new Map()};
 // print orientation of a reused petal or hub mesh (the same output object also keeps the packer's cached footprints)
 const bedChoices=new WeakMap();
 function dishPart(p,name,fn){const key=JSON.stringify(Object.keys(p).filter(k=>!POSE_KEYS.has(k)).sort().map(k=>[k,p[k]]));if(dishMemo.key!==key)dishMemo={key,map:new Map()};if(!dishMemo.map.has(name))dishMemo.map.set(name,fn());return dishMemo.map.get(name);}
-export function build(input){const p=validate({...defaults,...input}),layout=dishPart(p,'plan',()=>plan(p));return solidScope(()=>{const{n,rows}=layout,parts=[],instances=[],step=TAU/n,rodRow=p.feedMode?feedRow(p,n,rows):-1;const add=(id,name,mesh,qty,angles,kind,row,spec={})=>{let choice=bedChoices.get(mesh);if(!choice){const pm=kind==='panel'?sidePrint(mesh,n):kind==='clip'?printMesh({v:mesh.v.map(([x,y,z])=>[x,z,-y]),f:mesh.f}):printMesh(mesh);choice=chooseBed(pm,p);if(choice&&(kind==='panel'||kind==='hub'))bedChoices.set(mesh,choice);}if(!choice)throw Error(name+' exceeds the print volume after adding joints. Increase print volume or segmentation.');const part={id,name,mesh,print:choice.mesh,output:choice.mesh,dim:choice.dim,qty,kind,row,spec,angle:90,bedRotation:choice.yaw,supportMeshes:[]};parts.push(part);angles.forEach(a=>instances.push({part,a}));return part;};
+export function build(input){const p=validate({...defaults,...input}),layout=dishPart(p,'plan',()=>plan(p));return solidScope(()=>{const{n,rows}=layout,parts=[],instances=[],step=TAU/n,rodRow=p.feedMode?feedRow(p,n,rows):-1;const add=(id,name,mesh,qty,angles,kind,row,spec={})=>{let choice=bedChoices.get(mesh);if(!choice){const pm=kind==='panel'?sidePrint(mesh,n):kind==='clip'?printMesh({v:mesh.v.map(([x,y,z])=>[x,z,-y]),f:mesh.f}):printMesh(mesh);choice=kind==='panel'&&p.rimSupport&&row===rows-1?supportedBed(mesh,p,n):chooseBed(pm,p);if(choice&&(kind==='panel'||kind==='hub'))bedChoices.set(mesh,choice);}if(!choice)throw Error(name+' exceeds the print volume after adding joints. Increase print volume or segmentation.');const part={id,name,mesh,print:choice.print||choice.mesh,output:choice.mesh,dim:choice.dim,qty,kind,row,spec,angle:90,bedRotation:choice.yaw,supportMeshes:choice.support?[choice.support]:[],...(choice.rimSupport?{rimSupport:choice.rimSupport}:{})};parts.push(part);angles.forEach(a=>instances.push({part,a}));return part;};
  if(p.connections){ for(let j=0;j<rows;j++){const groups=new Map();for(let i=0;i<n;i++){const angle=i*step+(p.staggerRings?(j%2)*PI/n:0),mount=Boolean(p.feedMode&&j===rodRow&&i%(n/rodCount(p,n))===0),local={...p,rootThrough:rootChoice(p,i)},signature=petalSignature(local,n,rows,j,mount,angle);if(groups.has(signature))groups.get(signature).angles.push(angle);else groups.set(signature,{...dishPart(p,`panel:${j}:${signature}`,()=>meshedPanel(local,n,rows,j,mount,angle)),angles:[angle],mount});}let v=0;for(const group of groups.values()){v++;add(`petal-${j+1}-variant-${v}`,`Petal ${j+1} · variant ${v}${group.mount?' · rod mount':''}`,group.mesh,group.angles.length,group.angles,'panel',j,group.spec);}}
 }else{ for(let j=0;j<rows;j++)for(const mount of [false,true]){const angles=Array.from({length:n},(_,i)=>i).filter(i=>Boolean(p.feedMode&&j===rodRow&&i%(n/rodCount(p,n))===0)===mount).map(i=>i*step+(p.staggerRings?(j%2)*PI/n:0));if(!angles.length)continue;const{mesh,spec}=dishPart(p,`panel:${j}:${mount}`,()=>meshedPanel(p,n,rows,j,mount));add(`petal-${j+1}${mount?'-mount':''}`,`Petal ${j+1}${mount?' · rod mount':''}`,mesh,angles.length,angles,'panel',j,spec);}
 }

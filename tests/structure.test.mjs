@@ -78,7 +78,7 @@ for(const[c,cfg]of cases.entries()){
  console.log('PASS structure, closed solids, bed fit, mating, insertion, flat seats, root/hub fasteners, coupons and packing',cfg,m.layout);
 }
 const p={...defaults,rearStyle:1};for(let x=45;x<200;x+=3.1)for(let y=-80;y<80;y+=4.3){const ideal=(x*x+y*y)/(4*p.diameter*p.fd)-p.thickness,d=ideal-backZ(x,y,p);assert(d>=-1e-9&&d<=p.facetSize**2/(8*p.diameter*p.fd)+1e-9);}
-const m=build(defaults);assert.equal(m.plates.length,2,'six nested petals and the hub on two beds');fs.writeFileSync('/tmp/petal5-validation/default-kit.zip',Buffer.from(await kit(m).arrayBuffer()));
+const m=build(defaults);assert.equal(build({...defaults,rimSupport:0}).plates.length,2,'six nested petals and the hub on two beds');assert.equal(m.plates.length,3,'with the rim support each nested petal sits 4 mm further on, so a 220 mm bed needs a third plate');fs.writeFileSync('/tmp/petal5-validation/default-kit.zip',Buffer.from(await kit(m).arrayBuffer()));
 console.log('PASS tangent facet thickness bound and complete kit export');
 {const m=build({seamJoint:3,seamBolt:4}),man=manifest(m),files=await unzip(kit(m)),text=Object.keys(files).join('\n')+new TextDecoder().decode(files['ASSEMBLY.md']);
  assert.equal(man.seam_bolt,'M4');assert.equal(man.seam_levers.hole_mm,4.5);assert(man.parts.some(x=>x.file.startsWith('seam-lever-spring')&&x.material==='TPU 95A'));

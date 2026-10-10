@@ -6,6 +6,8 @@ const fs=`precision mediump float;varying vec3 n;uniform vec3 color;uniform floa
 const ZERO=[0,0,0];
 // The page's accent color (CSS --accent) for selected parts and the drop target, so a re-theme reaches the preview too.
 function cssColor(el,name,fallback){try{const doc=el.ownerDocument,v=doc.defaultView.getComputedStyle(doc.documentElement).getPropertyValue(name).trim(),m=/^#([0-9a-f]{6})$/i.exec(v);if(m)return[0,2,4].map(i=>parseInt(m[1].slice(i,i+2),16)/255);}catch{}return fallback;}
+// Bounds of a mesh under a 3 × 4 affine matrix.
+const extent=(mesh,M)=>{const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(const v of mesh.v)for(let k=0;k<3;k++){const x=M[k][0]*v[0]+M[k][1]*v[1]+M[k][2]*v[2]+M[k][3];if(x<min[k])min[k]=x;if(x>max[k])max[k]=x;}return{min,max};};
 const kindColor=(part,support)=>support?[.90,.43,.30]:part.kind==='panel'?(part.row%2?[.48,.63,.85]:[.72,.73,.76]):part.kind==='hub'?[.88,.65,.34]:part.kind==='mount'?[.35,.48,.64]:part.kind==='clip'?[.95,.58,.25]:part.kind==='lever'?(part.flex?[.86,.80,.45]:[.80,.36,.30]):part.kind==='feed'?[.42,.70,.62]:[.46,.48,.54];
 // Flat-shaded triangle soup (and optional edge lines) for a mesh under an affine map [[a b c d] x3].
 function soup(mesh,M,wire){
@@ -91,13 +93,13 @@ export class Viewer{
  free(list){for(const o of list){this.gl.deleteBuffer(o.p);this.gl.deleteBuffer(o.n);}list.length=0;}
  rebuild(){if(!this.model)return;const m=this.model;this.cancelDrag?.();this.dropPlate=-1;this.free(this.objects);
   const layout=this.mode==='layout',packing=layout&&m.p.packPlates,printParts=m.parts.filter(p=>p.printIncluded!==false);
-  const items=packing?m.plates.flatMap((plate,i)=>plate.placements.map((placement,j)=>({part:placement.part,yaw:placement.yaw,i,placement,first:j===0}))):layout?printParts.flatMap((part,i)=>[{part,yaw:0,i,first:true},...part.supportMeshes.map(mesh=>({part,yaw:0,i,supportMesh:mesh}))]):m.instances.map(inst=>({part:inst.part,inst}));
+  const items=packing?m.plates.flatMap((plate,i)=>plate.placements.flatMap((placement,j)=>[{part:placement.part,yaw:placement.yaw,i,placement,first:j===0},...placement.part.supportMeshes.map(mesh=>({part:placement.part,yaw:placement.yaw,i,placement,supportMesh:mesh}))])):layout?printParts.flatMap((part,i)=>[{part,yaw:0,i,first:true},...part.supportMeshes.map(mesh=>({part,yaw:0,i,supportMesh:mesh}))]):m.instances.map(inst=>({part:inst.part,inst}));
   // With packed plates the grid has one more slot than plates: the place to drop a part for a new plate.
   const bedCount=packing?m.plates.length:printParts.length,slots=bedCount+(packing?1:0),cols=Math.max(1,Math.ceil(Math.sqrt(slots))),rowsN=Math.ceil(slots/cols),cell=Math.max(m.p.bedX,m.p.bedY)+24;
   for(const item of items){const {part}=item;let M,mesh,dir=ZERO,bed=null;
-   if(layout){const c=Math.cos(item.yaw*Math.PI/180),s=Math.sin(item.yaw*Math.PI/180),tr=[(item.i%cols-(cols-1)/2)*cell,((rowsN-1)/2-Math.floor(item.i/cols))*cell,0];bed=[...tr];if(packing){tr[0]+=item.placement.x;tr[1]+=item.placement.y;}M=[[c,-s,0,tr[0]],[s,c,0,tr[1]],[0,0,1,0]];mesh=item.supportMesh||(packing?part.output:part.print);}
+   if(layout){const c=Math.cos(item.yaw*Math.PI/180),s=Math.sin(item.yaw*Math.PI/180),tr=[(item.i%cols-(cols-1)/2)*cell,((rowsN-1)/2-Math.floor(item.i/cols))*cell,0];bed=[...tr];if(packing){tr[0]+=item.placement.x;tr[1]+=item.placement.y;}M=[[c,-s,0,tr[0]],[s,c,0,tr[1]],[0,0,1,0]];mesh=item.supportMesh||(packing&&!part.supportMeshes.length?part.output:part.print);}
    else{M=affine(q=>scenePoint(m,item.inst,q));mesh=part.mesh;dir=explodeOffset(m,item.inst);}
-   const g=soup(mesh,M,this.wire),props={partId:part.id,angle:item.inst?.a??0,support:Boolean(item.supportMesh),base:kindColor(part,item.supportMesh),dir,min:g.min,max:g.max,copy:item.placement?.copy,plate:packing?item.i:undefined};
+   const g=soup(mesh,M,this.wire),whole=packing&&!item.supportMesh&&part.supportMeshes.length?extent(part.output,M):g,props={partId:part.id,angle:item.inst?.a??0,support:Boolean(item.supportMesh),base:kindColor(part,item.supportMesh),dir,min:whole.min,max:whole.max,copy:item.placement?.copy,plate:packing?item.i:undefined};
    this.add(this.objects,g.positions,g.normals,packing&&!item.supportMesh?{...props,positions:g.positions}:props);if(g.edges)this.add(this.objects,g.edges,null,{...props,lines:true,base:[.10,.10,.12],edge:true});
    if(bed&&item.first)this.add(this.objects,this.outline(bed),null,{lines:true,base:[.3,.3,.34],dir:ZERO,fixed:true,bed:packing?item.i:undefined});
   }
