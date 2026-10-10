@@ -20,8 +20,8 @@ const inside=(polys,x,y)=>{let hit=false;for(const poly of polys)for(let i=0,j=p
 // Reach of each band: the fillet for L, the 45° foot (frame) and the 90° foot (U) a little further.
 assert.equal(rimReach({rimBand:0}),0);assert.equal(rimReach({rimBand:1,rimDepth:14}),RIM.wall+RIM.gusset);assert(rimReach({rimBand:3,rimDepth:14})>RIM.wall+RIM.gusset&&rimReach({rimBand:3,rimDepth:14})<9);assert(rimReach({rimBand:2,rimDepth:14})<9);
 assert.equal(defaults.rimBand,3);assert.equal(defaults.ribs,0);
-const cases=[{},{rimBand:2,ribs:1},{rimBand:3,ribs:1,seamJoint:1},{rimBand:2,fd:.25,rimDepth:30},{rimBand:3,fd:.25,rimDepth:6},{rimBand:2,fd:.8,ribs:1,rearStyle:1},
- {rimBand:2,ribs:1,diameter:600,sectors:8,bedX:300,bedY:300,bedZ:330},{rimBand:3,ribs:1,diameter:600,sectors:8,rows:2,seamJoint:3},{rimBand:1,ribs:1,feedMode:1,seamJoint:2,mountMode:1}];
+const cases=[{},{rimLip:0,ribs:2},{rimBand:2,ribs:1,rimLip:3},{rimBand:3,ribs:3,seamJoint:1},{rimBand:2,fd:.25,rimDepth:30},{rimBand:3,fd:.25,rimDepth:6},{rimBand:2,fd:.8,ribs:1,rearStyle:1},
+ {rimBand:2,ribs:1,diameter:600,sectors:8,bedX:300,bedY:300,bedZ:330},{rimBand:3,ribs:1,diameter:600,sectors:8,rows:2,seamJoint:3},{rimBand:1,ribs:3,feedMode:1,seamJoint:2,mountMode:1}];
 for(const c of cases){const m=build({...defaults,...c}),plain=build({...defaults,...c,rimBand:0,ribs:0}),n=m.layout.n,h=Math.PI/n,R=m.p.diameter/2,rows=m.layout.rows;
  assert.deepEqual([m.layout.n,m.layout.rows],[plain.layout.n,plain.layout.rows],'same segmentation');
  for(const part of m.parts.filter(p=>p.kind==='panel')){const base=plain.parts.find(p=>p.id===part.id),label=JSON.stringify(c)+' '+part.id;
@@ -31,8 +31,10 @@ for(const c of cases){const m=build({...defaults,...c}),plain=build({...defaults
   const edge=R-(part.spec.row===rows-1?rimReach(m.p):0)-1,mine=steep(part),plainSteep=steep(base),limit=Math.max(45,360/n)+1.5;
   assert(sum(mine.filter(x=>x.r<edge))<=sum(plainSteep.filter(x=>x.r<edge))+1,`${label}: ${sum(mine.filter(x=>x.r<edge)).toFixed(1)} mm² steep faces away from the band, plain ${sum(plainSteep.filter(x=>x.r<edge)).toFixed(1)}`);
   const worst=Math.max(0,...mine.filter(x=>x.r>=edge&&x.area>.05).map(x=>x.down));assert(worst<=limit,`${label}: band face ${worst.toFixed(1)}° from vertical, limit ${limit}`);
-  // nothing in front of the reflecting face
-  const front=Math.max(...part.mesh.v.map(([x,y,z])=>z-zAt(Math.hypot(x,y),m.p)));assert(front<.02,`${label}: ${front.toFixed(3)} mm in front of the reflector`);
+  // nothing in front of the reflecting face except the front lip, which stands rimLip above it on the rim's outer 3 mm
+  const banded=m.p.rimBand&&part.spec.row===rows-1,lipZone=([x,y])=>banded&&Math.hypot(x,y)>=R-RIM.wall-.5,ahead=([x,y,z])=>z-zAt(Math.hypot(x,y),m.p);
+  const front=Math.max(...part.mesh.v.filter(v=>!lipZone(v)).map(ahead));assert(front<.02,`${label}: ${front.toFixed(3)} mm in front of the reflector`);
+  if(banded){const lip=Math.max(...part.mesh.v.filter(lipZone).map(ahead));assert(Math.abs(lip-m.p.rimLip)<.05,`${label}: front lip ${lip.toFixed(2)} mm, set ${m.p.rimLip}`);}
   // stiffeners add material; a seam keeps its station count, or loses one where the band leaves too little room
   if(m.p.rimBand&&part.spec.row===rows-1||m.p.ribs)assert(volume(part.mesh)>volume(base.mesh)+200,label+' stiffener material');
   part.spec.flanges.forEach((f,k)=>assert(f.stations.length>=base.spec.flanges[k].stations.length-1,label+' station count'));

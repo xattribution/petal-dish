@@ -50,7 +50,7 @@ for(const[text,message]of [['hello',/Paste a PETAL code/],['P1.AAAA',/damaged/],
 // Frozen format: this code was made with P1 on 2026-10-09. It must keep loading as exactly this design.
 {const fixture='P1.wyGM022YnsEMBnjKxAgX5JQKDEFEJjC00EFOb0Z6FrW1AA',cfg=readConfig(fixture),{params}=resolveConfig(cfg);
  assert.equal(configId(cfg),'QABF-VBBF');
- for(const[k,v]of Object.entries({diameter:1000,bedX:325,bedY:320,bedZ:325,feedMode:1,mountMode:1,mountSides:2,mountArcLock:1,thickness:2.8,plateGap:18,fd:.42,feedLegs:0,sectors:0,rows:0,seamJoint:0,packPlates:1,rimBand:0,ribs:0}))assert.equal(params[k],v,k);}
+ for(const[k,v]of Object.entries({diameter:1000,bedX:325,bedY:320,bedZ:325,feedMode:1,mountMode:1,mountSides:2,mountArcLock:1,thickness:2.8,plateGap:18,fd:.42,feedLegs:0,sectors:0,rows:0,seamJoint:0,packPlates:1,rimBand:0,ribs:0,rimLip:0}))assert.equal(params[k],v,k);}
 // The app's defaults need no code in the address bar, and they include the rim band, so their code carries it.
 assert(isBaseline(configOf({...defaults,printSelection:ALL})));assert.equal(resolveConfig(readConfig(encodeConfig(configOf({...defaults,printSelection:ALL})))).params.rimBand,defaults.rimBand);
 console.log('PASS configuration codes: exact round trips with joint overrides and hand-placed plates, stable IDs, links, files, kit manifests, refusals and the frozen P1 fixture');

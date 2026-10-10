@@ -80,12 +80,17 @@ Every layer of a side-printed petal is one long curve that ends at the rim. That
 - The band's end face sits on the bed with the flange, so the bed contact becomes an L at the end of the strip, where lifting starts.
 - Assembled, the bands of all the outer petals form one frame around the dish, which also stiffens the rim in use.
 - The wall depth is adjustable (6–30 mm); a U or frame foot adds about 6 mm behind it.
+- A **front lip** carries the wall on above the reflecting face, 1 mm by default (0–3 mm), so the edge is braced from both sides. Against the frame alone it adds about 5% stiffness at 1 mm and 17% at 3 mm. It covers only the outer 3 mm of the aperture (3% of a 400 mm dish, 1% of a 1000 mm dish), where the feed puts little energy, so the gain cost is under 0.05 dB with a typical feed. It also gives the rim a hard edge and a clean stop for foil or coating. A 3 mm lip can cost nesting room: the default 400 mm dish then needs three 220 mm plates instead of two.
 - The wall stays square to the dish with any petal count. With 6 petals its inner face reaches 60° from vertical near the top of the side print (45° with 8 petals, less with more). It is a short face on the hidden inside of a thick wall and prints without support; expect a slightly rougher surface there.
 - Seam stations near the rim move toward the hub just far enough to keep their bolts, clips or levers clear of the band. A short seam that would crowd its stations loses one.
 
-**Underside ribs** (Shape tab, off by default) add a diamond grid of low ribs, 2.5 mm tall and 50 mm apart by default, across the underside of every petal. Their 45° sides print without supports in any direction, they stop short of seam hardware and the rod socket, and the grid is mirrored on each petal so the ribs meet the next petal's at the seams. On a 600 mm, 8-petal dish they add about 8% material.
+**Underside ribs** (Shape tab, off by default):
 
-![Rear of a 600 mm dish with the frame band and diamond ribs](stiffeners-rear.png)
+- **Diamond grid:** low ribs, 2.5 mm tall and 50 mm apart by default, across the underside of every petal, mirrored on each petal so the ribs meet the next petal's at the seams. On a 600 mm, 8-petal dish they add about 8% material.
+- **Center ring:** one ring rib, 3 mm tall by default (2–6 mm), half way along each petal (each ring of petals on a larger dish). It stiffens a long petal where it is least supported, about 2.4 times through the shell at 3 mm, and braces each print layer at mid-length.
+- **Both** together make a ring-and-diagonal grid. All ribs have 45° sides, so they print without supports in any direction, and they stop short of seam hardware and the rod socket.
+
+![Rear of a 600 mm dish with the frame band, diamond ribs and center ring](stiffeners-rear.png)
 
 ## Annealing
 

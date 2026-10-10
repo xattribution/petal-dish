@@ -210,8 +210,8 @@ export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=row
  for(const f of flanges){let fb=f.body;for(const g of flanges)if(g.seats)fb=fb.subtract(g.seats);for(const w of f.windows)fb=fb.subtract(w);body=body.union(f.pads?fb.union(f.pads):fb);}
  // Stiffeners: the rim band on the outer ring and the underside ribs, clear of seam hardware and the rod socket.
  const back=(x,y)=>backZ(x,y,p),socket=feed?petalRodSocket(p,{n,rows},back):null;
- if(p.rimBand&&j===rows-1)body=body.union(rimBandSolid(p,h,back,zAt(R,p)-p.thickness));
- if(p.ribs){const ribs=ribSolids(p,h,back,{rMin:j===0?64/Math.cos(h)+4:a-6,rMax:j<rows-1?b+6:p.rimBand?R+6:R-3,keepOut:ribKeepOut(flanges,socket)});if(ribs)body=body.union(ribs);}
+ if(p.rimBand&&j===rows-1)body=body.union(rimBandSolid(p,h,back,zAt(R,p)-p.thickness,(x,y)=>zAt(Math.hypot(x,y),p)));
+ if(p.ribs){const inner=j===0?64/Math.cos(h):a,outer=j<rows-1?b:R,ribs=ribSolids(p,h,back,{rMin:j===0?inner+4:a-6,rMax:j<rows-1?b+6:p.rimBand?R+6:R-3,ringR:(inner+outer)/2,keepOut:ribKeepOut(flanges,socket)});if(ribs)body=body.union(ribs);}
  body=clipped(body,p,n,a,b);
  // Root boss: the full width of the hub end, seam to seam, so the end stands solid from the bed to the upper flange.
  if(j===0){const bottom=rootBottom(p);let boss=solid(patch({r0:43,r1:64/Math.cos(h),a0:-h,a1:h,topFn:(x,y)=>backZ(x,y,p)+.5,backFn:()=>bottom},p)).trim([1,0,0],45).trim([-1,0,0],-63);body=body.union(boss);
