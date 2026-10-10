@@ -1,25 +1,22 @@
 // Breakaway rim support: print only, never part of the assembled dish.
 // In the side print every outer petal's rim is a tall edge that rises from the bed and leans in toward the hub, and its
 // front (the front lip, or the reflecting face without one) is the part's front-most edge, at one depth all the way up.
-// The support is a wall supportWall thick standing on the bed just in front of that edge, its face vertical and parallel
-// to it, supportGap away. Its outline follows the rim: a bow along the rim and a straight string from the rim's foot to
-// its top, which braces the bow against the push along the bed, with a window between them where there is room. Tines,
-// 0.3 mm tall (one or two layers), bridge the gap: each narrows from the wall to tineWidth where it meets the rim's front,
-// so it snaps there and leaves only a small nub on the rim's outer edge. They run from 1 mm above the bed to the top,
-// evenly, never more than tinePitch apart.
-// The wall stays inside the rim's outline and is uniform: in the nested stacks on a plate the next petal's rim band sits
-// just in front of this rim, so every millimeter of wall there adds a millimeter to the stack's pitch, at every height.
-// Everything prints without support: the bow steps in as it rises, the string and the window's sides lean at most 45°,
-// and a tine is a bridge of about 1 mm.
+// The support is a solid wall supportWall thick standing on the bed just in front of that edge, its face vertical and
+// parallel to it, supportGap away. Its outer edge follows the rim; its inner edge runs from the rim's top almost straight
+// down to the bed, leaning supportLean out (12° by default), so the wall is wide at the bed and every layer is one solid island (no travel across
+// a window, no strings). Tines, 0.3 mm tall (one or two layers), bridge the gap: each narrows from the wall to tineWidth
+// where it meets the rim's front, so it snaps there and leaves only a small nub on the rim's outer edge. They run from
+// 1 mm above the bed to the top, evenly, never more than tinePitch apart.
+// Everything prints without support: the outer edge steps in as it rises, the inner edge leans at most 30°, and a tine is a
+// bridge of about 1 mm.
 // Coordinates: built in the side print's own frame (X' along the bed, Y' the dish axis toward the back, Z' up, the
 // petal's lower seam on the bed) and returned in the petal's frame, so it follows the petal through sidePrint.
 import {solid,prism,hullPoints} from './solid.js';
 import {zAt,mergeMeshes} from './mesh.js';
-// bow: the band along the rim, inside it; string: the strut's width; top: the wall's width inside the rim at its top;
-// tineH: a tine's height; root: how far a tine starts inside the wall; bite: how far it reaches into the rim; edge: how
-// far it stays inside the rim's outer edge; seam: how far tines stay from the seam faces; floor: solid wall above the bed
-// before the window; window: the narrowest window worth cutting.
-export const SUPPORT={bow:5,string:5,top:4,tineH:.3,root:.3,bite:.35,edge:.25,seam:.8,floor:4,window:4};
+// bow: the narrowest the wall gets at the bed, inside the rim; top: its width
+// inside the rim at the top; tineH: a tine's height; root: how far a tine starts inside the wall; bite: how far it
+// reaches into the rim; edge: how far it stays inside the rim's outer edge; seam: how far tines stay from the seam faces.
+export const SUPPORT={bow:5,top:4,tineH:.3,root:.3,bite:.35,edge:.25,seam:.8};
 // The support for one outer petal, from its mesh (in the petal's frame). Returns {solid, tines, height} with the solid in
 // the petal's frame, or null when the rim is too short. tines:false leaves the tines out (for fit checks).
 export function rimSupport(p,n,mesh,{tines:withTines=true}={}){
@@ -28,25 +25,12 @@ export function rimSupport(p,n,mesh,{tines:withTines=true}={}){
  let Zb=Infinity,Yf=Infinity;for(const i of new Set(mesh.f.flat())){const[x,y,z]=mesh.v[i],Z=s*x+c*y;if(Z<Zb)Zb=Z;if(-z<Yf)Yf=-z;}
  const top=2*h,Zt=R*Math.sin(top)-.2,H=Zt-Zb;if(H<20)return null;
  const XR=Z=>Math.sqrt(R*R-Z*Z),face=Yf-p.supportGap;
- // the string: from the bow's inner edge at the foot (the foot stays narrow, clear of the next petal's seam flange in a
- // nested stack) to S.top inside the rim at the top (it leans in at most 30°)
- const Lb=XR(Zb)-S.bow,Lt=XR(Zt)-S.top,sl=(Lt-Lb)/H,L=Z=>Lb+sl*(Z-Zb);
+ // inner edge: from S.top inside the rim at the top, straight down to the bed leaning supportLean out (at least S.bow wide there)
+ const Lt=XR(Zt)-S.top,Lb=Math.min(Lt+H*Math.tan(p.supportLean*Math.PI/180),XR(Zb)-S.bow);
  const outline=[[Lb,Zb],[XR(Zb),Zb]],steps=Math.max(8,Math.ceil(H/2));
  for(let i=1;i<steps;i++){const Z=Zb+H*i/steps;outline.push([XR(Z),Z]);}
  outline.push([XR(Zt),Zt],[Lt,Zt]);
- let wall=prism(outline,0,T);
- // the window between bow and string: its right side is the bow's inner edge, kept from leaning more than 45° (taken
- // from the top down); its left side is the string's right edge
- const rho=R-S.bow,dz=1,rows=[];let prev=Infinity;
- for(let Z=Zt;Z>=Zb-1e-9;Z-=dz){const arc=Z<rho?Math.sqrt(rho*rho-Z*Z):-Infinity,x=Math.min(arc,prev+dz);prev=x;rows.unshift([Z,x,L(Z)+S.string]);}
- // the heights where it is open (one run: the gap narrows to nothing toward the top), closed to a point at its top and,
- // above the floor, at its bottom
- const inside=rows.filter(([Z])=>Z>=Zb+S.floor&&Z<=Zt-2),w=([,r,l])=>r-l,first=inside.findIndex(q=>w(q)>0),last=inside.findLastIndex(q=>w(q)>0);
- if(first>=0&&last-first>=2&&Math.max(...inside.slice(first,last+1).map(w))>=S.window){
-  const run=inside.slice(first,last+1),apex=(a,b)=>{const t=w(a)/(w(a)-w(b)),Z=a[0]+(b[0]-a[0])*t,x=a[2]+(b[2]-a[2])*t;return[x,Z];};
-  const bottom=first>0?[apex(run[0],inside[first-1])]:[],topPoint=last<inside.length-1?[apex(run.at(-1),inside[last+1])]:[];
-  const hole=[...bottom,...run.map(([Z,r])=>[r,Z]),...topPoint,...run.slice().reverse().map(([Z,,l])=>[l,Z])];
-  wall=wall.subtract(prism(hole,-1,T+1));}
+ const wall=prism(outline,0,T);
  // prism z (0..T) is the depth in front of the face
  let support=wall.transform(([x,y,z])=>toLocal([x,face-z,y])),count=0;
  if(withTines){

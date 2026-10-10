@@ -25,7 +25,7 @@ assert.equal(ids.size,cases.length+1);
 const sweep=new Set();for(const d of [260,300,400,500,600,800,1000,1200])for(const fd of [.3,.42,.6])for(const t of [2,2.4,2.8])sweep.add(configId(configOf({...defaults,diameter:d,fd,thickness:t})));assert.equal(sweep.size,72);
 
 // A hand arrangement round-trips through a real build: same rows, same code, same ID.
-{const m=build({...defaults,diameter:600,bedX:300,bedY:300,bedZ:330,mountMode:1}),next=movePlacement(m.plates,'hub:1',1,0,0,m.p);assert(next,'the hub moves to plate 1');m.plates=next;m.manualPacking=true;
+{const m=build({...defaults,diameter:600,bedX:300,bedY:300,bedZ:330,mountMode:1,rimSupport:0}),next=movePlacement(m.plates,'hub:1',1,0,0,m.p);assert(next,'the hub moves to plate 1');m.plates=next;m.manualPacking=true;
  const cfg=modelConfig(m),code=encodeConfig(cfg);assert.equal(cfg.pl.length,plateRows(m.plates).length);
  const {params,rows}=resolveConfig(readConfig(code)),again=build(params);again.plates=manualPlates(again.parts.filter(p=>p.printIncluded!==false),again.p,rows);again.manualPacking=true;
  assert.equal(encodeConfig(modelConfig(again)),code);assert.deepEqual(plateRows(again.plates).map(r=>[r.copy,r.plate]),plateRows(m.plates).map(r=>[r.copy,r.plate]));
