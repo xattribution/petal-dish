@@ -64,25 +64,28 @@ The plate count does not change at any of these thicknesses.
 
 ## Rim band and underside ribs
 
-![One print layer at the rim end of a petal with no band, an L, a U and a triangle](rim-band-layers.png)
+![Section through the rim of the default dish with an L, U and frame band](rim-band-section.png)
 
-Every layer of a side-printed petal is one long curve that ends at the rim. That end is a free 2.4 mm edge standing up to 300 mm tall, so it flexes when the nozzle reaches it and turns around, and the layer lands slightly off. **Rim band** (Shape tab) puts a wall behind the rim of each outer petal, so that every layer ends in a hook instead:
+Every layer of a side-printed petal is one long curve that ends at the rim. That end is a free 2.4 mm edge standing up to 300 mm tall, so it flexes when the nozzle reaches it and turns around, and the layer lands slightly off. **Rim band** (Shape tab) puts a wall behind the rim of each outer petal, square to the dish, so that every layer ends in a hook instead:
 
-| Band | Section | Extra material, 600 mm petal | Notes |
-|---|---|---|---|
-| None | free edge | — | |
-| L (default) | 3 mm wall, 14 mm deep, 45° fillet to the shell | +8% | |
-| U | wall, a round 90° bend toward the hub and a 2 mm lip | +9% | On a deep dish the lip can meet the shell and close into a tube |
-| Triangle | wall and a 45° brace from its foot back to the shell | +12% | A closed triangular tube: the stiffest |
+![One print layer at the rim end of a petal with no band, an L, a U and a frame](rim-band-layers.png)
+
+| Band | Section | Extra material, 600 mm petal |
+|---|---|---|
+| None | free edge | — |
+| L | 3 mm wall, 14 mm deep, 45° fillet to the shell | +8% |
+| U | the wall, then a round 90° bend toward the hub and a 2 mm lip | +12% |
+| Frame (default) | the wall, then a round 45° bend toward the hub and a 5 mm lip | +12% |
 
 - The band's end face sits on the bed with the flange, so the bed contact becomes an L at the end of the strip, where lifting starts.
-- Assembled, the bands of all the outer petals form one ring around the dish, which also stiffens the rim in use.
-- The depth is adjustable (6–30 mm). With 6 petals the band leans inward up to 37° so that no face prints steeper than 45°; from 8 petals up it runs parallel to the dish axis.
+- Assembled, the bands of all the outer petals form one frame around the dish, which also stiffens the rim in use.
+- The wall depth is adjustable (6–30 mm); a U or frame foot adds about 6 mm behind it.
+- The wall stays square to the dish with any petal count. With 6 petals its inner face reaches 60° from vertical near the top of the side print (45° with 8 petals, less with more). It is a short face on the hidden inside of a thick wall and prints without support; expect a slightly rougher surface there.
 - Seam stations near the rim move toward the hub just far enough to keep their bolts, clips or levers clear of the band. A short seam that would crowd its stations loses one.
 
-**Underside ribs** (Shape tab, off by default) add a diamond grid of low ribs, 2.5 mm tall and 50 mm apart by default, across the underside of every petal. Their 45° sides print without supports in any direction, they stop short of seam hardware and the rod socket, and the grid is mirrored on each petal so the ribs meet the next petal's at the seams. On a 600 mm, 8-petal dish they add about 9% material.
+**Underside ribs** (Shape tab, off by default) add a diamond grid of low ribs, 2.5 mm tall and 50 mm apart by default, across the underside of every petal. Their 45° sides print without supports in any direction, they stop short of seam hardware and the rod socket, and the grid is mirrored on each petal so the ribs meet the next petal's at the seams. On a 600 mm, 8-petal dish they add about 8% material.
 
-![Rear of a 600 mm dish with the L band and diamond ribs](stiffeners-rear.png)
+![Rear of a 600 mm dish with the frame band and diamond ribs](stiffeners-rear.png)
 
 ## Annealing
 

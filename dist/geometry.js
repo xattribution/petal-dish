@@ -122,7 +122,7 @@ function clipped(s,p,n,a,b,gap=0){const h=PI/n;
 // The station count stays as it was; only a seam too short to keep the stations apart (30 mm with clips or levers,
 // 20 mm with bolts) loses one.
 function rimSpan(p,frame,start,end,ramp,h,count){let span=end-start-ramp;const{o}=frame;if(!p.rimBand||o[0]!==0||o[1]!==0||end<p.diameter/2-1.5)return[span,count];
- const keep=rimReach(p,h)+(p.seamJoint===3?14:p.seamJoint?10:seamBolt(p).seatR+4),gap=p.seamJoint?30:20,last=(sp,c)=>start+ramp+sp*(c-.5)/c;
+ const keep=rimReach(p)+(p.seamJoint===3?14:p.seamJoint?10:seamBolt(p).seatR+4),gap=p.seamJoint?30:20,last=(sp,c)=>start+ramp+sp*(c-.5)/c;
  let c=count;for(;;){let sp=span;while(sp>8&&last(sp,c)>end-keep)sp-=.5;if(c===1||sp/c>=gap)return[sp,c];c--;}}
 // Integral edge flange: a 3 mm wall with a 45° root gusset and solid screw pads.
 function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s,t,z)=>[o[0]+s*e[0]+t*v[0],o[1]+s*e[1]+t*v[1],z],back=s=>{const q=point(s,0,0);return backZ(q[0],q[1],p);},backT=(s,t)=>{const q=point(s,t,0);return backZ(q[0],q[1],p);};

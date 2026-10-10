@@ -33,8 +33,8 @@ await change('diameter',410);await settle();const input=$('config-file');Object.
 await change('diameter',430);await settle();w.location.hash='#'+code;await settle();assert.equal(Number($('diameter').value),500);assert.equal(idOf(),first);
 click('config-toggle');$('config-list').querySelector('.config-delete').click();assert.equal($('config-list').children.length,0);$('config-dialog').close();
 d.getElementById('reset').click();await settle();assert.equal(idOf(),base);
-// Stiffeners: the L band is on by default; depth shows only with a band, rib fields only with ribs.
-d.querySelector('[data-category=Shape]').click();assert.equal($('rimBand').value,'1');assert(!$('rim-depth-field').hidden);assert($('rib-fields').hidden);
+// Stiffeners: the frame band is on by default; depth shows only with a band, rib fields only with ribs.
+d.querySelector('[data-category=Shape]').click();assert.equal($('rimBand').value,'3');assert(!$('rim-depth-field').hidden);assert($('rib-fields').hidden);
 await change('ribs',1);await settle();valid();assert(!$('rib-fields').hidden);await change('rimBand',2);await settle();valid();await change('rimBand',3);await settle();valid();await change('rimBand',0);await settle();valid();assert($('rim-depth-field').hidden);
-d.getElementById('reset').click();await settle();assert.equal(idOf(),base);assert.equal($('rimBand').value,'1');assert($('rib-fields').hidden);
+d.getElementById('reset').click();await settle();assert.equal(idOf(),base);assert.equal($('rimBand').value,'3');assert($('rib-fields').hidden);
 assert.equal(errors.length,0,errors.join('\n'));console.log('PASS embedded offline kernel, form generation, facets, feed frequency, validation, reset, configuration codes and instructions. DOM only; WebGL not exercised.');w.close();})().catch(e=>{console.error(e);w.close();process.exitCode=1;});

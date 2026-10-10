@@ -102,7 +102,7 @@ Every assembly PDF shows the ID on each page and the full code on the build reco
 | **Hub clearance** | 0 mm (default) to 0.6 mm of extra gap at the hub's edges and root holes, so the petals line up on their seams before the root bolts clamp them to the hub. The mount holes stay put |
 | **Hub front** | Flat (default): level with the petals at the hub's corners and chamfered down to them along each edge, so it prints cleanly · curved, following the dish |
 | **Underside** | Smooth curved shell (default) · small flat facets |
-| **Stiffening** | A band behind the rim of the outer petals (L by default, U, triangle or none, 6–30 mm deep): every print layer ends in a hook instead of a free edge, and the assembled bands form one ring · optional diamond-grid ribs on the underside ([details](docs/PRINTING-LARGE-PETALS.md#rim-band-and-underside-ribs)) |
+| **Stiffening** | A band behind the rim of the outer petals, square to the dish: a frame with a 45° foot toward the hub (default), an L, a U or none, with a 6–30 mm wall. Every print layer ends in a hook instead of a free edge, and the assembled bands form one frame around the dish · optional diamond-grid ribs on the underside ([details](docs/PRINTING-LARGE-PETALS.md#rim-band-and-underside-ribs)) |
 | **Automatic sizing** | Largest petals: the fewest pieces and seams (default) · fewest print plates: may use more, smaller petals when they pack onto fewer beds |
 | **Large dishes** | Staggered rings (default) · aligned rings |
 | **Printer** | Presets for the Prusa CORE One L (with or without the INDX tool changer), Bambu Lab H2D and H2C, common volumes, or any custom volume. The last valid volume is remembered in the browser |
