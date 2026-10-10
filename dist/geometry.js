@@ -129,7 +129,7 @@ function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s
  // Station height. With clips, drop it by the shell's slope across the clip so the jaws clear the shell everywhere.
  // With clips the station is tilted to follow the shell along the seam; it drops only for the shell's slope across the seam.
  const tilt=s=>p.seamJoint?Math.atan((back(s+1)-back(s-1))/2):0,level=s=>p.seamJoint?back(s)-(7+Math.max(0,CLIP.top+.25-7+Math.abs(backT(s,1)-backT(s,-1))/2*7.6))/Math.cos(tilt(s)):back(s)-7;
- const frameAt=s=>{const z=level(s),a=tilt(s),c=Math.cos(a),sn=Math.sin(a);return(X,Y,U)=>point(s+U*c-Y*sn,X,z+U*sn+Y*c);},hy=boltY(p);const ramp=p.seamJoint&&o[0]===0&&o[1]===0?Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))+6:0,countOf=sp=>p.seamJoint?Math.max(1,Math.min(Math.round(sp/40),Math.floor(sp/34))):2*Math.max(1,Math.ceil(sp/240)),[span,countBolts]=rimSpan(p,frame,start,end,ramp,h,countOf(end-start-ramp)),stations=Array.from({length:countBolts},(_,i)=>start+ramp+span*(i+.5)/countBolts),mid=(start+end)/2,cs=0,W=p.seamJoint?CLIP.wall:3,D=14+(p.seamJoint?(sl=>Math.max(0,5*sl+7.6*Math.abs(sl)))((backT((start+end)/2,1)-backT((start+end)/2,-1))/2):0),dAt=s=>male&&o[0]===0?Math.min(D,.5+(s-start)*(D-.5)/Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))):D;
+ const frameAt=s=>{const z=level(s),a=tilt(s),c=Math.cos(a),sn=Math.sin(a);return(X,Y,U)=>point(s+U*c-Y*sn,X,z+U*sn+Y*c);},hy=boltY(p);const ramp=p.seamJoint&&o[0]===0&&o[1]===0?Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))+6:0,countOf=sp=>p.seamJoint?Math.max(1,Math.min(Math.round(sp/40),Math.floor(sp/34))):2*Math.max(1,Math.ceil(sp/240)),[span,countBolts]=rimSpan(p,frame,start,end,ramp,h,countOf(end-start-ramp)),stations=Array.from({length:countBolts},(_,i)=>start+ramp+span*(i+.5)/countBolts),mid=(start+end)/2,cs=0,W=p.seamJoint?CLIP.wall:3,D=14+(p.seamJoint?(sl=>Math.max(0,5*sl+7.6*Math.abs(sl)))((backT((start+end)/2,1)-backT((start+end)/2,-1))/2):0),dAt=s=>male&&o[0]===0&&!frame.onBoss?Math.min(D,.5+(s-start)*(D-.5)/Math.min((end-start)/4,20*Math.sin(PI/3)/Math.sin(2*h))):D;
  const profile=s=>{const d=dAt(s);const outline=male?[[cs,-d],[W,-d],[W+d,0],[W+d,.5],[cs,.5]]:[[cs,-d],[W,-d],[W,-4],[W+4,0],[W+4,.5],[cs,.5]];return outline.map(([t,z])=>{const q=point(s,t,0);return point(s,t,backZ(q[0],q[1],p)+z);});};
  const count=Math.max(2,Math.ceil((end-start+2*overlap)/p.resolution)),rings=Array.from({length:count+1},(_,i)=>profile(start-overlap+(end-start+2*overlap)*i/count));let body=loft(rings);
  // An end face whose outward normal (along ±e) points down more than 45° in the side print is cut back at the smallest
@@ -186,7 +186,7 @@ function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s
  return{body,seats,windows,pads,cuts,stations,levels:stations.map(level),tilts:stations.map(tilt),key:mid,frame,start,end};}
 // Every flange on a petal: [frame, start, end, male, half-angle, overlap]. Shared by panelSolid and petalSignature.
 function flangeFrames(p,n,rows,j){const h=PI/n,[a,b]=rowBounds(p,n,rows,j),R=p.diameter/2,defs=[];
- for(const sign of [-1,1])defs.push([{o:[0,0],e:[Math.cos(h),sign*Math.sin(h)],v:[Math.sin(h),-sign*Math.cos(h)]},Math.max(63,a/Math.cos(p.staggerRings&&j>0?h/2:h)+1),Math.min(R,Number.isFinite(b)?b/Math.cos(p.staggerRings?h/2:h):R)-1,sign===1,h]);
+ for(const sign of [-1,1])defs.push([{o:[0,0],e:[Math.cos(h),sign*Math.sin(h)],v:[Math.sin(h),-sign*Math.cos(h)],...(j===0?{onBoss:true}:{})},Math.max(63,a/Math.cos(p.staggerRings&&j>0?h/2:h)+1),Math.min(R,Number.isFinite(b)?b/Math.cos(p.staggerRings?h/2:h):R)-1,sign===1,h]);
  if(p.staggerRings){for(const [r,male] of [[a,false],[b,true]])if((male&&j<rows-1)||(!male&&j>0))for(const t of [-h/2,h/2]){
   const c=Math.cos(t),s=Math.sin(t),L=r*Math.tan(h/2);
   defs.push([{o:[r*c,r*s],e:[-s,c],v:male?[-c,-s]:[c,s]},-L,L,male,h,20*Math.tan(h/2)+1]);
@@ -213,7 +213,8 @@ export function panelSolid(p,n,rows,j,feed=false,angle=0){const h=PI/n,[a,b]=row
  if(p.rimBand&&j===rows-1)body=body.union(rimBandSolid(p,h,back,zAt(R,p)-p.thickness));
  if(p.ribs){const ribs=ribSolids(p,h,back,{rMin:j===0?64/Math.cos(h)+4:a-6,rMax:j<rows-1?b+6:p.rimBand?R+6:R-3,keepOut:ribKeepOut(flanges,socket)});if(ribs)body=body.union(ribs);}
  body=clipped(body,p,n,a,b);
- if(j===0){const bottom=rootBottom(p);let boss=solid(patch({r0:43,r1:64/Math.cos(h),a0:-h,a1:h,topFn:(x,y)=>backZ(x,y,p)+.5,backFn:()=>bottom},p)).trim([1,0,0],45).trim([-1,0,0],-63).trim([0,-1,0],-8);body=body.union(boss);
+ // Root boss: the full width of the hub end, seam to seam, so the end stands solid from the bed to the upper flange.
+ if(j===0){const bottom=rootBottom(p);let boss=solid(patch({r0:43,r1:64/Math.cos(h),a0:-h,a1:h,topFn:(x,y)=>backZ(x,y,p)+.5,backFn:()=>bottom},p)).trim([1,0,0],45).trim([-1,0,0],-63);body=body.union(boss);
   const RH=rootHole(p);
   // holes along the dish axis lie horizontal in the side print: round plus a 45° roof toward print-up
   const up=[Math.sin(h),Math.cos(h)],across=[Math.cos(h),-Math.sin(h)],drop=r=>[...Array.from({length:32},(_,i)=>{const a=TAU*i/32;return[r*Math.cos(a),r*Math.sin(a)];})],roofR=r=>[[-r*.707,-r*.707],[r*.707,-r*.707],[r*.707,r*.707],[0,r*Math.SQRT2],[-r*.707,r*.707]];
