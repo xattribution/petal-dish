@@ -171,7 +171,10 @@ function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s
   // and a ramp back to the wall. Each sloped face is as steep as this station's print direction allows (45° or better):
   // print-up along the station's U axis is cos(tilt)·upU, across the wall (t) upT.
   const R=CLIP.ridge,u0=CLIP.width/2+CLIP.clear,ct=Math.cos(tilt(s)),slope=(sign)=>{let best=-9,run=0;for(let a=0;a<=80;a++){const r=a*PI/180,val=sign*ct*upU*Math.cos(r)+upT*Math.sin(r);if(val>=-.68)return Math.tan(r);if(val>best){best=val;run=Math.tan(r);}}return run;};
-  for(const k of [1,-1]){const run=Math.min(R.maxRamp,R.h*slope(k)),lean=Math.min(R.maxRamp,R.h*slope(-k));
+  // Where the wall faces down in the side print (the upper flange), a ridge's lowest corner would hang below the wall and
+  // start in mid-air; its low-side face leans just far enough (25% margin) that the ridge grows out of the wall instead.
+  const Uu=ct*upU,low=Uu>0?-1:1,need=upT<0?Math.min(R.maxRamp,Math.abs(Uu)>.05?1.25*R.h*-upT/Math.abs(Uu):R.maxRamp):0;
+  for(const k of [1,-1]){let run=Math.min(R.maxRamp,R.h*slope(k)),lean=Math.min(R.maxRamp,R.h*slope(-k));if(k===-low)lean=Math.max(lean,need);else run=Math.max(run,need);
    const ridge=loft([Yb+.5,Ys-.3].map(Y=>[[k*u0,W-.02],[k*(u0+lean+R.top+run),W-.02],[k*(u0+lean+R.top),W+R.h],[k*(u0+lean),W+R.h]].map(([u,t])=>F(t,Y,u))));pads=pads?pads.union(ridge):ridge;}
 }
   const r=SB.holeR,round=Array.from({length:24},(_,i)=>{const a=TAU*i/24;return[r*Math.cos(a),r*Math.sin(a)];});const roof=roofToward(r,s);

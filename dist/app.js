@@ -144,9 +144,11 @@ async function exporting(fn){if(!valid||busy||plateDirty)return;busy=true;button
 // Exports run in the engine against the model on screen, with any manual plate arrangement made here.
 const fromEngine=op=>engine.call(op,{key:model.key,plates:model.manualPacking?plateRows(model.plates):null});
 $('export-part').onclick=()=>exporting(()=>{const p=model.parts.find(p=>p.id===selected);if(!p)throw Error('Select a part first.');download(new Blob([binarySTL(p.output)],{type:'model/stl'}),`${p.id}${p.supportMeshes.length?'_supported':''}_qty-${p.qty}.stl`);});
-$('export-all').onclick=()=>exporting(async()=>{const name=`PETAL-${model.p.diameter}mm-print-kit.zip`;download(await fromEngine('kit'),name);});
-$('export-scad').onclick=()=>exporting(async()=>download(new Blob([await fromEngine('scad')],{type:'text/plain'}),'petal-snapshot.scad'));
-$('export-pdf').onclick=()=>exporting(async()=>{const name=`PETAL-${model.p.diameter}mm-assembly.pdf`;download(new Blob([await fromEngine('pdf')],{type:'application/pdf'}),name);});
+// download names carry the dish size and the configuration ID, so two kits of the same size stay apart
+const fileTag=()=>`PETAL-${model.p.diameter}mm${shown?.id?'-'+shown.id:''}`;
+$('export-all').onclick=()=>exporting(async()=>{const name=`${fileTag()}-print-kit.zip`;download(await fromEngine('kit'),name);});
+$('export-scad').onclick=()=>exporting(async()=>download(new Blob([await fromEngine('scad')],{type:'text/plain'}),`${fileTag()}-snapshot.scad`));
+$('export-pdf').onclick=()=>exporting(async()=>{const name=`${fileTag()}-assembly.pdf`;download(new Blob([await fromEngine('pdf')],{type:'application/pdf'}),name);});
 
 // Narrow screens: the two side panels become drawers.
 const narrow=matchMedia('(max-width:1100px)');
