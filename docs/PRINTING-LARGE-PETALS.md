@@ -104,10 +104,10 @@ The rim band holds each layer's end from behind. **Breakaway rim support** (Prin
 | Thickness (wall or lip rib) | 2.5 mm | 2–8 mm |
 | Inner edge lean | 12° from vertical | 0–30° |
 | Ribs square to the wall | 2 | 0–4 |
-| Gap to the rim's front edge | 0.3 mm | 0.15–0.8 mm |
-| Tine width at the rim | 0.6 mm (1.2 mm at the wall) | 0.4–1.2 mm |
-| Tine height | 0.3 mm, one or two layers | fixed |
-| Tine spacing | at most 4 mm, from 1 mm above the bed to the top | 2–12 mm |
+| Gap to the rim's front edge | 0.2 mm | 0.15–0.8 mm |
+| Tine width at the rim | 1.0 mm (1.6 mm at the wall) | 0.4–2 mm |
+| Tine height | 0.5 mm, two layers or more | 0.2–1.5 mm |
+| Tine spacing | at most 2 mm along the rim, from 1 mm above the bed to the top | 1–12 mm |
 
 - The wall is solid and stands on the bed. Its face is vertical, parallel to the rim's front edge, which is at one depth all the way up. Its outer edge follows the rim. Its inner edge runs from the rim's top almost straight down to the bed, so the wall is widest at the bed. Every layer is one solid island, so the nozzle never travels across a window and leaves strings. Nothing on it is steeper than 45°, and each tine is a bridge of about 1 mm.
 - **Ribs** stand square to the wall on its outer face, so the wall also resists pushes across its face, not only along it. The first runs along the inner edge, making an L in plan; the others spread across the foot. Each is a thin triangle, deepest at the bed (12% of its height, 6–16 mm) and running back into the wall at its top.
@@ -118,7 +118,7 @@ The rim band holds each layer's end from behind. **Breakaway rim support** (Prin
 - Each tine narrows from 1.2 mm at the wall to the tine width where it meets the rim, 0.25 mm in from the rim's outer edge. With ASA-CF and ASA-GF the fibers lie along each bead, so a bead is strong along its length; the narrow neck makes the break happen at the rim instead of pulling material out of the lip.
 - The numbers follow published designed-in supports: a 0.2–0.4 mm standoff, contact tines about one nozzle bead wide and one layer tall, a few millimeters apart.
 - **Removal:** let the petal cool on the bed. Then twist the wall away from the rim, starting at the top. Trim any nub flush with a sharp blade.
-- **Tuning:** if tines break during the print or the wall moves, widen them to 0.7–0.8 mm or space them closer. If they leave chunks in the lip, narrow them to 0.5 mm. With a 0.6 mm nozzle use at least 0.6 mm.
+- **Tuning:** the first prints showed single-layer 0.6 mm tines every 4 mm of height let go near the top, where the rim leans over and 4 mm of height is up to 8 mm of rim. Tines are now spaced along the rim, 1 mm wide and 0.5 mm tall, at most 2 mm apart: about six times the connection. If the support still lets go, raise the tine height or width; if the nubs are hard to clean up, lower the width first.
 - **Material and plates:** the wall sits where the next petal in a nested stack would be, so it spreads stacks apart. The lean is the trade-off:
 
 | Dish | Lean | Ribs | Support per petal | Plates (without the support) |

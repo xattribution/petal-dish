@@ -31,7 +31,7 @@ for(const c of cases){const m=build({...defaults,...c}),plain=build({...defaults
   const grow=part.dim[0]+part.dim[1]-base.dim[0]-base.dim[1];assert(grow<=m.p.supportGap+m.p.supportWall+(m.p.supportRibs?16:0)+.6,`${name}: footprint grows ${grow.toFixed(2)} mm`);
   // joined only by the tines: their overlap with the petal is tiny, and the wall without them stays a gap away
   solidScope(()=>{const P=solid(part.print),S=solid(sup),both=P.union(S),overlap=P.intersect(S).raw.volume(),per=overlap/info.tines;
-   assert(per>.02&&per<.3,`${name}: ${per.toFixed(3)} mm³ of each tine inside the rim`);
+   const bite=SUPPORT.bite*m.p.tineWidth*m.p.tineHeight;assert(per>.3*bite&&per<3*bite,`${name}: ${per.toFixed(3)} mm³ of each tine inside the rim, about ${bite.toFixed(3)} expected`);
    assert(Math.abs(both.raw.volume()-volume(part.output))<1,name+' file is petal ∪ support');
    assert.equal(both.raw.decompose().filter(x=>x.volume()>0).length,1,name+' one connected print');
    // the wall alone, in the petal's frame, moved toward the petal by almost the gap, does not reach it

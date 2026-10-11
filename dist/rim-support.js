@@ -5,9 +5,10 @@
 // parallel to it, supportGap away. Its outer edge follows the rim; its inner edge runs from the rim's top almost straight
 // down to the bed, leaning supportLean out (12° by default), so the wall is wide at the bed and every layer is one solid island (no travel across
 // a window, no strings). Optional ribs stand square to the wall on its outer face (supportRibs). The other shape
-// (supportStyle 1) keeps only a rib along the rim's front edge, square to it. Tines, 0.3 mm tall (one or two layers), bridge the gap: each narrows from the wall to tineWidth
+// (supportStyle 1) keeps only a rib along the rim's front edge, square to it. Tines, tineHeight tall (0.5 mm, two layers or more, by
+// default), bridge the gap: each narrows from the wall to tineWidth
 // where it meets the rim's front, so it snaps there and leaves only a small nub on the rim's outer edge. They run from
-// 1 mm above the bed to the top, evenly, never more than tinePitch apart.
+// 1 mm above the bed to the top, evenly along the rim, never more than tinePitch apart.
 // Everything prints without support: the outer edge steps in as it rises, the inner edge leans at most 30°, and a tine is a
 // bridge of about 1 mm.
 // Coordinates: built in the side print's own frame (X' along the bed, Y' the dish axis toward the back, Z' up, the
@@ -17,7 +18,7 @@ import {zAt,mergeMeshes} from './mesh.js';
 // bow: the narrowest the wall gets at the bed, inside the rim; top: its width
 // inside the rim at the top; tineH: a tine's height; root: how far a tine starts inside the wall; bite: how far it
 // reaches into the rim; edge: how far it stays inside the rim's outer edge; seam: how far tines stay from the seam faces.
-export const SUPPORT={bow:5,top:4,tineH:.3,root:.3,bite:.35,edge:.25,seam:.8};
+export const SUPPORT={bow:5,top:4,root:.3,bite:.5,edge:.25,seam:.8};
 // The support for one outer petal, from its mesh (in the petal's frame). Returns {solid, tines, height} with the solid in
 // the petal's frame, or null when the rim is too short. tines:false leaves the tines out (for fit checks).
 export function rimSupport(p,n,mesh,{tines:withTines=true}={}){
@@ -59,14 +60,15 @@ export function rimSupport(p,n,mesh,{tines:withTines=true}={}){
  let count=0;
  if(withTines){
   // the rim's front at radius r (it falls back from the edge as r gets smaller)
-  const zR=zAt(R,p),front=r=>Yf+zR-zAt(r,p),tw=p.tineWidth,W0=Math.max(1.2,tw+.6),T2=S.tineH/2,t2=Math.sin(top),c2=Math.cos(top);
+  const zR=zAt(R,p),front=r=>Yf+zR-zAt(r,p),tw=p.tineWidth,W0=Math.max(1.2,tw+.6),T2=p.tineHeight/2,t2=Math.sin(top),c2=Math.cos(top);
   // a tine at height Zk: its narrow end sits S.edge inside the rim's outer edge, clear of both seam faces
   const at=Zk=>{const Z0=Zk-T2,Z1=Zk+T2,xr=XR(Z1)-S.edge,x0=xr-tw;return{Z0,Z1,xr,x0,ok:Z0>=Zb+S.seam&&Z1<=Zt-.3&&-t2*x0+c2*Z1<=-S.seam};};
   const tine=({Z0,Z1,xr,x0})=>{const near=front(Math.hypot(xr,Z1))-.02,far=front(Math.hypot(x0,Z0))+S.bite,rect=(y,a,b)=>[[a,y,Z0],[b,y,Z0],[a,y,Z1],[b,y,Z1]],wide=Math.min(xr-tw/2+W0/2,XR(Z1));
    const taper=hullPoints([...rect(face-S.root,wide-W0,wide),...rect(near,x0,xr)].map(toLocal)),stub=hullPoints([...rect(near-.05,x0,xr),...rect(far,x0,xr)].map(toLocal));
    return taper.union(stub).mesh();};
-  // evenly spaced from just above the bed to as high as a tine stays on the rim, never further apart than tinePitch
+  // evenly spaced along the rim (not by height: near the top of a leaning rim each millimeter of height is up to two of
+  // rim) from just above the bed to as high as a tine stays on the rim, never further apart than tinePitch
   const Zf=Zb+1;let Zl=Zt-.5-T2;while(Zl>Zf&&!at(Zl).ok)Zl-=.05;
-  if(Zl>Zf){const k=Math.ceil((Zl-Zf)/p.tinePitch-1e-9)+1,parts=[];for(let i=0;i<k;i++){const t=at(Zf+(Zl-Zf)*i/(k-1));if(t.ok)parts.push(tine(t));}
+  if(Zl>Zf){const a0=Math.asin(Zf/R),a1=Math.asin(Zl/R),k=Math.ceil(R*(a1-a0)/p.tinePitch-1e-9)+1,parts=[];for(let i=0;i<k;i++){const t=at(R*Math.sin(a0+(a1-a0)*i/(k-1)));if(t.ok)parts.push(tine(t));}
    count=parts.length;if(count)support=support.union(solid(mergeMeshes(parts)));}}
  return{solid:support,tines:count,height:H};}
