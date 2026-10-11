@@ -100,7 +100,8 @@ The rim band holds each layer's end from behind. **Breakaway rim support** (Prin
 
 | | Default | Range |
 |---|---|---|
-| Wall thickness | 2.5 mm | 2–8 mm |
+| Shape | Wall + ribs | Wall + ribs, or Lip rib |
+| Thickness (wall or lip rib) | 2.5 mm | 2–8 mm |
 | Inner edge lean | 12° from vertical | 0–30° |
 | Ribs square to the wall | 2 | 0–4 |
 | Gap to the rim's front edge | 0.3 mm | 0.15–0.8 mm |
@@ -110,6 +111,10 @@ The rim band holds each layer's end from behind. **Breakaway rim support** (Prin
 
 - The wall is solid and stands on the bed. Its face is vertical, parallel to the rim's front edge, which is at one depth all the way up. Its outer edge follows the rim. Its inner edge runs from the rim's top almost straight down to the bed, so the wall is widest at the bed. Every layer is one solid island, so the nozzle never travels across a window and leaves strings. Nothing on it is steeper than 45°, and each tine is a bridge of about 1 mm.
 - **Ribs** stand square to the wall on its outer face, so the wall also resists pushes across its face, not only along it. The first runs along the inner edge, making an L in plan; the others spread across the foot. Each is a thin triangle, deepest at the bed (12% of its height, 6–16 mm) and running back into the wall at its top.
+- **Lip rib** (Shape) drops the wall and keeps only a rib along the rim's front edge, square to it, tied to it by the same tines. It stands 6–12 mm out at the bed (6% of its height) and 4 mm at the top, and widens near the top of a 6-petal rim so its inner side leans no more than 45°. On the default 400 mm dish it uses 6.7 cm³ per petal instead of 30 cm³ and needs 3 plates instead of 4.
+
+![The lip rib on a 400 mm petal](rim-support-lip-rib.png)
+
 - Each tine narrows from 1.2 mm at the wall to the tine width where it meets the rim, 0.25 mm in from the rim's outer edge. With ASA-CF and ASA-GF the fibers lie along each bead, so a bead is strong along its length; the narrow neck makes the break happen at the rim instead of pulling material out of the lip.
 - The numbers follow published designed-in supports: a 0.2–0.4 mm standoff, contact tines about one nozzle bead wide and one layer tall, a few millimeters apart.
 - **Removal:** let the petal cool on the bed. Then twist the wall away from the rim, starting at the top. Trim any nub flush with a sharp blade.
