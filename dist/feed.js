@@ -13,11 +13,24 @@ export const ROD_TARGET_CUT=580,ROD_MAX_CUT=1000,ROD_STOCK=[4,5,6,6.35,8,10,12,1
 // steeper than ROD_MAX_ANGLE (the steepest bore the petal sockets were validated for). If none is (a long focus, where the
 // rise alone is most of the rod), the rim: moving in would barely shorten the rod and would narrow the support.
 const datumMemo=new Map(),DATUM_MIN=110;
+const rodTooLong=cut=>`The feed rods would be about ${Math.round(cut)} mm long, over the ${ROD_MAX_CUT} mm limit for the compact fittings. Lower the focal ratio (f/D), choose a smaller dish, or use the Cassegrain layout.`;
 export const ROD_MAX_ANGLE=62;
-export function feedDatum(p){const key=JSON.stringify(p);if(datumMemo.has(key))return datumMemo.get(key);
+// The memo ignores the aiming pose and plate packing, which never move the datum: without that, every elevation step on
+// a large Gregorian dish re-ran the whole search (about 30 s).
+export function feedDatum(p){const {azimuth,elevation,printSelection,plateGap,packPlates,...rest}=p,key=JSON.stringify(rest);if(datumMemo.has(key))return datumMemo.get(key);
  const rim=p.diameter/2-20;let r=rim;
- if(p.feedMode){const ctx=feedContext(p),span=x=>{try{return rodSpan(p,datumAt(p,x),ctx,p.rodDiameter||8);}catch{return null;}},ok=s=>s&&s.cut<=ROD_TARGET_CUT&&Math.asin((s.upperZ-s.lowerZ)/s.distance)*180/Math.PI<=ROD_MAX_ANGLE;
-  if(!ok(span(rim)))for(let x=rim-5;x>=DATUM_MIN;x-=5)if(ok(span(x))){r=x;break;}}
+ if(p.feedMode){const ctx=feedContext(p),span=x=>{try{return rodSpan(p,datumAt(p,x),ctx,p.rodDiameter||8);}catch{return null;}},angle=s=>Math.asin((s.upperZ-s.lowerZ)/s.distance)*180/Math.PI,ok=s=>s&&s.cut<=ROD_TARGET_CUT&&angle(s)<=ROD_MAX_ANGLE;
+  // Scan the 5 mm grid from the rim inward for the first radius that qualifies, as before, but only as far as the rod
+  // stays shallow enough: moving in always steepens the rod (its length is not monotone), so a binary search finds the
+  // innermost shallow-enough radius first. That cuts the scan from up to 90 full seat searches (a minute on long-focus
+  // Gregorian dishes) to a handful. A radius with no rod at all counts as too steep: the seat fails far in.
+  const xs=[];for(let x=rim;x>=DATUM_MIN;x-=5)xs.push(x);const seen=new Map(),at=i=>{if(!seen.has(i))seen.set(i,span(xs[i]));return seen.get(i);},steep=i=>{const q=at(i);return !q||angle(q)>ROD_MAX_ANGLE;};
+  if(!ok(at(0))&&!steep(0)){let lo=0,hi=xs.length-1;if(!steep(hi))lo=hi;else while(hi-lo>1){const mid=(lo+hi)>>1;if(steep(mid))hi=mid;else lo=mid;}
+   for(let i=1;i<=lo;i++)if(ok(at(i))){r=xs[i];break;}}
+  else if(!at(0))for(let i=1;i<xs.length;i++)if(ok(at(i))){r=xs[i];break;}   // no rod at the rim itself: scan it all, as before
+  // Too long a rod is known here, before any petal is built: say so now, and what to change (it used to surface only
+  // after a full build).
+  const fin=seen.get(xs.indexOf(r))??span(r);if(fin&&fin.cut>ROD_MAX_CUT+1e-6)throw Error(rodTooLong(fin.cut));}
  const d=datumAt(p,r);if(datumMemo.size>64)datumMemo.clear();datumMemo.set(key,d);return d;}
 // The datum for a layout and the ring that carries the rod sockets: the outermost ring that can hold a socket at or inside
 // feedDatum's radius, with 23 mm each way along the petal for the socket and 8 mm more to the ring seams, flanges and
@@ -149,7 +162,7 @@ export function feedGeometry(p,layout){
  if(!p.feedMode)return null;const at=rodDatum(p,layout.n,layout.rows);if(!at)throw Error('The rod sockets do not fit on any ring of this layout. Use automatic segmentation.');
  const d=at.d,row=at.row,ctx=feedContext(p),{lambda,secondary,bowl,offset}=ctx,mast=bowl?mastGeometry(p,bowl,layout.n):null;
  let span=rodSpan(p,d,ctx,p.rodDiameter||8);
- const check=s=>{if(s.upperZ-s.lowerZ<15||s.distance<60||s.cut>ROD_MAX_CUT+1e-6)throw Error(`Rod geometry is outside the compact fitting envelope: require at least 15 mm rise, 60 mm span and at most ${ROD_MAX_CUT} mm cut.`);};check(span);
+ const check=s=>{if(s.cut>ROD_MAX_CUT+1e-6)throw Error(rodTooLong(s.cut));if(s.upperZ-s.lowerZ<15||s.distance<60)throw Error(`Rod geometry is outside the compact fitting envelope: require at least 15 mm rise, 60 mm span and at most ${ROD_MAX_CUT} mm cut.`);};check(span);
  const deflectionAt=(s,diameter,load)=>load*(s.distance-s.lowerEntrance-s.upperEntrance)**3/(3*69000*(Math.PI*diameter**4/64));
  // Conservative single-rod cantilever screening, NOT a full truss/load model.
  // E=69 GPa; full entered payload acts transversely on one rod; 1 mm or lambda/50 target.
@@ -178,9 +191,16 @@ const transform=(mesh,fn)=>({v:mesh.v.map(fn),f:mesh.f});
 const flip=mesh=>transform(mesh,([x,y,z])=>[x,-y,-z]);
 function socketFrame(A,B,azimuth=0){const dx=B[0]-A[0],dz=B[2]-A[2],L=Math.hypot(dx,dz),u=dx/L,w=dz/L;return([x,y,z])=>{const X=A[0]+w*x+u*z,Y=A[1]+y;return[Math.cos(azimuth)*X-Math.sin(azimuth)*Y,Math.sin(azimuth)*X+Math.cos(azimuth)*Y,A[2]-u*x+w*z];};}
 export function petalRodSocket(p,layout,backFn){const g=feedGeometry(p,layout);return feedIntegralSocket(p,g,layout.n,backFn);}
+const FEED_POSE_KEYS=new Set(['azimuth','elevation','mountMode','mountBase','mountArcLock','mountSides','clampBolt','jointBolt','standBolt','legBolt','headSeat','nutSeat','standSeat','legDiameter','legSplay','packPlates','printSelection','plateGap']);
+let feedMemo={key:null};
 export function appendFeedParts(m,api){
- if(!m.p.feedMode)return;const{patch,printMesh,bounds}=api,p=m.p,g=feedGeometry(p,m.layout),d=g.datum;m.feed=g;
- const add=(id,name,mesh,qty,angles=[0],printing=null)=>{const pm=printing||printMesh(mesh),dim=bounds(pm).size;if(dim[0]>p.bedX-2*p.margin||dim[1]>p.bedY-2*p.margin||dim[2]>p.bedZ-2)throw Error(name+' does not fit the print volume.');const part={id,name,mesh,print:pm,output:pm,supportMeshes:[],dim,qty,kind:'feed',row:-1,angle:0,bedRotation:0,spec:{holes:[]}};m.parts.push(part);for(const a of angles)m.instances.push({part,a});return part;};
+ if(!m.p.feedMode)return;const{patch,printMesh,bounds}=api,p=m.p;
+ // The feed parts never depend on the aiming pose or the mount: a pose-only rebuild replays the parts made last time
+ // (about 2.9 s per elevation step on a Gregorian dish before).
+ const key=JSON.stringify(Object.keys(p).filter(k=>!FEED_POSE_KEYS.has(k)).sort().map(k=>[k,p[k]]));
+ const place=(id,name,mesh,qty,angles=[0],printing=null)=>{const pm=printing||printMesh(mesh),dim=bounds(pm).size;if(dim[0]>p.bedX-2*p.margin||dim[1]>p.bedY-2*p.margin||dim[2]>p.bedZ-2)throw Error(name+' does not fit the print volume.');const part={id,name,mesh,print:pm,output:pm,supportMeshes:[],dim,qty,kind:'feed',row:-1,angle:0,bedRotation:0,spec:{holes:[]}};m.parts.push(part);for(const a of angles)m.instances.push({part,a});return part;};
+ if(feedMemo.key===key&&feedMemo.layout===m.layout.n+'x'+m.layout.rows){m.feed=feedMemo.g;for(const args of feedMemo.adds)place(...args);return;}
+ const g=feedGeometry(p,m.layout),d=g.datum;m.feed=g;const adds=[],add=(...args)=>{adds.push(args);return place(...args);},remember=()=>{feedMemo={key,layout:m.layout.n+'x'+m.layout.rows,g,adds};};
  const angles=g.legs.map(x=>x.angle);
  if(g.bowl){
   // Build each collector part in its local frame for Float32 precision, then lift it into place after meshing.
@@ -189,7 +209,7 @@ export function appendFeedParts(m,api){
   if(mm.tube){const fm=lift(feedMesh(foot),mm.footZ);add('feed-mast-foot','Collector · mast foot',fm,1,[0]);
    const cm=lift(feedMesh(cup),mm.tubeTop);add('feed-insert-cup','Collector · insert cup',cm,1,[0]);}
   else{const pm=lift(feedMesh(foot),mm.footZ);add('feed-insert-pedestal','Collector · insert pedestal',pm,1,[0]);}
-  return;
+  remember();return;
  }
  const sleeve=feedSocketBody(g.rodDiameter);
  let puck=feedPuckBody(0,Boolean(g.secondary)),cuts=g.secondary?[]:[feedCylinder([0,0,-19],[0,0,0],16,64)];
@@ -204,6 +224,7 @@ export function appendFeedParts(m,api){
  // even for large focus offsets. Add its assembled height after meshing.
  const pm=transform(feedMesh(puck),([x,y,z])=>[x,y,z+g.carrierFace]);add('feed-puck','Feed · slim lobed carrier',pm,1,[0],printMesh(flip(pm)));
  if(g.secondary){const s=g.secondary,back=(x,y)=>{const r=Math.hypot(x,y),t=Math.min(1,Math.max(0,(r-10)/5));return Math.max(s.surface(r)+3,s.backZ*(1-t)+(s.surface(r)+3)*t);};const h={r0:0,r1:2.8,a0:0,a1:FEED_TAU},front=(x,y)=>s.surface(Math.hypot(x,y)),mesh=patch({r0:0,r1:s.radius,a0:0,a1:FEED_TAU,levels:[front,(x,y)=>front(x,y)+.3*(back(x,y)-front(x,y)),back],layers:[{},{holes:[h]}],gridBoxes:[h],extraR:[10,15]},p);add('secondary-reflector','Secondary · 3 mm shell / center boss',mesh,1,[0],printMesh(flip(mesh)));}
+ remember();
 }
 function collectorManifest(m){const g=m.feed,b=g.bowl,t=g.mast;return{layout:'Gregorian: concave ellipsoidal bowl beyond the prime focus, insert below it',primary_focus_z_mm:b.primaryFocus,insert_focus_z_mm:b.insertFocus,bowl_vertex_z_mm:b.vertex,bowl_rim_z_mm:b.edgeZ,bowl_diameter_mm:2*b.radius,bowl_minimum_diameter_mm:b.minDiameter,bowl_wavelengths:b.waves,
  ellipse:{surface:'polar about the prime focus: t(psi) = b^2 / (a + c cos psi), psi from the dish axis',a_mm:b.a,b_mm:b.b,c_mm:b.c},rim_angle_degrees:b.rimAngle,bowl_edge_angle_degrees:b.edgeAngle,insert_half_angle_degrees:b.insertAngle,dish_rim_at_insert_degrees:b.rimInsertAngle,shadow_cone_half_angle_degrees:b.shadowAngle,

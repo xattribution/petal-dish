@@ -2,9 +2,11 @@
 // (globalThis.PETAL_ENGINE_SOURCE) and runs in a Web Worker from a Blob URL, which also works from file:// for the
 // offline app. Without workers (or if the worker cannot start) the same source runs on the page instead.
 export function startEngine(source,onFatal){
- const pending=new Map();let seq=0,inPage=false,ready,started=false;
+ const pending=new Map();let seq=0,inPage=false,ready,started=false,dead=null,worker=null;
  let markReady,failReady;const readyPromise=new Promise((resolve,reject)=>{markReady=resolve;failReady=reject;});
- const fail=message=>{const error=Error(message);failReady(error);for(const p of pending.values())p.reject(error);pending.clear();onFatal?.(error);};
+ // After a fatal error every later call rejects at once instead of waiting on a dead worker (the page would stay on
+ // "Updating…" forever).
+ const fail=message=>{const error=Error(message);dead=error;try{worker?.terminate();}catch{}failReady(error);for(const p of pending.values())p.reject(error);pending.clear();onFatal?.(error);};
  const receive=msg=>{
   if(msg?.op==='ready'){ready=true;markReady();return;}
   if(msg?.op==='fatal'){fail('Could not initialize geometry: '+msg.error);return;}
@@ -26,13 +28,13 @@ export function startEngine(source,onFatal){
  };
  try{
   if(typeof Worker!=='function'||typeof Blob!=='function')throw Error('no workers');
-  const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'})),worker=new Worker(url);started=true;
+  const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));worker=new Worker(url);started=true;
   worker.onmessage=e=>receive(e.data);
   worker.onerror=e=>{e.preventDefault?.();if(!ready){worker.terminate();runInPage();}else fail('Geometry engine stopped: '+(e.message||'unknown error'));};
   send=msg=>worker.postMessage(msg);
  }catch{runInPage();}
  return{
   get inPage(){return inPage;},
-  call(op,payload={},onProgress){return readyPromise.then(()=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject,op,onProgress});send({id,op,...payload});}));}
+  call(op,payload={},onProgress){if(dead)return Promise.reject(dead);return readyPromise.then(()=>dead?Promise.reject(dead):undefined).then(()=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject,op,onProgress});send({id,op,...payload});}));}
  };
 }
