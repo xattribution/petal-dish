@@ -1,6 +1,8 @@
 export const CONNECTION_METHODS=['Bolts','Snap clips','Bolts + clips','Quick-release levers'];
+// Endpoints rounded to 0.1 mm. They are snapped to 1e-6 mm first: with 6 petals the endpoints often fall exactly on an
+// x.x5 boundary, and the two petals sharing a seam reach it from either side (±1e-13), which split one seam into two IDs.
 export function jointKey(frame,start,end,angle){
- const {o,e}=frame,c=Math.cos(angle),s=Math.sin(angle),points=[start,end].map(t=>{const x=o[0]+t*e[0],y=o[1]+t*e[1];return [c*x-s*y,s*x+c*y].map(v=>Math.round(v*10)).join(',');}).sort();
+ const {o,e}=frame,c=Math.cos(angle),s=Math.sin(angle),points=[start,end].map(t=>{const x=o[0]+t*e[0],y=o[1]+t*e[1];return [c*x-s*y,s*x+c*y].map(v=>Math.round(Math.round(v*1e6)/1e5)).join(',');}).sort();
  return 'seam:'+points.join('/');
 }
 export function seamChoice(p,frame,start,end,angle=0){

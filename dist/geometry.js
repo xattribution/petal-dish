@@ -139,7 +139,10 @@ function rimSpan(p,frame,start,end,ramp,h,count){let span=end-start-ramp;const{o
  const keep=rimReach(p)+(p.seamJoint===3?14:p.seamJoint?10:seamBolt(p).seatR+4),gap=p.seamJoint?30:20,last=(sp,c)=>start+ramp+sp*(c-.5)/c;
  let c=count;for(;;){let sp=span;while(sp>8&&last(sp,c)>end-keep)sp-=.5;if(c===1||sp/c>=gap)return[sp,c];c--;}}
 // Integral edge flange: a 3 mm wall with a 45° root gusset and solid screw pads.
-function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s,t,z)=>[o[0]+s*e[0]+t*v[0],o[1]+s*e[1]+t*v[1],z],back=s=>{const q=point(s,0,0);return backZ(q[0],q[1],p);},backT=(s,t)=>{const q=point(s,t,0);return backZ(q[0],q[1],p);};
+// With a faceted rear, the facet grid is snapped in each petal's own frame; on staggered rings the two halves of a ring
+// seam come from petals turned pi/n apart, so each takes the lower of the two rear surfaces (bz): both then compute the
+// same station levels and tilts.
+function flange(p,frame,start,end,male,h,overlap=0){const {o,e,v}=frame,point=(s,t,z)=>[o[0]+s*e[0]+t*v[0],o[1]+s*e[1]+t*v[1],z],tw=p.rearStyle&&(o[0]||o[1])?-2*Math.atan2(o[1],o[0]):0,bz=(x,y)=>tw?Math.min(backZ(x,y,p),backZ(Math.cos(tw)*x-Math.sin(tw)*y,Math.sin(tw)*x+Math.cos(tw)*y,p)):backZ(x,y,p),back=s=>{const q=point(s,0,0);return bz(q[0],q[1]);},backT=(s,t)=>{const q=point(s,t,0);return bz(q[0],q[1]);};
  // Station height. With clips, drop it by the shell's slope across the clip so the jaws clear the shell everywhere.
  // With clips the station is tilted to follow the shell along the seam; it drops only for the shell's slope across the seam.
  const tilt=s=>p.seamJoint?Math.atan((back(s+1)-back(s-1))/2):0,level=s=>p.seamJoint?back(s)-(7+Math.max(0,CLIP.top+.25-7+Math.abs(backT(s,1)-backT(s,-1))/2*7.6))/Math.cos(tilt(s)):back(s)-7;
