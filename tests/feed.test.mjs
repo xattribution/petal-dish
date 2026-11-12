@@ -31,7 +31,7 @@ const scaled=feedGeometry({...defaults,feedMode:1,frequencyGHz:10,phaseUnits:1,p
 for(const frequencyGHz of [5,20]){const g=feedGeometry({...defaults,feedMode:1,frequencyGHz,rodDiameter:0},layout);assert(g.screenDeflection<=g.targetDeflection);}
 assert(feedGeometry({...defaults,feedMode:1,frequencyGHz:50,rodDiameter:0},layout).rodDiameter>8,'stiffer stock past 8 mm');assert.throws(()=>feedGeometry({...defaults,feedMode:1,frequencyGHz:50,feedPayload:2000,rodDiameter:0},layout),/deflection budget/);
 // Large dishes: rods longer than the target move their datum in toward the hub, onto whichever ring holds it.
-{const {feedDatum,rodDatum,ROD_TARGET_CUT,ROD_MAX_CUT,ROD_MAX_ANGLE}=await import('../dist/feed.js');assert.throws(()=>build({...defaults,diameter:1200,fd:.8,feedMode:1,bedX:325,bedY:320,bedZ:325}),/at most 1000 mm cut/);
+{const {feedDatum,rodDatum,ROD_TARGET_CUT,ROD_MAX_CUT,ROD_MAX_ANGLE}=await import('../dist/feed.js');assert.throws(()=>build({...defaults,diameter:1200,fd:.8,feedMode:1,bedX:325,bedY:320,bedZ:325}),/over the 1000 mm limit/);
  for(const [feedMode,legs] of [[1,3],[1,4],[2,3],[3,3]]){const q={...defaults,diameter:1200,bedX:300,bedY:300,bedZ:330,feedMode,feedLegs:legs},m=build(q),g=m.feed,at=rodDatum(m.p,m.layout.n,m.layout.rows);
   assert(g.cutLength<=ROD_MAX_CUT&&(g.datum.r>=m.p.diameter/2-20.5||g.cutLength<=ROD_TARGET_CUT+20),`1200 mm cut ${g.cutLength}`);assert(g.rodAngle<=ROD_MAX_ANGLE+1e-9);assert(g.datum.r<=feedDatum(m.p).r&&g.datum.r===at.d.r);
   const mount=m.parts.find(p=>p.id.includes('mount')&&p.kind==='panel');assert.equal(mount.row,at.row,'sockets on the datum ring');for(const p of m.parts)closed(p.mesh,p.id);
