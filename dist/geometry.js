@@ -279,7 +279,10 @@ function leverProbe(panels){const base=new Map(),items=panels.map(i=>{if(!base.h
  return (set,F,a,g)=>solidScope(()=>{const shape=set.transform(q=>rz(F(g*q[0],q[1],g*q[2]),a)),b=shape.raw.boundingBox(),near=items.filter(x=>x.min.every((v,k)=>v<=b.max[k]+.01)&&x.max.every((v,k)=>v>=b.min[k]-.01));let overlap=0;for(const x of near)if((overlap+=shape.intersect(x.s).raw.volume())>.05)return true;return false;});}
 function installConnections(m,add){
  const {p,parts,instances}=m,panels=instances.filter(i=>i.part.kind==='panel'),stations=new Map();
- for(const ins of panels)for(const f of ins.part.spec.flanges)for(let k=0;k<f.stations.length;k++){const F=stationFrame(f,k),center=rz(F(0,0,0),ins.a),key=center.map(v=>Math.round(v*10)).join(',');if(!stations.has(key))stations.set(key,[]);stations.get(key).push({ins,f,k,F});}
+ // Pair the two halves of each station by distance (0.2 mm), not by a rounded key: the same station computed from two
+ // petals can land either side of a rounding boundary. Stations sit tens of mm apart, so the tolerance is unambiguous.
+ const cells=new Map(),cell=c=>c.map(v=>Math.floor(v)),near=c=>{const [i,j,l]=cell(c);for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let d=-1;d<=1;d++)for(const g of cells.get([i+a,j+b,l+d].join(','))||[])if(Math.hypot(g.center[0]-c[0],g.center[1]-c[1],g.center[2]-c[2])<.2)return g;return null;};
+ for(const ins of panels)for(const f of ins.part.spec.flanges)for(let k=0;k<f.stations.length;k++){const F=stationFrame(f,k),center=rz(F(0,0,0),ins.a);let g=near(center);if(!g){g={center,list:[]};const key=cell(center).join(',');if(!cells.has(key))cells.set(key,[]);cells.get(key).push(g);stations.set(stations.size,g.list);}g.list.push({ins,f,k,F});}
  for(const pair of stations.values())if(pair.length!==2||pair[0].f.joint!==pair[1].f.joint||pair[0].f.bolt!==pair[1].f.bolt)throw Error('Connection choices do not match across a seam.');
  const counts={clip:0,lever:{3:0,4:0},bolts:{3:0,4:0}},fitted={};for(const pair of stations.values()){const f=pair[0].f;if(f.joint===1||f.joint===2)counts.clip++;if(f.joint===3)counts.lever[f.bolt]++;if(f.joint===0||f.joint===2)counts.bolts[f.bolt]++;}
  if(counts.clip)fitted.clip=[add('seam-clip','Seam clip',clipSolid(p.clipFit,p.clipDetent,(X,Y,U)=>[X,U,Y]).mesh(),counts.clip+Math.max(2,Math.ceil(counts.clip/10)),[],'clip',-1)];

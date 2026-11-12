@@ -14,5 +14,10 @@ for(const staggerRings of [0,1]){
  const data=await kit(m).arrayBuffer(),view=new DataView(data),names=[];let offset=0;while(view.getUint32(offset,true)===0x04034b50){const n=view.getUint16(offset+26,true),extra=view.getUint16(offset+28,true),size=view.getUint32(offset+18,true);names.push(new TextDecoder().decode(data.slice(offset+30,offset+30+n)));offset+=30+n+extra+size;}assert(names.includes('CONNECTIONS.csv'));assert(!names.some(n=>n.startsWith('seam-clip_qty-')));assert(names.some(n=>n.includes('seam-clip-fit-')));
  console.log('PASS paired mixed seams, individual overrides, root/mount hardware, print exclusion and export map',staggerRings);
 }
+// One overridden joint on a 600 mm lever dish: the two halves of a station, computed from different petal variants,
+// can land either side of a 0.1 mm rounding boundary; pairing must still match them (UI review bug B1).
+{const parameters={...defaults,diameter:600,bedX:300,bedY:300,bedZ:330,seamJoint:3},id=connectionCatalog(build(parameters)).find(j=>j.family==='radial').id;
+ for(const seamJoint of [0,1,2]){const m=build({...parameters,connections:{joints:{[id]:{seamJoint}}}});assert.equal(connectionCatalog(m).find(j=>j.id===id).method,seamJoint);}
+ console.log('PASS single-joint overrides on a 600 mm lever dish pair every station');}
 assert.throws(()=>validate({...defaults,connections:{families:{ring:{seamJoint:8}}}}));assert.throws(()=>validate({...defaults,connections:{joints:{x:{seamBolt:5}}}}));assert.throws(()=>validate({...defaults,clipDetent:2,connections:{families:{ring:{seamJoint:1}}}}),/strain/);
 console.log('PASS connection input validation');
