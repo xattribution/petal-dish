@@ -136,6 +136,21 @@ The rim band holds each layer's end from behind. **Breakaway rim support** (Prin
 
 The brim also runs around the support's foot and into the space between it and the rim at the bed, and peels off with the rest.
 
+## Seams that meet at the hub but gap at the rim
+
+If the seams close at the hub but stand open toward the rim, and only screws pull them shut, the cause is usually the petal's angle, not warp.
+
+- **Why it happens.** A petal prints standing on one seam flange: that seam face lies on the bed and the other leans up at 360°/n.
+  - Printers rarely shrink height (Z) by the same amount as width (XY). Fibre-filled ASA shrinks about a third as much along the bead as between layers.
+  - So the leaning face ends up at a slightly different angle on every petal. The hub prints flat, so its angles stay exact.
+  - The errors add up around the ring. With 0.3% more shrink in Z than in XY, the gap at the rim is about 0.26 mm per seam on a 400 mm dish and about 0.8 mm per seam on a 1200 mm dish. That is several millimetres around the whole ring.
+  - No seam fastener should pull that shut. It stresses the shell and the seams.
+- **The fix: Print → Petal Z scale.** Every kit's FIT_TEST folder has `sector-scale-gauge.stl`: the outer 14 mm of an outer petal, oriented exactly as the petal prints.
+  1. Print it with the petal filament and profile.
+  2. Measure its length along the bed and its height.
+  3. Work out the new value with the formula in `SECTOR-GAUGE.md`, which uses the nominal and modelled sizes for your dish. Enter it and regenerate.
+- **What gets scaled.** Only side-printed parts change (petals, their rim supports and the seam strips), and only along print Z. Re-check when you change filament, printer or chamber temperature.
+
 ## Annealing
 
 - **ASA and ASA-CF:** skip it. Prusa's tests found almost no strength gain for ASA and bad warping from 110 °C. Bambu allows 80–90 °C for 6–12 hours for its ASA-CF but warns that larger parts can deform.
@@ -144,8 +159,9 @@ The brim also runs around the support's foot and into the space between it and t
 ## A test plan that wastes the least filament
 
 1. Print the two seam strips (`FIT_TEST/seam-strip-print-two.stl`) in the real material and settings. Check that the mating faces sit flat and the hardware fits.
-2. Print one of the longest petals alone, with the brim, at the settings above. After it cools, check the bed strip and the seam faces with a straightedge, and compare the two flanges' lengths.
-3. Only then print full plates. For the first runs in a new material, put fewer petals on a plate: a part that lets go can knock over the ones nested next to it.
+2. Print the sector gauge (`FIT_TEST/sector-scale-gauge.stl`), measure it, and set **Petal Z scale** from `SECTOR-GAUGE.md` before printing any petal.
+3. Print one of the longest petals alone, with the brim, at the settings above. After it cools, check the bed strip and the seam faces with a straightedge, and compare the two flanges' lengths.
+4. Only then print full plates. For the first runs in a new material, put fewer petals on a plate: a part that lets go can knock over the ones nested next to it.
 
 ## Sources
 
