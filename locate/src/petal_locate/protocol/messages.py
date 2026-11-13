@@ -108,6 +108,8 @@ __all__ = [
     "parse_binary_header",
     "parse_control",
 ]
+# `unencodable_path` is public too (the configuration loaders and the console API use
+# it); it stays out of `__all__`, which `petal_locate.protocol` re-exports in full.
 
 logger = logging.getLogger(__name__)
 
@@ -948,6 +950,49 @@ def _finite_float(text: str) -> float:
     return value
 
 
+def _encodable(text: str) -> bool:
+    """Whether a string can be written as UTF-8 (it holds no unpaired surrogate)."""
+    if text.isascii():
+        return True
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def unencodable_path(value: Any) -> str | None:
+    """Where a decoded JSON value holds text that cannot be written as UTF-8.
+
+    value: what `json.loads` returned (objects, arrays, strings, numbers).
+    Returns the dotted path of the first string, or object key, that holds an unpaired
+    UTF-16 surrogate (JSON lets `"\\ud800"` through, Python decodes it into a `str`
+    that no encoder accepts), `"(root)"` for the value itself, or None when every
+    string is valid Unicode. The walk is iterative, so any nesting depth is safe.
+    """
+    stack: list[tuple[Any, str]] = [(value, "")]
+    while stack:
+        item, path = stack.pop()
+        if isinstance(item, str):
+            if not _encodable(item):
+                return path or "(root)"
+        elif isinstance(item, dict):
+            for key, inner in item.items():
+                where = f"{path}.{key}" if path else str(key)
+                if isinstance(key, str) and not _encodable(key):
+                    return where
+                stack.append((inner, where))
+        elif isinstance(item, (list, tuple)):
+            for index, inner in enumerate(item):
+                stack.append((inner, f"{path}.{index}" if path else str(index)))
+    return None
+
+
+def _safe_path(path: str) -> str:
+    """A path for an error detail: unencodable characters escaped, length bounded."""
+    return _clip(path.encode("utf-8", "backslashreplace").decode("utf-8"), 120)
+
+
 def loads_json_object(text: str, *, what: str) -> dict[str, Any]:
     """Parse JSON text that must hold one object.
 
@@ -955,8 +1000,13 @@ def loads_json_object(text: str, *, what: str) -> dict[str, Any]:
     what: name of the thing being parsed, for the error detail.
     Integers keep full precision (Python ints). Raises `ProtocolError` for invalid
     JSON, NaN or infinite numbers, nesting deeper than the interpreter allows,
-    integers of absurd length, and any document that is not an object.
+    integers of absurd length, any document that is not an object, and text that is
+    not valid Unicode: a string or key holding an unpaired surrogate (an escape such
+    as `\\ud800` alone) would be accepted here and then break every component that
+    writes it out again (status, events, the store).
     """
+    if not _encodable(text):
+        raise ProtocolError(f"{what}: the text is not valid Unicode (an unpaired surrogate)")
     try:
         obj = json.loads(text, parse_constant=_refuse_constant, parse_float=_finite_float)
     except RecursionError:
@@ -965,6 +1015,12 @@ def loads_json_object(text: str, *, what: str) -> dict[str, Any]:
         raise ProtocolError(f"{what}: invalid JSON ({exc})") from None
     if not isinstance(obj, dict):
         raise ProtocolError(f"{what}: must be a JSON object, got {_json_kind(obj)}")
+    if "\\u" in text:  # only an escape can produce a lone surrogate from valid UTF-8 text
+        where = unencodable_path(obj)
+        if where is not None:
+            raise ProtocolError(
+                f"{what}: {_safe_path(where)}: text that is not valid Unicode (an unpaired surrogate)"
+            )
     return obj
 
 

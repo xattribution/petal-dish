@@ -227,3 +227,25 @@ def test_round_trip_keeps_every_field() -> None:
     with pytest.raises(ScenarioError, match="emitter_id"):
         sc.emitter("nobody")
     assert np.isclose(again.errors.ephemeris["muos-pac"].ric_vel_mps[2], 0.3)
+
+
+# ------------------------------------------------- hostile documents (review SRV-2, SRV-5, SRV-6)
+
+
+def test_scenario_loader_refuses_bombs_deep_nesting_bad_text_and_duplicate_keys() -> None:
+    from petal_locate.sim.scenario import Scenario, ScenarioError, loads_scenario
+
+    emitter = "{id: e, lat_deg: 1.0, lon_deg: 2.0, freq_hz: 3.0e+8, eirp_dbw: 1.0, waveform: {type: cw}}"
+    nested = "name: b\nerrors: &X {iono: {enabled: false}}\nemitters: &M [" + emitter + "]\n"
+    assert loads_scenario(nested).name == "b"  # ordinary anchors still load
+    big = "name: b\ne: &A [" + ", ".join(["1"] * 1000) + "]\nemitters: []\nz: [" + ", ".join(["*A"] * 2000) + "]\n"
+    with pytest.raises(ScenarioError, match="nodes once its aliases are followed"):
+        loads_scenario(big)
+    with pytest.raises(ScenarioError, match=r"^\(root\): the document is nested too deeply"):
+        loads_scenario('{"name": "d", "x": ' + "[" * 100000 + "]" * 100000 + "}")
+    with pytest.raises(ScenarioError, match="name: text that is not valid Unicode"):
+        loads_scenario('name: "x\\ud800"\n')
+    with pytest.raises(ScenarioError, match="duplicate key"):
+        loads_scenario("name: a\nname: b\n")
+    with pytest.raises(ValueError, match="description: text that is not valid Unicode"):
+        Scenario.model_validate({"name": "a", "description": "\udce9"})

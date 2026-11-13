@@ -1287,14 +1287,17 @@ def test_ku_file_matches_the_architecture_brief(ku: SystemConfig) -> None:
     diameters = {channel.antenna.diameter_m for site in ku.sites for channel in site.channels}
     assert diameters == {1.2, 2.4}
     assert ku.warnings() == []  # nothing electrically small at Ku band
-    # a transponder wider than the channel can sample is monitored over its central max_sample_rate_hz
+    # each channel's radio samples 45 MS/s: one derived window covers the whole 36 MHz transponder,
+    # inside one tuning (review findings ADAPT-9 and M8: the earlier 5 MHz radio could not serve
+    # the two transponders' windows 45 MHz apart, and saw 14 % of each)
     for site in ku.sites:
         for channel in site.channels:
             (sat_id,) = channel.watched_satellite_ids
             assert channel.monitors_derived
             centres = sorted(m.center_hz for m in channel.monitors)
             assert centres == sorted(tp.uplink_center_hz + tp.translation_hz for tp in ku.satellite(sat_id).transponders)
-            assert all(m.span_hz == 5.0e6 == channel.max_sample_rate_hz for m in channel.monitors)
+            assert all(m.span_hz == 45.0e6 == channel.max_sample_rate_hz for m in channel.monitors)
+    assert ku.warnings(1794571200.0) == []  # no coverage or tuning note either
 
 
 def test_leo_file_claims_hold_with_an_independent_propagator(leo: SystemConfig) -> None:
@@ -1850,10 +1853,13 @@ def test_configured_monitors_that_miss_a_watched_transponder_are_reported() -> N
     exported["satellites"][0]["transponders"][0]["uplink_center_hz"] = 301.0e6
     again = SystemConfig.model_validate(exported)
     assert again.channel("c1")[1].monitors[0].center_hz == 261.0e6 and again.warnings() == []
-    # a window that overlaps the passband only partly is not reported (tiling is the operator's business)
+    # a window that overlaps the passband only partly is reported with the covered share and the
+    # blind band (review finding ADAPT-5: 86 % of every Ku transponder was blind without a word)
     partial = minimal()
     partial["sites"][0]["channels"][0]["monitors"] = [{"id": "m", "center_hz": 260.03e6, "span_hz": 40e3}]
-    assert loads_config(json.dumps(partial), fmt="json").warnings() == []
+    (note,) = loads_config(json.dumps(partial), fmt="json").warnings()
+    assert note["loc"] == "sites.0.channels.0.monitors"
+    assert "cover 25 %" in note["msg"] and "259.980 to 260.010 MHz" in note["msg"]
     edge = minimal()
     edge["sites"][0]["channels"][0]["monitors"] = [{"id": "m", "center_hz": 260.04e6, "span_hz": 40e3}]  # touches at 260.02 MHz
     assert [n["loc"] for n in loads_config(json.dumps(edge), fmt="json").warnings()] == ["sites.0.channels.0.monitors"]
@@ -1927,7 +1933,7 @@ def test_defaults_of_the_architecture_document() -> None:
     }
     assert p.caf.model_dump() == {"min_snr_db": 13.0, "max_tdoa_sigma_s": 5e-4, "doppler_margin_hz": 20.0, "delay_margin_s": 20e-6}
     assert p.solver.model_dump() == {
-        "height_m": 0.0, "min_elevation_deg": 0.0, "confidence": 0.95, "grid_step_deg": 1.0, "n_starts": 16, "chi2_ambiguity": 9.0, "max_measurements": 400,
+        "height_m": 0.0, "min_elevation_deg": 0.0, "confidence": 0.95, "grid_step_deg": 1.0, "n_starts": 16, "chi2_ambiguity": 9.0, "max_measurements": 400, "max_reduced_chi2": 5.0,
     }
     assert p.uncertainty.model_dump() == {
         "ephemeris": {
@@ -1935,6 +1941,7 @@ def test_defaults_of_the_architecture_document() -> None:
             "tle": {"pos_m": [2000.0, 20000.0, 10000.0], "vel_mps": [0.3, 0.3, 0.7]},
         },
         "sat_osc_frac": 1e-6, "site_osc_frac": 1e-11, "tdoa_bias_ns": 50.0,
+        "iono_vtec_tecu": 30.0, "iono_correlation": 0.5, "tropo_zenith_m": 2.4, "tropo_correlation": 0.9,
     }
     assert p.calibration.model_dump() == {"enabled": True, "interval_s": 30.0, "max_age_s": 300.0}
     assert p.region.model_dump() == {"lat_min": -70.0, "lat_max": 70.0, "lon_min": -180.0, "lon_max": 180.0}
@@ -2072,7 +2079,7 @@ def test_narrow_transponders_keep_eight_averages_and_the_rest_is_flagged() -> No
     assert [got[f"s1:t{k}"][1:] for k in range(6)] == [(1024, 8), (256, 8), (64, 8), (64, 8), (64, 4), (64, 1)]
     for m in channel.monitors:  # each frame fits its period, by the literal inequality
         assert m.nfft * m.navg / m.span_hz <= 1.0 / m.frame_rate_hz
-    flagged = [n for n in cfg.warnings() if n["loc"] == "sites.0.channels.0.monitors"]
+    flagged = [n for n in cfg.warnings() if n["loc"] == "sites.0.channels.0.monitors" and "navg" in n["msg"]]
     assert len(flagged) == 2
     assert "'s1:t4'" in flagged[0]["msg"] and "navg = 4" in flagged[0]["msg"]
     assert "'s1:t5'" in flagged[1]["msg"] and "navg = 1" in flagged[1]["msg"]

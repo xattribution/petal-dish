@@ -3,8 +3,14 @@
  "simulated": true,
  "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
  "config": "config/pacific-uhf.yaml",
- "config_sha256_16": "8e6a50618265b5ab",
+ "config_sha256_16": "c1dffdc7253968bf",
  "script": "scripts/capability_study.py",
+ "media_assumed_by_solver": {
+  "iono_vtec_tecu": 30.0,
+  "iono_correlation": 0.5,
+  "tropo_zenith_m": 2.4,
+  "tropo_correlation": 0.9
+ },
  "t_ns": 1767236400000000000,
  "epoch": "2026-01-01T03:00:00Z",
  "jammer_location": [
@@ -17,51 +23,63 @@
  "antenna_peak_gain_dbi_at_downlink": {
   "dish-0.72m@260.005MHz": {
    "gain_dbi": 3.256494213041389,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 112.09972489845282
   },
   "dish-0.72m@260.000MHz": {
    "gain_dbi": 3.256327178308293,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 112.10188066239316
   },
   "dish-0.72m@267.405MHz": {
    "gain_dbi": 3.5002506896855956,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 108.99754668843971
   },
   "dish-0.72m@267.400MHz": {
    "gain_dbi": 3.5000882774112436,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 108.99958478766726
   },
   "dish-1.2m@260.005MHz": {
    "gain_dbi": 7.693469205368516,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 67.25983493907168
   },
   "dish-1.2m@260.000MHz": {
    "gain_dbi": 7.693302170635421,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 67.2611283974359
   },
   "dish-1.2m@267.405MHz": {
    "gain_dbi": 7.937225682012722,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 65.39852801306384
   },
   "dish-1.2m@267.400MHz": {
    "gain_dbi": 7.937063269738372,
-   "electrically_small": true
+   "electrically_small": true,
+   "hpbw_deg": 65.39975087260035
   },
   "beam-10dBi@260.005MHz": {
    "gain_dbi": 10.0,
-   "electrically_small": false
+   "electrically_small": false,
+   "hpbw_deg": 52.0
   },
   "beam-10dBi@260.000MHz": {
    "gain_dbi": 10.0,
-   "electrically_small": false
+   "electrically_small": false,
+   "hpbw_deg": 52.0
   },
   "beam-10dBi@267.405MHz": {
    "gain_dbi": 10.0,
-   "electrically_small": false
+   "electrically_small": false,
+   "hpbw_deg": 52.0
   },
   "beam-10dBi@267.400MHz": {
    "gain_dbi": 10.0,
-   "electrically_small": false
+   "electrically_small": false,
+   "hpbw_deg": 52.0
   }
  },
  "installed_antennas": {
@@ -1455,5 +1473,5 @@
    "eirp_tracker_fragments_dbw": 8.336265765483603
   }
  ],
- "elapsed_s": 157.46469831466675
+ "elapsed_s": 152.2290437221527
 }

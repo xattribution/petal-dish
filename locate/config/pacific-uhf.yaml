@@ -4,7 +4,7 @@
 # phases are invented, the 25 kHz channel frequencies, translations and link numbers
 # (G/T, SFD, saturated EIRP, noise temperatures, antenna gains, EIRPs) are placeholders
 # chosen to give a plausible exercise, not data for any real spacecraft or terminal.
-# Sites and reference locations are city-centre coordinates with neutral names; nothing
+# Sites and reference locations are city-center coordinates with neutral names; nothing
 # here is a real facility.
 #
 # Frequency plan (uplink, MHz):       muos-pac    uhf-172e    muos-io
@@ -21,7 +21,7 @@ version: 1
 name: pacific-uhf
 description: >-
   Illustrative legacy-UHF bent-pipe scenario over the Pacific: three satellites with
-  25 kHz channels near 300 MHz uplink, seven city-centre monitoring sites and two
+  25 kHz channels near 300 MHz uplink, seven city-center monitoring sites and two
   reference carriers. All orbital slots, inclinations, channel frequencies,
   translations, link parameters, antennas and powers are illustrative placeholders,
   not data for any real system; no site or reference location is a real facility.
@@ -87,7 +87,8 @@ satellites:
 # degrees wide. The 10 dBi beam antennas are linear (3 dB polarisation loss assumed).
 sites:
   - id: honolulu
-    name: Honolulu (city centre)
+    name: Honolulu (city center)
+    time_zone: Pacific/Honolulu
     lat_deg: 21.307
     lon_deg: -157.858
     alt_m: 0.0
@@ -104,7 +105,8 @@ sites:
         pointing: {satellite_id: uhf-172e}
 
   - id: hilo
-    name: Hilo (city centre)
+    name: Hilo (city center)
+    time_zone: Pacific/Honolulu
     lat_deg: 19.707
     lon_deg: -155.085
     alt_m: 0.0
@@ -123,7 +125,8 @@ sites:
         polarization_loss_db: 3.0
 
   - id: tokyo
-    name: Tokyo (city centre)
+    name: Tokyo (city center)
+    time_zone: Asia/Tokyo
     lat_deg: 35.681
     lon_deg: 139.767
     alt_m: 0.0
@@ -145,7 +148,8 @@ sites:
         polarization_loss_db: 3.0
 
   - id: naha
-    name: Naha (city centre)
+    name: Naha (city center)
+    time_zone: Asia/Tokyo
     lat_deg: 26.212
     lon_deg: 127.679
     alt_m: 0.0
@@ -166,7 +170,8 @@ sites:
         pointing: {satellite_id: muos-io}
 
   - id: seoul
-    name: Seoul (city centre)
+    name: Seoul (city center)
+    time_zone: Asia/Seoul
     lat_deg: 37.566
     lon_deg: 126.978
     alt_m: 0.0
@@ -188,7 +193,8 @@ sites:
         pointing: {satellite_id: muos-io}
 
   - id: busan
-    name: Busan (city centre)
+    name: Busan (city center)
+    time_zone: Asia/Seoul
     lat_deg: 35.180
     lon_deg: 129.075
     alt_m: 0.0
@@ -210,7 +216,8 @@ sites:
         pointing: {satellite_id: muos-io}
 
   - id: manila
-    name: Manila (city centre)
+    name: Manila (city center)
+    time_zone: Asia/Manila
     lat_deg: 14.599
     lon_deg: 120.984
     alt_m: 0.0
@@ -248,14 +255,16 @@ sites:
 #   meant to calibrate (in an ephemeris-dominated test map near Guam the calibrated
 #   ellipse is at worst 0.15 of the uncalibrated one at 20 or 30 dBW, but 0.38 at 40 dBW).
 # - Bandwidth 8 kHz of noise-like modulation, parked at the low edge of a shared channel
-#   (7.5 kHz below its centre, 1 kHz inside the passband edge), leaving the upper
-#   16.5 kHz to users. TDOA precision grows as bandwidth^1.5, so 8 kHz instead of 5 kHz
-#   halves the reference noise: predicted 110 to 120 ns per one-second reference capture
+#   (7.5 kHz below its center, 1 kHz inside the passband edge), leaving the upper
+#   16.5 kHz to users. At the same 20 dBW, 8 kHz instead of 5 kHz cuts the reference
+#   TDOA noise by about 1.6 (at fixed EIRP and high in-band SNR sigma goes as 1/B;
+#   B^-1.5 holds only at equal spectral density, B^-0.5 at low SNR): predicted 110 to
+#   120 ns per one-second reference capture
 #   (core.accuracy at 20 N 132 E, both demo pairs); the correlator measures 110 to 160 ns
 #   (the higher where a channel also hears a co-channel copy), about the noise of the
 #   target itself (90 to 120 ns), against 2 to 4 microseconds with the old beam design.
 # - Placement: one reference per shared channel (a reference only calibrates pairs on its
-#   own transponders), at two generic city centres that bracket the region north-south
+#   own transponders), at two generic city centers that bracket the region north-south
 #   and see all three satellites: Guam (muos-pac 41-45 deg elevation, uhf-172e 52-57,
 #   muos-io 10-12) and Sapporo (21-30, 28-35 and 5-12 deg; muos-io is low from there,
 #   so a real site would need a clear western horizon). With operator-grade ephemeris
@@ -268,7 +277,7 @@ sites:
 #   from more reference sites.
 carriers:
   - id: ref-guam
-    name: Reference carrier, Guam city centre (illustrative)
+    name: Reference carrier, Guam city center (illustrative)
     satellite_id: muos-io
     transponder_id: shared-1
     uplink_center_hz: 300.9925e+6
@@ -283,7 +292,7 @@ carriers:
     use_as_reference: true
 
   - id: ref-sapporo
-    name: Reference carrier, Sapporo city centre (illustrative)
+    name: Reference carrier, Sapporo city center (illustrative)
     satellite_id: uhf-172e
     transponder_id: shared-2
     uplink_center_hz: 301.1175e+6

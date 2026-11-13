@@ -1,23 +1,29 @@
 // Console shell: marking banner (from /meta, top and bottom), tab row, roll-up status,
 // link state, theme, token prompt, clock strip; the active view below.
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Marking, Site } from './api/types.gen';
 import { Loading, Status, StatusSymbol, useTick } from './components/common';
-import { compareEvents, eventLevel, isActive, nodeLevel, worst, type Level } from './domain/status';
+import { compareEvents, isActive, rollup } from './domain/status';
+import { retryableLazy } from './lazyView';
 import { countryAt, onWorld, worldIfLoaded } from './map/world';
 import { href, navigate, useRoute, type ViewName } from './router';
 import { configResource } from './state/resources';
-import { getState, hasToken, serverNowMs, setToken, useLive } from './state/store';
+import { freshness, getState, hasToken, serverNowMs, setToken, useLive } from './state/store';
 import { setTheme, useTheme, type ThemeSetting } from './styles/theme';
 import { formatAge, zoneClock, zuluClock, dtg } from './time/dtg';
 import { knownZone, siteZone } from './time/zones';
 import { WatchView } from './views/Watch';
 
-const SpectrumView = lazy(() => import('./spectrum/SpectrumView').then((m) => ({ default: m.SpectrumView })));
-const NetworkView = lazy(() => import('./views/Network').then((m) => ({ default: m.NetworkView })));
-const PlanView = lazy(() => import('./views/Plan').then((m) => ({ default: m.PlanView })));
-const ConfigureView = lazy(() => import('./views/Configure').then((m) => ({ default: m.ConfigureView })));
-const SimulationView = lazy(() => import('./views/Simulation').then((m) => ({ default: m.SimulationView })));
+// Screens other than Watch load on first use. A failed load (server down, network cut)
+// stays inside the view area (ViewBoundary) and is retried; they are also fetched ahead
+// once the console is up, so an outage later cannot strand a screen.
+const VIEWS = {
+  spectrum: retryableLazy(() => import('./spectrum/SpectrumView'), (m) => m.SpectrumView),
+  network: retryableLazy(() => import('./views/Network'), (m) => m.NetworkView),
+  plan: retryableLazy(() => import('./views/Plan'), (m) => m.PlanView),
+  configure: retryableLazy(() => import('./views/Configure'), (m) => m.ConfigureView),
+  simulation: retryableLazy(() => import('./views/Simulation'), (m) => m.SimulationView),
+};
 
 function levelKey(m: Marking): string {
   const l = m.level.toLowerCase().replace(/[^a-z]/g, '');
@@ -54,12 +60,12 @@ function LinkState() {
   const now = useTick(500);
   if (link.kind === 'reconnecting') {
     const secs = Math.max(0, Math.ceil((link.retryAt - now) / 1000));
+    // the countdown first, so a long reason cannot push it out of sight
     return (
       <span className="linkstate" title={`Disconnected: ${link.reason}`}>
         <StatusSymbol level="serious" />
-        <span>
-          Disconnected: {link.reason}, retry {secs} s
-        </span>
+        <span className="countdown">Disconnected, retry in {secs} s:</span>
+        <span>{link.reason}</span>
       </span>
     );
   }
@@ -97,19 +103,26 @@ function LinkState() {
 }
 
 function RollupBadge() {
-  const nodes = useLive((s) => s.status?.nodes ?? null);
+  const status = useLive((s) => s.status);
+  const link = useLive((s) => s.link);
   const summaries = useLive((s) => s.summaries);
-  const level: Level = useMemo(() => {
-    const ls: Level[] = [];
-    for (const n of nodes ?? []) ls.push(nodeLevel(n).level);
-    for (const e of summaries.values()) if (isActive(e)) ls.push(eventLevel(e));
-    return worst(ls, 'normal');
-  }, [nodes, summaries]);
+  const now = useTick(1000);
+  const live = freshness({ link, status }, now).live;
+  const r = useMemo(() => rollup({ status, live, events: summaries.values() }), [status, live, summaries]);
   const top = useMemo(() => [...summaries.values()].filter(isActive).sort(compareEvents)[0], [summaries]);
+  // never a green all-clear without data: Off "No data" until the first status, and the
+  // last level marked as not current while the link is down or the status is old
+  const text = !status
+    ? 'no status yet'
+    : !r.current
+      ? `not current: status ${formatAge((now - status.receivedAt) / 1000)} old`
+      : top
+        ? `${top.id} ${top.verdict}`
+        : 'no active events';
   return (
-    <a className="linkstate" href={href('watch')} style={{ textDecoration: 'none' }} aria-label="Overall status, open the watch screen">
-      <Status level={level} />
-      <span className="ink2">{top ? `${top.id} ${top.verdict}` : 'no active events'}</span>
+    <a className="linkstate rollupbadge" href={href('watch')} style={{ textDecoration: 'none' }} aria-label="Overall status, open the watch screen" data-current={r.current ? 'true' : 'false'}>
+      <Status level={r.level} word={r.word} />
+      <span className="ink2">{text}</span>
     </a>
   );
 }
@@ -153,6 +166,7 @@ function ClockStrip() {
   const zones = useSiteZones(sites);
   const now = new Date(serverNowMs());
   const offset = useLive((s) => s.serverOffsetMs);
+  const simulated = useLive((s) => s.meta?.simulation === true);
   // sites that show the same local time share one entry: "Tokyo, Naha, Seoul 2058I +09:00"
   const groups: Array<{ key: string; names: string[]; zones: string; c: ReturnType<typeof zoneClock> }> = [];
   for (const s of sites ?? []) {
@@ -172,7 +186,14 @@ function ClockStrip() {
       <span className="zulu mono" aria-label="Zulu time">
         {dtg(now)} <span className="ink2">{zuluClock(now)}</span>
       </span>
-      {Math.abs(offset) > 2000 ? <span className="err-text">console clock differs from the server by {formatAge(Math.abs(offset) / 1000)}; times shown are the server's</span> : null}
+      {Math.abs(offset) > 2000 ? (
+        simulated ? (
+          // a simulated world may run from a fixed epoch (petal-locate demo --start): not a fault
+          <span className="ink2">simulated time, {formatAge(Math.abs(offset) / 1000)} {offset < 0 ? 'behind' : 'ahead of'} this computer</span>
+        ) : (
+          <span className="err-text">console clock differs from the server by {formatAge(Math.abs(offset) / 1000)}; times shown are the server's</span>
+        )
+      ) : null}
       {groups.map((g) => (
         <span className="site" key={g.key} title={g.zones}>
           {g.names.join(', ')} <b className="mono">{g.c.hhmm}{g.c.letter ?? ''}</b> <span className="mono off">{g.c.offset}</span>
@@ -217,11 +238,96 @@ function TokenDialog() {
   );
 }
 
+/**
+ * Keeps a failed screen inside the view area: a chunk that could not be loaded or a
+ * render error shows "could not be loaded" with Retry, while the banners, tabs, roll-up
+ * and link state stay up. A new resetKey (another screen, a retry) renders the screen again.
+ */
+class ViewBoundary extends Component<{ label: string; resetKey: string; live: boolean; onError: (failed: boolean) => void; onRetry: () => void; children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  override componentDidCatch() {
+    this.props.onError(true);
+  }
+
+  override componentDidUpdate(prev: { resetKey: string }) {
+    if (prev.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+      this.props.onError(false);
+    }
+  }
+
+  override render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <div className="empty viewerror" role="alert">
+        <h2>The {this.props.label} screen could not be loaded</h2>
+        <p className="mono">{error.message}</p>
+        {this.props.live ? null : <p>It is loaded again when the console reconnects.</p>}
+        <span style={{ display: 'inline-flex', gap: 8 }}>
+          <button type="button" className="btn" onClick={this.props.onRetry}>
+            Retry
+          </button>
+          {this.props.live ? (
+            <button type="button" className="btn" onClick={() => window.location.reload()}>
+              Reload the console
+            </button>
+          ) : null}
+        </span>
+      </div>
+    );
+  }
+}
+
+/** Last resort: the shell itself failed. The marking banners still show (from the last /meta). */
+export class ShellBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  override render() {
+    if (!this.state.error) return this.props.children;
+    const marking = getState().meta?.marking;
+    return (
+      <div className="app">
+        <Banner marking={marking} where="top" />
+        <div />
+        <div />
+        <main>
+          <div className="empty" role="alert">
+            <h2>The console stopped on an error</h2>
+            <p className="mono">{this.state.error.message}</p>
+            <button type="button" className="btn" onClick={() => window.location.reload()}>
+              Reload the console
+            </button>
+          </div>
+        </main>
+        <Banner marking={marking} where="bottom" />
+      </div>
+    );
+  }
+}
+
+const VIEW_LABEL: Record<Exclude<ViewName, 'event'>, string> = { watch: 'Watch', spectrum: 'Spectrum', network: 'Network', plan: 'Plan', configure: 'Configure', simulation: 'Simulation' };
+
 export function App() {
   const route = useRoute();
   const meta = useLive((s) => s.meta);
   const metaError = useLive((s) => s.metaError);
+  const linkKind = useLive((s) => s.link.kind);
   const simulation = meta?.simulation === true;
+  const mainRef = useRef<HTMLElement>(null);
+  // set by a tab click or a number key: the next view change moves focus into the view
+  const focusOnChange = useRef(false);
+  const [attempt, setAttempt] = useState(0);
+  const [viewFailed, setViewFailed] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -230,6 +336,7 @@ export function App() {
       const tab = TABS.find((x) => x.key === e.key);
       if (tab && (tab.view !== 'simulation' || getState().meta?.simulation)) {
         e.preventDefault();
+        focusOnChange.current = true;
         navigate(href(tab.view));
       }
     };
@@ -237,28 +344,44 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // the other screens' chunks, fetched once the console is up
+  useEffect(() => {
+    const prefetch = () => Object.values(VIEWS).forEach((v) => v.prefetch());
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(prefetch, { timeout: 4000 });
+    else setTimeout(prefetch, 1500);
+  }, []);
+
+  // a screen that failed to load is loaded again as soon as the link is live again
+  useEffect(() => {
+    if (linkKind === 'live' && viewFailed) setAttempt((n) => n + 1);
+  }, [linkKind]);
+
   const current = route.view === 'event' ? 'watch' : route.view;
+  const label = VIEW_LABEL[current];
+
+  useEffect(() => {
+    document.title = `${route.view === 'event' && route.id ? `${route.id} – ` : ''}${label} – PETAL Locate`;
+  }, [label, route.view, route.id]);
+
+  // keyboard and screen-reader users land in the new view (not on <body>); moving between
+  // events (j / k, the queue) does not change the view and keeps focus where it is
+  useEffect(() => {
+    if (focusOnChange.current) {
+      focusOnChange.current = false;
+      mainRef.current?.focus({ preventScroll: true });
+    }
+  }, [current]);
+
   let body;
   switch (route.view) {
     case 'watch':
     case 'event':
       body = <WatchView eventId={route.view === 'event' ? route.id : null} />;
       break;
-    case 'spectrum':
-      body = <SpectrumView />;
-      break;
-    case 'network':
-      body = <NetworkView />;
-      break;
-    case 'plan':
-      body = <PlanView />;
-      break;
-    case 'configure':
-      body = <ConfigureView />;
-      break;
-    case 'simulation':
-      body = <SimulationView />;
-      break;
+    default: {
+      const View = VIEWS[route.view].current();
+      body = <View />;
+    }
   }
   return (
     <div className="app">
@@ -272,7 +395,16 @@ export function App() {
         ) : null}
         <nav className="tabs" aria-label="Views">
           {TABS.filter((t) => t.view !== 'simulation' || simulation).map((t) => (
-            <a key={t.view} className="tab" href={href(t.view)} aria-current={current === t.view ? 'page' : undefined} title={`${t.label} (key ${t.key})`}>
+            <a
+              key={t.view}
+              className="tab"
+              href={href(t.view)}
+              aria-current={current === t.view ? 'page' : undefined}
+              title={`${t.label} (key ${t.key})`}
+              onClick={() => {
+                focusOnChange.current = true;
+              }}
+            >
               {t.label}
               <kbd>{t.key}</kbd>
             </a>
@@ -287,8 +419,10 @@ export function App() {
         </div>
       </header>
       <ClockStrip />
-      <main>
-        <Suspense fallback={<Loading what="the screen" />}>{body}</Suspense>
+      <main ref={mainRef} tabIndex={-1} aria-label={label}>
+        <ViewBoundary label={label} resetKey={`${current}|${attempt}`} live={linkKind === 'live'} onError={setViewFailed} onRetry={() => setAttempt((n) => n + 1)}>
+          <Suspense fallback={<Loading what="the screen" />}>{body}</Suspense>
+        </ViewBoundary>
       </main>
       <Banner marking={meta?.marking} where="bottom" />
       <TokenDialog />

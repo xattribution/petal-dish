@@ -14,7 +14,7 @@ here should be removed.
    no KPI tiles.
 3. Operators are **spectrum-monitoring and satcom staff**: they read analyzer displays
    (trace over waterfall, MHz axis to the hertz, dB relative to the noise floor,
-   markers), frequency plans (transponder edges, authorised carriers) and link budgets.
+   markers), frequency plans (transponder edges, authorized carriers) and link budgets.
 4. Geolocation readers expect a **fix**: position in decimal degrees with hemisphere and
    datum (WGS 84), MGRS beside it, 95 % error ellipse (semi-axes and orientation), CEP50,
    which error dominates, and whether a second position fits equally (ambiguity).
@@ -116,14 +116,15 @@ charts, a "Welcome back". Changes made against it:
 | `--accent` fill on primary buttons (Save, Apply, Compute) | The one committing action of a form | O2 |
 | Red (`--st-critical`) only in status symbols and error text | Danger / failure | B7, MIL-STD-1472H |
 | `--fix` (magenta) on map and history plot | Estimated emitter position and its ellipse; no status meaning | Data color, distinct from status hues and 2525 fills |
+| `--ink-3` series in the history plot | Ellipses of measurements later set aside | K18 |
 | Dashed `--fix` outline | Ambiguous (mirror) solution | MATH.md section 9 ambiguities |
 | `--lop` solid / dashed | TDOA / FDOA line of position; band is the ±2 sigma region | MATH.md section 11 |
 | `--heat-0..6` one-hue ramp with km legend | Predicted 95 % semi-major axis (or CEP50); the step farthest from the page color = best located, in both themes | MATH.md section 10; dataviz sequential ramp |
 | `--heat-ink-0/1` | Dominant-error letters legible on light and dark heat cells | Contrast |
-| Letters on accuracy cells | Dominant error source (N noise, P ephemeris position, V ephemeris velocity, C clock, O oscillator, B TDOA bias, R reference) | MATH.md section 9 `dominant_error` |
+| Letters on accuracy cells | Dominant error source (N noise, P ephemeris position, V ephemeris velocity, C clock, O oscillator, B TDOA bias, R reference, I ionosphere, T troposphere) | MATH.md section 9 `dominant_error` |
 | Grayscale waterfall (`--wf-lo`→`--wf-hi`) | Power over time; saturated hues are reserved for status | Spectrum convention; B6 |
-| Shaded band on spectrum trace (`--fix`) | Detection of an unauthorised signal (interference) | MATH.md section 7 detections |
-| Bracket with carrier id on spectrum | Authorised carrier allocation | Frequency plan (Carrier) |
+| Shaded band on spectrum trace (`--fix`) | Detection of an unauthorized signal (interference) | MATH.md section 7 detections |
+| Bracket with carrier id on spectrum | Authorized carrier allocation | Frequency plan (Carrier) |
 | Dashed vertical rules on spectrum | Transponder passband edges | Transponder |
 | Evidence glyphs: filled bar seen, hollow bar would see but does not, short dash cannot see, dotted bar stale | Evidence state of one channel (not a status: bars keep them apart from the status shapes) | MATH.md section 7 |
 | SIMULATION tag (inverse video, caps) | Simulated truth, never real | UI-BRIEF; mil conventions demo data |
@@ -148,3 +149,22 @@ charts, a "Welcome back". Changes made against it:
 | Key of the reasons under the measurement table | Each full reason a row was not used, once, with its count; the row shows the short word | pipeline/tasking.py reasons |
 | "What-if" uncertainty in the accuracy form | `AccuracyRequest.uncertainty`: this map only, the configuration is not changed | UI-BRIEF capability 6 |
 | Configured site time zone in the clock strip | `Site.time_zone` when set (the tooltip says configured or inferred) | mil conventions, Time |
+| Roll-up Off ring with "No data" | No status received yet: never a green all-clear without data; while the link is down the last level stays with "not current" | Astro Off = unavailable; UX-7 |
+| "as of HH:MM:SSZ" in the queue and dossier header | The console is not live: ages keep counting, "now" and "capturing IQ now" give way | UX-8 |
+| Screen error in the view area (heading, cause, Retry) | A screen that could not be loaded or failed to render; banners, tabs and link state stay up | Required practices: every state; UX-2 |
+| No focus ring on `<main>` | Landing point after a tab or number key, not a control (Tab moves on into the view) | WCAG 2.4.3; UX-11 |
+| Backdrop of the token dialog stops at the banner rows | The marking banners stay above every overlay, undimmed | mil conventions, Marking banner; UX-14 |
+| DTG followed by `HH:MM:SSZ` | Event times that change by the second; the DTG itself stays standard | mil conventions, Time; UX-14 |
+| Caution notice "Not a fix" in Location, caution diamond on the queue row | `SolutionOut.fit_consistent` false: the measurements do not fit one stationary transmitter; the enlarged ellipse is shown, never reported | UX-1 |
+| Dotted `--fix` ellipse with no fill, label "(not a fix)" | An inconsistent fit's enlarged ellipse on the maps | UX-1; distinct from the solid fix and the dashed ambiguity |
+| Candidates table "One of N positions" | Every position of an unresolved ambiguity, none singled out as the fix | MATH.md section 9; UX-6 |
+| Caution notice "Re-check" | `Event.recheck`: the position is being checked against new measurements | UX-5 |
+| "Start", "First seen", "Detected again ... after a break of" in the dossier header | `onset_ns` (the time to report), the first detection and the latest break | UX-5 |
+| "Received ... at <site> on <channels>" in place of the uplink range | A local signal: what is on the air at the site, the frequency to tune to | UX-3 |
+| Gray series and dashed rule in the ellipse history, muted rows with a note | Solves whose measurements were set aside; where the current transmission's solves begin | K18 |
+| "By calibration" column with caution diamond | `Status.site_clocks`: the site clock offset the reference calibrations measure | UX-10 |
+| Caution lines "detection blind on ..." and "noise floor +N dB on ..." (Network, spectrum headers) | A window detection cannot use (frames refused), or whose floor a filling signal raised | SRV-1; K1 |
+| Serious triangle with the server's sentence in the rail, Satellites table in Network | A satellite whose ephemeris the server cannot evaluate: nothing is located through it | ADAPT-7 |
+| Letters I and T on accuracy cells | Ionosphere and troposphere as the dominant error | MATH.md section 9 media consider terms |
+| "simulated time, N behind this computer" (ink-2) in the clock strip | A simulated world running from a fixed epoch; the red clock warning stays for a real server | K8 |
+| "channel@sat" in the pair selects | A channel watching several satellites names the one a pair means | ADAPT-4 |

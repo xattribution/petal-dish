@@ -138,7 +138,9 @@ def test_uplink_with_a_position_says_who_is_affected_what_to_do_and_where() -> N
     assert "wherever they are" in detail
     assert "will not help" in detail
     assert "12.3457° S, 169.5000° W (WGS 84)" in detail
-    assert "within about 4.9 km (95 % confidence" in detail
+    # one convention everywhere (UX-9): the 95 % semi-axes, as the console shows them
+    assert "within about 4.9 km (95 % ellipse with semi-axes 4.9 km by 2.4 km, major axis 90° from north)" in detail
+    assert "9.8 km" not in detail
     actions = advisory.actions
     assert actions[0].startswith("Move the affected traffic to a channel, transponder or satellite")
     assert any("Do not relocate, re-point or shield terminals" in a for a in actions)
@@ -149,7 +151,10 @@ def test_uplink_with_a_position_says_who_is_affected_what_to_do_and_where() -> N
 def test_uplink_without_a_position_explains_why_and_what_is_happening() -> None:
     advisory = advise(_record(**UPLINK), _config())
     assert "No position estimate yet" in advisory.detail and "2 satellites" in advisory.detail
-    assert any(a.startswith("Report the frequency, the start time and the affected satellite") for a in advisory.actions)
+    assert any(
+        a.startswith("Report the frequency, the start time (2026-11-13 00:00:00Z) and the affected satellite")
+        for a in advisory.actions
+    )
     single = dict(UPLINK, satellite_ids=["sat-a"])
     advisory = advise(_record(**single, last_solve_reason="unobservable"), _config())
     assert "Only one satellite relays this frequency" in advisory.detail
@@ -157,10 +162,27 @@ def test_uplink_without_a_position_explains_why_and_what_is_happening() -> None:
     assert "The last attempt gave no position (unobservable)." in two.detail
 
 
-def test_uplink_with_an_ambiguous_position_names_the_mirror() -> None:
+def test_uplink_with_an_ambiguous_position_lists_every_candidate_and_reports_no_single_fix() -> None:
+    """UX-6: with an unresolved ambiguity the advice names every candidate with its
+    ellipse, says the system cannot choose, and never reports one position as a fix."""
     advisory = advise(_record(**UPLINK, solution_out=_solution(ambiguous=True)), _config())
-    assert "mirror position at 12.3457° N, 169.5000° W (WGS 84)" in advisory.detail
-    assert any("mirror position as possible" in a for a in advisory.actions)
+    detail = advisory.detail
+    assert "2 positions fit the measurements equally well, and the system cannot yet choose between them" in detail
+    assert "12.3457° S, 169.5000° W (WGS 84), 95 % ellipse with semi-axes 4.9 km by 2.4 km" in detail
+    assert "12.3457° N, 169.5000° W (WGS 84), 95 % ellipse with semi-axes 4.9 km by 2.4 km" in detail
+    assert "The transmitter is estimated to be at" not in detail
+    actions = advisory.actions
+    assert not any(a.startswith("Report the estimated transmitter position") for a in actions)
+    report = next(a for a in actions if a.startswith("Report that the transmitter is at one of 2 positions"))
+    assert "12.3457° S, 169.5000° W (WGS 84) ±4.9 km; 12.3457° N, 169.5000° W (WGS 84) ±4.9 km" in report
+    assert "(each at 95 % confidence)" in report and "cannot yet choose" in report
+    assert any(a.startswith("Do not act on any one of these positions alone") for a in actions)
+    # three candidates: all of them are listed
+    data = _solution(ambiguous=True).model_dump()
+    data["ambiguities"].append(dict(data["ambiguities"][0], lat_deg=0.5))
+    three = advise(_record(**UPLINK, solution_out=schemas.SolutionOut.model_validate(data)), _config())
+    assert "3 positions fit" in three.detail and "0.5000° N" in three.detail
+    assert any(a.startswith("Report that the transmitter is at one of 3 positions") for a in three.actions)
 
 
 def test_local_says_only_that_site_is_affected_and_how_to_find_the_source() -> None:
@@ -277,3 +299,98 @@ def test_formatters() -> None:
     assert format_distance(4200.0) == "4.2 km"
     assert format_distance(1_250_000.0) == "1,250 km"
     assert format_distance(math.inf) == "an unknown distance"
+
+
+# ----------------------------------------------------------------------------- review fixes
+
+
+def _seen_down(site: str, channel: str, sat: str | None, lo: float, hi: float, state: str = "seen") -> schemas.EvidenceRow:
+    return schemas.EvidenceRow(
+        channel_id=channel, site_id=site, sat_id=sat, state=state,  # type: ignore[arg-type]
+        snr_db=20.0 if state == "seen" else None, cn0_dbhz=70.0 if state == "seen" else None,
+        predicted_margin_db=None, downlink_lo_hz=lo, downlink_hi_hz=hi,
+    )
+
+
+def test_local_advice_quotes_the_received_frequency_site_and_channels() -> None:
+    """UX-3: a local source radiates at the downlink frequency the site receives (260 MHz
+    here), not at the uplink frequency the event is filed under (300 MHz)."""
+    record = _record(
+        verdict="local",
+        verdict_basis="capable_not_seen",
+        verdict_reason="Far Town, 1,994 km away, would see it if it came from the satellite, but does not.",
+        evidence=[
+            _seen_down("alpha", "alpha-a", "sat-a", 259.995e6, 260.005e6),
+            _seen_down("alpha", "alpha-b", "sat-b", 259.995e6, 260.005e6),
+            _seen_down("far", "far-a", "sat-a", 259.995e6, 260.005e6, "not_seen_capable"),
+        ],
+        satellite_ids=["sat-a", "sat-b"],
+    )
+    advisory = advise(record, _config())
+    assert (
+        "Only Alpha City sees this signal, received near 260.0000 MHz (about 10 kHz wide) at Alpha City on "
+        "alpha-a and alpha-b." in advisory.detail
+    )
+    assert "300.0000" not in _all_text(advisory)
+    assert advisory.actions[0].startswith("Look for a nearby source around Alpha City (tune to 260.0000 MHz")
+
+
+def test_undetermined_advice_quotes_what_each_site_receives() -> None:
+    """M3: an undetermined signal is described by what the sites receive, through which
+    satellite, with the uplink frequency only as what it would be on the uplink."""
+    record = _record(
+        verdict="undetermined",
+        verdict_basis="missing",
+        verdict_reason="It is seen only at Alpha City.",
+        evidence=[_seen_down("alpha", "alpha-a", "sat-a", 259.995e6, 260.005e6)],
+        satellite_ids=["sat-a", "sat-b"],
+    )
+    advisory = advise(record, _config())
+    assert advisory.headline == "Interference received at 260.0000 MHz: source not yet determined"
+    assert advisory.detail.startswith(
+        "Received near 260.0000 MHz (about 10 kHz wide) at Alpha City on alpha-a through Sat A. If it reaches the "
+        "satellites, it is transmitted near 300.0000 MHz (about 10 kHz wide) on the uplink."
+    )
+    # two received frequencies (two satellites with different translations): both, and the uplink headline
+    record.evidence.append(_seen_down("far", "far-b", "sat-b", 267.395e6, 267.405e6))
+    two = advise(record, _config())
+    assert two.headline == "Interference detected at 300.0000 MHz uplink: source not yet determined"
+    assert "near 260.0000 MHz" in two.detail and "near 267.4000 MHz (about 10 kHz wide) at Far Town on far-b through Sat B" in two.detail
+
+
+def test_inconsistent_fit_is_described_as_unreliable_and_not_reported() -> None:
+    data = _solution().model_dump()
+    data.update(chi2=4.0e4, dof=2, reduced_chi2=2.0e4, fit_consistent=False, fit_p_value=0.0, ellipse_scale=141.4)
+    data["ellipse"] = dict(data["ellipse"], semi_major_m=692_000.0, semi_minor_m=346_000.0)
+    record = _record(**UPLINK, solution_out=schemas.SolutionOut.model_validate(data))
+    advisory = advise(record, _config())
+    assert "The measurements do not fit a single stationary transmitter (reduced chi-square 2.0e+04 against at most 5)" in advisory.detail
+    assert "is not a reliable position" in advisory.detail and "enlarged 141 times" in advisory.detail
+    assert not any(a.startswith("Report the estimated transmitter position") for a in advisory.actions)
+    assert any("do not report the computed position" in a for a in advisory.actions)
+    assert any(a.startswith("Check whether more than one transmitter is on this frequency") for a in advisory.actions)
+    data["ellipse"] = dict(data["ellipse"], semi_major_m=112_000_000.0)
+    huge = advise(_record(**UPLINK, solution_out=schemas.SolutionOut.model_validate(data)), _config())
+    assert "no meaningful error ellipse can be given" in huge.detail and "112,000 km" not in huge.detail
+
+
+def test_before_a_fix_only_satellites_seen_through_are_named_as_affected() -> None:
+    """ADAPT-1: before a position exists, a satellite of the frequency plan the signal was
+    never seen through is only a possible relay."""
+    record = _record(**dict(UPLINK, evidence=[_row("alpha", "seen"), _row("far", "seen")]))
+    advisory = advise(record, _config())
+    assert advisory.headline == "Uplink interference on Sat A at 300.0000 MHz"
+    assert "It may also reach Sat B: their transponders relay this frequency, but no site has seen it" in advisory.detail
+    assert "(on Sat B too, until it is known whether they can see the transmitter)" in advisory.actions[0]
+
+
+def test_report_quotes_the_onset_of_the_current_transmission() -> None:
+    later = T0 + 3_723 * 1_000_000_000
+    record = _record(**UPLINK, solution_out=_solution(), onset_ns=later)
+    advisory = advise(record, _config())
+    report = next(a for a in advisory.actions if a.startswith("Report the estimated transmitter position"))
+    assert "the start time (2026-11-13 01:02:03Z)" in report
+    record.recheck = "Detected again after a break of 12 s: the position from before the break is being checked."
+    rechecked = advise(record, _config())
+    assert record.recheck in rechecked.detail
+    assert any("once new measurements confirm it" in a for a in rechecked.actions)

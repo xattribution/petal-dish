@@ -370,7 +370,9 @@ def test_lost_then_reopened_keeps_the_event_and_its_progress() -> None:
     h.run(0.5, {A1: [det(9, UP - 4e3, UP + 4e3)]})
     assert h.only() is record
     assert record.state == "characterizing"
-    assert record.transitions[-1].reason == "detected again"
+    assert record.transitions[-1].reason == "detected again after a break of 20 s"
+    assert record.resumed_ns == h.clock() and record.break_s == pytest.approx(20.5)
+    assert record.onset_ns is not None and record.recheck is None  # nothing measured to re-check
     assert record.verdict == "local"  # held while the evidence settles again
     assert record.verdict_basis == "capable_not_seen"
     # Lost for longer than the re-open window: a new event.
@@ -435,6 +437,54 @@ def test_overlapping_ranges_on_any_channel_are_one_event_and_a_bridge_merges_two
     assert h.book.resolve(second.id) is first
     assert h.book.mark_characterizing(second.id) and first.state == "characterizing"
     assert "Merged into" in h.book.to_schema(second).advisory.headline
+
+
+def test_fragments_of_one_wideband_signal_in_one_update_raise_one_event() -> None:
+    """ADAPT-11: a wideband signal near the threshold reaches one window as disjoint
+    fragments; another window's single detection joins them. Each fragment raised its
+    own event, merged into the first a few milliseconds later and kept in history as a
+    closed record. Now they wait for the other windows of the same instant and are
+    placed together: one event, nothing merged, nothing else published."""
+    h = Harness(make_config())
+    h.frame({})  # the windows deliver frames before the signal appears
+    fragments = [det(1, UP - 10e3, UP - 7e3), det(2, UP - 5e3, UP - 2e3), det(3, UP, UP + 4e3), det(4, UP + 6e3, UP + 10e3)]
+    whole = det(9, UP - 10e3, UP + 10e3)
+    h.clock.advance(0.5)
+    h.frame({A1: fragments, N1: [whole], FB: [det(5, UP - 10e3, UP + 10e3, SAT_B_SHIFT)]})
+    record = h.only()  # one record in the book: no merged fragments in history
+    assert record.id == "EV-000001" and record.active and record.merged_into is None
+    assert len(record.members) == 6
+    assert record.lo_hz == pytest.approx(UP - 10e3) and record.hi_hz == pytest.approx(UP + 10e3)
+    counters = h.corr.counters()
+    assert counters["created"] == 1 and counters.get("merged", 0) == 0
+    assert {p.record.id for p in h.published} == {"EV-000001"}
+    assert all("merged" not in (t.reason or "") for t in record.transitions)
+    # The event follows the signal as before.
+    h.run(1.0, {A1: fragments, N1: [whole]})
+    assert h.only() is record and len(record.members) == 5
+
+
+def test_a_held_detection_raises_its_event_after_the_hold_time_when_a_window_lags() -> None:
+    """A window that delivers no frame of the instant does not hold a new event back for
+    longer than new_event_hold_s; one that stopped delivering does not hold it at all."""
+    h = Harness(make_config())
+    h.frame({})
+    h.clock.advance(0.5)
+    sightings = {A1: [det(1, UP - 5e3, UP + 5e3)]}
+    h.frame(sightings, skip=("far-b",))  # far-b's frame of this instant is late
+    assert [r for r in h.book.records() if not r.historic] == []
+    assert h.corr.counters()["held"] == 1
+    h.clock.advance(0.5)
+    h.corr.tick()
+    assert [r for r in h.book.records() if not r.historic] == []  # far-b is still fresh: waiting
+    h.clock.advance(0.5)
+    h.corr.tick()  # one hold time after the detection was held
+    record = h.only()
+    assert record.state == "detected" and len(record.members) == 1
+    # far-b has now been silent for longer than stale_frames periods: it holds nothing back.
+    h.clock.advance(1.5)
+    h.frame({**sightings, A1: [det(1, UP - 5e3, UP + 5e3), det(2, UP + 20e3, UP + 22e3)]}, skip=("far-b",))
+    assert len([r for r in h.book.records() if not r.historic]) == 2
 
 
 def test_signals_that_drift_apart_split_into_two_events_after_the_hold_time() -> None:

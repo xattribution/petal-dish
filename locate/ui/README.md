@@ -17,7 +17,7 @@ npm run build               # type-check, then write the bundle to ../src/petal_
 npm run e2e                 # build, start the mock, walk every screen in both themes (Playwright)
 PETAL_URL=http://127.0.0.1:8000 npx playwright test --trace off   # same walk against petal-locate demo
 npm run gen:types           # src/api/types.gen.ts from python -m petal_locate.server.api.schemas
-npm run gen:fixtures        # mock/fixtures/*.json from the numeric core (minutes; add --skip-accuracy)
+npm run gen:fixtures        # mock/fixtures/*.json from the numeric core and the server's modules (about 30 s)
 npm run preview:mock        # the built bundle + mock API on http://127.0.0.1:4173 (no Vite)
 ```
 
@@ -48,7 +48,9 @@ src/spectrum/   SpectrumEngine (trace + waterfall on canvas, outside React), the
 src/views/      Watch + event dossier, Network, Plan, Configure, Simulation
 mock/           generate_fixtures.py (real core), fixtures/, server.mjs (REST + /ws/ui),
                 validate.mjs (pydantic-phrased validation), vite-plugin.mjs, serve.mjs
-e2e/            Playwright smoke test
+e2e/            Playwright smoke walk (mock or live), fixes.spec.ts (mock only: failed screen
+                load, dropped link, token prompt, inconsistent fit, ambiguity, local signal,
+                event break, site clocks, satellites and blind windows, preset, panel widths)
 ```
 
 ## The mock
@@ -58,9 +60,16 @@ e2e/            Playwright smoke test
 `core.geometry` delays, correlated with `core.caf.caf_estimate`, solved with
 `core.solver.solve` (reference calibration included), lines of position from
 `core.lop`, spectra from `SimWorld.render_psd`, look angles and footprints from
-`core.geometry`, accuracy grids from path budgets, Stein sigmas and
-`core.solver.position_covariance`. Each fixture is validated against
-`server/api/schemas.py` before it is written.
+`core.geometry`, accuracy grids from `core.accuracy.accuracy_map` through the server's
+banded `compute_accuracy`. Advisories come from the server's `advisory.advise`, fit
+consistency from its event book and site clock estimates from
+`tasking.site_clock_offsets`. Each fixture is validated against `server/api/schemas.py`
+before it is written. The events cover every state the console draws: a located uplink
+that broke off for 41 s and was located again (set-aside ellipses, start of the current
+transmission), an inconsistent fit from two transmitters detected alternately, an
+unresolved ambiguity, a local signal, an undetermined one that one satellite alone
+relays, a lost and a closed event. The console's default accuracy request (derived from
+the configuration, `src/domain/plan.ts`) is always among the precomputed grids.
 
 The mock server shifts fixture times to its start time, streams status every second,
 spectrum at 2 Hz for subscribed windows (Gamma(navg) scatter, drift, detections) and

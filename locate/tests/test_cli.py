@@ -7,13 +7,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import os
 import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import types
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +96,19 @@ def test_parser_accepts_the_documented_commands() -> None:
     assert args.pair == ["a,b", "c,d"] and args.f_e_hz == 3e8
     args = parser.parse_args(["montecarlo", "--config", "c", "--scenario", "s", "--trials", "5"])
     assert args.trials == 5
+
+
+@pytest.mark.parametrize("command", [None, "serve", "node", "demo", "check", "accuracy", "montecarlo"])
+def test_every_help_text_prints_without_format_escapes(command: str | None, capsys: pytest.CaptureFixture[str]) -> None:
+    """argparse %-formats help= strings but not description= (except %(prog)s), so a '%%'
+    in a description is printed as it is."""
+    with pytest.raises(SystemExit) as stop:
+        cli.build_parser().parse_args([*([command] if command else []), "--help"])
+    assert stop.value.code == 0
+    text = capsys.readouterr().out
+    assert "%%" not in text and "%(" not in text, text
+    if command == "accuracy":
+        assert "Predicted 95 % error" in text
 
 
 def test_usage_errors_exit_2(capsys: pytest.CaptureFixture[str]) -> None:
@@ -328,7 +344,13 @@ def start_demo(args: list[str]) -> subprocess.Popen[str]:
                             env=child_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
+DEMO_TOKENS: dict[str, str] = {}
+"""The API token each demo printed, by its console base URL."""
+
+
 def console_url(process: subprocess.Popen[str], timeout: float = 60.0) -> str:
+    """The console base URL a demo printed (``http://host:port/``); the API token its
+    address carries (``?token=``) is kept in ``DEMO_TOKENS``."""
     assert process.stdout is not None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -336,13 +358,22 @@ def console_url(process: subprocess.Popen[str], timeout: float = 60.0) -> str:
         if not line:
             raise AssertionError(f"demo ended early: {process.poll()} {process.stderr.read() if process.stderr else ''}")
         if line.strip().startswith("Console:"):
-            return line.split()[1]
+            base, _, query = line.split()[1].partition("?")
+            token = urllib.parse.parse_qs(query).get("token", [""])[0]
+            assert token, f"the demo's console address carries no API token: {line!r}"
+            DEMO_TOKENS[base] = token
+            return base
     raise AssertionError("no console URL printed")
+
+
+def auth(url: str) -> dict[str, str]:
+    """The Authorization header of the demo serving ``url``."""
+    return {"Authorization": f"Bearer {DEMO_TOKENS[url]}"}
 
 
 def every_site_online(url: str, n_sites: int) -> bool:
     try:
-        reply = httpx.get(f"{url}api/v1/status", timeout=2.0, trust_env=False)
+        reply = httpx.get(f"{url}api/v1/status", timeout=2.0, trust_env=False, headers=auth(url))
     except httpx.HTTPError:
         return False
     nodes = reply.json()["nodes"] if reply.status_code == 200 else []
@@ -360,8 +391,10 @@ def test_demo_plumbing_with_the_noise_driver(files: dict[str, Path]) -> None:
         wait_for(lambda: every_site_online(url, 3), 60.0, "every site online")
         assert len(processes_with(f"ws://127.0.0.1:{port}")) == 3
         meta = httpx.get(f"{url}api/v1/meta", trust_env=False).json()
-        assert meta["marking"]["level"] == "UNCLASSIFIED" and "DEMONSTRATION" in meta["marking"]["line"]
-        assert meta["simulation"] is True
+        assert meta["marking"] == {"level": "UNCLASSIFIED", "line": "UNCLASSIFIED"}
+        assert meta["simulation"] is True and meta["api_token_required"] is True
+        # a random API token per run: the console interface refuses anything without it
+        assert httpx.get(f"{url}api/v1/status", trust_env=False).status_code == 401
         page = httpx.get(url, trust_env=False)
         assert page.status_code == 200 and "<html" in page.text.lower()
         process.send_signal(signal.SIGINT)
@@ -406,8 +439,10 @@ def test_demo_with_the_default_configuration(tmp_path: Path) -> None:
         url = console_url(process)
         port = url.rsplit(":", 1)[1].strip("/")
         wait_for(lambda: every_site_online(url, n_sites), 90.0, "every site online")
-        status = httpx.get(f"{url}api/v1/status", trust_env=False).json()
+        status = httpx.get(f"{url}api/v1/status", trust_env=False, headers=auth(url)).json()
         assert all(n["driver"] == "sim" for n in status["nodes"])
+        # a simulated site reports its clock as simulated (PROTOCOL.md: source "sim")
+        assert all(n["clock"]["source"] == "sim" and n["clock"]["locked"] for n in status["nodes"])
         process.send_signal(signal.SIGINT)
         assert process.wait(60.0) == 0
         wait_for(lambda: not processes_with(f"ws://127.0.0.1:{port}"), 15.0, "the node processes to end")
@@ -415,3 +450,174 @@ def test_demo_with_the_default_configuration(tmp_path: Path) -> None:
         if process.poll() is None:
             process.kill()
             process.wait(10.0)
+
+
+# --------------------------------------------------------------------------- review hardening
+
+
+def test_serve_settings_carry_the_new_limits_and_warn_without_a_token(
+    files: dict[str, Path], monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("PETAL_API_TOKEN", raising=False)
+    tokens = files["tmp"] / "tokens.yaml"
+    tokens.write_text("alpha: token-a\n")
+    args = cli.build_parser().parse_args([
+        "serve", "--config", str(files["config"]), "--node-tokens", str(tokens), "--allowed-host", "Console.Example",
+        "--allowed-host", "10.0.0.5", "--allowed-origin", "https://console.example", "--capture-limit-bytes", "1048576",
+        "--history-max-age-s", "86400", "--history-max-events", "500"])
+    settings, _cfg = cli.serve_settings(args)
+    assert settings.allowed_hosts == ("console.example", "10.0.0.5")
+    assert settings.allowed_origins == ("https://console.example",)
+    assert (settings.capture_limit_bytes, settings.history_max_age_s, settings.history_max_events) == (1048576, 86400.0, 500)
+    assert settings.node_tokens_path == tokens  # re-read when it changes: no restart for a new site
+    assert any("no API token" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)
+    args = cli.build_parser().parse_args(["serve", "--config", str(files["config"]), "--history-max-events", "0"])
+    with pytest.raises(cli.UsageError, match="history_max_events"):
+        cli.serve_settings(args)
+
+
+def test_serve_on_port_0_logs_the_port_it_really_bound(files: dict[str, Path]) -> None:
+    """It logged 'http://127.0.0.1:0/' (review M4)."""
+    process = subprocess.Popen(
+        [sys.executable, "-m", "petal_locate.cli", "serve", "--config", str(files["config"]), "--port", "0",
+         "--data-dir", str(files["tmp"] / "data")],
+        env=child_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        assert process.stderr is not None
+        lines: list[str] = []
+        reader = threading.Thread(target=lambda: lines.extend(iter(process.stderr.readline, "")), daemon=True)
+        reader.start()  # a reader thread: a server that logs nothing more cannot block the test
+
+        def logged_port() -> int | None:
+            for line in list(lines):
+                match = re.search(r"serving 'api-test' on http://127\.0\.0\.1:(\d+)/", line)
+                if match:
+                    return int(match.group(1))
+            return None
+
+        wait_for(lambda: logged_port() is not None, 30.0, "the serving line")
+        port = logged_port()
+        assert port, "the serving line names port 0, not the port bound"
+        meta = wait_for(lambda: _meta(port), 30.0, "the server on the logged port")
+        assert meta["config_name"] == "api-test"
+        process.send_signal(signal.SIGTERM)
+        assert process.wait(30.0) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(10.0)
+        process.communicate()
+
+
+def _meta(port: int) -> Any:
+    try:
+        reply = httpx.get(f"http://127.0.0.1:{port}/api/v1/meta", timeout=2.0, trust_env=False)
+    except httpx.HTTPError:
+        return None
+    return reply.json() if reply.status_code == 200 else None
+
+
+def test_node_options_per_channel_and_from_a_node_file(files: dict[str, Path]) -> None:
+    """Every channel used to get the same driver options; chunk and buffer sizes had no
+    flags (review K12)."""
+    node_file = files["tmp"] / "node.yaml"
+    node_file.write_text(
+        "driver_options: {lookback_s: 10, gain_db: 20}\n"
+        "channels:\n  tokyo-pac: {device: 'driver=uhd,serial=A1'}\n  tokyo-172e: {device: 'driver=uhd,serial=B2'}\n"
+        "chunk_payload_bytes: 16384\n"
+    )
+    args = cli.build_parser().parse_args([
+        "node", "--server", "ws://s", "--site", "tokyo", "--driver", "soapy", "--node-config", str(node_file),
+        "--driver-option", "gain_db=30", "--channel-option", "tokyo-io:device=driver=uhd,serial=C3",
+        "--channel-option", "tokyo-pac:antenna=RX2", "--send-buffer-bytes", "262144"])
+    assert cli.node_driver_options(args) == {"lookback_s": 10, "gain_db": 30}  # the flag wins over the file
+    assert cli.node_channel_options(args) == {
+        "tokyo-pac": {"device": "driver=uhd,serial=A1", "antenna": "RX2"},
+        "tokyo-172e": {"device": "driver=uhd,serial=B2"},
+        "tokyo-io": {"device": "driver=uhd,serial=C3"},
+    }
+    assert cli._node_number(args, "chunk_payload_bytes") == 16384
+    assert cli._node_number(args, "send_buffer_bytes") == 262144
+    for text, message in [("[1, 2]\n", "must be a mapping"), ("gain: 1\n", "unknown key"),
+                          ("channels: {a: 3}\n", "channels must map"), ("chunk_payload_bytes: big\n", "integer")]:
+        node_file.write_text(text)
+        with pytest.raises(cli.UsageError, match=message):
+            cli.load_node_config(node_file)
+    bad = cli.build_parser().parse_args(["node", "--server", "ws://s", "--site", "a", "--driver", "noise",
+                                         "--channel-option", "nochannel"])
+    with pytest.raises(cli.UsageError, match="CHANNEL:KEY=VALUE"):
+        cli.node_channel_options(bad)
+
+
+def test_node_command_hands_its_settings_to_the_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sim node reports a 'sim' clock (review K7: it said 'ntp, locked'); per-channel
+    options, chunk and buffer sizes and the simulated time offset reach the agent."""
+    import petal_locate.node.agent as agent_module
+
+    seen: dict[str, Any] = {}
+
+    class FakeAgent:
+        def __init__(self, server: str, site: str, token: str, **kwargs: Any) -> None:
+            seen.update(kwargs, server=server, site=site)
+            self.site_id = site
+            self.server_ws_url = server
+
+        def request_stop(self) -> None:
+            pass
+
+        async def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(agent_module, "NodeAgent", FakeAgent)
+    monkeypatch.setenv("PETAL_NODE_TOKEN_ALPHA", "t")
+    base = ["node", "--server", "ws://127.0.0.1:9", "--site", "alpha"]
+    assert cli.main([*base, "--driver", "sim", "--channel-option", "alpha-a:lookback_s=5",
+                     "--chunk-payload-bytes", "8192", "--send-buffer-bytes", "65536",
+                     "--sim-time-offset-ns", str(-86400 * 10**9)]) == 0
+    clock = seen["clock"]
+    assert clock.status().source == "sim" and clock.status().locked
+    assert abs(clock.now_ns() - (time.time_ns() - 86400 * 10**9)) < 10**9
+    assert seen["channel_driver_options"] == {"alpha-a": {"lookback_s": 5}}
+    assert (seen["chunk_payload_bytes"], seen["send_buffer_bytes"]) == (8192, 65536)
+    seen.clear()
+    assert cli.main([*base, "--driver", "noise"]) == 0
+    assert seen["clock"] is None and "chunk_payload_bytes" not in seen  # the agent's own defaults
+    assert cli.main([*base, "--driver", "noise", "--sim-time-offset-ns", "5"]) == 2  # simulation only
+    assert cli.main([*base, "--driver", "noise", "--channel-option", "alpha-a:no_such_option=1"]) == 2
+
+
+def test_demo_start_epoch_offset() -> None:
+    now = 1_794_571_200 * 10**9
+    assert cli.demo_time_offset_ns(None, now) == 0
+    assert cli.demo_time_offset_ns("2026-11-13T03:00:00Z", now) == 1_794_538_800 * 10**9 - now
+    for bad in ("noon", "1900-01-01T00:00:00Z", "2260-01-01T00:00:00Z"):
+        with pytest.raises(cli.UsageError, match="--start"):
+            cli.demo_time_offset_ns(bad, now)
+    args = cli.build_parser().parse_args(["demo", "--start", "2026-11-13T03:00:00Z"])
+    assert args.start == "2026-11-13T03:00:00Z"
+    assert cli.DEMO_MARKING_LINE == "UNCLASSIFIED"  # the SIMULATION tag says simulated (review UX-14)
+
+
+def test_check_survives_an_orbit_that_does_not_cover_the_time(files: dict[str, Path],
+                                                              capsys: pytest.CaptureFixture[str]) -> None:
+    """A table orbit that did not cover --time crashed check with a traceback (ADAPT-6)."""
+    from petal_locate.config import SystemConfig
+    from petal_locate.core.orbits import orbit_state
+    from petal_locate.core.timebase import iso_from_ns, sec
+
+    cfg = make_config()
+    t_end = 1_794_571_200 * 10**9
+    samples = []
+    for k in range(-30, 1):
+        t = t_end + k * 60 * 10**9
+        r, v = orbit_state(cfg.orbit("sat-a"), sec(t))
+        samples.append({"t": iso_from_ns(t), "r_m": [float(x) for x in r], "v_mps": [float(x) for x in v]})
+    data = cfg.export_dict()
+    data["satellites"][0]["orbit"] = {"type": "table", "samples": samples}
+    path = files["tmp"] / "table.yaml"
+    path.write_text(dump_config(SystemConfig.model_validate(data)))
+    assert cli.main(["check", "--config", str(path), "--time", iso_from_ns(t_end + 86400 * 10**9)]) == 0
+    out = capsys.readouterr().out
+    assert "satellite sat-a: orbit not available at this time" in out
+    assert "the orbit cannot be evaluated" in out  # and the warnings say why

@@ -6,7 +6,7 @@ import './styles/tokens.css';
 import './styles/app.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
+import { App, ShellBoundary } from './App';
 import { loadWorld } from './map/world';
 import { boot } from './state/store';
 import { initTheme } from './styles/theme';
@@ -19,7 +19,9 @@ const root = document.getElementById('root');
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <App />
+      <ShellBoundary>
+        <App />
+      </ShellBoundary>
     </StrictMode>,
   );
 }

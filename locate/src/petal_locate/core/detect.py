@@ -53,6 +53,17 @@ Choices MATH.md leaves to the implementation (each is covered by a test):
   median for `navg = 8` (8.2 dB for `navg = 1`), which would lower the start-up
   threshold by that much. The percentile is therefore taken of `psd - R_k` and raised
   by the percentile-to-median offset of the frame's own fluctuation statistics.
+- *A signal on at start-up.* A signal present from the first frame can cover most of
+  the floor bins (more than half the guard bins, or nine tenths of a window without
+  them) and lift the guard median or the 10th percentile with it, so that it would be
+  learned as noise. The estimate therefore steps down to a lower quantile (0.25,
+  0.10, 0.04, 0.015, each raised by its own offset to the median) whenever that one
+  lies lower by more than `FLOOR_SIGNIFICANCE` standard errors, and only when at
+  least `FLOOR_LEAST_BINS` bins lie below it: a signal is detected at once as long as
+  it leaves free the bins below the lowest quantile tried (1.5 % of 1024 bins, at
+  least `FLOOR_LEAST_BINS`). One that fills the whole window cannot be
+  told from noise inside it; `floor_db` lets the caller compare the window with the
+  receiver's other windows (the server flags it as "floor raised").
 - *Merging and splitting tracks.* Unconfirmed fragments joined by one run merge at
   once (with the nearest confirmed track, when the run touches several). Two
   confirmed tracks merge only after sharing a run in `confirm_m` consecutive frames
@@ -119,6 +130,18 @@ CARRIER_LEARN_S: float = 30.0
 
 FLOOR_PERCENTILE: float = 0.10
 """Quantile of the frame used as the floor when there are no guard bins."""
+
+FLOOR_LOWER_QUANTILES: tuple[float, ...] = (0.25, 0.10, 0.04, 0.015)
+"""Lower quantiles the floor estimate may step down to when a signal lifts the usual one."""
+
+FLOOR_LEAST_BINS: int = 8
+"""A lower quantile is tried only when at least this many floor bins lie below it."""
+
+FLOOR_SIGNIFICANCE: float = 4.0
+"""A lower quantile replaces the floor estimate when it is lower by this many standard errors."""
+
+FLOOR_REFINE_STEPS: int = 3
+"""Re-estimates of a floor a signal lifted, each leaving out bins more than the threshold above."""
 
 MIN_FLOOR_BINS: int = 16
 """Fewest bins a floor estimate may rest on (bins free of tracks; fewer with few guard bins)."""
@@ -278,6 +301,24 @@ def _fluctuation_table() -> tuple[
     return scatter, offset, least, mean_over_median
 
 
+def _quantile_table(
+    quantiles: Sequence[float],
+) -> dict[float, tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
+    """Per quantile p, on the n grid of `_fluctuation_table`: the distance from the
+    p-quantile of a noise bin's dB value to its median, `10 log10(Q(0.5) / Q(p))`, and
+    the density of the dB value at the p-quantile (per dB), which sets the standard
+    error `sqrt(p (1 - p) / N) / density` of a p-quantile taken over N bins."""
+    n = np.geomspace(512.0, 0.5, 81)
+    median = scipy.special.gammaincinv(n, 0.5)
+    out: dict[float, tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]] = {}
+    for p in quantiles:
+        q = scipy.special.gammaincinv(n, p)  # Gamma(n, 1); the dB density is scale-free
+        log_pdf = (n - 1.0) * np.log(q) - q - scipy.special.gammaln(n)
+        density = np.exp(log_pdf) * q * math.log(10.0) / 10.0
+        out[float(p)] = (10.0 * np.log10(median / q), density)
+    return out
+
+
 class SignalTracker:
     """Detects and tracks signals in the PSD frames of one monitor window.
 
@@ -402,9 +443,15 @@ class SignalTracker:
             self._min_floor_bins = MIN_FLOOR_BINS
         self._floor_idx = np.flatnonzero(self._floor_mask)
         self._floor_recent: deque[float] = deque(maxlen=FLOOR_SMOOTH_FRAMES)
+        self._floor_mean = math.nan  # F of the latest frame
 
         # threshold in force: threshold_db, or what the frames' own statistics require
         self._scatter_db, self._offset_db, self._least_db, self._mean_over_median_db = _fluctuation_table()
+        # floor quantiles: the guard median (or the corrected 10th percentile), then lower
+        self._floor_start = 0.5 if self._use_guard else FLOOR_PERCENTILE
+        self._floor_quantiles = (self._floor_start, *(p for p in FLOOR_LOWER_QUANTILES if p < self._floor_start))
+        self._quantiles = _quantile_table(self._floor_quantiles)
+        self._floor_now = math.nan  # this frame's floor estimate before smoothing, dB
         self._scatter_recent: deque[float] = deque(maxlen=SCATTER_FRAMES)
         self._threshold_eff = self._threshold_db
         self._mean_over_median = 1.0  # linear; mean of a frame's bins over their median
@@ -453,11 +500,47 @@ class SignalTracker:
         """
         return self._threshold_eff
 
+    @property
+    def floor_db(self) -> float:
+        """The start-up floor F of the latest frame, dB (NaN before the first frame).
+
+        The median noise level of a bin without relayed noise: the guard-bin median,
+        or the corrected low quantile of the window less the relayed-noise rise
+        (averaged over the last FLOOR_SMOOTH_FRAMES estimates; held while a signal
+        covers the floor bins). The baseline of a bin still on its prior is F + R_k.
+        Windows of one receiver and span share the same F, so a window whose F lies
+        well above the others' is filled by something it may be taking for noise.
+        """
+        return self._floor_mean  # one float, safe to read while an update runs elsewhere
+
+    @property
+    def floor_from_guard(self) -> bool:
+        """Whether F is the median of guard bins (bins outside every passband and carrier)."""
+        return self._use_guard
+
+    @property
+    def learning(self) -> bool:
+        """Whether most bins are still judged against the start-up prior (F + R_k) rather
+        than their own history (the first PRIOR_SPAN_FRACTION of baseline_tau_s)."""
+        return bool(np.count_nonzero(self._use_hist) * 2 < self.nfft)
+
+    def reset_time(self) -> None:
+        """Accept the next frame whatever its time (the frame clock stepped).
+
+        The baseline, the history and the tracks are kept; the history keep schedule
+        restarts at the next frame. Used when a node's clock is corrected backwards or
+        a new session of a node starts: without it every frame older than the newest
+        one seen would be refused.
+        """
+        self._last_t_ns = None
+        self._last_keep_ns = None
+
     def update(self, psd_db: npt.ArrayLike, t_ns: int) -> list[Detection]:
         """Process one PSD frame and return every confirmed, unreleased track.
 
         psd_db: float[nfft] in dB, fft-shifted (`welch_psd_db` units), all finite.
-        t_ns: first-sample time of the frame, integer ns, strictly increasing.
+        t_ns: first-sample time of the frame, integer ns, strictly increasing (after
+            `reset_time` any value is accepted once).
         Returns the detections ordered by f_lo_hz. A track on an authorised carrier is
         listed only while its anomaly is asserted.
         """
@@ -552,15 +635,75 @@ class SignalTracker:
                     idx = None
         if idx is not None:
             if self._use_guard:
-                now = float(np.median(psd[idx]))
+                x = psd[idx]
             else:
                 x = psd[idx] - self._rise_db[idx]
-                kth = int(FLOOR_PERCENTILE * (x.size - 1))
-                low = float(np.partition(x, kth)[kth])
-                scatter = float(np.median(np.abs(x[_LAG:] - x[:-_LAG])))
-                now = low + float(np.interp(scatter, self._scatter_db, self._offset_db))
+            now, sigma, stepped = self._floor_estimate(x)
+            # A signal lifted the usual quantile: leave out what lies more than the
+            # threshold above the estimate and estimate again (a few times at most), so
+            # that a signal over most of the window is found in its first frames.
+            for _ in range(FLOOR_REFINE_STEPS):
+                if not stepped:
+                    break
+                keep = x <= now + self._threshold_eff
+                if keep.all() or int(np.count_nonzero(keep)) < self._min_floor_bins:
+                    break
+                x = x[keep]
+                refined, refined_sigma, stepped = self._floor_estimate(x)
+                if refined >= now:
+                    break
+                now, sigma = refined, refined_sigma
+            self._floor_now = now
+            if self._floor_recent:
+                smoothed = math.fsum(self._floor_recent) / len(self._floor_recent)
+                if now < smoothed - FLOOR_SIGNIFICANCE * math.sqrt(2.0) * sigma:
+                    # the earlier estimates were lifted by a signal now left out
+                    self._floor_recent.clear()
             self._floor_recent.append(now)
-        return math.fsum(self._floor_recent) / len(self._floor_recent)
+        self._floor_mean = math.fsum(self._floor_recent) / len(self._floor_recent)
+        return self._floor_mean
+
+    def _floor_estimate(self, x: npt.NDArray[np.float64]) -> tuple[float, float, bool]:
+        """Median noise level of the floor bins `x` (dB, relayed-noise rise removed),
+        its standard error (dB), and whether a lower quantile was used.
+
+        The guard median, or without guard bins the 10th percentile raised by its
+        distance to the median (from the frames' fluctuation statistics). A signal
+        already on when the tracker starts can cover most of those bins and lift that
+        quantile with it: the estimate then steps down to a lower quantile (corrected
+        the same way) whenever that one lies lower by more than FLOOR_SIGNIFICANCE
+        standard errors, which noise alone almost never does. A lower quantile is tried
+        only when FLOOR_LEAST_BINS bins lie below it, so a signal is found against the
+        floor as long as it leaves the bins below the lowest quantile tried free.
+        """
+        count = int(x.size)
+        if count < 2:
+            return (float(x[0]) if count else 0.0), math.inf, False
+        if self._use_guard and self._scatter_recent:
+            scatter = math.fsum(self._scatter_recent) / len(self._scatter_recent)
+        else:  # the frame's own scatter (guard bins can be too few to give one alone)
+            diffs = np.abs(x[_LAG:] - x[:-_LAG]) if count > _LAG else np.abs(np.diff(x))
+            scatter = float(np.median(diffs))
+        n_eff = 0.5 * count  # neighbouring Hann-windowed bins are correlated
+        tried = [
+            (p, int(p * (count - 1)))
+            for i, p in enumerate(self._floor_quantiles)
+            if i == 0 or p * count >= FLOOR_LEAST_BINS
+        ]
+        part = np.partition(x, sorted({k for _, k in tried}))
+        best = sigma_best = math.nan
+        stepped = False
+        for i, (p, k) in enumerate(tried):
+            offset_db, density = self._quantiles[p]
+            if p == 0.5:
+                level, offset = float(np.median(x)), 0.0
+            else:
+                level, offset = float(part[k]), float(np.interp(scatter, self._scatter_db, offset_db))
+            estimate = level + offset
+            sigma = math.sqrt(p * (1.0 - p) / n_eff) / max(float(np.interp(scatter, self._scatter_db, density)), _TINY)
+            if i == 0 or estimate < best - FLOOR_SIGNIFICANCE * math.hypot(sigma, sigma_best):
+                best, sigma_best, stepped = estimate, sigma, i > 0
+        return best, sigma_best, stepped
 
     def _remember(self, psd: npt.NDArray[np.float64], frozen: npt.NDArray[np.bool_]) -> None:
         """Append this frame to the history of every bin that is not in detection."""

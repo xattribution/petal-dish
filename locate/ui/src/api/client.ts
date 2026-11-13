@@ -155,6 +155,9 @@ export class ApiClient {
     const headers: Record<string, string> = { Accept: 'application/json', ...init.headers };
     const token = this.getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
+    // The server refuses a state-changing request that a foreign web page could send
+    // without asking (no JSON body, no token): this header marks the console's own.
+    if (method !== 'GET' && method !== 'HEAD') headers['X-Petal-Client'] = 'console';
     let body: string | undefined;
     if (init.body !== undefined) {
       headers['Content-Type'] = 'application/json';

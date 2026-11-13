@@ -3,10 +3,14 @@
 ::
 
     petal-locate serve      --config C [--scenario S] [--host H --port P --data-dir D
-                            --node-tokens FILE --api-token T --marking-level L --marking-line TEXT]
+                            --node-tokens FILE --api-token T --marking-level L --marking-line TEXT
+                            --allowed-host NAME --allowed-origin ORIGIN --capture-limit-bytes N
+                            --history-max-age-s S --history-max-events N]
     petal-locate node       --server URL --site ID [--token T] --driver sim|sigmf|soapy|noise
-                            [--node-id ID] [driver options]
-    petal-locate demo       [--config C --scenario S --port P]
+                            [--node-id ID] [--node-config FILE] [driver options]
+                            [--channel-option CHANNEL:KEY=VALUE] [--chunk-payload-bytes N]
+                            [--send-buffer-bytes N]
+    petal-locate demo       [--config C --scenario S --port P --start ISO --no-api-token]
     petal-locate check      --config C [--scenario S] [--time ISO]
     petal-locate accuracy   --config C (--request FILE | --pair A,B ... --f-e-hz F ...) [--out FILE]
     petal-locate montecarlo --config C --scenario S --trials N [--emitter ID] [--out FILE]
@@ -17,7 +21,9 @@ Secrets: a node token may be given with ``--token`` but is better passed in the
 environment (``PETAL_NODE_TOKEN_<SITE_ID>`` or ``PETAL_NODE_TOKEN``), where other users
 of the machine cannot read it from the process list; ``petal-locate demo`` hands its
 random per-run tokens to its nodes that way. The API token likewise comes from
-``--api-token`` or ``PETAL_API_TOKEN``.
+``--api-token`` or ``PETAL_API_TOKEN``; ``serve`` warns when there is none (the console
+interface is then open to anything that can reach the server), and ``demo`` makes a
+random one per run and prints the console address that carries it.
 
 Logging is structured: ``key=value`` pairs after the message (``--log-format text``,
 the default) or one JSON object per line (``--log-format json``), on standard error.
@@ -82,8 +88,9 @@ DEFAULT_SCENARIO: Final[str] = "scenarios/pacific-demo.yaml"
 DEMO_MARKING_LEVEL: Final[str] = "UNCLASSIFIED"
 """Marking level of the demonstration."""
 
-DEMO_MARKING_LINE: Final[str] = "UNCLASSIFIED // DEMONSTRATION // SIMULATED DATA"
-"""Banner text of the demonstration."""
+DEMO_MARKING_LINE: Final[str] = "UNCLASSIFIED"
+"""Banner text of the demonstration (the console's SIMULATION tag already says the data
+are simulated; the banner carries the marking only)."""
 
 DEMO_START_TIMEOUT_S: Final[float] = 60.0
 """Longest the demo waits for its server to start, s."""
@@ -411,11 +418,24 @@ def serve_settings(args: argparse.Namespace) -> tuple[Any, Any]:
             host=args.host,
             port=args.port,
             node_tokens=tokens,
+            node_tokens_path=Path(args.node_tokens) if args.node_tokens is not None else None,
             api_token=api_token,
+            allowed_hosts=tuple(args.allowed_host or ()),
+            allowed_origins=tuple(args.allowed_origin or ()),
             marking=_marking(args),
+            capture_limit_bytes=args.capture_limit_bytes,
+            history_max_age_s=args.history_max_age_s,
+            history_max_events=args.history_max_events,
         )
     except ValueError as exc:
         raise UsageError(f"settings: {exc}") from exc
+    if settings.api_token is None:
+        logger.warning(
+            "no API token (--api-token or %s): the console interface is open to anything that can reach "
+            "%s; set a token unless only trusted users can reach the server",
+            API_TOKEN_ENV,
+            settings.host,
+        )
     return settings, cfg
 
 
@@ -429,15 +449,20 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     settings, cfg = serve_settings(args)
     presets = Path(args.presets_dir) if args.presets_dir is not None else data_path("scenarios")
+    sock = _bind(settings.host, settings.port)  # bound here, so that the log names the real port
+    port = int(sock.getsockname()[1])
+    settings = settings.model_copy(update={"port": port})
     app = create_app(settings, presets_dir=presets)
     server = build_server(app, settings, log_config=None)
+    url_host = f"[{settings.host}]" if ":" in settings.host else settings.host
     logger.info(
         "serving %r on http://%s:%d/ (%s)",
         cfg.name,
-        settings.host,
-        settings.port,
+        url_host,
+        port,
         "simulating" if settings.scenario_path is not None else "not simulating",
-        extra={"api_token": settings.api_token is not None, "marking": settings.marking is not None},
+        extra={"api_token": settings.api_token is not None, "marking": settings.marking is not None,
+               "port": port},
     )
 
     def on_term(signum: int, frame: Any) -> None:
@@ -445,11 +470,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     previous = signal.signal(signal.SIGTERM, on_term)
     try:
-        server.run()
+        server.run(sockets=[sock])
     except (KeyboardInterrupt, _Terminated):
         pass  # uvicorn re-raises the signal after its graceful shutdown
     finally:
         signal.signal(signal.SIGTERM, previous)
+        sock.close()
     if not server.started:
         logger.error("the server did not start (see the messages above)")
         return EXIT_RUNTIME
@@ -473,11 +499,63 @@ def _node_token(args: argparse.Namespace) -> str:
     )
 
 
+NODE_CONFIG_KEYS: Final[frozenset[str]] = frozenset(
+    {"driver_options", "channels", "chunk_payload_bytes", "send_buffer_bytes"}
+)
+"""Top-level keys of a node configuration file (``petal-locate node --node-config``)."""
+
+
+def load_node_config(path: str | os.PathLike[str]) -> dict[str, Any]:
+    """A node configuration file (YAML), for a site whose channels need different
+    driver options (one radio per channel)::
+
+        driver_options: {lookback_s: 10}          # every channel
+        channels:                                  # one channel's options on top
+          tokyo-pac: {device: "driver=uhd,serial=A1"}
+          tokyo-172e: {device: "driver=uhd,serial=B2"}
+        chunk_payload_bytes: 32768                 # optional, as the flags
+        send_buffer_bytes: 262144
+
+    Returns the mapping. ``UsageError`` naming the file and key for anything else."""
+    from petal_locate.config.loader import safe_yaml_load
+
+    try:
+        data = safe_yaml_load(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise UsageError(f"--node-config {path}: cannot be read ({exc})") from exc
+    except (yaml.YAMLError, ValueError) as exc:
+        raise UsageError(f"--node-config {path}: not valid YAML ({exc})") from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise UsageError(f"--node-config {path}: must be a mapping")
+    unknown = sorted(str(k) for k in data if k not in NODE_CONFIG_KEYS)
+    if unknown:
+        raise UsageError(f"--node-config {path}: unknown key(s) {', '.join(unknown)} "
+                         f"(it takes {', '.join(sorted(NODE_CONFIG_KEYS))})")
+    if not isinstance(data.get("driver_options", {}) or {}, dict):
+        raise UsageError(f"--node-config {path}: driver_options must be a mapping")
+    channels = data.get("channels", {}) or {}
+    if not isinstance(channels, dict) or not all(
+        isinstance(k, str) and k and isinstance(v or {}, dict) for k, v in channels.items()
+    ):
+        raise UsageError(f"--node-config {path}: channels must map channel ids to mappings of driver options")
+    for key in ("chunk_payload_bytes", "send_buffer_bytes"):
+        value = data.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise UsageError(f"--node-config {path}: {key} must be an integer")
+    return data
+
+
 def node_driver_options(args: argparse.Namespace) -> dict[str, Any]:
-    """The driver options of ``petal-locate node``: ``--driver-option KEY=VALUE`` plus
-    the shorthands ``--sigmf-path`` (sigmf ``path``) and ``--soapy-device`` (soapy
+    """The driver options of ``petal-locate node`` for every channel: the node
+    configuration file's ``driver_options``, then ``--driver-option KEY=VALUE``, then the
+    shorthands ``--sigmf-path`` (sigmf ``path``) and ``--soapy-device`` (soapy
     ``device``)."""
-    options = _key_values(args.driver_option or [], "--driver-option")
+    options: dict[str, Any] = {}
+    if getattr(args, "node_config", None) is not None:
+        options.update(load_node_config(args.node_config).get("driver_options") or {})
+    options.update(_key_values(args.driver_option or [], "--driver-option"))
     if args.sigmf_path is not None:
         if args.driver != "sigmf":
             raise UsageError("--sigmf-path applies to --driver sigmf only")
@@ -487,6 +565,30 @@ def node_driver_options(args: argparse.Namespace) -> dict[str, Any]:
             raise UsageError("--soapy-device applies to --driver soapy only")
         options["device"] = args.soapy_device
     return options
+
+
+def node_channel_options(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
+    """Per-channel driver options of ``petal-locate node``: the node configuration
+    file's ``channels``, then ``--channel-option CHANNEL:KEY=VALUE`` (repeatable), each
+    laid over the options of every channel for that channel only."""
+    out: dict[str, dict[str, Any]] = {}
+    if getattr(args, "node_config", None) is not None:
+        for channel_id, extra in (load_node_config(args.node_config).get("channels") or {}).items():
+            out.setdefault(channel_id, {}).update(extra or {})
+    for item in getattr(args, "channel_option", None) or []:
+        channel_id, sep, rest = item.partition(":")
+        if not sep or not channel_id.strip() or "=" not in rest:
+            raise UsageError(f"--channel-option: expected CHANNEL:KEY=VALUE, got {item!r}")
+        out.setdefault(channel_id.strip(), {}).update(_key_values([rest], "--channel-option"))
+    return out
+
+
+def _node_number(args: argparse.Namespace, name: str) -> int | None:
+    """``--chunk-payload-bytes`` / ``--send-buffer-bytes``, else the node file's value."""
+    value = getattr(args, name, None)
+    if value is None and getattr(args, "node_config", None) is not None:
+        value = load_node_config(args.node_config).get(name)
+    return value
 
 
 async def _watch_parent(agent: Any, parent: int) -> None:
@@ -530,15 +632,34 @@ def cmd_node(args: argparse.Namespace) -> int:
 
     token = _node_token(args)
     options = node_driver_options(args)
-    try:
-        get_driver(args.driver, **options)  # refuses unknown options and missing modules now
-    except ValueError as exc:
-        raise UsageError(f"--driver {args.driver}: {exc}") from exc
-    except CaptureError as exc:
-        raise UsageError(f"--driver {args.driver}: {exc}") from exc
+    per_channel = node_channel_options(args)
+    # Building the drivers now refuses unknown driver names and options (and a driver
+    # module this installation lacks) before the node dials out. A driver's own
+    # hardware library (the SoapySDR bindings of soapy) is loaded only when a channel
+    # opens, so its absence shows in the channel's assign_ack and the node's log.
+    for where, extra in [("", {})] + [(f" (channel {c})", o) for c, o in per_channel.items()]:
+        try:
+            get_driver(args.driver, **{**options, **extra})
+        except (ValueError, CaptureError) as exc:
+            raise UsageError(f"--driver {args.driver}{where}: {exc}") from exc
+    offset = int(args.sim_time_offset_ns or 0)
+    if offset and args.driver != "sim":
+        raise UsageError("--sim-time-offset-ns applies to --driver sim only")
     clock = None
-    if args.clock is not None:
-        clock = SystemClock(source=args.clock, locked=not args.clock_unlocked)
+    try:
+        if args.clock is not None:
+            clock = SystemClock(source=args.clock, locked=not args.clock_unlocked, offset_ns=offset)
+        elif args.driver == "sim":
+            from petal_locate.node.drivers.sim import sim_clock
+
+            clock = sim_clock(offset_ns=offset)  # a simulated site reports source "sim" (PROTOCOL.md)
+    except ValueError as exc:
+        raise UsageError(f"--sim-time-offset-ns: {exc}") from exc
+    extra_agent: dict[str, Any] = {}
+    for name in ("chunk_payload_bytes", "send_buffer_bytes"):
+        value = _node_number(args, name)
+        if value is not None:
+            extra_agent[name] = value
     try:
         agent = NodeAgent(
             args.server,
@@ -546,10 +667,12 @@ def cmd_node(args: argparse.Namespace) -> int:
             token,
             driver=args.driver,
             driver_options=options,
+            channel_driver_options=per_channel,
             node_id=args.node_id,
             state_path=args.state_path,
             clock=clock,
             software=f"petal-locate/{__version__}",
+            **extra_agent,
         )
     except ValueError as exc:
         raise UsageError(str(exc)) from exc
@@ -615,7 +738,8 @@ class _Child:
             await process.wait()
 
 
-def _demo_children(cfg: Any, tokens: Mapping[str, str], url: str, driver: str, log_level: str) -> list[_Child]:
+def _demo_children(cfg: Any, tokens: Mapping[str, str], url: str, driver: str, log_level: str,
+                   time_offset_ns: int = 0) -> list[_Child]:
     from petal_locate.server.settings import node_token_env_var
 
     children = []
@@ -634,6 +758,8 @@ def _demo_children(cfg: Any, tokens: Mapping[str, str], url: str, driver: str, l
             "--exit-with-parent", str(os.getpid()),
             "--log-level", log_level,
         ]
+        if time_offset_ns:
+            argv += ["--sim-time-offset-ns", str(time_offset_ns)]
         children.append(_Child(site.id, argv, env))
     return children
 
@@ -648,10 +774,32 @@ def _print_banner(lines: Sequence[tuple[str, str]], stream: IO[str] | None = Non
     out.flush()
 
 
+def demo_time_offset_ns(start: str | None, now_ns: int | None = None) -> int:
+    """The simulation time offset of ``petal-locate demo --start ISO``: the start epoch
+    minus the host clock now, integer ns (0 without ``--start``). ``UsageError`` for text
+    that is not a time, or a time outside 1970..2262."""
+    from petal_locate.core.timebase import ns_from_iso
+
+    if not start:
+        return 0
+    try:
+        epoch = ns_from_iso(start)
+    except (ValueError, OverflowError) as exc:
+        raise UsageError(f"--start: not an ISO 8601 time ({exc})") from exc
+    if not 0 <= epoch <= 2**63 - 1 - 10**18:
+        raise UsageError("--start: must lie between 1970 and 2230")
+    return epoch - (time.time_ns() if now_ns is None else int(now_ns))
+
+
 async def _demo(args: argparse.Namespace) -> int:
+    import secrets
+
     from petal_locate.server.app import build_server, create_app
     from petal_locate.server.settings import Marking, Settings, generate_node_tokens
 
+    offset = demo_time_offset_ns(getattr(args, "start", None))
+    if offset and args.driver != "sim":
+        raise UsageError("--start needs --driver sim (only simulated nodes can follow a simulated time)")
     config_path = Path(args.config) if args.config else data_path(DEFAULT_CONFIG)
     scenario_path = Path(args.scenario) if args.scenario else data_path(DEFAULT_SCENARIO)
     if config_path is None or scenario_path is None:
@@ -668,6 +816,12 @@ async def _demo(args: argparse.Namespace) -> int:
     connect_host = "127.0.0.1" if args.host in ("0.0.0.0", "") else ("::1" if args.host == "::" else args.host)
     url_host = f"[{connect_host}]" if ":" in connect_host else connect_host
     presets = Path(args.presets_dir) if args.presets_dir else scenario_path.parent
+    # A random API token per run: without one, any web page the operator's browser shows
+    # (or any local process) could drive the demo and read its stream.
+    api_token = None if getattr(args, "no_api_token", False) else secrets.token_urlsafe(24)
+    if api_token is None:
+        logger.warning("--no-api-token: anything that can reach %s:%d can drive the demo and read its stream",
+                       args.host, port)
     settings = Settings(
         config_path=config_path,
         scenario_path=scenario_path,
@@ -676,7 +830,8 @@ async def _demo(args: argparse.Namespace) -> int:
         port=port,
         node_tokens=tokens,
         marking=Marking(level=DEMO_MARKING_LEVEL, line=DEMO_MARKING_LINE),
-        api_token=None,
+        api_token=api_token,
+        sim_time_offset_ns=offset,
     )
     app = create_app(settings, presets_dir=presets)
     server = build_server(app, settings, log_config=None, capture_signals=False)
@@ -699,19 +854,27 @@ async def _demo(args: argparse.Namespace) -> int:
                 return EXIT_OK
             logger.error("the demo server did not start (see the messages above)")
             return EXIT_RUNTIME
-        children = _demo_children(cfg, tokens, f"ws://{url_host}:{port}", args.driver, args.node_log_level)
+        children = _demo_children(cfg, tokens, f"ws://{url_host}:{port}", args.driver, args.node_log_level,
+                                  offset if args.driver == "sim" else 0)
         for child in children:
             await child.start()
-        _print_banner(
-            [
-                ("Console:", f"http://{url_host}:{port}/"),
-                ("Marking:", DEMO_MARKING_LINE),
-                ("Config:", str(config_path)),
-                ("Scenario:", f"{scenario_path} (simulated)"),
-                ("Data:", f"{data_dir}" + (" (removed on exit)" if temporary else "")),
-                ("Nodes:", f"{len(children)} ({args.driver} driver): " + ", ".join(c.site_id for c in children)),
-            ]
-        )
+        console_address = f"http://{url_host}:{port}/" + (f"?token={api_token}" if api_token else "")
+        lines = [
+            ("Console:", console_address),
+            ("API token:", f"{api_token} (the address above carries it; enter it if the console asks)"
+             if api_token else "none (--no-api-token)"),
+            ("Marking:", DEMO_MARKING_LINE),
+            ("Config:", str(config_path)),
+            ("Scenario:", f"{scenario_path} (simulated)"),
+            ("Data:", f"{data_dir}" + (" (removed on exit)" if temporary else "")),
+            ("Nodes:", f"{len(children)} ({args.driver} driver): " + ", ".join(c.site_id for c in children)),
+        ]
+        if offset:
+            from petal_locate.core.timebase import iso_from_ns
+
+            started = (time.time_ns() + offset) // 10**9 * 10**9
+            lines.append(("Start:", f"simulated time starts at {iso_from_ns(started)}"))
+        _print_banner(lines)
         announced = False
         while not stop.is_set():
             if serve.done():
@@ -774,6 +937,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
 def check_report(cfg: Any, t_ns: int, scenario: Any = None) -> str:
     """The text of ``petal-locate check``: summary, satellites, look angles, monitors,
     link budgets of each carrier with a location and an emitter model, and warnings."""
+    from petal_locate.core.orbits import orbit_position
     from petal_locate.core.timebase import iso_from_ns
     from petal_locate.server.api.rest import compute_link_budget, compute_look_angles, compute_subpoints
 
@@ -834,6 +998,15 @@ def check_report(cfg: Any, t_ns: int, scenario: Any = None) -> str:
     ))
     out.append("")
     out.append("Link budgets of the carriers")
+    unplaced = []
+    orbits = cfg.orbits()
+    for sat in cfg.satellites:
+        try:
+            orbit_position(orbits[sat.id], t_ns / 1e9)
+        except ValueError:
+            unplaced.append(sat.id)
+    for sat_id in unplaced:
+        out.append(f"  satellite {sat_id}: orbit not available at this time; its paths are left out")
     any_carrier = False
     for carrier in cfg.carriers:
         if carrier.location is None or carrier.emitter is None:
@@ -847,8 +1020,12 @@ def check_report(cfg: Any, t_ns: int, scenario: Any = None) -> str:
             f"{carrier.emitter.eirp_dbw:g} dBW, at {loc.lat_deg:.3f}, {loc.lon_deg:.3f}"
             + (" (reference)" if carrier.use_as_reference else "")
         )
-        budget = compute_link_budget(cfg, carrier.emitter, carrier.uplink_center_hz, loc.lat_deg, loc.lon_deg,
-                                     loc.alt_m + loc.antenna_height_m, t_ns)
+        try:
+            budget = compute_link_budget(cfg, carrier.emitter, carrier.uplink_center_hz, loc.lat_deg, loc.lon_deg,
+                                         loc.alt_m + loc.antenna_height_m, t_ns)
+        except ValueError as exc:
+            out.append(f"    not computed: {exc}")
+            continue
         if not budget:
             out.append("    no path: no watched satellite above both horizons relays it")
             continue
@@ -864,7 +1041,10 @@ def check_report(cfg: Any, t_ns: int, scenario: Any = None) -> str:
     elif not any_carrier:
         out.append("  (no carrier has a location and an emitter model)")
     out.append("")
-    warnings = cfg.warnings(t_ns / 1e9)
+    try:
+        warnings = cfg.warnings(t_ns / 1e9)
+    except ValueError as exc:  # a time the orbits cannot take at all
+        warnings = [{"loc": "(time)", "msg": str(exc)}]
     out.append(f"Warnings ({len(warnings)})")
     for warning in warnings:
         out.append(f"  {warning['loc']}: {warning['msg']}")
@@ -896,9 +1076,11 @@ def accuracy_request(args: argparse.Namespace) -> Any:
 
     data: dict[str, Any] = {}
     if args.request is not None:
+        from petal_locate.config.loader import safe_yaml_load
+
         try:
-            loaded = yaml.safe_load(Path(args.request).read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
+            loaded = safe_yaml_load(Path(args.request).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, ValueError) as exc:
             raise UsageError(f"--request {args.request}: cannot be read ({exc})") from exc
         if not isinstance(loaded, dict):
             raise UsageError(f"--request {args.request}: must be a mapping")
@@ -1119,6 +1301,18 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--marking-line", metavar="TEXT", help="full banner text (default: the level)")
     serve.add_argument("--presets-dir", metavar="DIR", help="directory of preset scenarios")
     serve.add_argument("--access-log", action="store_true", help="log every HTTP request")
+    serve.add_argument("--allowed-host", action="append", metavar="NAME",
+                       help="a further host name browsers may use to reach the console (repeatable; '*' for any); "
+                            "the bound address, localhost, 127.0.0.1 and ::1 are always allowed")
+    serve.add_argument("--allowed-origin", action="append", metavar="ORIGIN",
+                       help="a further origin (scheme://host[:port]) that may open the console socket (repeatable)")
+    serve.add_argument("--capture-limit-bytes", type=int, default=512 * 1024 * 1024, metavar="N",
+                       help="total size of the IQ captures kept in the data directory (default 536870912, 512 MiB)")
+    serve.add_argument("--history-max-age-s", type=float, metavar="S",
+                       help="delete events not updated for this many seconds, with their history "
+                            "(e.g. 2592000 for 30 days; default: keep everything)")
+    serve.add_argument("--history-max-events", type=int, metavar="N",
+                       help="keep at most this many events in the store (default: no limit)")
     serve.set_defaults(handler=cmd_serve)
 
     node = sub.add_parser("node", parents=[common], help="run a node agent beside a radio",
@@ -1133,9 +1327,22 @@ def build_parser() -> argparse.ArgumentParser:
                       help="driver option (repeatable), e.g. --driver-option lookback_s=10")
     node.add_argument("--sigmf-path", help="recording to replay (--driver sigmf)")
     node.add_argument("--soapy-device", help="SoapySDR device arguments (--driver soapy)")
+    node.add_argument("--channel-option", action="append", metavar="CHANNEL:KEY=VALUE",
+                      help="driver option for one channel only (repeatable), e.g. "
+                           "--channel-option tokyo-pac:device=serial=A1")
+    node.add_argument("--node-config", metavar="FILE",
+                      help="YAML node file: driver_options, per-channel options under channels, "
+                           "chunk_payload_bytes, send_buffer_bytes")
+    node.add_argument("--chunk-payload-bytes", type=int, metavar="N",
+                      help="sample bytes per capture chunk, 8 to 262144 (default 32768; lower on a slow uplink)")
+    node.add_argument("--send-buffer-bytes", type=int, metavar="N",
+                      help="socket send buffer, bytes (default: the system's; e.g. 262144 on a slow uplink)")
     node.add_argument("--clock", choices=["ntp", "gpsdo", "free", "sim"],
-                      help="clock source to report (default: the agent's own, ntp)")
+                      help="clock source to report (default: sim for --driver sim, else ntp)")
     node.add_argument("--clock-unlocked", action="store_true", help="report the clock as not locked")
+    node.add_argument("--sim-time-offset-ns", type=int, default=0, metavar="NS",
+                      help="simulation only (--driver sim): add NS to the node clock, as the server of "
+                           "'petal-locate demo --start' does")
     node.add_argument("--exit-with-parent", type=int, metavar="PID", help=argparse.SUPPRESS)
     node.set_defaults(handler=cmd_node)
 
@@ -1153,6 +1360,12 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--driver", default="sim", choices=["sim", "noise"],
                       help="node driver (default sim; noise only for plumbing checks)")
     demo.add_argument("--node-log-level", default="warning", choices=["debug", "info", "warning", "error"])
+    demo.add_argument("--no-api-token", action="store_true",
+                      help="run without the random per-run API token (only on a machine and network you trust: "
+                           "anything that can reach the port can then drive the demo)")
+    demo.add_argument("--start", metavar="ISO",
+                      help="run the simulated world from this UTC time (e.g. 2026-11-13T03:00:00Z) instead of "
+                           "now, so that runs are reproducible whatever the time of day")
     demo.set_defaults(handler=cmd_demo)
 
     check = sub.add_parser("check", parents=[common], help="validate and describe a configuration",
@@ -1165,7 +1378,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.set_defaults(handler=cmd_check)
 
     acc = sub.add_parser("accuracy", parents=[common], help="accuracy map to JSON",
-                         description="Predicted 95 %% error over a grid (MATH.md section 10) as JSON.")
+                         description="Predicted 95 % error over a grid (MATH.md section 10) as JSON.")
     acc.add_argument("--config", required=True)
     acc.add_argument("--request", metavar="FILE", help="request document (YAML or JSON) as for the API")
     acc.add_argument("--pair", action="append", metavar="A,B", help="receive-channel pair (repeatable)")

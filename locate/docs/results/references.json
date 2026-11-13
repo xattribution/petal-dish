@@ -1,0 +1,277 @@
+{
+ "section": "references",
+ "simulated": true,
+ "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
+ "config": "config/pacific-uhf.yaml",
+ "config_sha256_16": "c1dffdc7253968bf",
+ "script": "scripts/capability_study.py",
+ "media_assumed_by_solver": {
+  "iono_vtec_tecu": 30.0,
+  "iono_correlation": 0.5,
+  "tropo_zenith_m": 2.4,
+  "tropo_correlation": 0.9
+ },
+ "epochs": [
+  "2026-01-01T03:00:00Z",
+  "2026-01-01T09:00:00Z",
+  "2026-01-01T15:00:00Z",
+  "2026-01-01T21:00:00Z"
+ ],
+ "method": "configured_design: for each reference carrier, linkbudget.path_budget C/N0 at every channel watching a satellite that relays it, at the four epochs, and the shared transponder's back-off (linkbudget.transponder_outputs) with the reference alone at 20, 30 or 40 dBW and beside a 20 dBW isotropic jammer at 20 N 132 E in the same transponder. philippine_sea_reference: accuracy_map's predicted reference TDOA sigma and SNR on the tasking pairs at 20 N 132 E (03 UTC, operator grade) for the configured 8 kHz 20 dBW omni reference, the same at 5 kHz (same EIRP, and the EIRP of equal spectral density), and the earlier design (13 dBW, 10 dBi beam aimed at muos-io with 15 dB front-to-back, 5 kHz), with the calibrated 95 % semi-major; again with the media consider terms off. eirp_near_guam: the near-Guam point's pairs, a 2.5 degree map over 10-20 N, 140-150 E, operator-grade and TLE-grade ephemeris, the calibrated and uncalibrated 95 % semi-major (and their ratio) with the reference at 20, 30 and 40 dBW beside the 20 dBW jammer.",
+ "configured_design": {
+  "ref-guam": {
+   "eirp_dbw": 20.0,
+   "bandwidth_hz": 8000.0,
+   "uplink_center_hz": 300992500.0,
+   "n_channel_epochs": 76,
+   "cn0_dbhz_range": [
+    51.34072943553622,
+    56.1682952951991
+   ],
+   "backoff_db_alone_range": [
+    6.203294860000334,
+    7.06671924767214
+   ],
+   "backoff_db_with_20dbw_jammer_range": [
+    3.3460582335943947,
+    3.9843317262001143
+   ],
+   "backoff_db_alone_by_eirp_range": {
+    "20": [
+     6.203294860000334,
+     7.06671924767214
+    ],
+    "30": [
+     -3.724828688043953,
+     -2.845434117086892
+    ],
+    "40": [
+     -13.717575181038399,
+     -12.836550927094244
+    ]
+   }
+  },
+  "ref-sapporo": {
+   "eirp_dbw": 20.0,
+   "bandwidth_hz": 8000.0,
+   "uplink_center_hz": 301117500.0,
+   "n_channel_epochs": 76,
+   "cn0_dbhz_range": [
+    51.226133197828744,
+    55.88088164365931
+   ],
+   "backoff_db_alone_range": [
+    6.540312251805371,
+    7.17821335628679
+   ],
+   "backoff_db_with_20dbw_jammer_range": [
+    3.5173446483031583,
+    4.038803451115651
+   ],
+   "backoff_db_alone_by_eirp_range": {
+    "20": [
+     6.540312251805371,
+     7.17821335628679
+    ],
+    "30": [
+     -3.381894122332767,
+     -2.7315560179173275
+    ],
+    "40": [
+     -13.37403756525508,
+     -12.722428985701086
+    ]
+   }
+  }
+ },
+ "philippine_sea_reference": {
+  "point": [
+   20.0,
+   132.0
+  ],
+  "pairs": [
+   [
+    "honolulu-pac",
+    "naha-172e"
+   ],
+   [
+    "honolulu-pac",
+    "seoul-io"
+   ]
+  ],
+  "uncalibrated_semi_major_95_m": 5463.714681017274,
+  "designs": {
+   "8kHz_20dBW (configured)": {
+    "reference_sigma_tdoa_ns": [
+     111.08134994986162,
+     159.41099401769154
+    ],
+    "reference_snr_db": [
+     39.12635090546935,
+     38.84561011977994
+    ],
+    "calibrated_semi_major_95_m": 571.6864361606371,
+    "calibrated_dominant": "ionosphere"
+   },
+   "5kHz_20dBW": {
+    "reference_sigma_tdoa_ns": [
+     178.10122950433876,
+     283.76342349697154
+    ],
+    "reference_snr_db": [
+     37.23301413502317,
+     36.98796765079318
+    ],
+    "calibrated_semi_major_95_m": 615.2178985190669,
+    "calibrated_dominant": "ionosphere"
+   },
+   "5kHz_equal_psd": {
+    "reference_sigma_tdoa_ns": [
+     225.87017218711918,
+     321.6869120188571
+    ],
+    "reference_snr_db": [
+     37.16200077508589,
+     36.908631934422
+    ],
+    "calibrated_semi_major_95_m": 655.4423303109274,
+    "calibrated_dominant": "reference"
+   },
+   "old_beam_13dBW_5kHz": {
+    "reference_sigma_tdoa_ns": [
+     3453.1289349570907,
+     1702.6680870721568
+    ],
+    "reference_snr_db": [
+     27.25494330838709,
+     31.89374617473532
+    ],
+    "calibrated_semi_major_95_m": 2934.223304381658,
+    "calibrated_dominant": "reference"
+   }
+  },
+  "equal_psd_eirp_dbw": 17.958800173440753
+ },
+ "philippine_sea_reference_without_media": {
+  "uncalibrated_semi_major_95_m": 4587.135076484553,
+  "designs": {
+   "8kHz_20dBW (configured)": {
+    "reference_sigma_tdoa_ns": [
+     111.08134994986162,
+     159.41099401769154
+    ],
+    "reference_snr_db": [
+     39.12635090546935,
+     38.84561011977994
+    ],
+    "calibrated_semi_major_95_m": 465.8525142020662,
+    "calibrated_dominant": "reference"
+   },
+   "old_beam_13dBW_5kHz": {
+    "reference_sigma_tdoa_ns": [
+     3453.1289349570907,
+     1702.6680870721568
+    ],
+    "reference_snr_db": [
+     27.25494330838709,
+     31.89374617473532
+    ],
+    "calibrated_semi_major_95_m": 2916.3107457453243,
+    "calibrated_dominant": "reference"
+   }
+  }
+ },
+ "eirp_near_guam": {
+  "region": [
+   10.0,
+   20.0,
+   140.0,
+   150.0
+  ],
+  "step_deg": 2.5,
+  "pairs": [
+   [
+    "honolulu-pac",
+    "naha-172e"
+   ],
+   [
+    "honolulu-pac",
+    "seoul-io"
+   ]
+  ],
+  "jammer_eirp_dbw": 20.0,
+  "by_grade_and_eirp_dbw": {
+   "operator": {
+    "20": {
+     "cells": 25,
+     "ratio_calibrated_over_uncalibrated_max": 0.1131364788296349,
+     "ratio_calibrated_over_uncalibrated_median": 0.09658132788763986,
+     "calibrated_semi_major_95_m_range": [
+      495.49885455947776,
+      570.4881049287997
+     ],
+     "calibrated_semi_major_95_m_median": 518.8477657119024,
+     "uncalibrated_semi_major_95_m_median": 5328.972689474708
+    },
+    "30": {
+     "cells": 25,
+     "ratio_calibrated_over_uncalibrated_max": 0.11230938158559864,
+     "ratio_calibrated_over_uncalibrated_median": 0.09620289617827243,
+     "calibrated_semi_major_95_m_range": [
+      494.8134979925467,
+      567.3619008931312
+     ],
+     "calibrated_semi_major_95_m_median": 518.1272923597351,
+     "uncalibrated_semi_major_95_m_median": 5338.878634301675
+    },
+    "40": {
+     "cells": 25,
+     "ratio_calibrated_over_uncalibrated_max": 0.20168831797879191,
+     "ratio_calibrated_over_uncalibrated_median": 0.18640480245711694,
+     "calibrated_semi_major_95_m_range": [
+      1018.6668492455985,
+      1054.2132602390666
+     ],
+     "calibrated_semi_major_95_m_median": 1030.461032699642,
+     "uncalibrated_semi_major_95_m_median": 5504.244834323292
+    }
+   },
+   "tle": {
+    "20": {
+     "cells": 25,
+     "ratio_calibrated_over_uncalibrated_max": 0.05220201782961217,
+     "ratio_calibrated_over_uncalibrated_median": 0.02176906823998543,
+     "calibrated_semi_major_95_m_range": [
+      661.9512503303823,
+      3961.508265598335
+     ],
+     "calibrated_semi_major_95_m_median": 1770.0596776555237,
+     "uncalibrated_semi_major_95_m_median": 81839.15483651456
+    },
+    "30": {
+     "cells": 25,
+     "ratio_calibrated_over_uncalibrated_max": 0.05219142059745124,
+     "ratio_calibrated_over_uncalibrated_median": 0.021742941246333476,
+     "calibrated_semi_major_95_m_range": [
+      657.2696714956376,
+      3960.7363407175294
+     ],
+     "calibrated_semi_major_95_m_median": 1767.9490633363587,
+     "uncalibrated_semi_major_95_m_median": 81839.80043337341
+    },
+    "40": {
+     "cells": 25,
+     "ratio_calibrated_over_uncalibrated_max": 0.0535327063153566,
+     "ratio_calibrated_over_uncalibrated_median": 0.02473444293128449,
+     "calibrated_semi_major_95_m_range": [
+      1113.6639142698036,
+      4063.0855054524122
+     ],
+     "calibrated_semi_major_95_m_median": 2011.459243154953,
+     "uncalibrated_semi_major_95_m_median": 81850.75391885542
+    }
+   }
+  }
+ },
+ "elapsed_s": 2.603480577468872
+}

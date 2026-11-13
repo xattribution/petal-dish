@@ -100,7 +100,7 @@ export interface SmallDish {
 
 /**
  * The caution case: a parabolic antenna under 3 wavelengths at the lowest frequency the
- * channel works at (the downlinks of the satellites it watches and its monitor centres),
+ * channel works at (the downlinks of the satellites it watches and its monitor centers),
  * the rule of SystemConfig.warnings.
  */
 export function electricallySmall(ch: ReceiveChannel, satellites: Satellite[]): SmallDish | null {

@@ -23,6 +23,11 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   they say what the system does with the physics as modelled.
 - Tested on Python 3.13 on little-endian x86-64 Linux only (the package declares 3.11
   or later). The big-endian decode path is tested only in mirror image.
+- Only the dependency versions of the development environment were tested (numpy 2.5,
+  scipy 1.18, pydantic 2.14, FastAPI 0.162, uvicorn 0.54, websockets 17.4, httpx 0.28,
+  sgp4 2.27, contourpy 1.4, PyYAML 6.0). The minimum versions in `pyproject.toml` are
+  what the code is believed to need (websockets 15 for the node's proxy support, for
+  example), not versions it was run against.
 
 ## 2. The example system
 
@@ -37,15 +42,16 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
 - **MUOS.** MUOS's WCDMA user uplink goes to the Ka-band feeder link and is not visible
   on the UHF downlink, so this method does not apply to it. It applies to the legacy
   UHF bent-pipe channels (the configuration models every channel as a bent pipe).
-- Sites and reference transmitters are generic city-centre coordinates; no real
-  facility is modelled. A real deployment needs real, authorised reference
+- Sites and reference transmitters are generic city-center coordinates; no real
+  facility is modelled. A real deployment needs real, authorized reference
   transmitters (OPERATIONS.md section 8).
 
 ## 3. Antennas
 
 - **The 0.72 m PETAL dish is electrically small at UHF.** At the 260 to 268 MHz
   downlinks (wavelength about 1.15 m) it is 0.63 wavelengths across: about 3.3 dBi with
-  a beam about 120 degrees wide, a reflector rather than a focusing dish. A 1.2 m dish
+  a beam about 110 degrees wide (109 to 112 degrees from `core.antennas.hpbw_deg`), a
+  reflector rather than a focusing dish. A 1.2 m dish
   is 1.05 wavelengths (7.7 to 7.9 dBi); a 10 dBi beam antenna (helix or Yagi) with 3 dB
   polarisation loss detects about as well as the 1.2 m dish (RESULTS.md section 1).
   `petal-locate check` flags every dish channel under 3 wavelengths.
@@ -67,17 +73,21 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   arguments, gain handling, PPS behaviour and timestamp accuracy must be validated on a
   radio, against a known signal, before any TDOA from it is trusted. Without the
   SoapySDR bindings a soapy channel fails when it opens (checked).
-- `petal-locate node` gives every channel of a site the same driver options, so a site
-  whose channels need different device arguments (one radio per channel) needs a small
-  launcher using `NodeAgent(driver_factory=...)`; none is shipped.
-- The `sigmf` driver replays one `cf32_le` recording for every channel of the node and
-  takes centre and time from the first capture segment; channels outside the recorded
-  band fail every frame (`out_of_range`).
+- Per-channel driver options (`--channel-option`, `--node-config`) are laid over options
+  every channel shares, and the shared options must make a valid driver on their own:
+  an option the driver requires (the sigmf `path`, for example) cannot be given per
+  channel only. One radio per channel with the `soapy` driver has not been run on
+  hardware.
+- The `sigmf` driver replays `cf32_le` recordings (one per channel when the channels
+  are given their own `path`, else one for every channel) and takes centre and time
+  from the first capture segment; channels outside their recording's band fail every
+  frame (`out_of_range`).
 - **TDOA between sites needs GPS-disciplined clocks.** A site-clock error enters every
   cross-site TDOA one for one (1 us is 300 m of range difference). The configuration
   assumes 30 ns per site. In the simulator a 10 us error at one site put the
-  uncalibrated fix 14 to 34 km off, outside its own ellipse, with a reduced chi-square
-  of 0.14, so the fit gave no warning. FDOA needs the site oscillator to about 1e-11
+  uncalibrated fix about 31 km off (median over eight times of day, RESULTS.md section
+  5), mostly outside its own ellipse, with a reduced chi-square of 0.14 in the run
+  examined, so the fit gave no warning. FDOA needs the site oscillator to about 1e-11
   (the default `site_osc_frac`; 2.6 mHz at 260 MHz against FDOA sigmas of about 1 mHz),
   that is, the radio locked to a disciplined 10 MHz reference.
 - **No disciplined clock is shipped.** `SystemClock` reports source `ntp` and locked
@@ -85,7 +95,10 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   `DisciplinedClock` is an extension point with no implementation, and the soapy
   driver's `time_sync=pps` and `lock_sensor` are untested. The server's
   unlocked-clock rule (no cross-site TDOA from an unlocked capture) is only as good as
-  the lock state a node reports. The simulated demo nodes report `ntp`, locked.
+  the lock state a node reports. (The simulated demo nodes report `sim`, locked.)
+- The per-site clock estimate of `/status` (section 7) can show a site clock fault
+  only when that site is calibrated through more than one satellite combination; it
+  is a cross-check, not a clock monitor.
 - Reference calibration removes a clock offset between two sites only for pairs whose
   transponders relay the reference, and only as far as the offset is stable between
   calibrations (every 30 s, valid for 300 s by default).
@@ -103,8 +116,29 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   radio horizon (26 km for two 10 m antennas) and are free space.
 - **Stationary emitter.** The solver assumes the emitter does not move; a moving
   emitter is neither simulated nor solved for.
-- **No ionosphere in any result.** The simulator has an optional thin-shell ionosphere,
-  off in every shipped scenario; the solver has no ionospheric term.
+- **Ionosphere and troposphere are carried as uncertainty, not corrected.** The
+  measurement model is vacuum light time; the solver and the accuracy map carry one
+  vertical electron content and one zenith tropospheric delay per ground end as
+  consider parameters (defaults 30 TECU with correlation 0.5 between ends, and 2.4 m
+  with correlation 0.9; MATH.md sections 3 and 9). Sizes at UHF: 30 TECU delays one leg
+  by 445 ns at the zenith and 1.24 us at 10 degrees elevation at 301 MHz (597 ns and
+  1.66 us at 260 MHz); 2.4 m of troposphere by 8 ns at the zenith, 45 ns at 10 degrees
+  and 82 ns at 5 degrees, in every band. Calibration cancels the downlinks but not the
+  difference between the emitter's and the reference's uplinks: at 30 TECU the South
+  China Sea rows calibrated against Guam keep -1,111 and -954 ns, the Philippine Sea
+  rows 35 and 464 ns, against CAF noise of about 100 ns (RESULTS.md section 2.4). The
+  consider terms keep fixes inside their ellipses at the levels tested but widen the
+  UHF ellipses (RESULTS.md sections 2.4 and 3).
+  - No nominal correction (Klobuchar, a TEC map) is applied, so the sigma must cover the
+    whole delay. A day above the configured sigma (low-latitude daytime at solar
+    maximum can exceed 60 TECU) gives ellipses that are too small (RESULTS.md section
+    3); `processing.uncertainty.iono_vtec_tecu` must then be raised.
+  - One thin shell at 350 km and one VTEC per ground end: no horizontal gradients along
+    a path, no scintillation, no higher-order terms, no refraction of the elevation; the
+    Black and Eisner tropospheric mapping is crude below about 5 degrees.
+  - The simulator applies one VTEC and one zenith delay at every ground end, so the Monte
+    Carlo tests only the fully correlated case of the per-end model, and the shipped
+    scenarios have neither medium (their ellipses are cautious).
 - **Low orbit.** The CAF assumes the differential delay drifts by less than `0.5 / B`
   and the Doppler by less than `1 / T` over a capture; tasking shortens captures to
   keep that, but low-orbit operation was exercised only in unit tests
@@ -115,14 +149,22 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   can miss a co-visible sliver thinner than about 1e-3 degree; a low-orbit TLE is
   smooth enough for the light-time code (1e-6 m) only within about 5 days of its element
   epoch; and the Monte Carlo driver lacks tasking's Doppler sample-rate rule and
-  capture lengthening.
+  capture lengthening. The repeat-detection gate's FDOA-rate bound
+  (`|v|^2 / r_min + |a|` per leg, MATH.md section 6) holds for every orbit but is a strict
+  worst case: on `leo-example.yaml` the largest true rate is 0.19 of it, so the gate
+  rejects correlator false alarms only weakly there, and captures shorten to about
+  58 ms. A rate predicted from the current fix would be tighter but could refuse correct
+  rows after a wrong fix.
 - **TLE ephemeris sigmas are order-of-magnitude guesses** (RIC 2 / 20 / 10 km and
   0.3 / 0.3 / 0.7 m/s). With TLE-grade errors uncalibrated fixes are off by about 23 km
   (median) and calibrated ones depend on the distance to the reference (RESULTS.md
   section 2.2).
 - The satellite-velocity consider parameter is referred to each row's own epoch, so a
   velocity error never builds up into a position error across rows spanning hours
-  (0.02 m/s is about 72 m per hour); negligible over the 10 to 30 s spans tested.
+  (0.02 m/s is about 72 m per hour); negligible over the 10 to 30 s spans tested. A
+  calibrated row's reference partial is moved to the row's epoch too (the satellite
+  moves by the velocity error times the reference's age, up to the allowed 300 s); the
+  planning map evaluates the reference at the target epoch and leaves that out.
 
 ## 6. Detection and verdict
 
@@ -130,10 +172,19 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   with the tracker's start-up prior as its baseline.
 - The adaptive baseline learns a signal that rises slower than about 6 dB per
   `baseline_tau_s / 2` (it is never detected); a level step over a whole window
-  freezes the baseline and stays one detection until the tracker is rebuilt; an emitter
-  over every guard bin from the first frame is invisible until the history takes over
-  (60 s by default). In one integration run two jammers switched on within about 10 s of
-  server start raised no event in 40 s.
+  freezes the baseline and stays one detection until the tracker is rebuilt.
+- A signal already on when a tracker starts is found against the start-up floor as long
+  as it leaves free the bins below the lowest floor quantile tried (1.5 % of 1024 bins,
+  MATH.md section 7). One that fills a whole window is learned as that window's noise;
+  the server then flags the window's floor as raised, but only when the channel has
+  another window of the same span that had a frame in the last 30 s (single-window
+  channels, as in `ku-adjacent.yaml`, are never judged), and a signal filling every
+  window of a channel is not flagged. A receiver whose gain changes per tuning (AGC)
+  could raise false flags. After a learned window-filling signal goes away, that
+  window's baseline stays high until its history relearns (up to half of
+  `baseline_tau_s`).
+- A new event is held for up to one frame period (at most 1 s) so that fragments
+  reported by several windows in the same instant raise one event.
 - An authorised carrier's range is widened by its possible Doppler and oscillator
   offsets, so an interferer within about 150 to 250 Hz of an authorised carrier at UHF
   is attributed to the carrier unless it raises the carrier's power by more than
@@ -149,9 +200,13 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   every sighting, that does not see the signal; otherwise the event stays
   `undetermined`. A local event's state reads `characterizing` because tasking captures
   once before the verdict settles.
-- Classification looks at the strongest signal of a 20 kHz-class capture; in one live
-  run the CW jammer was labelled `noise` because the adjacent reference carrier fell
-  inside the classification capture.
+- When a local signal takes over an uplink event's frequency, the event turns `local`
+  and the uplink position is set aside, but its start time (`onset_ns`, quoted by the
+  advisory) stays at the uplink signal's first detection, and evidence cells still give
+  the earlier signal's last sighting.
+- Classification looks at the strongest signal within four times the event's width
+  around it (at least 10 Hz wide), cut out of the primary capture; another carrier
+  inside that band can still be classified in the event's place.
 
 ## 7. Location
 
@@ -164,38 +219,68 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   only pairs whose two transponders both relay it, and tasking does not use a
   reference whose band overlaps the event's uplink range. The example has one
   reference per shared channel, inside the channel users share, so a jammer that fills
-  that whole 25 kHz channel covers the reference and gets no calibration. Tasking picks
-  the reference nearest in frequency, not the one nearest the emitter.
+  that whole 25 kHz channel covers the reference and gets no calibration. With several
+  references in a channel tasking prefers the one nearest the event's current fix
+  (nearest in frequency before a fix); the Monte Carlo driver and the planning map still
+  take the configured or nearest-in-frequency reference. A reference also has to see
+  every satellite the pairs use: one placed where MUOS Indo-Asia is below its horizon
+  (east of about 160 E) leaves that satellite's pairs uncalibrated.
 - Calibration cancels only what the target and the reference have in common: with
   TLE-grade errors it helps less with distance from the reference (predicted 95 %
-  semi-major 1.2 km about 300 km from Guam, 4 to 24 km at about 3,000 km; RESULTS.md
-  section 2.2), and as rows accumulate the calibrated ellipse can
-  shrink past the uncancelled residual (ephemeris-error scenario: NEES up to 6 after 24
-  noise-free rounds).
+  semi-major 1.2 km about 300 km from Guam, 4.4 to 24 km at about 3,000 km; RESULTS.md
+  section 2.2) and depends on the direction (a reference 1,300 km away gave 2.3 to 3.3
+  km due east or west, 6.8 to 10 km due north or south; RESULTS.md section 2.5). The
+  uncancelled uplink ionosphere also grows with distance (section 5 above). As rows
+  accumulate the calibrated ellipse can shrink past the uncancelled residual
+  (ephemeris-error scenario: NEES up to 6 after 24 noise-free rounds).
 - **Channels relayed by one satellite cannot be located** (the example's `solo-*`
   channels); near Hawaii only two of the three satellites are visible.
 - **CW (unmodulated) jammers: FDOA only.** Uncalibrated the two FDOA rows are
-  unobservable; calibrated the fix is coarse (about 19 km median, with an ellipse tens
-  of kilometres long). When a channel also hears a second copy of the tone a few
-  Doppler bins away (a co-channel satellite or a self-peak ridge), the FDOA scatters up
-  to about 5 reported sigma.
+  unobservable; calibrated the fix is coarse (about 16 km median, 95th percentile 50 km,
+  with an ellipse tens of kilometres long). When a channel also hears a second copy of
+  the tone a few Doppler bins away (a co-channel satellite or a self-peak ridge), the
+  FDOA scatters up to about 5 reported sigma.
 - **Periodically swept jammers are always ambiguous**: the system says so and gives no
   position.
-- Reported sigmas: the TDOA sigma of co-channel same-site pairs is about 17 % low;
-  for coupled waveforms (a sawtooth chirp) near threshold both sigmas are 15 to 26 %
-  low; for a signal much narrower than an unfiltered correlation band the TDOA sigma is
-  about 2.3 times too large (tasking always passes the signal bandwidth).
+- Reported sigmas: co-channel same-site pairs carry the coherent self-peak term of
+  MATH.md section 6 (their scatter over reported sigma is 1.02 for TDOA and FDOA, 100
+  trials, RESULTS.md section 3; it was 1.08 to 1.11 without the term). The term is exact
+  when the copies add in phase, as at one site in the simulator; with real separate
+  dishes it is a cautious bound. For coupled waveforms (a sawtooth chirp) near
+  threshold both sigmas are 15 to 26 % low; for a signal much narrower than an
+  unfiltered correlation band the TDOA sigma is about 2.3 times too large (tasking
+  always passes the signal bandwidth). The per-channel SNR split behind the shared
+  capture noise attributes a co-channel copy heard in one channel partly to the other
+  channel.
 - The estimator gives about 1.6 to 2 % false alarms per capture at the default 13 dB in
   a large UHF window; tasking's repeat-detection gate keeps them out of the solver and
   the verdict, at the cost of one extra round before a pair is used.
-- When one uplink emitter is replaced by another on the same frequency with no gap, the
-  event continues and the solver mixes rows from both emitters. After a gap of more
-  than 30 s the earlier position is set aside.
+- **Another transmitter on the same frequency.** When one uplink emitter is replaced by
+  another, the pairs' measurements jump further than the satellites' motion allows and
+  the earlier rows are set aside (MATH.md section 6); a break shorter than 30 s, or a
+  change of waveform class, power or width, puts the position under re-check, and after
+  a longer break it is set aside. Two transmitters on the air at once and detected
+  alternately are not separated: their mixed fit fails the consistency rule (below), or
+  the solve fails and the earlier position stays published with only the reason of the
+  failed solve shown.
+- **Fit consistency.** A fit with reduced chi-square above 5 and a chi-square tail
+  probability below 0.001 is shown with its ellipse enlarged by the square root of the
+  reduced chi-square and is never reported as located. The rule catches rows that do
+  not fit one stationary transmitter; it cannot catch a systematic error the rows agree
+  on (a 10 us clock fault gave a reduced chi-square of 0.14, section 4).
+- **Site clock estimate.** The `site_clocks` estimate of `/status` fits clock offsets
+  from the calibration corrections. It cannot separate a site linked by only one pair
+  from that pair's satellites, it flags both sites of a two-site group, and it leaves
+  out the site-dependent part of ephemeris errors beyond the allowance computed from
+  the configured sigma: in the ephemeris-error scenario (satellites off by more than
+  their configured sigma) Hilo is flagged at 3.6 us, and its message names a satellite
+  position error as the alternative cause.
 - Fixes depend slightly on where solving starts (cold and warm solves of the same 400
   rows ended 8 m apart, about 1.25 km from truth).
-- The planning map (`accuracy_map`) models no co-channel copy as noise, no waveform
-  coupling, no chirp ambiguity and no multi-epoch fusion, and predicts CW with no band
-  filter (pessimistic by about 10 dB of post-correlation SNR). See MATH.md section 10.
+- The planning map (`accuracy_map`) models no waveform coupling, no chirp ambiguity, no
+  reference age and no multi-epoch fusion (one TDOA and one FDOA per pair). It counts
+  co-channel copies as noise, band-limits a CW as the estimator does, and carries the
+  media and the shared capture noise (MATH.md section 10).
 
 ## 8. Server, network and operations
 
@@ -204,12 +289,20 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   50 ms budget is met most of the time, not always. A process pool would remove this.
 - **Memory and history.** Events stay in memory until more than 1000 inactive ones
   exist; older ones are dropped from memory and `GET /events/{id}` then answers 404,
-  although the store keeps them; no API reads stored history. The start-up heap is
+  although the store keeps them; no API reads stored history. The store keeps every
+  event for ever unless `--history-max-age-s` or `--history-max-events` is set; pruning
+  works on the store only, by last update, and is not undone. The start-up heap is
   frozen for the garbage collector until shutdown.
 - **State lost on restart.** Calibrations, repeat-detection tracks and channel
-  exclusions live in memory; a restart or a configuration change starts them afresh.
-- **Capture retention** is fixed at 512 MiB of saved IQ per data directory; there is no
-  setting or flag for it, and every completed capture is saved.
+  exclusions live in memory; a restart, a configuration change or (simulated) a
+  scenario load starts them afresh.
+- **Capture retention.** Every completed capture is saved, up to
+  `--capture-limit-bytes` (512 MiB by default) per data directory, oldest deleted first;
+  there is no choice of which captures to keep.
+- **Simulated time.** `petal-locate demo --start` shifts the server's and the simulated
+  nodes' clocks by one offset; log lines keep the host time. A store written under
+  `--start` holds simulated times, so a later server without it may see those events
+  as old (history limits included). Real nodes must never run with an offset.
 - **Readiness after a configuration change.** After every `assign` all channels of a
   site are not ready until the node acknowledges, which waits for every new driver to
   open (up to 30 s); tasking and spectrum acceptance stop for that site meanwhile.
@@ -222,6 +315,19 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   proxy in front of the server; TLS and proxy paths were not tested. A peer that stops
   reading is abandoned after 3 s, but uvicorn holds its TCP connection until TCP gives
   up, so a fronting proxy should cap connections per client.
+- **A server without an API token** (`serve` warns; the demo has one unless
+  `--no-api-token`) is open to every process on the machine and to anything that can
+  reach its port. Web pages are only partly kept out: the `Host` check stops DNS
+  rebinding, the request-kind rule stops cross-site form posts, and the console socket
+  refuses foreign origins, but nothing stops a local program or a browser extension.
+  The demo's token travels in the printed address; the console keeps it in
+  `sessionStorage` for the tab and removes it from the address bar.
+- Pair ends of the form `channel@satellite` (a fixed-pointing channel watching several
+  satellites that relay the frequency) work in `core.accuracy` and the Monte Carlo
+  driver, and the console's Plan screen offers them, but `POST
+  /api/v1/analysis/accuracy` and `petal-locate accuracy` refuse them as unknown receive
+  channels (`pairs.0.0: unknown receive channel 'tokyo-pac@muos-pac'`). The shipped
+  configurations have no channel that needs them.
 - `/docs` (Swagger UI) loads from a CDN and does not work offline; the console itself is
   self-hosted.
 - An accuracy map can overrun its 120 s limit by one latitude band; a console on a very

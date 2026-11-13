@@ -164,10 +164,16 @@ def sim_clock_status() -> ClockStatus:
     return ClockStatus(source="sim", locked=True, est_offset_ns=0.0, holdover_s=0.0)
 
 
-def sim_clock() -> SystemClock:
+def sim_clock(offset_ns: int = 0) -> SystemClock:
     """The node clock of a simulated site: the host's UTC clock reporting
-    `sim_clock_status()`. Pass it as `NodeAgent(clock=...)` with `driver="sim"`."""
-    return SystemClock(source="sim", locked=True, est_offset_ns=0.0)
+    `sim_clock_status()`. Pass it as `NodeAgent(clock=...)` with `driver="sim"`
+    (`petal-locate node --driver sim` does).
+
+    offset_ns: integer ns added to the host clock, for a simulated world run from a
+    fixed epoch (`petal-locate demo --start`): the server's time base carries the same
+    offset, so labelled times agree across the deployment. 0 (the default) is the host
+    clock itself."""
+    return SystemClock(source="sim", locked=True, est_offset_ns=0.0, offset_ns=offset_ns)
 
 
 # ----------------------------------------------------------------- backplane document

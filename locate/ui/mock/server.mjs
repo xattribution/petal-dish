@@ -121,14 +121,20 @@ export function createMock(options = {}) {
     for (const n of s.nodes) {
       if (n.online) {
         n.latency_ms = Math.round((n.latency_ms ?? 50) * rnd(0.92, 1.12) * 10) / 10;
-        for (const ch of n.channels) ch.last_frame_age_s = Math.round(rnd(0.05, 0.55) * 100) / 100;
+        for (const ch of n.channels) {
+          ch.last_frame_age_s = Math.round(rnd(0.05, 0.55) * 100) / 100;
+          for (const w of ch.windows ?? []) w.last_frame_age_s = w.detection_frame_age_s = Math.round(rnd(0.05, 0.55) * 100) / 100;
+        }
         if (n.clock && !n.clock.locked) {
           n.clock.holdover_s = Math.round(n.clock.holdover_s + elapsed);
           n.clock.est_offset_ns = Math.round(n.clock.est_offset_ns + elapsed * 0.9);
         }
         n.connected_since = shiftIso(n.connected_since);
       } else {
-        for (const ch of n.channels) ch.last_frame_age_s = Math.round((ch.last_frame_age_s ?? 0) + elapsed);
+        for (const ch of n.channels) {
+          ch.last_frame_age_s = Math.round((ch.last_frame_age_s ?? 0) + elapsed);
+          for (const w of ch.windows ?? []) w.last_frame_age_s = ch.last_frame_age_s;
+        }
       }
     }
     return s;
@@ -145,8 +151,10 @@ export function createMock(options = {}) {
         azimuth_deg: sol.ellipse.azimuth_deg, cep50_m: sol.cep50_m, ambiguous: sol.ambiguities.length > 0,
         // as server/pipeline/events.EventBook.summary: every other position that fits as well
         ambiguities: sol.ambiguities.map((a) => ({ lat_deg: a.lat_deg, lon_deg: a.lon_deg, semi_major_m: a.ellipse.semi_major_m,
-          semi_minor_m: a.ellipse.semi_minor_m, azimuth_deg: a.ellipse.azimuth_deg })) } : null,
+          semi_minor_m: a.ellipse.semi_minor_m, azimuth_deg: a.ellipse.azimuth_deg })),
+        fit_consistent: sol.fit_consistent ?? true } : null,
       simulated: e.simulated ?? false,
+      onset_ns: e.onset_ns ?? null, received_lo_hz: e.received_lo_hz ?? null, received_hi_hz: e.received_hi_hz ?? null, seen_site_ids: e.seen_site_ids ?? [],
     };
   }
 
@@ -394,7 +402,8 @@ export function createMock(options = {}) {
       if (p === '/config/schema' && m === 'GET') return send(res, 200, fx.schema), true;
       if (p === '/status' && m === 'GET') {
         const s = liveStatus();
-        return send(res, 200, { server_t_ns: s.server_t_ns, config_version: s.config_version, nodes: s.nodes, events_active: s.events_active, queue: s.queue }), true;
+        return send(res, 200, { server_t_ns: s.server_t_ns, config_version: s.config_version, nodes: s.nodes, events_active: s.events_active, queue: s.queue,
+          satellites: s.satellites ?? [], site_clocks: s.site_clocks ?? [] }), true;
       }
       if (p.startsWith('/events') && m === 'GET') touchActive(false);
       if (p === '/events' && m === 'GET') {

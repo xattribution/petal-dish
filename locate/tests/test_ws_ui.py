@@ -172,7 +172,8 @@ async def test_status_event_config_and_sim_messages(files: dict[str, Path]) -> N
             event = schemas.WsEventMessage.model_validate(message).event
             assert event.id == event_id and event.state == "detected" and event.simulated
 
-            async with httpx.AsyncClient(base_url=served.http_url, trust_env=False, timeout=WAIT_S) as http:
+            async with httpx.AsyncClient(base_url=served.http_url, trust_env=False, timeout=WAIT_S,
+                                         headers={"X-Petal-Client": "test"}) as http:
                 current = (await http.get("/api/v1/config")).json()["config"]
                 current["description"] = "changed"
                 reply = await http.put("/api/v1/config", json=current, headers={"If-Match": '"1"'})
@@ -358,3 +359,37 @@ async def test_a_console_is_refused_while_the_server_closes(files: dict[str, Pat
         client = await console(served)
         assert await close_code(client) == ws.CLOSE_GOING_AWAY
         await client.close()
+
+
+async def test_a_console_socket_from_a_foreign_origin_is_refused(files: dict[str, Path]) -> None:
+    """Without an API token any web page could open /ws/ui and read the live stream:
+    WebSockets are outside the browser's same-origin rules (review SRV-3)."""
+    async with serving(settings_for(files)) as served:
+        own = f"http://127.0.0.1:{served.port}"
+        client = await console(served, origin="http://evil.example")
+        try:  # bounded: a socket that is wrongly kept open streams status for ever
+            assert await asyncio.wait_for(close_code(client), WAIT_S) == ws.CLOSE_POLICY
+        finally:
+            await client.close()
+        assert served.app.state.ui_sockets.refused == 1
+        client = await console(served, origin=own)  # the console's own page
+        try:
+            assert (await next_text(client, "status"))["type"] == "status"
+            # a malformed subscribe holding a lone surrogate is ignored, not fatal
+            await client.send('{"type": "subscribe", "psd": [["a\\ud800", "m"]]}')
+            assert (await next_text(client, "status"))["type"] == "status"
+        finally:
+            await client.close()
+        client = await console(served)  # no Origin: not a browser
+        try:
+            assert (await next_text(client, "status"))["type"] == "status"
+        finally:
+            await client.close()
+        with pytest.raises(Exception, match="403"):  # a DNS-rebound name is refused at the handshake
+            await console(served, additional_headers={"Host": "rebind.evil.example"})
+    async with serving(settings_for(files, allowed_origins=("http://console.example:8443",))) as served:
+        client = await console(served, origin="http://console.example:8443")
+        try:
+            assert (await next_text(client, "status"))["type"] == "status"
+        finally:
+            await client.close()

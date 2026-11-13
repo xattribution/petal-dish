@@ -12,6 +12,26 @@ who are not RF specialists:
   find, filter, shield or relocate locally; other sites are unaffected.
 - ``undetermined``: what evidence is missing and what would settle it.
 
+Rules the texts follow:
+
+- Ellipses are always given by their 95 % (``solver.confidence``) semi-axes, the same
+  convention as the console's figures; "within about X" and "±X" are the semi-major.
+- A position is only reported as a fix when its fit is consistent and unique. An
+  inconsistent fit (``SolutionOut.fit_consistent`` false) is described as unreliable
+  and not reported; an unresolved ambiguity lists every candidate and says the system
+  cannot choose; a position being re-checked (``EventRecord.recheck``) is reported only
+  once new measurements confirm it.
+- Satellites: before a position exists, satellites the signal was seen through (or
+  measured through) are named as affected, the rest of the frequency plan as "may also
+  reach"; once one exists the correlator has already left out satellites that cannot see
+  it (``EventRecord.not_visible_satellite_ids``), and the advice says so.
+- Frequencies: an uplink event is named by its uplink frequency; what a site receives
+  (``local`` and ``undetermined``) by the received (downlink) frequency of its ``seen``
+  evidence rows, with the site and channels.
+- The start time to report is the onset of the current transmission
+  (``EventRecord.onset``), given in UTC.
+- A signal that cannot be located (``TaskingStatus.unlocatable_reason``) says so and why.
+
 Terms are explained the first time they appear; numbers are rounded to what matters.
 Simulated events say so in the headline. Pure functions, no I/O.
 """
@@ -19,6 +39,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import Any, Final
 
 from petal_locate.server.api import schemas
@@ -34,6 +55,10 @@ LABEL_TEXT: Final[dict[str, str]] = {
     "pulsed": "a signal that switches on and off (pulsed)",
 }
 """How each waveform class is described to an operator (``unknown`` is not described)."""
+
+
+_MEANINGLESS_ELLIPSE_M: Final[float] = 2.0e6
+"""An enlarged ellipse wider than this (semi-major, m) is not quoted: it says nothing."""
 
 
 # ------------------------------------------------------------------- formatting
@@ -116,6 +141,14 @@ class _Names:
                 pass
         return 200.0
 
+    def max_reduced_chi2(self) -> float | None:
+        if self._config is not None:
+            try:
+                return float(self._config.processing.solver.max_reduced_chi2)
+            except AttributeError:
+                pass
+        return None
+
 
 # ------------------------------------------------------------------- advice
 
@@ -171,11 +204,74 @@ def _frequency(record: EventRecord) -> str:
     return format_frequency(record.lo_hz, record.hi_hz)
 
 
-def _transponder_phrase(record: EventRecord, names: _Names) -> str:
-    """``transponder shared-1 of MUOS Pacific`` etc., explained on first use."""
-    if not record.transponders:
+def _utc_text(t_ns: int) -> str:
+    """``2026-11-13 16:56:52Z`` of a UTC ns time."""
+    seconds = int(t_ns) // 1_000_000_000
+    stamp = datetime.fromtimestamp(seconds, tz=timezone.utc)
+    return stamp.strftime("%Y-%m-%d %H:%M:%SZ")
+
+
+def _start_time(record: EventRecord) -> str:
+    """``the start time (2026-11-13 16:56:52Z)``: the onset of the current transmission."""
+    try:
+        return f"the start time ({_utc_text(record.onset)})"
+    except (OverflowError, OSError, ValueError):
+        return "the start time"
+
+
+def _ellipse_text(ellipse: schemas.EllipseOut) -> str:
+    """``95 % ellipse with semi-axes 4.9 km by 2.4 km``."""
+    confidence = round(100.0 * ellipse.confidence)
+    return (
+        f"{confidence} % ellipse with semi-axes {format_distance(ellipse.semi_major_m)} by "
+        f"{format_distance(ellipse.semi_minor_m)}"
+    )
+
+
+def _received_groups(record: EventRecord, names: _Names, *, via: bool) -> list[str]:
+    """What the sites that see the signal receive, one phrase per received frequency:
+    ``near 260.0050 MHz (about 10 kHz wide) at Busan on busan-pac and busan-io`` (with
+    ``via``: ``... through MUOS Pacific``). From the ``seen`` evidence rows' downlink
+    ranges (an event outside every passband: its own range)."""
+    groups: dict[int, dict[str, Any]] = {}
+    for row in record.evidence:
+        if row.state != "seen":
+            continue
+        if row.downlink_lo_hz is not None and row.downlink_hi_hz is not None:
+            lo, hi = row.downlink_lo_hz, row.downlink_hi_hz
+        elif not record.mapped:
+            lo, hi = record.lo_hz, record.hi_hz
+        else:  # an older row without its range: the transponder's mapping of the event
+            tp = next((t for t in record.transponders if t.sat_id == row.sat_id), None)
+            if tp is None:
+                continue
+            lo, hi = tp.downlink_lo_hz, tp.downlink_hi_hz
+        key = int(round(0.5 * (lo + hi) / 1e3))  # one group per kHz of received centre
+        group = groups.setdefault(key, {"lo": lo, "hi": hi, "sites": [], "channels": [], "sats": []})
+        group["lo"], group["hi"] = min(group["lo"], lo), max(group["hi"], hi)
+        for name, value in (("sites", names.site(row.site_id)), ("channels", row.channel_id)):
+            if value not in group[name]:
+                group[name].append(value)
+        if row.sat_id is not None and names.satellite(row.sat_id) not in group["sats"]:
+            group["sats"].append(names.satellite(row.sat_id))
+    phrases = []
+    for group in groups.values():
+        text = f"near {format_frequency(group['lo'], group['hi'])} at {_join(group['sites'])} on {_join(group['channels'])}"
+        if via and group["sats"]:
+            text += f" through {_join(group['sats'])}"
+        phrases.append(text)
+    return phrases
+
+
+def _transponder_phrase(record: EventRecord, names: _Names, sat_ids: Sequence[str] | None = None) -> str:
+    """``transponder shared-1 of MUOS Pacific`` etc., explained on first use (only those
+    of ``sat_ids`` when given and any match)."""
+    rows = list(record.transponders)
+    if sat_ids is not None:
+        rows = [t for t in rows if t.sat_id in sat_ids] or rows
+    if not rows:
         return "the affected satellite channel"
-    parts = [f"transponder {t.transponder_id} of {names.satellite(t.sat_id)}" for t in record.transponders]
+    parts = [f"transponder {t.transponder_id} of {names.satellite(t.sat_id)}" for t in rows]
     return f"{_join(parts)} (the satellite channel that relays this frequency)"
 
 
@@ -193,83 +289,206 @@ def _seen_satellites(record: EventRecord, names: _Names) -> list[str]:
     return out
 
 
+def _measured_satellite_ids(record: EventRecord) -> set[str]:
+    """Satellites the signal was seen through or measured through (an accepted pair)."""
+    out = {row.sat_id for row in record.evidence if row.state == "seen" and row.sat_id is not None}
+    for entry in record.measurements:
+        if entry.row.used:
+            out.update((entry.row.pair.a.sat_id, entry.row.pair.b.sat_id))
+    return out
+
+
+def _relaying(record: EventRecord) -> tuple[list[str], list[str]]:
+    """(satellites known to relay the signal, satellites that may also relay it). Once a
+    consistent position exists, ``satellite_ids`` is already limited to satellites that
+    can see it, so all are known; before, only those seen or measured through are."""
+    listed = list(record.satellite_ids)
+    solution = record.solution_out
+    if solution is not None and solution.fit_consistent:
+        return listed, []
+    measured = _measured_satellite_ids(record)
+    known = [s for s in listed if s in measured]
+    if not known:
+        return listed, []
+    return known, [s for s in listed if s not in measured]
+
+
 def _label_sentence(record: EventRecord) -> str | None:
     if record.classification is None:
         return None
     return LABEL_TEXT.get(record.classification.label)
 
 
-def _solution_text(record: EventRecord) -> tuple[str, str | None, bool]:
-    """(sentence for the detail, position text for the report or None, ambiguous)."""
+def _unlocatable(record: EventRecord) -> str | None:
+    tasking = record.tasking
+    return tasking.unlocatable_reason if tasking is not None else None
+
+
+class _Position:
+    """What the advice says about the position: the detail sentence, the report text (a
+    unique, consistent position not under re-check, else None) and flags."""
+
+    def __init__(self, sentence: str, report: str | None, *, ambiguous: bool = False, inconsistent: bool = False,
+                 candidates: str | None = None, unlocatable: str | None = None) -> None:
+        self.sentence = sentence
+        self.report = report
+        self.ambiguous = ambiguous
+        self.inconsistent = inconsistent
+        self.candidates = candidates
+        self.unlocatable = unlocatable
+
+
+def _position(record: EventRecord, names: _Names) -> _Position:
     solution = record.solution_out
     if solution is None:
+        unlocatable = _unlocatable(record)
+        if unlocatable is not None:
+            return _Position(f"No position can be computed. {unlocatable}", None, unlocatable=unlocatable)
         relaying = len(record.satellite_ids)
         if relaying < 2:
             sentence = (
                 "Only one satellite relays this frequency, so the transmitter cannot be located "
                 "from the differences between satellite copies."
             )
-        else:
-            sentence = (
-                f"No position estimate yet: the system is comparing the copies of the signal "
-                f"relayed by {relaying} satellites."
-            )
-            if record.last_solve_reason:
-                sentence += f" The last attempt gave no position ({record.last_solve_reason})."
-        return sentence, None, False
+            return _Position(sentence, None, unlocatable=sentence)
+        sentence = (
+            f"No position estimate yet: the system is comparing the copies of the signal "
+            f"relayed by {relaying} satellites."
+        )
+        if record.last_solve_reason:
+            sentence += f" The last attempt gave no position ({record.last_solve_reason})."
+        if record.recheck:
+            sentence += f" {record.recheck}"
+        return _Position(sentence, None)
     position = format_position(solution.lat_deg, solution.lon_deg)
     ellipse = solution.ellipse
     confidence = round(100.0 * ellipse.confidence)
+    if not solution.fit_consistent:
+        limit = names.max_reduced_chi2()
+        against = f" against at most {limit:g}" if limit is not None else ""
+        enlarged = (
+            f" enlarged {solution.ellipse_scale:,.0f} times" if solution.ellipse_scale >= 1.5 else " enlarged"
+        )
+        if ellipse.semi_major_m > _MEANINGLESS_ELLIPSE_M:
+            spread = "the disagreement is so large that no meaningful error ellipse can be given."
+        else:
+            spread = (
+                f"its {_ellipse_text(ellipse)} ({enlarged.strip()} to allow for the disagreement) may still not "
+                "contain the transmitter."
+            )
+        sentence = (
+            f"The measurements do not fit a single stationary transmitter (reduced chi-square "
+            f"{_chi2_text(solution.reduced_chi2)}{against}): more than one transmitter may share this frequency, "
+            "the transmitter may be moving, or a site clock or satellite position may be wrong. The best fit, at "
+            f"{position}, is not a reliable position; {spread}"
+        )
+        return _Position(sentence, None, inconsistent=True)
+    candidates = [solution, *solution.ambiguities]
+    if solution.ambiguities:
+        listed = "; ".join(
+            f"{format_position(c.lat_deg, c.lon_deg)}, {_ellipse_text(c.ellipse)}" for c in candidates
+        )
+        sentence = (
+            f"{len(candidates)} positions fit the measurements equally well, and the system cannot yet choose "
+            f"between them: {listed}."
+        )
+        report_list = "; ".join(
+            f"{format_position(c.lat_deg, c.lon_deg)} ±{format_distance(c.ellipse.semi_major_m)}" for c in candidates
+        )
+        return _Position(sentence, None, ambiguous=True, candidates=f"{report_list} (each at {confidence} % confidence)")
     sentence = (
         f"The transmitter is estimated to be at {position}, within about "
-        f"{format_distance(ellipse.semi_major_m)} ({confidence} % confidence; the error ellipse is "
-        f"{format_distance(2 * ellipse.semi_major_m)} by {format_distance(2 * ellipse.semi_minor_m)})."
+        f"{format_distance(ellipse.semi_major_m)} ({_ellipse_text(ellipse)}, "
+        f"major axis {ellipse.azimuth_deg:.0f}° from north)."
     )
-    ambiguous = bool(solution.ambiguities)
-    if ambiguous:
-        other = solution.ambiguities[0]
-        sentence += (
-            f" A mirror position at {format_position(other.lat_deg, other.lon_deg)} fits the "
-            "measurements equally well and cannot be ruled out yet."
-        )
     report = f"{position}, ±{format_distance(ellipse.semi_major_m)} at {confidence} % confidence"
-    return sentence, report, ambiguous
+    if record.recheck:
+        sentence += f" {record.recheck}"
+    return _Position(sentence, report)
+
+
+def _chi2_text(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "unknown"
+    return f"{value:.1e}" if value >= 1e4 else f"{value:.3g}"
 
 
 def _uplink(record: EventRecord, names: _Names) -> tuple[str, str, list[str]]:
-    sats = [names.satellite(s) for s in record.satellite_ids] or _seen_satellites(record, names)
+    known, maybe = _relaying(record)
+    sats = [names.satellite(s) for s in known] or _seen_satellites(record, names)
     sat_text = _join(sats) or "the satellite"
     frequency = _frequency(record)
-    headline = f"Uplink interference on {sat_text} at {frequency.split(' (')[0]}"
-    location, report, ambiguous = _solution_text(record)
+    up = frequency.split(" (")[0]
+    headline = f"Uplink interference on {sat_text} at {up}"
+    position = _position(record, names)
+    extra = ""
+    if maybe:
+        extra += (
+            f" It may also reach {_join([names.satellite(s) for s in maybe])}: their transponders relay this "
+            "frequency, but no site has seen it through them yet and there is no position yet to tell whether "
+            "they can see the transmitter."
+        )
+    if record.not_visible_satellite_ids:
+        hidden = _join([names.satellite(s) for s in record.not_visible_satellite_ids])
+        extra += (
+            f" {hidden} also relays this frequency but cannot see the transmitter's estimated position, so its "
+            "users are not affected."
+        )
     detail = (
         f"The interfering signal, near {frequency}, is reaching the satellite's receiver, so the "
-        f"satellite relays it to every user of {_transponder_phrase(record, names)}, wherever they "
-        f"are. {record.verdict_reason} Moving, re-pointing or shielding a ground terminal will not "
-        f"help, because the interference arrives from the satellite itself. {location}"
+        f"satellite relays it to every user of {_transponder_phrase(record, names, known)}, wherever they "
+        f"are.{extra} {record.verdict_reason} Moving, re-pointing or shielding a ground terminal will not "
+        f"help, because the interference arrives from the satellite itself. {position.sentence}"
     )
+    move = f"Move the affected traffic to a channel, transponder or satellite that does not carry {up}."
+    if maybe:
+        move = move[:-1] + f" (on {_join([names.satellite(s) for s in maybe])} too, until it is known whether they can see the transmitter)."
     actions = [
-        f"Move the affected traffic to a channel, transponder or satellite that does not carry "
-        f"{frequency.split(' (')[0]}.",
+        move,
         "Do not relocate, re-point or shield terminals to fix this: it will not remove "
         "interference that arrives from the satellite.",
     ]
-    if report is not None:
+    authority = "to the satellite operator or the spectrum authority"
+    start = _start_time(record)
+    if position.report is not None and record.recheck:
         actions.append(
-            f"Report the estimated transmitter position ({report}), the frequency and the start "
-            "time to the satellite operator or the spectrum authority so the transmitter can be "
-            "found and stopped."
+            f"Report the estimated transmitter position ({position.report}), the frequency and {start} "
+            f"{authority} once new measurements confirm it: it was measured before the signal changed or broke off."
+        )
+    elif position.report is not None:
+        actions.append(
+            f"Report the estimated transmitter position ({position.report}), the frequency and {start} "
+            f"{authority} so the transmitter can be found and stopped."
+        )
+    elif position.ambiguous:
+        actions.append(
+            f"Report that the transmitter is at one of {1 + len(record.solution_out.ambiguities)} positions that "  # type: ignore[union-attr]
+            f"fit equally well ({position.candidates}) and that the system cannot yet choose between them, with "
+            f"the frequency and {start}, {authority}."
+        )
+        actions.append(
+            "Do not act on any one of these positions alone: more measurements (another satellite or site, a "
+            "reference calibration, or time for the satellites to move) are needed to choose."
+        )
+    elif position.inconsistent:
+        actions.append(
+            f"Report the frequency, {start} and the affected satellite {authority}; do not report the computed "
+            "position: the measurements are inconsistent with one stationary transmitter."
+        )
+        actions.append(
+            "Check whether more than one transmitter is on this frequency, whether a site's clock or timing "
+            "receiver is faulty, or whether a satellite's ephemeris is out of date."
+        )
+    elif position.unlocatable is not None:
+        actions.append(
+            f"Report the frequency, {start} and the affected satellite {authority}, and say that the transmitter "
+            "cannot be located by satellite correlation."
         )
     else:
-        actions.append(
-            "Report the frequency, the start time and the affected satellite to the satellite "
-            "operator or the spectrum authority."
-        )
+        actions.append(f"Report the frequency, {start} and the affected satellite {authority}.")
     label = _label_sentence(record)
     if label is not None:
         actions.append(f"Include the signal type in the report: it looks like {label}.")
-    if ambiguous:
-        actions.append("Treat the mirror position as possible until more measurements resolve it.")
     return headline, detail, actions
 
 
@@ -278,14 +497,17 @@ def _local(record: EventRecord, names: _Names) -> tuple[str, str, list[str]]:
     site_text = _join(sites) or "one site"
     verb = "sees" if len(sites) <= 1 else "see"
     headline = f"Local interference at {site_text}"
+    received = _received_groups(record, names, via=False)
+    on_air = "; ".join(received) if received else f"near {_frequency(record)}"
     detail = (
-        f"Only {site_text} {verb} this signal, near {_frequency(record)}. {record.verdict_reason} "
+        f"Only {site_text} {verb} this signal, received {on_air}. {record.verdict_reason} "
         f"This points to a source on the ground near {site_text}: nearby equipment, another "
         "transmitter, or a fault in the site's own receive chain. Other sites and other users of "
         "the satellite are not affected."
     )
+    tune = f" (tune to {received[0].split(' at ')[0].removeprefix('near ')})" if len(received) == 1 else ""
     actions = [
-        f"Look for a nearby source around {site_text}: recently installed equipment, transmitters, "
+        f"Look for a nearby source around {site_text}{tune}: recently installed equipment, transmitters, "
         "or electrical noise close to the antenna.",
         "Check the site's own receive chain (cables, connectors, amplifiers) for faults.",
         "If the source cannot be switched off: add a filter, shield the antenna, or move the "
@@ -336,22 +558,35 @@ def _gap_action(gap: dict[str, Any], names: _Names) -> str | None:
 
 def _undetermined(record: EventRecord, names: _Names) -> tuple[str, str, list[str]]:
     frequency = _frequency(record)
+    received = _received_groups(record, names, via=True)
+    if len(received) == 1:
+        verb, named = "received", received[0].split(" (")[0].removeprefix("near ")  # the received centre
+    else:
+        verb, named = "detected", frequency.split(" (")[0] + (" uplink" if record.mapped and received else "")
     settling = record.verdict_basis == "settling"
     if settling:
-        headline = f"Interference detected at {frequency.split(' (')[0]}: checking where it enters"
+        headline = f"Interference {verb} at {named}: checking where it enters"
     else:
-        headline = f"Interference detected at {frequency.split(' (')[0]}: source not yet determined"
-    sites = _seen_sites(record, names)
-    sats = _seen_satellites(record, names)
-    seen = f"Seen at {_join(sites)}" if sites else "Detected"
-    via = f" through {_join(sats)}" if sats else ""
+        headline = f"Interference {verb} at {named}: source not yet determined"
+    sites, sats = _seen_sites(record, names), _seen_satellites(record, names)
+    if received:
+        seen = "Received " + "; ".join(received)
+    elif sites:  # rows without their received range (older documents)
+        seen = f"Seen at {_join(sites)}" + (f" through {_join(sats)}" if sats else "") + f", near {frequency}"
+    else:
+        seen = f"Detected near {frequency}"
+    uplink = (
+        f" If it reaches the satellites, it is transmitted near {frequency} on the uplink."
+        if record.mapped and received
+        else ""
+    )
     outside = (
         " It lies outside every transponder passband, so no satellite relays it."
         if not record.mapped
         else ""
     )
     detail = (
-        f"{seen}{via}, near {frequency}.{outside} It is not yet possible to tell whether the "
+        f"{seen}.{uplink}{outside} It is not yet possible to tell whether the "
         "signal reaches the satellite (affecting every user of the transponder, wherever they "
         "are) or comes from near one site (affecting only that site). "
         f"{record.verdict_reason}"

@@ -25,13 +25,16 @@ to it once it exists::
     holder = RuntimeHolder()
     app = create_app(settings, hub_providers=holder.hub_providers())
     # lifespan, after hub.start():
-    holder.runtime = app.state.runtime = await ServerRuntime.from_settings(settings)
+    holder.runtime = app.state.runtime = await ServerRuntime.from_settings(
+        settings, store=store, clock=app.state.clock)   # the server clock (Settings.clock())
     await holder.runtime.start(app.state.hub)
     # lifespan, before hub.close():
     await holder.runtime.stop()
 
 (When the caller already runs on the serving loop it may build the runtime first and
-pass ``runtime.hub_providers()`` instead.)
+pass ``runtime.hub_providers()`` instead.) It also publishes, with the status, the
+satellites whose ephemeris cannot be evaluated (``check_orbits``, every
+``ORBIT_CHECK_S``) and the per-site clock estimates of tasking.
 
 Errors for the console API: ``PreconditionRequired`` (428), ``VersionConflict`` (409),
 ``ConfigInvalid`` / ``ScenarioInvalid`` (422, ``.errors`` is ``[{loc, msg}]``),
@@ -52,11 +55,14 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
+import numpy as np
 import yaml
 from pydantic import ValidationError
 
 from petal_locate import __version__
 from petal_locate.config import ConfigError, SystemConfig, field_errors, load_config, loads_config
+from petal_locate.core.orbits import orbit_position
+from petal_locate.core.timebase import iso_from_ns, ns_from_iso
 from petal_locate.protocol.messages import SIM_UPDATE_LEAD_NS, ChannelAssignment, MonitorAssignment
 from petal_locate.server.api import schemas
 from petal_locate.server.app import HubProviders
@@ -86,6 +92,7 @@ from petal_locate.sim.scenario import Scenario, ScenarioError, dump_scenario, lo
 __all__ = [
     "CPU_WORKERS",
     "HISTORY_LIMIT",
+    "ORBIT_CHECK_S",
     "QUALITY_REFRESH_S",
     "SIM_BACKPLANE_PATH",
     "STATUS_INTERVAL_S",
@@ -120,6 +127,10 @@ STATUS_INTERVAL_S: Final[float] = 1.0
 
 QUALITY_REFRESH_S: Final[float] = 30.0
 """Period at which the downlink-quality table is recomputed (satellites move), s."""
+
+ORBIT_CHECK_S: Final[float] = 30.0
+"""Period of the orbit-validity check whose result ``status`` carries (``satellites``):
+an ephemeris table that has ended, or a TLE that no longer propagates, is reported, s."""
 
 HISTORY_LIMIT: Final[int] = 500
 """Events of earlier runs loaded as history at start."""
@@ -299,6 +310,17 @@ def resolve_truth_emitters(scenario: Scenario, config: SystemConfig) -> list[Tru
             )
         )
     return out
+
+
+def _table_span_ns(orbit_model: Any) -> tuple[int | None, int | None]:
+    """First and last sample time of a ``table`` orbit (integer UTC ns), else (None, None)."""
+    if getattr(orbit_model, "type", None) != "table":
+        return None, None
+    try:
+        times = [ns_from_iso(sample.t) for sample in orbit_model.samples]
+    except (ValueError, AttributeError, TypeError):
+        return None, None
+    return (min(times), max(times)) if times else (None, None)
 
 
 def _scenario_errors(exc: Exception) -> list[dict[str, str]]:
@@ -656,6 +678,9 @@ class ServerRuntime:
         self._status_failures = 0
         self._tasking: Tasking | None = None
         self._lag: dict[str, float] = {"samples": 0, "max_s": 0.0, "over_50ms": 0}
+        self._satellites: list[schemas.SatelliteStatus] = []  # orbit-validity check (ADAPT-7)
+        self._orbit_down: dict[str, int] = {}  # sat_id -> since when its orbit cannot be evaluated
+        self._orbit_checked: tuple[int, int] | None = None  # (config version, server time) of the last check
 
     # ------------------------------------------------------------------ construction
 
@@ -954,6 +979,8 @@ class ServerRuntime:
         self._tasking.start()
         self._subscriptions.append(hub.subscribe_psd(self._detection.on_psd, name="detection"))
         self._subscriptions.append(hub.subscribe_status(self._on_node_status, name="runtime"))
+        if callable(getattr(hub, "set_window_health", None)):
+            hub.set_window_health(self._detection.window_health)  # node status shows blind windows
         loop = asyncio.get_running_loop()
         self._tasks = [
             loop.create_task(self._status_loop(), name="petal-runtime-status"),
@@ -1075,6 +1102,7 @@ class ServerRuntime:
             try:
                 self._correlator.tick()
                 self._book.prune(REOPEN_WINDOW_S)
+                self._maybe_check_orbits()
                 self._publish_status()
                 self._status_failures = 0
             except Exception:  # keep the console informed whatever one tick did
@@ -1130,8 +1158,12 @@ class ServerRuntime:
                 self._correlator.set_quality(table)
 
     def _on_node_status(self, event: Any) -> None:
-        """Hub status subscriber: node sessions to the store, verdicts re-evaluated."""
+        """Hub status subscriber: node sessions to the store, verdicts re-evaluated. A new
+        session also resets the frame times of the site's detection windows (its clock
+        may have been corrected while it was away)."""
         status = dict(event.status or {})
+        if event.kind == "online":
+            self._detection.reset_site(event.site_id)
         try:
             if event.kind == "online":
                 self._store.node_session_opened(
@@ -1248,6 +1280,8 @@ class ServerRuntime:
             nodes=self._nodes(),
             events_active=self._book.count_active(),
             queue=self._queue(),
+            satellites=list(self._satellites),
+            site_clocks=self._site_clocks(),
         )
 
     def status_message(self) -> schemas.WsStatusMessage:
@@ -1260,7 +1294,74 @@ class ServerRuntime:
             nodes=self._nodes(),
             events_active=self._book.count_active(),
             queue=self._queue(),
+            satellites=list(self._satellites),
+            site_clocks=self._site_clocks(),
         )
+
+    def _site_clocks(self) -> list[schemas.SiteClockEstimate]:
+        """Clock offsets estimated from the calibrations tasking holds (UX-10)."""
+        if self._tasking is None:
+            return []
+        try:
+            return self._tasking.site_clock_estimates()
+        except (ValueError, ValidationError, np.linalg.LinAlgError) as exc:  # a diagnostic: never break status
+            logger.warning("site clock estimates not available: %s", exc)
+            return []
+
+    def _maybe_check_orbits(self) -> None:
+        now = self._clock()
+        last = self._orbit_checked
+        if last is None or last[0] != self._config_version or now - last[1] >= int(ORBIT_CHECK_S * 1e9):
+            self.check_orbits(now)
+
+    def check_orbits(self, now_ns: int | None = None) -> list[schemas.SatelliteStatus]:
+        """Evaluate every configured satellite's orbit at the server time (ADAPT-7) and
+        keep the result for ``status``: a satellite whose orbit cannot be evaluated (an
+        ephemeris table that ended or has not started, a TLE that fails to propagate) gets
+        ``ephemeris_ok = false`` and a message; becoming unavailable is logged at WARNING
+        once, coming back at INFO. Runs every ``ORBIT_CHECK_S`` and on a configuration
+        change. Returns the rows."""
+        now = self._clock() if now_ns is None else int(now_ns)
+        cfg, version = self._config, self._config_version
+        rows: list[schemas.SatelliteStatus] = []
+        for satellite in cfg.satellites:
+            try:
+                orbit_position(cfg.orbit(satellite.id), now / 1e9)
+            except ValueError as exc:
+                start, end = _table_span_ns(satellite.orbit)
+                before = start is not None and now < start
+                since = self._orbit_down.get(satellite.id)
+                if since is None:
+                    since = end if end is not None and now > end else now
+                    self._orbit_down[satellite.id] = since
+                    logger.warning(
+                        "satellite %s: ephemeris not available (%s)",
+                        satellite.id,
+                        exc,
+                        extra={"sat_id": satellite.id, "since_ns": str(since)},
+                    )
+                when = f"until {iso_from_ns(start)}" if before and start is not None else f"since {iso_from_ns(since)}"
+                rows.append(
+                    schemas.SatelliteStatus(
+                        sat_id=satellite.id,
+                        ephemeris_ok=False,
+                        unavailable_since_ns=None if before else since,
+                        message=(
+                            f"satellite {satellite.name} ({satellite.id}): ephemeris not available {when} ({exc}); "
+                            "its pairs are not tasked and nothing is located through it until the ephemeris is updated"
+                        ),
+                    )
+                )
+                continue
+            if self._orbit_down.pop(satellite.id, None) is not None:
+                logger.info("satellite %s: ephemeris available again", satellite.id, extra={"sat_id": satellite.id})
+            rows.append(schemas.SatelliteStatus(sat_id=satellite.id, ephemeris_ok=True))
+        known = {s.id for s in cfg.satellites}
+        for sat_id in [s for s in self._orbit_down if s not in known]:
+            del self._orbit_down[sat_id]
+        self._satellites = rows
+        self._orbit_checked = (version, now)
+        return rows
 
     def _publish_status(self) -> None:
         self._console.publish_text("status", self.status_message().model_dump_json())

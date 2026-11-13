@@ -4,15 +4,24 @@ This document is the single source of truth for conventions. Code, tests and the
 simulator must agree with it. Where code and this document disagree, the bug is in
 whichever one fails the physical sanity tests in section 12.
 
-Revision 4: describes the implementation as built, verified and integrated. Where the
+Revision 5: describes the implementation as built, verified and integrated. Where the
 code departs from revision 2 the text states the rule the code follows, with the reason
 when it was a judgement call, and section 12 states tolerances that hold. Revision 4
-adds rules the server pipeline and the simulator follow (section 4 simulator details,
+added rules the server pipeline and the simulator follow (section 4 simulator details,
 the ephemeris allowance and repeat-detection gate of section 6, the server's carrier
 ranges, identity, evidence and verdict rules of section 7, the accuracy map's choices in
-section 10). Numbers quoted as "measured" come from the review of revision 1, from the
-build and verification scripts of revision 3 or from the integration runs of revision 4,
-all on the simulator.
+section 10). Revision 5 adds the propagation media (ionosphere and troposphere) as
+consider parameters (sections 3 and 9), the noise rows share through a common capture
+(sections 6, 9 and 10), the reference-age term of a calibrated row (section 9), the
+coherent co-channel term of the correlator's sigmas (section 6), a dynamics bound that
+holds for every orbit (section 6), the replacement and re-check rules of the
+repeat-detection gate (section 6), the start-up floor cascade and the new-event hold of
+the detector (section 7), the fit-consistency rule and the site-clock estimate of the
+server (section 9), and the accuracy map's channel noise and CW band (section 10).
+Numbers quoted as "measured" come from the review of revision 1, from the build and
+verification scripts of revisions 3 and 5, from the integration runs of revision 4, or
+from the capability study (`docs/RESULTS.md`, `docs/results/*.json`), all on the
+simulator.
 
 ## 1. Units, frames, time
 
@@ -139,16 +148,43 @@ All quantities ECEF.
 - Direct terrestrial path (emitter heard by a site without a satellite):
   `D = |x_g - x_e| / C`, only inside the radio horizon
   `d < 4.12 km (sqrt(h_e) + sqrt(h_g))` with antenna heights in metres.
-- Ignoring the rotation terms costs up to 0.19 microseconds per leg (0.35 differential)
-  on GEO geometry, which is kilometres at small satellite separations.
+- Ignoring the rotation terms costs up to 0.22 microseconds per leg (0.43 differential)
+  on GEO geometry, at 0 degrees elevation (`OMEGA_E R_E a sin(psi) / C^2` with `psi`
+  the central angle to the horizon, 0.216 us; 0.19 us at 20 degrees elevation), which
+  is kilometres at small satellite separations.
 
-Optional ionosphere (off by default, on in UHF error studies): group delay
-`delta = 40.3 * STEC / (f^2 C)` seconds with `f` in Hz and `STEC` in electrons/m^2:
-`STEC = vtec_tecu * 1e16 * slant(el)`,
-`slant(el) = 1 / sqrt(1 - (R_E cos(el) / (R_E + 350 km))^2)`, `el` = elevation of the
-satellite seen from the ground end of the leg (emitter for the uplink at `f_e`, site
-for the downlink at `f_e + T`). The envelope argument uses `delay + delta`, the
-carrier-phase terms use `delay - delta`. Check: 30 TECU, 305 MHz, zenith = 434 ns.
+**Propagation media.** The delays above are vacuum light time: the predictors `h`
+(section 5) contain no ionosphere and no troposphere. Both are real and both are
+carried by the solver and the accuracy map as consider parameters (section 9); the
+simulator can apply them as truth (`sim.scenario.IonoError`, `TropoError`; both off in
+every shipped scenario, drawn per trial by the Monte Carlo driver, section 9). Per leg,
+with `el` the geometric elevation of the satellite seen from the leg's ground end
+(the emitter for the uplink at `f_e`, the site for the downlink at `f_e + T`), clipped
+to `[0, 90]` degrees, no refraction:
+
+- Ionosphere (dispersive, thin shell at 350 km): group delay
+  `delta_i = 40.3 * STEC / (f^2 C)` seconds with `f` in Hz and `STEC` in electrons/m^2,
+  `STEC = vtec_tecu * 1e16 * slant(el)`,
+  `slant(el) = 1 / sqrt(1 - (R_E cos(el) / (R_E + 350 km))^2)`. The envelope argument
+  uses `delay + delta_i`, the carrier-phase terms use `delay - delta_i` (phase advance).
+  Check: 30 TECU, 305 MHz, zenith = 434 ns; at 301 MHz 445 ns at the zenith and
+  1.24 us at 10 degrees elevation; at 260 MHz 597 ns and 1.66 us. It scales as
+  `1 / f^2`: 30 TECU at 12 GHz is under 0.3 ns.
+- Troposphere (non-dispersive): `delta_t = Z m(el) / C` with `Z` the zenith delay (about
+  2.3 m at sea level) and the Black and Eisner mapping
+  `m(el) = 1.001 / sqrt(0.002001 + sin^2(el))` (1.0 at the zenith, 22.4 at 0 degrees,
+  finite at the horizon). Envelope and carrier phase are both delayed. 2.4 m is 8 ns at
+  the zenith, 45 ns at 10 degrees and 82 ns at 5 degrees, the same in every band.
+- A path's baseband frequency carries the carrier-phase term `-f d(delay)/dt` of each
+  leg: the ionosphere adds `+f d(delta_i)/dt`, the troposphere `-f d(delta_t)/dt`, with
+  `f` the leg's frequency. At GEO the elevation rates are tiny and so are these terms;
+  in low orbit they are not.
+
+`core.media.leg_partials` gives a leg's delay and frequency term per TECU and per metre
+of zenith delay (the elevation rate by the section 3 stencil, `h = 0.5 s`), and
+`row_media_partials` sums them over a row's legs, `+` for path A and `-` for path B.
+In the simulator the media apply to the relay paths and to relayed noise; the direct
+terrestrial path gets neither.
 
 ## 4. Signal model
 
@@ -251,7 +287,8 @@ Link budget in dB, per path (`linkbudget.py`):
   transponders use the in-band slice, power `N0_relay / N0_site` per sample). It is
   therefore correlated between sites watching the same satellite and independent
   between satellites. Site thermal noise is independent per channel. With the
-  ionosphere enabled, relayed noise also gets the downlink group delay.
+  ionosphere or the troposphere enabled, relayed noise also gets the downlink leg's
+  media delay (section 3).
 - The simulator evaluates amplitudes, received frequencies and power robbing on a node
   grid aligned to absolute time (every 10 s when every satellite stays above 20 000 km,
   every 1 s otherwise) and interpolates power and frequency linearly between nodes;
@@ -458,6 +495,43 @@ Required behaviour of the estimator:
    sits on (median of the delay cut less the noise) by less than 0.8 of the threshold:
    it is then a noise-lifted cell of a ridge, its `sigma_fdoa` follows the ridge level,
    and `rms_bandwidth_hz` is `None`.
+   **Coincident co-channel self-peaks** (`CafResult.leak_excess`). When both satellites
+   of a pair are heard by both channels at one site, channel A holds satellite j's copy
+   beside its own and channel B satellite i's. The two self-peaks (i against i, j
+   against j) then lie at the same delay and Doppler, and at the true peak their
+   sidelobes are the same autocorrelation sample: they add in amplitude,
+   `|c_1 + c_2|^2`, where the coherence counts only `|c_1|^2 + |c_2|^2`. For every
+   group of excluded points within half a main lobe of each other (`fs / (2 B)` lags and
+   `1 / (2 T)` in Doppler) the estimator measures the combined self-peak coherence
+   `C_s` at the group and the mirror coherence `C_m` at its reflection through the group
+   (`2 tau_s - tau_peak`, `2 nu_s - nu_peak`: j in A against i in B), each less its noise
+   level `1 / n`. With `C_0` the main peak's coherence, `C_1 C_2 = C_0 C_m`, so the
+   cross term is at most `2 sqrt(C_0 C_m)` and at most `C_s - 2 sqrt(C_0 C_m)`; the
+   smaller of the two, never negative, divided by `C_0`, is added to `(1 - C) / C`
+   before the sigmas of item 4 (over `beta^2` for TDOA and `T_e^2` for FDOA). It is
+   exact when the copies add in phase (one site: equal paths, as in the simulator) and
+   cautious otherwise. Measured on a co-channel same-site pair (seoul-pac / seoul-io, a
+   jammer at 20 N 132 E, 150 trials): scatter over reported sigma 1.08 (TDOA) and 1.11
+   (FDOA) without the term, 0.97 and 1.00 with it; the capability study repeats the check
+   (`RESULTS.md` section 3).
+   **Per-channel SNRs and noise shares.** `snr_a_db`, `snr_b_db`: each channel's raw
+   capture is read outside the band filter's pass band (beyond its transition band;
+   Welch, Hann, half-overlapping, at least 16 segments of at most 256 samples); the lower
+   quartile of those bins, over the lower quartile of a Welch bin's gamma distribution
+   (shape about 0.9 times the number of segments), is the white-noise density, times `B`
+   the noise power `N`. The power above the noise in each channel is scaled by one common
+   factor so that the product of the correlated parts matches the coherence (anything
+   above the noise that does not correlate, such as a co-channel copy, counts as noise
+   of that channel, shared in proportion to the power above the noise), and
+   `g = P_s / (P - P_s)`. With fewer than 16 bins (or under 10 % of the spectrum) outside
+   the band, or a part reaching its channel's power, equal SNRs
+   `sqrt(C) / (1 - sqrt(C))` are assumed (`snr_measured` false). Either way
+   `1/g_a + 1/g_b + 1/(g_a g_b) = (1 - C) / C`. `noise_share_tdoa`, `noise_share_fdoa`
+   are `(1/g_a, 1/g_b)` as fractions of the reported variance (in units of
+   `(1 - C) / C` of the `2 B T beta^2` or `2 B T T_e^2` scaling), scaled down together
+   when they would exceed 0.99: the part of a row's error that is channel A's own noise
+   times B's signal, and channel B's own noise times A's signal. Rows of other pairs
+   correlated from the same capture share that part (section 9).
 5. Exclusion zones: the caller passes predicted self-peaks `(tdoa_s, fdoa_hz)` (the
    same satellite seen in both channels, known exactly from the downlink geometry;
    the oscillator term cancels). A notch covers the main lobe (first nulls) around
@@ -546,11 +620,29 @@ does not add it.
 
 The CAF assumes the differential delay drifts by less than `0.5 / B` and the
 differential Doppler by less than `1 / T` over the capture. Tasking checks this from
-bounds on the satellites' speed and acceleration (`2 (|v_i| + |v_j|) / C` for the TDOA
-rate and `2 f_e (|a_i| + |a_j|) / C` for the FDOA rate, times 1.5) and shortens the
-capture; a swept-waveform retry is not shortened. It also keeps `fs >= 2.2` times the
-largest Doppler magnitude searched, which `caf_estimate` requires (it matters in low
-orbit).
+bounds that hold for every orbit (`Tasking._rate_bounds`), both times
+`RATE_SAFETY = 1.5`:
+
+```
+TDOA rate:  2 (|v_i| + |v_j|) / C
+FDOA rate:  ( |f_e| (r_i + r_j) + |f_e + T_i| r_i + |f_e + T_j| r_j ) / C
+            r = |a| + |v|^2 / r_min       (bound on |d^2 range / dt^2| from a fixed ground point)
+```
+
+with `|v|` and `|a|` the satellite's ECEF speed and acceleration (the largest speed of
+three states 1 s apart, the acceleration from their difference) and `r_min` its
+geocentric radius minus 6 378 137 m minus the highest site, mast or solver height, never
+below 100 km. The range acceleration is `(|v|^2 - rdot^2) / r + a.u <= |v|^2 / r_min + |a|`:
+the geometric first term is negligible in GEO (ECEF speeds of metres per second) and
+dominant in low orbit (about 60 m/s^2 at 800 km), where a bound on `|a|` alone let the
+true FDOA rate reach 1.30 times the gate (above it in 11 % of samples on
+`leo-example.yaml`; the bound now holds with the largest true rate at 0.19 of it). Each
+downlink leg is weighted by its own frequency (a downlink above the uplink moves more).
+The capture is shortened to `0.5 / (B x TDOA rate)` and to `1 / sqrt(FDOA rate / 1.5)`
+(the FDOA bound is already a worst case, so no safety factor there); in low orbit that
+is about 58 ms on `leo-example.yaml` (126 ms with the earlier bound). A swept-waveform
+retry is not shortened. Tasking also keeps `fs >= 2.2` times the largest Doppler
+magnitude searched, which `caf_estimate` requires (it matters in low orbit).
 
 **Repeat-detection gate** (tasking). The estimator gives about 1.6 to 2 % false alarms
 per capture at the default 13 dB in a large UHF window (about 4e5 cells), so a pair's
@@ -565,6 +657,32 @@ stay unused (reason `unconfirmed: ...`); after a confirmed track a detection tha
 disagrees is refused (`inconsistent ...`); the 3 most recent unconfirmed detections are
 kept per pair, so a new track is accepted once it repeats. Reference measurements are
 not gated (their window is a small box around the prediction).
+
+**Another transmitter on the frequency** (tasking, `Tasking._track_decisions`; a round's
+pairs are decided together). A detection that disagrees with its pair's confirmed track
+has *jumped* when it also agrees (by the same test) with one of the pair's recent
+unconfirmed detections: it repeats at a TDOA/FDOA the satellites' motion cannot reach
+from the old track. Then:
+
+- jumped pairs and no pair agreeing with its own track: another transmitter (or the same
+  one, moved) holds the frequency. Every earlier row and the position are set aside
+  (`EventBook.transmission_changed`; `Event.onset_ns` becomes the first time of the
+  repeated detections), the jumped pairs keep their new tracks and their rows are used at
+  once, every other pair's track starts again;
+- a jump while another pair agrees: the jumped pair's rows are refused (`inconsistent
+  with this pair's earlier detections`) and the event is put under re-check;
+- under re-check (`Event.recheck`: detected again after a break shorter than 30 s, or a
+  change between two definite waveform classes of confidence 0.5 or more, a primary-level
+  step of 6 dB or more, or a width change by a factor of 2 and at least 1 kHz), one
+  agreeing pair clears the re-check and keeps the position; a disagreeing detection with
+  none agreeing sets every earlier row aside, and that round's detections become
+  unconfirmed candidates. The next round classifies the signal again.
+
+A backstop catches what the gate cannot see: when rows added to a consistent fit break it
+(no solution, or a fit failing the consistency rule of section 9) and the rows added
+since, at least 4, fit one transmitter of their own, the earlier rows are set aside and
+the new rows' fix is attached. Two transmitters on the air at once and detected
+alternately are not separated; their mixed fit fails the consistency rule.
 
 ## 7. Detection and classification
 
@@ -586,7 +704,26 @@ not gated (their window is a small box around the prediction).
   more than the threshold above the previous baseline, are left out and `F` is held
   when fewer than 16 usable bins remain (half the guard bins when there are fewer than
   32), so an emitter that appears during start-up cannot lift its own prior; `F` is
-  averaged over 5 frames. `R_k = 10 log10(1 + N0_relay / N0_site)` inside a transponder
+  averaged over 5 frames. A signal already on at the first frame can cover most of the
+  floor bins (more than half the guard bins, or nine tenths of a window without them)
+  and lift the median or the 10th percentile with it, and would then be learned as
+  noise. So `F` steps down to a lower quantile, 0.25, 0.10, 0.04 or 0.015 of the floor
+  bins, each raised by its own distance to the median (from the same fluctuation
+  statistics), whenever that estimate lies lower by more than 4 standard errors
+  (`sqrt(p (1 - p) / N_eff) / density` of the p-quantile, `N_eff` half the bins because
+  neighbouring Hann bins correlate; the two errors combined in quadrature); a quantile is
+  tried only when at least 8 bins lie below it. After a step the estimate is refined up
+  to 3 times within the frame, leaving out bins more than the effective threshold above
+  it, and the 5-frame average restarts when the new estimate drops by more than
+  `4 sqrt(2)` standard errors. Pure noise almost never steps (no detections at `navg`
+  8, 2 or 1 in the tests). A signal on from the first frame is then detected within
+  `confirm_m` frames as long as it leaves free the bins below the lowest quantile tried
+  (1.5 % of 1024 bins, at least 8); one that fills the whole window cannot be told from
+  noise inside it, and the server compares the window's `F` with the channel's other
+  windows of the same span instead (`server.pipeline.detection`, "floor raised": more
+  than `threshold_db` above the lowest of those that had a frame in the last 30 s,
+  clearing 1 dB lower; a channel with one window is never judged).
+  `R_k = 10 log10(1 + N0_relay / N0_site)` inside a transponder
   passband (overlapping passbands add their relayed noise linearly;
   `linkbudget.relay_rise_db` gives it per channel and transponder), 0 elsewhere. Bins
   inside a configured carrier (its range widened by 2 bins, the Hann main lobe) are not
@@ -663,8 +800,15 @@ not gated (their window is a small box around the prediction).
   oldest (the others are closed, `merged into ...`). When an event's detections fall
   into groups that no longer overlap and stay apart for 5 s, the largest group keeps
   the event and every other group becomes a new one (`split from ...`). A detection that
-  overlaps no active event re-opens the most recent `lost` event with an overlapping
-  range lost less than 900 s ago, else raises a new event. A closed event absorbs
+  overlaps no active event is held until every window that delivered a frame within
+  `stale_frames` frame periods has reported a frame stamped at or after the held
+  detection's frame time, or for at most `NEW_EVENT_HOLD_S` = 1 s, so that fragments of
+  one wideband signal reported by several windows in the same instant raise one event;
+  a held detection that meanwhile overlaps an active event joins it at once. Held
+  detections are then grouped by overlap; each group joins an active event that now
+  overlaps it, or is absorbed by a closed event still holding detections, or re-opens
+  the most recent `lost` event with an overlapping range lost less than 900 s ago, or
+  else raises one new event. A closed event absorbs
   detections of its range while it still holds detections, so closing an event that is
   still on the air does not raise it again at once. A window that delivers no frame for
   `max(3, release_frames)` frame periods releases its detections (its node went away).
@@ -700,8 +844,12 @@ not gated (their window is a small box around the prediction).
   `LOCAL_OVERRIDE_S` = 15 s with no fresh cross-satellite measurement, the uplink signal
   has stopped and a local one occupies its frequency; the verdict becomes `local` and
   the uplink position is set aside (ARCHITECTURE.md section 7). An event detected again
-  after a loss longer than 30 s has its measurements set aside and its verdict formed
-  again from `undetermined`.
+  after a loss records the break (`Event.resumed_ns`, `break_s`) and the start of the
+  current transmission (`Event.onset_ns`, the earliest first-seen time of the new
+  detections). After a loss longer than `REACQUIRE_KEEP_S` = 30 s its measurements are
+  set aside and its verdict is formed again from `undetermined`; after a shorter one an
+  event with a position or used rows keeps them under re-check (section 6), and the
+  next detection decides.
 - Classification from a short IQ capture: occupied bandwidth, spectral flatness,
   kurtosis of the envelope, linearity of instantaneous frequency (sweep rate),
   cyclostationary symbol-rate line, on/off duty cycle. Classes: `cw`, `swept`,
@@ -743,7 +891,8 @@ var(tau) = [ (a + q b) k + rho^2 (1 + q) b k^2 ] / (2 B T beta^2)
 var(nu)  = [ (a +   b) k + rho^2 (1 + q) b k^2 ] / (2 B T T_e^2)
 ```
 
-(`crlb.stein_sigmas(..., rho_tf=)`). From a measured coherence
+(`crlb.stein_sigmas(..., rho_tf=)`). `caf_estimate` adds the coincident-self-peak term of
+section 6 item 4 (`leak_excess`) to `(1 - C) / C` before these. From a measured coherence
 (`crlb.sigmas_from_coherence(C, B, B_rms, T, noise_rms_bw_hz=None, *, rho_tf=,
 signal_noise_share=)`) the code uses `(1 - C) / (2 B T C)` times
 `F^2 k + rho^2 E k^2` (over `beta^2`) and `k + rho^2 E k^2` (over `T_e^2`),
@@ -763,11 +912,27 @@ Unknown: emitter geodetic latitude and longitude at fixed height `h0`
 epochs) with CAF noise `sigma_k` and optional calibration correction `c_k`.
 
 ```
-R = diag(sigma_k^2)                 CAF noise only
+R = D^2 + G_n G_n^T                 CAF noise: D = diag of each row's own sigma, G_n the
+                                    noise rows share through a common capture (below)
 S = R + H_c S_c H_c^T               total measurement covariance (with uncertainty None,
                                     H_c holds only the reference-measurement columns)
 minimise  r^T S^-1 r,   r_k = z_k - c_k - h_k(lat, lon)
 ```
+
+**Rows from a shared capture.** The tasking rule correlates one primary capture against
+each partner, so the rows of different pairs share the primary channel's noise. A row
+names its two captures (`Measurement.capture_a`, `capture_b`: tasking uses
+`<channel>|<t_first_ns>|<round centre>|<round rate>`) and carries each channel's share
+of its variance (`noise_share_a`, `noise_share_b`, from `CafResult.noise_share_*`,
+section 6 item 4; shares non-negative with a sum below 1). For every `(capture, kind)`
+named by two or more rows the solver adds one column to `G_n` with entry
+`side * sigma_k * sqrt(share)` on each such row (`side` +1 for channel A, -1 for B), and
+those rows keep `sigma_k * sqrt(1 - sum of their shared shares)` as their own sigma,
+never below 0.1 `sigma_k` (1 % of the variance). The diagonal of `R` is unchanged; the
+TDOA rows of two pairs sharing channel A correlate by about the share (0.45 on the
+calibrated UHF rows). Reference measurements correlated from one reference capture are
+split the same way (columns of category `reference`). TDOA and FDOA rows stay
+uncorrelated (different kinds).
 
 - Minimise with `scipy.optimize.least_squares`, method `lm`, at most 100 evaluations.
   It is handed `S^-1/2 r`, the symmetric square root built through the small Gram
@@ -792,17 +957,55 @@ minimise  r^T S^-1 r,   r_k = z_k - c_k - h_k(lat, lon)
   zero when a = b); per-site oscillator error (FDOA partial `-f_tune,A` for site a,
   `+f_tune,B` for site b); per-satellite oscillator error (FDOA partial `+T_nom,i`,
   `-T_nom,j`); per-pair TDOA bias (partial 1, sign following the orientation of the
-  pair); one parameter per distinct reference measurement (below).
+  pair); one parameter per distinct reference measurement (below); the propagation
+  media (below).
+- **Propagation media** (`processing.uncertainty.iono_vtec_tecu`, `iono_correlation`,
+  `tropo_zenith_m`, `tropo_correlation`; defaults 30 TECU with correlation 0.5 and
+  2.4 m with correlation 0.9; a sigma of 0 turns that medium off). Since `h` applies no
+  media delay (section 3), each sigma stands for the whole delay. There is one VTEC and
+  one zenith-delay parameter per **ground end**: the emitter (its column depends on the
+  position, through the uplink elevations), every site (downlinks) and every reference
+  position (the reference's uplinks). Each end's column holds the summed partials of
+  section 3 (`core.media.row_media_partials`: TDOA in s and FDOA in Hz per TECU or per
+  metre, `+` for path A's legs, `-` for B's) scaled by `sigma sqrt(1 - rho)`, and one
+  common column, the sum over all ends, is scaled by `sigma sqrt(rho)`: every end has
+  variance `sigma^2` and any two ends covariance `rho sigma^2` (a regional level plus a
+  part that differs from end to end). Uplinks use the emitter's frequency and elevation,
+  downlinks the site's tuning and elevation. With media on the consider is always
+  position-dependent (`H_c` is re-evaluated as for the ephemeris). The categories are
+  `ionosphere` and `troposphere`. Why these defaults: 30 TECU is a daytime
+  low-latitude level, and with correlation 0.5 the expected NEES of the simulator's
+  single world-wide VTEC (the fully correlated case) at 30 TECU stays about 2 at the
+  study points (1.2 to 2.1), where correlation 0 gives 2.5 in the South China Sea; at
+  10 TECU the ellipses are cautious (NEES 1.0 to 1.3). The zenith delay is about 2.3 m
+  at sea level and varies little between nearby ends, hence 0.9. At 12 GHz the
+  ionospheric term is 1600 times smaller and harmless.
 - Reference-emitter calibration (differential): a measurement `z_ref` of a known
   emitter at `x_ref` on the same pair (same satellites, sites and transponders; its
   own `f_e`), taken within `calibration.max_age_s`, gives `c = z_ref - h_ref(x_ref)`.
   The row is `z - c - h(x)`. Its consider partials are `H_c(x) - H_c,ref(x_ref)` for
-  every parameter constant between the two measurements (satellite position, velocity
-  and oscillator; site clocks and oscillators; pair bias), with `H_c,ref` evaluated at
-  the reference's `f_e` and epoch. Through the same two sites the clock and pair-bias
-  terms cancel exactly; the site-oscillator terms leave
-  `(f_tune,target - f_tune,ref) eps_site`, because the reference is tuned to its own
-  carrier, and the code carries that exact difference. The noise of `z_ref` is **not**
+  every parameter the two measurements share (satellite position, velocity and
+  oscillator; site clocks and oscillators; pair bias; the media at the sites and the
+  common media column), with `H_c,ref` evaluated at the reference's `f_e` and epoch.
+  Through the same two sites the clock and pair-bias terms cancel exactly; the
+  site-oscillator terms leave `(f_tune,target - f_tune,ref) eps_site`, because the
+  reference is tuned to its own carrier, and the code carries that exact difference.
+  The downlink media cancel to the difference of the two downlink frequencies (12.5 kHz
+  apart at 260 MHz: 1e-4 of the term). The uplink media do not cancel: the emitter's and
+  the reference's uplinks reach the satellites at different elevations, so a calibrated
+  row keeps the emitter's uplink partials and minus the reference's (its own end,
+  `("ref", x_ref)`). At 30 TECU that is -1,111 and -954 ns on the South China Sea rows
+  calibrated against Guam at 03 UTC, 35 and 464 ns in the Philippine Sea (`RESULTS.md`
+  section 2.4).
+  **Reference age.** A satellite velocity parameter is defined with `t_ref` = the
+  target row's own epoch, as on the target's own partials; between the reference epoch
+  `t_r` and the row epoch `t_k` the satellite moves by `vel (t_k - t_r)`, so the
+  reference's velocity partial is `d h_ref / d vel - (t_k - t_r) d h_ref / d pos` for the
+  same satellite and RIC component (the position partial is computed for this even when
+  its own sigma is zero). With TLE-grade velocity sigmas and the allowed 300 s age,
+  leaving it out made the ellipse too small by about 2.7 in variance; with it the mean
+  NEES of 200 simulated solves is 1.95 to 1.99 for reference ages 0 to 300 s. The noise
+  of `z_ref` is **not**
   added to `sigma_k`: each reference measurement is one more consider parameter with
   variance `sigma_ref^2` and partial 1 on every row that uses it, also when
   `uncertainty` is `None` (several target rows normally share one reference
@@ -854,7 +1057,8 @@ minimise  r^T S^-1 r,   r_k = z_k - c_k - h_k(lat, lon)
 - Covariance. East/north metres: `dE = (N(lat) + h) cos(lat) dlon`,
   `dN = (M(lat) + h) dlat` with the WGS84 prime-vertical and meridional radii; `J` by
   central differences with 100 m steps; matrices ordered `[east, north]`.
-  `P_total = (J^T S^-1 J)^-1`, `K = P_total J^T S^-1`, `P_noise = K R K^T`,
+  `P_total = (J^T S^-1 J)^-1`, `K = P_total J^T S^-1`,
+  `P_noise = K R K^T = K (D^2 + G_n G_n^T) K^T` (the shared capture noise included),
   `P_consider = K H_c S_c H_c^T K^T` (they sum to `P_total`).
 - Ellipse: semi-axes `= sqrt(-2 ln(1 - p)) * sqrt(eigenvalues of P_total)`;
   `azimuth_deg` = bearing of the semi-major axis clockwise from true north, in
@@ -873,8 +1077,34 @@ minimise  r^T S^-1 r,   r_k = z_k - c_k - h_k(lat, lon)
   region with every satellite above the mask), `"no admissible solution"` (every
   converged point inadmissible) and `"not converged"`.
 - `dominant_error` is the largest contributor to the trace of `P_total` among
-  `noise`, `ephemeris_position`, `ephemeris_velocity`, `clock`, `oscillator`,
-  `tdoa_bias`, `reference`.
+  `noise` (the shared capture noise included), `ephemeris_position`,
+  `ephemeris_velocity`, `clock`, `oscillator`, `tdoa_bias`, `reference`, `ionosphere`,
+  `troposphere` (`solver.ERROR_SOURCES`, in that tie-breaking order). At UHF with the
+  default media sigmas the calibrated operator-grade fixes are often
+  ionosphere-dominated.
+- **Fit consistency** (server, `server.pipeline.events.assess_fit`; the core solver does
+  not apply it). A converged fit is inconsistent when `reduced_chi2 >
+  processing.solver.max_reduced_chi2` (default 5) **and** the chi-square tail
+  probability `P(chi2_dof >= chi2) < 0.001` (`FIT_MAX_P_VALUE`). It is then published
+  with `fit_consistent` false and `ellipse_scale = sqrt(reduced_chi2)` already applied to
+  the semi-axes and CEP50 (and its square to the covariances); the event is never
+  `located` with it (a located event returns to `locating`), and the advisory reports no
+  position. Each ambiguity is assessed on its own chi-square. A fit with `dof < 1` has
+  no p-value and is never judged inconsistent. The rule exists because a mixed or
+  corrupted row set can converge with a small formal ellipse (one integration run:
+  reduced chi-square 2.8e7, 805 km miss, a 723 m 95 % ellipse). It does not catch a
+  systematic error the rows agree on (a clock fault gives a reduced chi-square near 0.1;
+  LIMITATIONS.md section 4).
+- **Site clock estimate** (server, `tasking.site_clock_offsets`). Each still-valid TDOA
+  calibration gives `c = o_a - o_b + e_sat_a - e_sat_b` (site clock offsets `o`, the
+  satellites' part `e` of the uncancelled ephemeris error). For each connected group of
+  sites the offsets are the weighted minimum-norm solution (clocks weighted by their
+  configured sigma, satellites by their position sigma over `C`, so combinations the
+  data cannot resolve go to the satellites), shifted to a group median of zero
+  (`Status.site_clocks`). A site gets a caution when
+  `|o| >= max(1000 ns, 10 clock.sigma_ns, 3 x the RMS site-dependent ephemeris allowance
+  of its edges)`, the allowance being the position sigma times the angle between the two
+  sites seen from the satellite, over `C`; in a group of two sites both are flagged.
 - Stationary emitter assumed; multi-epoch fusion is just more rows.
 
 ## 10. Accuracy prediction
@@ -910,23 +1140,40 @@ As implemented in `core.accuracy.accuracy_map`:
   and an emitter model and share the transponder; the reference's budget does not
   include robbing by the target (whose flux varies per cell). Below saturation neither
   matters.
+- Band: the estimator's filter (`correlation_bandwidth_hz`) of
+  `max(occupied band, MIN_SIGNAL_BW_HZ = 10 Hz)` plus twice the Doppler reach of the
+  windows, as tasking passes it, so a CW is band-limited too (it was predicted with
+  `B = fs` before revision 5).
+- Channel noise (`_channel_power`): each channel's input SNR in `B` is the carrier's
+  power on the satellite the channel correlates against the channel's thermal noise,
+  plus the relayed noise of **every** satellite the channel hears in the capture band,
+  plus the copies of the carrier those other satellites relay into it (power in `B`).
+  A co-channel copy is noise to the pair: on seoul-io, which also hears MUOS Pacific,
+  the predicted reference TDOA sigma at 20 N 132 E is 159 ns (121 ns before), where the
+  correlator reports 152 to 164 ns (`RESULTS.md` section 6).
+- Same-site co-channel pairs (both channels at one site hearing both satellites) get
+  the correlator's coincident-self-peak term (section 6 item 4) with the copies taken
+  in phase: `2 sqrt(P_copy,A P_copy,B / (P_sig,A P_sig,B))` added to `(1 - C) / C`.
+- Shared captures: a capture is a channel at one plan (rate, length, centre); one used
+  by two or more listed pairs (and a reference capture used by two references) is split
+  as in section 9, with each channel's share from the predicted SNRs
+  (`(1/g) / (1/g_a + 1/g_b + q/(g_a g_b) + leak)` for TDOA, `q = 1` for FDOA).
+- The media columns of section 9 are included (calibrated rows subtract the reference's
+  partials at the target epoch).
 - Calibration is per pair: a pair whose two transponders do not both relay the
   reference, or whose predicted reference SNR is below `caf.min_snr_db`, stays
   uncalibrated (the pair entry says why); a reference whose predicted TDOA sigma
   exceeds `caf.max_tdoa_sigma_s` leaves that pair's TDOA row uncalibrated.
 - Not modelled: the ephemeris allowance and Doppler sample-rate rule of section 6 (they
-  change windows, not sigmas, at GEO); a band filter for a carrier of zero width (a CW is
-  predicted with `B = fs`, and the estimator measures about 10 dB more post-correlation
-  SNR on a CW than `B T C` predicts, so CW predictions are pessimistic); waveform
-  coupling (`rho_tf = 0`) and the periodic peaks of a chirp; a co-channel copy of the
-  signal in a channel as noise (on pairs whose channel also hears the co-channel
-  satellite the correlator reports up to a third more reference TDOA noise than
-  predicted, 155 to 162 ns against 121 ns); multi-epoch fusion (one TDOA and one FDOA per
-  pair at `t_ns`).
-- Checked against the solver's own covariance (within 0.3 %) and against full-chain
-  Monte Carlo misses (empirical over predicted 95 % semi-major 0.99 to 1.09 at three
-  cells, 120 solves each; mean NEES under the map's covariance 1.94 to 2.27 at three
-  cells, 40 trials each).
+  change windows, not sigmas, at GEO); waveform coupling (`rho_tf = 0`) and the periodic
+  peaks of a chirp; the reference's age (the map evaluates the reference at the target
+  epoch); multi-epoch fusion (one TDOA and one FDOA per pair at `t_ns`). The
+  same-site co-channel term assumes the copies add in phase, as at one site in the
+  simulator; with real separate dishes the phase is arbitrary and the estimator reports
+  a cautious bound.
+- Checked against the solver's own covariance (within 0.3 %) and against the full-chain
+  Monte Carlo of the capability study (`RESULTS.md` section 3: predicted CEP50 against
+  the median miss of 40 trials per row).
 
 ## 11. Lines of position
 
@@ -1010,3 +1257,11 @@ normalised to `[-180, 180)`.
     row set it cannot hold: total-covariance weighting routes around the biased FDOA
     rows, and the expected NEES with `P_noise`, `trace(P_noise^-1 P_total)`, is 2.000
     to 2.005 for oscillator sigmas from 1e-6 down to 1e-9.
+11. Propagation media: VTEC times the ionospheric row partials of section 3, and zenith
+    delay times the tropospheric ones, equal the TDOA (within 0.1 %) and FDOA (within
+    0.2 %) the simulator adds with that ionosphere (30 TECU) or troposphere (2.3 m)
+    switched on, signs included, on a cross-site and a same-site pair at 20 N 132 E. The
+    ionospheric delay partial scales as `1 / f^2` and the tropospheric one not at all.
+    South China Sea fixes calibrated against Guam with a 30 TECU simulated ionosphere:
+    mean NEES above 10 without the media terms, below 3.5 with the defaults
+    (`tests/test_media.py`).

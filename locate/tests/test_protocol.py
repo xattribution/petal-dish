@@ -1827,3 +1827,48 @@ async def test_messages_and_frames_cross_a_real_websocket() -> None:
     assert capture.iq.tobytes() == iq.tobytes() and capture.t_first_ns == T_NS + 7
     assert capture.n_chunks == 3 and capture.clock == CLOCK
     assert outcome["psd"][1].tobytes() == psd_values.tobytes() and outcome["psd"][0].t_ns == T_NS
+
+
+# ------------------------------------------------------- text that is not valid Unicode (review SRV-2)
+
+
+def _hello_text(software: str) -> str:
+    return json.dumps({
+        "type": "hello", "protocol": 1, "node_id": "n1", "site_id": "tokyo", "token": "t",
+        "software": software, "driver": "sim",
+        "clock": {"source": "sim", "locked": True, "est_offset_ns": 0.0, "holdover_s": 0.0},
+        "t_ns": 1_700_000_000_000_000_000,
+    })
+
+
+def test_lone_surrogates_are_refused_by_the_wire_parser() -> None:
+    """A JSON escape of an unpaired surrogate is valid JSON text, but the string it
+    decodes to cannot be written out again: one node's hello used to break GET /status
+    and the console status stream for every site. It is malformed, naming the field."""
+    text = _hello_text("petal-locate/0.1.0\ud800")
+    assert "\\ud800" in text  # what reaches the server: plain ASCII
+    with pytest.raises(ProtocolError, match=r"software: text that is not valid Unicode") as info:
+        parse_control(text)
+    assert "\\ud800" not in info.value.detail and "petal-locate" not in info.value.detail  # no value quoted
+    with pytest.raises(ProtocolError, match="message: text that is not valid Unicode"):
+        parse_control('{"type":"capture_error","capture_id":"c1","channel_id":"a","code":"driver","message":"x\\udce9"}')
+    with pytest.raises(ProtocolError, match="channels.0.error"):
+        parse_control(json.dumps({"type": "assign_ack", "config_version": 1, "ok": False,
+                                  "channels": [{"channel_id": "a", "ok": False, "error": "open \udce9"}]}))
+    with pytest.raises(ProtocolError, match=r"\\\\udce9|not valid Unicode"):  # a key holding one
+        messages.loads_json_object('{"type": "heartbeat", "x\\udce9": 1}', what="control message")
+    with pytest.raises(ProtocolError, match="not valid Unicode"):  # a raw surrogate in a Python string
+        parse_control(_hello_text("ok").replace("ok", "\ud800"))
+    # a proper surrogate pair (an emoji written as two escapes) is one valid character
+    hello = parse_control(_hello_text("petal-locate \U0001F600"))
+    assert isinstance(hello, Hello) and hello.software.endswith("\U0001F600")
+    assert dump_control(hello)
+    # binary-frame headers go through the same reader
+    with pytest.raises(ProtocolError, match="channel_id: text that is not valid Unicode"):
+        framing.decode_frame(_plb1('{"type":"psd","channel_id":"a\\ud800"}'))
+
+
+def _plb1(header: str) -> bytes:
+    """A PLB1 frame with this header text and no payload."""
+    raw = header.encode("ascii")
+    return framing.MAGIC + struct.pack("<I", len(raw)) + raw

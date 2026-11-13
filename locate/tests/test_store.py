@@ -317,3 +317,86 @@ async def test_writes_never_hold_the_event_loop(store: Store) -> None:
     await task
     assert max(lags) < 0.05
     assert threading.current_thread() is threading.main_thread()
+
+
+# --------------------------------------------------------------------------- retention (review K13)
+
+
+async def _fill(store: Store, n: int, step_ns: int) -> None:
+    """``n`` events, one updated every ``step_ns`` from T0, each with history rows."""
+    for k in range(n):
+        event_id = f"EV-{k + 1:06d}"
+        t = T0 + k * step_ns
+        store.put_event(**_event(event_id=event_id, seq=k + 1, created_ns=t, updated_ns=t,  # type: ignore[arg-type]
+                                 doc=json.dumps({"id": event_id})))
+        store.add_transitions(event_id, [(t, "detected", "undetermined", "detected")])
+        store.add_evidence_snapshot(event_id, t, "[]")
+        store.add_measurement(event_id, 1, t, "tdoa", True, "{}")
+        store.add_solution(event_id, t, True, "{}")
+    await asyncio.gather(*list(store._pending), return_exceptions=True)
+
+
+async def test_history_is_pruned_by_age_and_by_count(tmp_path: Path) -> None:
+    """The history was never pruned: a long-running server grew its database without
+    bound. With limits set, old events go with every row that belongs to them."""
+    hour = 3600 * 10**9
+    now = [T0 + 10 * hour]
+    store = Store(tmp_path / "d", history_max_age_s=4 * 3600.0, history_max_events=3, clock=lambda: now[0])
+    await store.open()
+    try:
+        assert store.history_limits == (4 * 3600.0, 3)
+        await _fill(store, 10, hour)  # updated at T0 .. T0 + 9 h
+        store.add_calibration(t_ns=T0, carrier_id="ref", kind="tdoa", a_sat_id="a", a_site_id="x", b_sat_id="b",
+                              b_site_id="y", correction=0.0, sigma=1.0)
+        store.add_calibration(t_ns=T0 + 9 * hour, carrier_id="ref", kind="tdoa", a_sat_id="a", a_site_id="x",
+                              b_sat_id="b", b_site_id="y", correction=0.0, sigma=1.0)
+        await asyncio.gather(*list(store._pending), return_exceptions=True)
+        result = await store.prune_history()
+        # age: updated before T0 + 6 h go (7 events); count: of the 4 left, the oldest goes too
+        assert result.events == 7 and result.calibrations == 1
+        kept = sorted(r[0] for r in await store.query("SELECT event_id FROM events"))
+        assert kept == ["EV-000008", "EV-000009", "EV-000010"]
+        for table in ("event_transitions", "evidence_snapshots", "measurements", "solutions"):
+            assert await store.count_rows(table) == 3, table
+        assert await store.count_rows("calibrations") == 1
+        assert (await store.prune_history()).events == 0  # nothing more to do
+    finally:
+        await store.close()
+    # the limits also apply when a store opens on an old database
+    later = Store(tmp_path / "d", history_max_events=1, clock=lambda: now[0])
+    await later.open()
+    try:
+        assert await later.count_rows("events") == 1
+    finally:
+        await later.close()
+    # without limits nothing is ever deleted
+    plain = Store(tmp_path / "d", clock=lambda: now[0] + 1000 * hour)
+    await plain.open()
+    try:
+        assert (await plain.prune_history()).events == 0 and await plain.count_rows("events") == 1
+    finally:
+        await plain.close()
+
+
+async def test_history_is_pruned_while_events_are_written(tmp_path: Path) -> None:
+    hour = 3600 * 10**9
+    now = [T0]
+    store = Store(tmp_path / "d", history_max_events=2, clock=lambda: now[0])
+    await store.open()
+    try:
+        await _fill(store, 5, hour)
+        now[0] += 2 * hour  # past PRUNE_INTERVAL_S: the next event write queues a prune
+        store.put_event(**_event(event_id="EV-000099", seq=99, created_ns=now[0], updated_ns=now[0]))  # type: ignore[arg-type]
+        await asyncio.gather(*list(store._pending), return_exceptions=True)
+        await asyncio.gather(*list(store._pending), return_exceptions=True)
+        assert await store.count_rows("events") == 2
+    finally:
+        await store.close()
+
+
+def test_retention_limits_are_checked(tmp_path: Path) -> None:
+    for bad in ({"history_max_age_s": 0.0}, {"history_max_age_s": float("nan")}, {"history_max_events": 0},
+                {"capture_limit_bytes": 0}):
+        with pytest.raises(ValueError):
+            Store(tmp_path, **bad)  # type: ignore[arg-type]
+    assert Store(tmp_path, capture_limit_bytes=1024).capture_limit_bytes == 1024

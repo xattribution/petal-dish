@@ -28,7 +28,13 @@ along, so that an event does not go ``lost`` while the new tracker confirms.
 ``DetectionPipeline.on_psd`` is the hub's spectrum subscriber. Frames are dropped and
 counted (``counters()``) when the window is unknown, ``nfft`` differs, the node
 retuned by more than half a bin, a bin is not finite, or ``t_ns`` repeats or goes
-backwards. Each accepted frame gives:
+backwards by up to ``CLOCK_STEP_FRAMES`` frame periods (frames out of order). A frame
+further back than that is a step of the node's clock (a correction after it ran ahead,
+or one frame stamped far ahead): it is accepted as the new time base of the window
+(``clock_steps``, warned about once per window), and the tracker keeps its baseline. A
+new session of a node (``reset_site``, called by the runtime when the hub reports the
+node online) forgets the frame times of its windows, so a node whose clock was
+corrected while it was away is not refused either. Each accepted frame gives:
 
 - a ``WindowReport`` to the sink (the correlator): the window, the frame times and
   every confirmed detection;
@@ -36,6 +42,16 @@ backwards. Each accepted frame gives:
   PROTOCOL.md section B (PSD, the baseline once the tracker has one, detections with
   their authorised-carrier flag and anomaly), offered to the console bus, which keeps
   the newest per window and client.
+
+Window health (``window_health``, shown in node status). A window is *blind* when its
+frames keep arriving but none has been accepted for ``BLIND_FRAMES`` frame periods
+(the reason is the drop counter of the latest refused frame). Its noise floor is
+*raised* when the tracker's floor estimate (``SignalTracker.floor_db``: the floor of a
+bin without relayed noise, the same for every window of one receiver and span) lies
+more than ``threshold_db`` above the lowest one among the channel's other windows of
+the same span: a signal that filled the whole window from the start is then being
+taken for its noise, which nothing inside the window can tell. Both are logged once
+when they begin.
 
 Cost: a tracker update is about 1 ms for 1024 bins, about a hundred a second for a
 network of 57 windows. The server runs every update in one dedicated thread
@@ -70,7 +86,10 @@ from petal_locate.core.orbits import orbit_state
 from petal_locate.protocol.framing import encode_console_psd
 
 __all__ = [
+    "BLIND_FRAMES",
+    "CLOCK_STEP_FRAMES",
     "COST_WINDOW",
+    "FLOOR_RAISED_HYSTERESIS_DB",
     "OFFLOAD_COST_S",
     "OFFLOAD_NFFT",
     "OFFLOAD_RETURN_FRACTION",
@@ -106,9 +125,38 @@ the worker thread, without the wait for a worker) falls below this fraction of
 ``offload_cost_s``."""
 
 
-def _timed_update(tracker: SignalTracker, psd: np.ndarray, t_ns: int) -> tuple[list[Detection], float]:
-    """``tracker.update`` and how long it took, s (runs inline or in a worker thread)."""
+CLOCK_STEP_FRAMES: Final[int] = 3
+"""A frame stamped more than this many frame periods before the newest accepted one is a
+step of the node's clock (accepted as the window's new time base), not a late frame."""
+
+BLIND_FRAMES: Final[int] = 10
+"""A window whose frames arrive but none is accepted for this many frame periods is blind."""
+
+FLOOR_RAISED_HYSTERESIS_DB: Final[float] = 1.0
+"""A raised floor is cleared when it is back this far below the threshold, dB."""
+
+_RECENT_FRAMES: Final[int] = 3  # frames arrive "now" when the latest is this many periods old at most
+_FLOOR_FRESH_S: Final[float] = 30.0  # a window's floor serves as a reference this long after its last frame
+
+_DROP_NOTES: Final[dict[str, str]] = {
+    "out_of_order": "its frames are stamped before ones already accepted",
+    "repeated": "its frames repeat the time of one already accepted",
+    "retuned": "its frames arrive at another tuning than assigned",
+    "nfft_mismatch": "its frames have another number of bins than assigned",
+    "non_finite": "its frames hold values that are not finite",
+    "tracker_error": "its tracker refuses the frames",
+    "no_tracker": "its tracker cannot be built from the configuration",
+}
+
+
+def _timed_update(
+    tracker: SignalTracker, psd: np.ndarray, t_ns: int, reset_time: bool = False
+) -> tuple[list[Detection], float]:
+    """``tracker.update`` and how long it took, s (runs inline or in a worker thread).
+    reset_time: accept ``t_ns`` whatever the previous frame time (a clock step)."""
     started = time.perf_counter()
+    if reset_time:
+        tracker.reset_time()
     detections = tracker.update(psd, t_ns)
     return detections, time.perf_counter() - started
 
@@ -502,6 +550,16 @@ class _Window:
     last_detections: list[Detection] = field(default_factory=list)
     retune_warned: bool = False
     updated: bool = False
+    # health (monotonic seconds): latest frame offered, latest accepted, first refused
+    # since the latest accepted, and why the latest one was refused
+    offered_mono: float | None = None
+    accepted_mono: float | None = None
+    refused_since_mono: float | None = None
+    last_drop: str | None = None
+    blind_warned: bool = False
+    reset_pending: bool = False
+    step_warned: bool = False
+    floor_raised_db: float | None = None
 
 
 class DetectionPipeline:
@@ -540,7 +598,9 @@ class DetectionPipeline:
         self._offload_cost_s = float(offload_cost_s)
         self._spectrum = spectrum_executor
         self._windows: dict[WindowKey, _Window] = {}
+        self._by_channel: dict[str, list[_Window]] = {}
         self._confirm_n = 5
+        self._threshold_db = 6.0
         self._counters: Counter[str] = Counter()
         self._costs: list[float] = []
 
@@ -570,8 +630,68 @@ class DetectionPipeline:
         """Frames accepted and dropped, by reason (``unknown_window``, ``no_tracker``,
         ``nfft_mismatch``, ``retuned``, ``non_finite``, ``repeated``,
         ``out_of_order``, ``stale_tracker``, ``tracker_error``, ``pool_closed``,
-        ``sink_errors``, ``console_frames``, ``console_errors``)."""
+        ``sink_errors``, ``console_frames``, ``console_errors``), clock steps accepted
+        (``clock_steps``) and site resets (``site_resets``)."""
         return dict(self._counters)
+
+    def window_health(self, channel_id: str, monitor_id: str) -> dict[str, Any] | None:
+        """What detection knows of one window, for node status (None when unknown):
+        ``detection_frame_age_s`` (since the latest accepted frame, None before any),
+        ``blind`` and ``blind_reason`` (frames arrive but none has been accepted for
+        ``BLIND_FRAMES`` frame periods; the drop reason of the latest), ``learning``
+        (the tracker is on its start-up prior; None without a tracker),
+        ``floor_raised_db`` (see the module docstring) and ``note`` (a sentence when
+        blind or raised)."""
+        window = self._windows.get((channel_id, monitor_id))
+        if window is None:
+            return None
+        now = time.monotonic()
+        blind = self._blind(window, now)
+        notes: list[str] = []
+        if blind:
+            reason = window.last_drop or "unknown"
+            notes.append(f"{_DROP_NOTES.get(reason, 'its frames are refused')} ({reason})")
+        if window.floor_raised_db is not None:
+            notes.append(
+                f"its noise floor is {window.floor_raised_db:.1f} dB above the channel's other windows"
+            )
+        return {
+            "detection_frame_age_s": None if window.accepted_mono is None else max(0.0, now - window.accepted_mono),
+            "blind": blind,
+            "blind_reason": window.last_drop if blind else None,
+            "learning": None if window.tracker is None else bool(window.tracker.learning),
+            "floor_raised_db": window.floor_raised_db,
+            "note": "; ".join(notes) if notes else None,
+        }
+
+    def reset_site(self, site_id: str) -> int:
+        """A new session of the site's node: forget the frame times of its windows.
+
+        The node may have restarted with its clock corrected; frames older than the
+        newest one accepted before must not be refused for that. Baselines, tracks and
+        carried detections are kept. Returns the number of windows reset.
+        """
+        count = 0
+        for window in self._windows.values():
+            if window.spec.site_id != site_id:
+                continue
+            window.reset_pending = True
+            window.last_t_ns = None
+            window.step_warned = False
+            count += 1
+        if count:
+            self._counters["site_resets"] += 1
+        return count
+
+    def _blind(self, window: _Window, now: float) -> bool:
+        """Frames arrive (the latest within a few frame periods) but none has been
+        accepted for BLIND_FRAMES frame periods."""
+        period = window.spec.frame_period_s
+        if window.refused_since_mono is None or window.offered_mono is None:
+            return False
+        if now - window.offered_mono > _RECENT_FRAMES * period:
+            return False  # nothing arrives at all: the node is away, not the detection
+        return now - window.refused_since_mono >= BLIND_FRAMES * period
 
     def cost_stats(self) -> dict[str, float]:
         """Tracker update times of the most recent frames: count, median and maximum, s."""
@@ -614,6 +734,7 @@ class DetectionPipeline:
         """
         det = _detection_inputs(detection_cfg)
         self._confirm_n = int(getattr(detection_cfg, "confirm_n", 5))
+        self._threshold_db = float(getattr(detection_cfg, "threshold_db", 6.0))
         built = dict(prebuilt or {})
         new_windows: dict[WindowKey, _Window] = {}
         rebuilt = 0
@@ -647,9 +768,13 @@ class DetectionPipeline:
                 if old.last_detections:
                     window.carry = (old.generation, list(old.last_detections), self._confirm_n)
                 window.last_t_ns = old.last_t_ns
+                window.offered_mono, window.accepted_mono = old.offered_mono, old.accepted_mono
             new_windows[key] = window
         removed = [key for key in self._windows if key not in new_windows]
         self._windows = new_windows
+        self._by_channel = {}
+        for window in new_windows.values():
+            self._by_channel.setdefault(window.spec.channel_id, []).append(window)
         for key in removed:
             try:
                 self._sink.drop_window(key)
@@ -665,8 +790,25 @@ class DetectionPipeline:
 
     # ----------------------------------------------------------------- frames
 
-    def _drop(self, reason: str) -> None:
+    def _drop(self, reason: str, window: _Window | None = None) -> None:
         self._counters[reason] += 1
+        if window is None:
+            return
+        window.last_drop = reason
+        if window.refused_since_mono is None:
+            window.refused_since_mono = window.offered_mono
+        elif not window.blind_warned and window.offered_mono is not None and self._blind(window, window.offered_mono):
+            window.blind_warned = True
+            spec = window.spec
+            logger.warning(
+                "window %s/%s: detection is blind, no frame accepted for %d frame periods while "
+                "frames arrive (%s)",
+                spec.channel_id,
+                spec.monitor_id,
+                BLIND_FRAMES,
+                _DROP_NOTES.get(reason, reason),
+                extra={"channel_id": spec.channel_id, "monitor_id": spec.monitor_id, "reason": reason},
+            )
 
     async def on_psd(self, frame: Any) -> None:
         """Process one spectrum frame (``hub.PsdFrame``). Never raises."""
@@ -675,16 +817,17 @@ class DetectionPipeline:
         if window is None:
             self._drop("unknown_window")
             return
+        window.offered_mono = time.monotonic()
         if window.tracker is None:
-            self._drop("no_tracker")
+            self._drop("no_tracker", window)
             return
         header = frame.header
         spec = window.spec
         if header.nfft != spec.nfft:
-            self._drop("nfft_mismatch")
+            self._drop("nfft_mismatch", window)
             return
         if abs(header.center_hz - spec.center_hz) > 0.5 * spec.bin_hz or abs(header.span_hz - spec.span_hz) > 1e-6 * spec.span_hz:
-            self._drop("retuned")
+            self._drop("retuned", window)
             if not window.retune_warned:
                 window.retune_warned = True
                 logger.warning(
@@ -700,30 +843,50 @@ class DetectionPipeline:
             return
         psd = np.asarray(frame.psd_db)
         if psd.shape != (spec.nfft,) or not np.isfinite(psd).all():
-            self._drop("non_finite")
+            self._drop("non_finite", window)
             return
         t_ns = int(header.t_ns)
+        reset_time = window.reset_pending
         if window.last_t_ns is not None and t_ns <= window.last_t_ns:
-            self._drop("repeated" if t_ns == window.last_t_ns else "out_of_order")
-            return
+            back_ns = window.last_t_ns - t_ns
+            if back_ns <= CLOCK_STEP_FRAMES * spec.frame_period_s * 1e9:
+                self._drop("repeated" if back_ns == 0 else "out_of_order", window)
+                return
+            # Far further back than a late frame: the node's clock stepped (or the newest
+            # frame accepted was stamped far ahead). Take this frame as the new time base.
+            reset_time = True
+            self._counters["clock_steps"] += 1
+            if not window.step_warned:
+                window.step_warned = True
+                logger.warning(
+                    "window %s/%s: a frame is stamped %.1f s before the newest one accepted; the node's "
+                    "clock stepped back, its frames are accepted from this one on (reported once)",
+                    spec.channel_id,
+                    spec.monitor_id,
+                    back_ns / 1e9,
+                    extra={"channel_id": spec.channel_id, "monitor_id": spec.monitor_id, "site_id": spec.site_id},
+                )
         window.last_t_ns = t_ns
+        window.reset_pending = False
         tracker = window.tracker
         try:
             if self._spectrum is not None:
                 loop = asyncio.get_running_loop()
-                detections, cost = await loop.run_in_executor(self._spectrum, _timed_update, tracker, psd, t_ns)
+                detections, cost = await loop.run_in_executor(
+                    self._spectrum, _timed_update, tracker, psd, t_ns, reset_time
+                )
             elif window.offload and self._pool is not None:
                 # Timed inside the thread: the wait for a free worker (CAF and solver jobs
                 # share the pool) is not the window's cost.
-                detections, cost = await self._pool.run(_timed_update, tracker, psd, t_ns)
+                detections, cost = await self._pool.run(_timed_update, tracker, psd, t_ns, reset_time)
             else:
-                detections, cost = _timed_update(tracker, psd, t_ns)
+                detections, cost = _timed_update(tracker, psd, t_ns, reset_time)
         except RuntimeError as exc:  # the worker pool closed: the server is stopping
             self._drop("pool_closed")
             logger.debug("window %s/%s: frame dropped (%s)", spec.channel_id, spec.monitor_id, exc)
             return
         except ValueError as exc:
-            self._drop("tracker_error")
+            self._drop("tracker_error", window)
             logger.warning(
                 "window %s/%s: frame rejected by the tracker (%s)",
                 spec.channel_id,
@@ -739,6 +902,18 @@ class DetectionPipeline:
         window.frames += 1
         window.updated = True
         window.last_received_ns = int(frame.received_ns)
+        if window.blind_warned:
+            logger.info(
+                "window %s/%s: detection accepts frames again",
+                spec.channel_id,
+                spec.monitor_id,
+                extra={"channel_id": spec.channel_id, "monitor_id": spec.monitor_id},
+            )
+        window.accepted_mono = window.offered_mono
+        window.refused_since_mono = None
+        window.last_drop = None
+        window.blind_warned = False
+        self._check_floor(window)
         current = list(detections)
         window.last_detections = current
         reported = [(window.generation, d) for d in current]
@@ -763,6 +938,49 @@ class DetectionPipeline:
                 "detection sink failed on window %s/%s", spec.channel_id, spec.monitor_id
             )
         self._console_frame(window, header, psd, current)
+
+    def _check_floor(self, window: _Window) -> None:
+        """Compare the window's noise floor with the channel's other windows of the same
+        span (one receiver: the same floor for a bin without relayed noise). More than
+        the threshold above the lowest of them marks it raised, until it is back
+        FLOOR_RAISED_HYSTERESIS_DB below the threshold."""
+        tracker = window.tracker
+        floor = tracker.floor_db if tracker is not None else math.nan
+        spec = window.spec
+        now = window.accepted_mono if window.accepted_mono is not None else time.monotonic()
+        others = [
+            other.tracker.floor_db
+            for other in self._by_channel.get(spec.channel_id, ())
+            if other is not window
+            and other.tracker is not None
+            and other.accepted_mono is not None
+            and now - other.accepted_mono <= _FLOOR_FRESH_S
+            and abs(other.spec.span_hz - spec.span_hz) <= 1e-6 * spec.span_hz
+            and math.isfinite(other.tracker.floor_db)
+        ]
+        before = window.floor_raised_db
+        if not others or not math.isfinite(floor):
+            window.floor_raised_db = None
+        else:
+            excess = floor - min(others)
+            limit = self._threshold_db if before is None else self._threshold_db - FLOOR_RAISED_HYSTERESIS_DB
+            window.floor_raised_db = round(excess, 2) if excess > limit else None
+        if before is None and window.floor_raised_db is not None:
+            logger.warning(
+                "window %s/%s: its noise floor is %.1f dB above the channel's other windows; a signal "
+                "filling the window may be taken for its noise",
+                spec.channel_id,
+                spec.monitor_id,
+                window.floor_raised_db,
+                extra={"channel_id": spec.channel_id, "monitor_id": spec.monitor_id, "floor_raised_db": window.floor_raised_db},
+            )
+        elif before is not None and window.floor_raised_db is None:
+            logger.info(
+                "window %s/%s: its noise floor is back in line with the channel's other windows",
+                spec.channel_id,
+                spec.monitor_id,
+                extra={"channel_id": spec.channel_id, "monitor_id": spec.monitor_id},
+            )
 
     def _note_cost(self, window: _Window, cost: float) -> None:
         self._costs.append(cost)

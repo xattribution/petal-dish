@@ -6,6 +6,8 @@
   console can show the marking banner and ask for the token.
 - ``ws_token_ok``: the same check for the ``/ws/ui`` handshake, whose token travels as
   ``?token=`` (browsers cannot set headers on a WebSocket).
+- ``ws_origin_ok``: the ``/ws/ui`` handshake's ``Origin`` must be the server's own or
+  an allowed one (``Settings.allowed_origins``), whether or not a token is set.
 - ``get_runtime``: the ``ServerRuntime`` of the application, or HTTP 503 while the
   server is still starting (or was built without one).
 - ``bearer_token``: the token of an ``Authorization`` header, used by the node
@@ -31,6 +33,7 @@ __all__ = [
     "get_runtime",
     "get_settings",
     "require_api_token",
+    "ws_origin_ok",
     "ws_token_ok",
 ]
 
@@ -91,6 +94,26 @@ def ws_token_ok(websocket: WebSocket) -> bool:
     if settings.api_token is None:
         return True
     return settings.check_api_token(websocket.query_params.get("token"))
+
+
+def ws_origin_ok(websocket: WebSocket) -> bool:
+    """Whether the ``Origin`` of a ``/ws/ui`` handshake may open the console socket.
+
+    WebSockets are not covered by the browser's same-origin rules: any page could open
+    one to this server and read the live stream. A handshake without ``Origin`` (not
+    from a browser) passes; one with it passes when it is the server's own origin
+    (``http(s)://`` plus the ``Host`` of the handshake) or among
+    ``Settings.allowed_origins`` (``*`` for any)."""
+    origin = websocket.headers.get("origin")
+    if origin is None:
+        return True
+    origin = origin.strip().lower().rstrip("/")
+    settings: Settings = websocket.app.state.settings
+    if "*" in settings.allowed_origins or origin in settings.allowed_origins:
+        return True
+    host = websocket.headers.get("host", "").strip().lower()
+    scheme = "https" if websocket.url.scheme in ("wss", "https") else "http"
+    return bool(host) and origin == f"{scheme}://{host}"
 
 
 def get_runtime(request: Request) -> ServerRuntime:

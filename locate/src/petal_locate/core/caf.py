@@ -45,6 +45,7 @@ import numpy as np
 from scipy import fft as sfft
 from scipy import ndimage
 from scipy import signal as ssignal
+from scipy import stats as sstats
 
 from .crlb import sigmas_from_coherence
 
@@ -92,6 +93,9 @@ _PATCH = 65
 _CUT_POINTS = 4096
 _FLOOR_DB = -30.0
 _MAX_CELLS = 1_000_000
+_FLOOR_NPERSEG = 256  # Welch segment length of the per-channel noise floor (at most)
+_FLOOR_SEGMENTS = 16  # at least this many segments
+_FLOOR_MIN_BINS = 16  # fewest bins outside the pass band for a noise floor
 
 
 @dataclass
@@ -138,6 +142,25 @@ class CafResult:
     noise_bandwidth_hz: ``B`` of MATH.md section 8 actually used: the noise bandwidth
         of the band filter, or ``fs`` when no filter was applied.
     integration_s: ``T``: samples in the correlation sum at the peak / fs.
+    snr_a_db, snr_b_db: estimated input SNR of each channel in ``B``, dB: the power of
+        the correlated signal in that channel against everything else in it (thermal
+        and relayed noise, co-channel copies of the signal). Measured from the noise
+        floor outside the band filter's pass band of each raw capture and the
+        coherence; when a capture has too little spectrum outside that band, equal
+        SNRs consistent with the coherence are assumed (``snr_measured`` False).
+        None when not detected.
+    snr_measured: the two SNRs come from measured noise floors (not the equal-SNR
+        assumption).
+    noise_share_tdoa, noise_share_fdoa: ``(share_a, share_b)``, the fractions of
+        ``sigma_tdoa_s^2`` and ``sigma_fdoa_hz^2`` caused by channel A's own noise
+        (times B's signal) and by channel B's own noise (times A's signal). Rows of
+        other pairs correlated from the same capture share that part of their error
+        (the solver's ``Measurement.capture_a`` / ``noise_share_a``). (0, 0) when not
+        detected.
+    leak_excess: the term added to ``(1 - C) / C`` for co-channel copies whose
+        self-peaks coincide (both satellites heard by both channels at one site): their
+        sidelobes at the peak are the same autocorrelation and add in amplitude, which
+        the coherence (counting their powers) misses. 0 when there is none.
     """
 
     tdoa_s: float | None
@@ -159,6 +182,12 @@ class CafResult:
     reason: str | None
     noise_bandwidth_hz: float = 0.0
     integration_s: float = 0.0
+    snr_a_db: float | None = None
+    snr_b_db: float | None = None
+    snr_measured: bool = False
+    noise_share_tdoa: tuple[float, float] = (0.0, 0.0)
+    noise_share_fdoa: tuple[float, float] = (0.0, 0.0)
+    leak_excess: float = 0.0
 
 
 # --------------------------------------------------------------------------- helpers
@@ -1038,6 +1067,143 @@ def _signal_noise_share(peak: _Peak) -> float | None:
     return float(min(max(cov_noise / cov_signal, 0.0), 1.0))
 
 
+def _noise_density(x: np.ndarray, fs: float, pass_hz: float) -> float | None:
+    """Noise power spectral density of a raw capture outside a pass band, power per Hz.
+
+    The Welch spectrum (Hann, half-overlapping, ``_FLOOR_SEGMENTS`` or more segments) of
+    ``x`` is read in the bins farther than ``pass_hz / 2`` plus one bin from the capture
+    centre. Their lower quartile, divided by the lower quartile of a Welch bin over its
+    mean (a gamma variable of about 0.9 times the number of segments degrees of
+    freedom), is the density of white noise: other carriers and skirts out there only
+    raise some bins, so a low quantile is the robust reading. Returns None when fewer
+    than ``_FLOOR_MIN_BINS`` bins (or under 10 % of the spectrum) lie outside the band.
+    """
+    n = x.size
+    nperseg = int(min(_FLOOR_NPERSEG, max(64, n // _FLOOR_SEGMENTS)))
+    if n < 2 * nperseg:
+        return None
+    f, p = ssignal.welch(x, fs=fs, window="hann", nperseg=nperseg, return_onesided=False, detrend=False, scaling="density")
+    outside = np.abs(f) > 0.5 * pass_hz + fs / nperseg
+    if int(np.sum(outside)) < max(_FLOOR_MIN_BINS, 0.1 * f.size):
+        return None
+    shape = 0.9 * max(1, 2 * (n // nperseg) - 1)  # gamma shape of a bin: ~0.9 x half-overlapping segments
+    level = float(np.quantile(p[outside], 0.25)) / (float(sstats.gamma.ppf(0.25, shape)) / shape)
+    return level if level > 0.0 and math.isfinite(level) else None
+
+
+def _channel_snrs(
+    power_a: float, power_b: float, noise_a: float | None, noise_b: float | None, coh: float
+) -> tuple[float, float, bool]:
+    """Input SNRs ``(g_a, g_b, measured)`` in ``B`` of the correlated signal in each channel.
+
+    power_a, power_b: mean power of the band-limited channels. noise_a, noise_b: their
+    white-noise power in ``B`` (density times ``B``) or None. coh: the coherence of the
+    peak, ``P_sa P_sb / (power_a power_b)`` for the correlated parts ``P_s``.
+
+    With both noise powers the power above the noise in each channel is scaled by one
+    common factor so that the product of the correlated parts matches the coherence
+    (anything above the noise that does not correlate, such as a co-channel copy,
+    counts as noise of that channel, shared out in proportion to the power above the
+    noise: a copy in only one channel is not attributed to it alone), and
+    ``g = P_s / (power - P_s)``. Otherwise (or when a part would reach its channel's
+    power) equal SNRs ``sqrt(C) / (1 - sqrt(C))``. Either way
+    ``1/g_a + 1/g_b + 1/(g_a g_b)`` is ``(1 - C) / C``.
+    """
+    c = min(max(coh, 1e-12), 1.0 - 1e-9)
+    if noise_a is not None and noise_b is not None:
+        above_a, above_b = power_a - noise_a, power_b - noise_b
+        if above_a > 0.0 and above_b > 0.0:
+            # one factor for both: below 1 when something above the noise does not correlate,
+            # a little above 1 when a noise floor read high
+            scale = math.sqrt(c * power_a * power_b / (above_a * above_b))
+            s_a, s_b = scale * above_a, scale * above_b
+            if s_a < power_a and s_b < power_b:  # the product stays exact
+                return s_a / (power_a - s_a), s_b / (power_b - s_b), True
+    root = math.sqrt(c)
+    g = root / (1.0 - root)
+    return g, g, False
+
+
+def _shares(g_a: float, g_b: float, total: float) -> tuple[float, float]:
+    """``(1/g_a, 1/g_b)`` as fractions of a variance ``total`` in units of ``(1 - C) / C``.
+
+    Each is at most ``1 / g / (1/g_a + 1/g_b + 1/(g_a g_b))``'s share of the larger of
+    ``total`` and that sum, and the two together stay below 0.99 so that a part of
+    every variance remains the row's own.
+    """
+    inv_a, inv_b = 1.0 / g_a, 1.0 / g_b
+    denom = max(total, inv_a + inv_b + inv_a * inv_b)
+    if not (denom > 0.0 and math.isfinite(denom)):
+        return 0.0, 0.0
+    s_a, s_b = inv_a / denom, inv_b / denom
+    if s_a + s_b > 0.99:
+        scale = 0.99 / (s_a + s_b)
+        s_a, s_b = s_a * scale, s_b * scale
+    return float(s_a), float(s_b)
+
+
+def _leak_excess(st: _Setup, main: _Peak, points: Sequence[tuple[float, float]]) -> float:
+    """Excess incoherent power of co-channel copies whose self-peaks coincide, in units of
+    ``(1 - C) / C``.
+
+    When both satellites of a pair are heard by both channels at one site, channel A
+    holds satellite j's copy beside its own and channel B satellite i's beside its own.
+    The two self-peaks (i in A against i in B, j against j) lie at the same delay and
+    Doppler, and at the main peak their sidelobes are the same autocorrelation of the
+    signal at the same offset: they add in amplitude, ``|c_1 + c_2|^2``, while the
+    coherence (which counts every copy's power as noise) assumes ``|c_1|^2 + |c_2|^2``.
+
+    For every group of excluded points within half a main lobe of each other the
+    combined self-peak coherence ``C_s = |c_1 + c_2|^2`` is measured at the group and
+    the mirror coherence ``C_m`` at its reflection through the group
+    (``tau_1 + tau_2 - tau_peak``, likewise in Doppler: j in A against i in B). Their
+    product with the main coherence ``C_0`` is ``C_1 C_2`` (each component appears once
+    in each), so the cross term ``2 sqrt(C_1 C_2) cos(dphi)`` is at most
+    ``2 sqrt(C_0 C_m)`` and at most ``C_s - 2 sqrt(C_0 C_m)``; the smaller (never
+    negative) is taken, exact when the copies add in phase (one site: equal paths) and
+    cautious otherwise. Each coherence has the noise level ``1 / n`` of its sum
+    removed. Returns the sum over the groups divided by ``C_0``.
+    """
+    if len(points) < 2 or main.power <= 0.0:
+        return 0.0
+    fs = st.fs
+    lags = [(tau - st.t0) * fs for tau, _ in points]
+    nus = [nu for _, nu in points]
+    lobe_lag = 0.5 * fs / st.noise_bw
+    lobe_nu = 0.5 / st.t_int
+    c0 = main.power / (main.energy_a * main.energy_b)
+
+    def coherence_at(lag: float, nu: float) -> float | None:
+        lag_i = int(round(lag))
+        try:
+            al = _Aligned(st.a, st.b, fs, lag_i)
+        except ValueError:
+            return None
+        chi = al.derivatives(lag - lag_i, nu, False)[0]
+        return max(abs(chi) ** 2 / (al.energy_a * al.energy_b) - 1.0 / al.n, 0.0)
+
+    used = [False] * len(points)
+    total = 0.0
+    for i in range(len(points)):
+        if used[i]:
+            continue
+        group = [j for j in range(i, len(points)) if not used[j]
+                 and abs(lags[j] - lags[i]) <= lobe_lag and abs(nus[j] - nus[i]) <= lobe_nu]
+        for j in group:
+            used[j] = True
+        if len(group) < 2:
+            continue
+        lag_s = float(np.mean([lags[j] for j in group]))
+        nu_s = float(np.mean([nus[j] for j in group]))
+        c_s = coherence_at(lag_s, nu_s)
+        c_m = coherence_at(2.0 * lag_s - main.lag, 2.0 * nu_s - main.nu)
+        if c_s is None or c_m is None:
+            continue
+        root = 2.0 * math.sqrt(c0 * c_m)
+        total += max(0.0, min(root, c_s - root))
+    return total / c0
+
+
 # ------------------------------------------------------------------------- top level
 
 
@@ -1290,13 +1456,20 @@ def caf_estimate(
     # 0. Band limiting (same filter on both channels; its group delay is common and cancels).
     noise_bw = fs
     taps: np.ndarray | None = None
+    density_a = density_b = None  # white-noise density of each raw capture outside the band (per-channel SNRs)
     if signal_bw_hz is not None:
         nu_reach = max(abs(nwin[0]), abs(nwin[1]))
         if mwin is not None:
             nu_reach = max(nu_reach, abs(mwin[1][0]), abs(mwin[1][1]))
-        design = _band_filter(fs, float(signal_bw_hz) + 2.0 * nu_reach, max(17, min(a.size, b.size) // 8))
+        pass_hz = float(signal_bw_hz) + 2.0 * nu_reach
+        max_taps = max(17, min(a.size, b.size) // 8)
+        design = _band_filter(fs, pass_hz, max_taps)
         if design is not None:
             taps, noise_bw = design
+            # the noise floor is read beyond the filter's transition band (as `_band_filter`)
+            edge = pass_hz + 2.0 * max(0.05 * pass_hz, 4.0 * fs / max_taps)
+            density_a = _noise_density(a, fs, edge)
+            density_b = _noise_density(b, fs, edge)
             a = ssignal.oaconvolve(a, taps, mode="valid")
             b = ssignal.oaconvolve(b, taps, mode="valid")
     # (Sums of squares rather than BLAS dot products: a threaded BLAS would spin up
@@ -1405,10 +1578,33 @@ def caf_estimate(
         coh_sigma, noise_bw, rms_bw, t_sum, noise_rms_bw_hz=noise_rms_bw if noise_rms_bw > 0.0 else None,
         rho_tf=rho_sigma, signal_noise_share=share,
     )
+    # Co-channel copies whose self-peaks coincide add their sidelobes in amplitude at
+    # the peak (`_leak_excess`); the coherence counted only their powers.
+    beta2 = (2.0 * math.pi * rms_bw) ** 2
+    t_e2 = (math.pi * t_sum) ** 2 / 3.0
+    excess = _leak_excess(st, main, points) if not flat else 0.0
+    if excess > 0.0:
+        result.leak_excess = float(excess)
+        if rms_bw > 0.0 and math.isfinite(float(s_t)):
+            s_t = math.sqrt(float(s_t) ** 2 + excess / (2.0 * noise_bw * t_sum * beta2))
+        if math.isfinite(float(s_f)):
+            s_f = math.sqrt(float(s_f) ** 2 + excess / (2.0 * noise_bw * t_sum * t_e2))
     # Never below the estimator's own numerical accuracy (noise-free copies give a
     # coherence of 1 and a Stein sigma of 0).
     sigma_t = max(float(s_t), _NUMERIC_FLOOR / fs)
     sigma_f = max(float(s_f), _NUMERIC_FLOOR / t_sum)
+    # Per-channel SNRs and the share of each channel's own noise in the variances.
+    g_a, g_b, measured = _channel_snrs(
+        pa, pb, None if density_a is None else density_a * noise_bw, None if density_b is None else density_b * noise_bw,
+        coh,
+    )
+    result.snr_a_db = float(10.0 * math.log10(g_a))
+    result.snr_b_db = float(10.0 * math.log10(g_b))
+    result.snr_measured = measured
+    if math.isfinite(sigma_t) and rms_bw > 0.0:
+        result.noise_share_tdoa = _shares(g_a, g_b, sigma_t * sigma_t * 2.0 * noise_bw * t_sum * beta2)
+    if math.isfinite(sigma_f):
+        result.noise_share_fdoa = _shares(g_a, g_b, sigma_f * sigma_f * 2.0 * noise_bw * t_sum * t_e2)
     result.rms_bandwidth_hz = None if flat else float(rms_bw)
     result.sigma_fdoa_hz = sigma_f if math.isfinite(sigma_f) else None
     result.sigma_tdoa_s = sigma_t if (math.isfinite(sigma_t) and not flat) else None

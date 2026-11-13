@@ -10,6 +10,10 @@ the exact shapes the console codes against. The routers are:
 - ``backplane_router``: ``GET`` on the simulation backplane path the runtime advertises
   in ``welcome`` (``runtime.SIM_BACKPLANE_PATH``), authenticated with a *node* token.
 
+Before any route runs, ``app.RequestGuardMiddleware`` checks the ``Host`` header,
+refuses state-changing requests a foreign web page could send unasked (403), and caps
+every ``/api`` body at ``MAX_BODY_BYTES`` (413).
+
 Errors are JSON: ``{detail}`` (``schemas.ErrorResponse``), ``{detail, current_version}``
 for a version conflict (409, ``schemas.ConflictResponse``) and ``{detail, errors,
 warnings}`` for anything that does not validate (422, ``schemas.FieldErrorResponse``).
@@ -42,6 +46,7 @@ from pydantic import TypeAdapter, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from petal_locate.config import SystemConfig, config_json_schema, dump_config
+from petal_locate.config.loader import safe_yaml_load
 from petal_locate.config.models import EmitterModel, Region
 from petal_locate.core.antennas import electrically_small, gain_dbi
 from petal_locate.core.geodesy import angle_between_deg, lla_to_ecef, look_angles, wrap_lon_deg
@@ -49,6 +54,7 @@ from petal_locate.core.geometry import footprint
 from petal_locate.core.linkbudget import path_budget
 from petal_locate.core.orbits import orbit_position, subsatellite_point
 from petal_locate.core.timebase import ns_from_iso, sec
+from petal_locate.protocol.messages import MAX_TIME_NS
 from petal_locate.server.api import schemas
 from petal_locate.server.api.deps import bearer_token, get_runtime, require_api_token
 from petal_locate.server.pipeline.events import EventNotFound, EventRecord, MeasurementEntry, event_truth
@@ -66,8 +72,10 @@ from petal_locate.server.runtime import (
 )
 
 __all__ = [
+    "ACCURACY_BAND_BYTES",
     "ACCURACY_BAND_CELLS",
     "ACCURACY_MAX_CELLS",
+    "ACCURACY_MAX_PAIRS",
     "ACCURACY_MAX_WAITING",
     "ACCURACY_TIMEOUT_S",
     "LOP_MAX_CELLS",
@@ -75,6 +83,8 @@ __all__ = [
     "ApiProblem",
     "ApiState",
     "CatchAllMiddleware",
+    "accuracy_band_bytes",
+    "accuracy_band_cells",
     "accuracy_bands",
     "accuracy_config",
     "accuracy_problems",
@@ -90,6 +100,7 @@ __all__ = [
     "public_router",
     "resolve_time_ns",
     "sim_truth",
+    "token_warnings",
 ]
 
 logger = logging.getLogger(__name__)
@@ -97,8 +108,10 @@ logger = logging.getLogger(__name__)
 API_PREFIX: Final[str] = schemas.API_PREFIX
 
 MAX_BODY_BYTES: int = 4 * 1024 * 1024
-"""Largest request body accepted (a configuration or scenario document), bytes.
-The limits below are module variables so that a deployment (or a test) can tune them."""
+"""Largest request body accepted on any ``/api`` route, bytes (413 beyond; enforced
+before routing by ``app.RequestGuardMiddleware``, and again by ``_read_body`` for the
+configuration and scenario documents). The limits below are module variables so that a
+deployment (or a test) can tune them."""
 
 ACCURACY_MAX_CELLS: int = 20_000
 """Largest accuracy grid computed (cells); a finer request is refused with 422."""
@@ -112,6 +125,21 @@ that the pipeline's own jobs interleave and the time limit can stop the work."""
 
 ACCURACY_MAX_WAITING: int = 4
 """Accuracy requests allowed to wait while another map is computed (503 beyond)."""
+
+ACCURACY_MAX_PAIRS: int = 128
+"""Most channel pairs one accuracy request may name (422 beyond); a pair may appear only
+once ([A, B] and [B, A] are the same pair)."""
+
+ACCURACY_BAND_BYTES: int = 256 * 1024 * 1024
+"""Memory one band of an accuracy map may take, bytes (estimated by
+``accuracy_band_bytes``): bands are made smaller to stay under it, and a request whose
+smallest band (two grid rows) would not fit is refused with 422."""
+
+ACCURACY_BYTES_PER_CELL_PAIR2: float = 160.0
+"""Bytes per grid cell per squared pair count that one accuracy band takes (the design
+and consider-gain arrays of ``core.accuracy`` grow as cells x rows x columns, both of
+which grow with the pairs; measured 130 to 150 for distinct pairs on pacific-uhf, so
+160 with a margin)."""
 
 ACCURACY_CACHE_SIZE: Final[int] = 8
 """Accuracy maps kept for repeated identical requests."""
@@ -165,8 +193,17 @@ class ApiProblem(Exception):
         self.headers = dict(headers or {})
 
 
+def _text(value: Any) -> str:
+    """Text for a reply: anything UTF-8 cannot carry (an unpaired surrogate echoed from a
+    request) escaped, so that an error reply can always be written."""
+    text = str(value)
+    if text.isascii():
+        return text
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
 def _error(status_code: int, detail: str, headers: Mapping[str, str] | None = None) -> JSONResponse:
-    body = schemas.ErrorResponse(detail=detail)
+    body = schemas.ErrorResponse(detail=_text(detail))
     return JSONResponse(body.model_dump(mode="json"), status_code=status_code, headers=dict(headers or {}))
 
 
@@ -177,9 +214,9 @@ def _field_errors(
     headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     body = schemas.FieldErrorResponse(
-        detail=detail,
-        errors=[schemas.FieldProblem(loc=str(e["loc"]), msg=str(e["msg"])) for e in errors],
-        warnings=[schemas.FieldProblem(loc=str(w["loc"]), msg=str(w["msg"])) for w in warnings],
+        detail=_text(detail),
+        errors=[schemas.FieldProblem(loc=_text(e["loc"]), msg=_text(e["msg"])) for e in errors],
+        warnings=[schemas.FieldProblem(loc=_text(w["loc"]), msg=_text(w["msg"])) for w in warnings],
     )
     return JSONResponse(body.model_dump(mode="json"), status_code=422, headers=dict(headers or {}))
 
@@ -371,20 +408,28 @@ def _finite(value: Any) -> float | None:
     return out if math.isfinite(out) else None
 
 
-def _now_ns() -> int:
-    return time.time_ns()
+def _now_ns(request: Request | None = None) -> int:
+    """The server's time: the application's clock (``app.state.clock``, which carries
+    the simulation offset of ``petal-locate demo --start``), else the host clock."""
+    clock = getattr(request.app.state, "clock", None) if request is not None else None
+    return int(clock()) if callable(clock) else time.time_ns()
 
 
 def resolve_time_ns(t: str | None, *, now_ns: int | None = None, loc: str = "t") -> int:
     """``t`` (ISO 8601 UTC) as integer ns, or now when None. Raises ``ApiProblem`` 422
-    naming ``loc`` for text that is not a time."""
+    naming ``loc`` for text that is not a time and for a time outside what the server
+    represents (1970 to 2262: integer ns in 64 bits)."""
     if t is None or not str(t).strip():
         return int(now_ns if now_ns is not None else _now_ns())
     try:
-        return ns_from_iso(str(t).strip())
-    except (ValueError, TypeError) as exc:
+        value = ns_from_iso(str(t).strip())
+    except (ValueError, TypeError, OverflowError) as exc:
         raise ApiProblem(422, f"{loc}: not an ISO 8601 time ({exc})",
                          errors=[{"loc": loc, "msg": f"not an ISO 8601 time: {exc}"}]) from exc
+    if not 0 <= value <= MAX_TIME_NS:
+        message = "outside the times the server represents (1970-01-01 to 2262-04-11 UTC)"
+        raise ApiProblem(422, f"{loc}: {message}", errors=[{"loc": loc, "msg": message}])
+    return value
 
 
 async def _read_body(request: Request) -> bytes:
@@ -437,8 +482,10 @@ async def _read_document(request: Request, envelope_keys: frozenset[str], inner:
     if fmt == "json":
         try:
             parsed = json.loads(text)
-        except ValueError:
-            return text, fmt  # the loader reports the syntax error with its position
+        except (ValueError, RecursionError):
+            # the loader reports the syntax error with its position, and refuses a
+            # document nested too deeply as a field error
+            return text, fmt
         if isinstance(parsed, dict) and inner in parsed and set(parsed) <= envelope_keys:
             document = parsed[inner]
             if not isinstance(document, dict):
@@ -596,13 +643,20 @@ def compute_link_budget(
     """The emitter relayed by every transponder whose uplink passband holds ``f_e_hz``
     into every channel watching that satellite, at ``t_ns``. ``alt_m`` is the height
     of the emitter's phase centre above the WGS84 ellipsoid. Paths that do not exist
-    (a satellite below either horizon) are left out."""
+    (a satellite below either horizon) are left out, and so is every path through a
+    satellite whose orbit cannot be evaluated at ``t_ns`` (an ephemeris table that does
+    not cover it; logged), so that the other satellites' rows are still given."""
     x_e = lla_to_ecef(float(lat_deg), float(lon_deg), float(alt_m))
     t_s = sec(t_ns)
     bandwidth = float(emitter.bandwidth_hz) if emitter.bandwidth_hz > 0 else 1.0
     threshold = float(cfg.processing.detection.threshold_db)
     rows: list[schemas.LinkBudgetRow] = []
+    orbits = cfg.orbits()
     for sat in cfg.satellites:
+        if not any(tp.relays(float(f_e_hz)) for tp in sat.transponders):
+            continue
+        if _position(orbits[sat.id], t_s, sat.id) is None:
+            continue  # logged by _position
         for transponder in sat.transponders:
             if not transponder.relays(float(f_e_hz)):
                 continue
@@ -650,6 +704,20 @@ def compute_link_budget(
 
 
 # --------------------------------------------------------------------------- accuracy (banded)
+
+
+def accuracy_band_bytes(n_pairs: int, cells: int) -> int:
+    """Estimated memory of one accuracy band of ``cells`` grid cells for ``n_pairs``
+    channel pairs, bytes (see ``ACCURACY_BYTES_PER_CELL_PAIR2``)."""
+    return int(math.ceil(ACCURACY_BYTES_PER_CELL_PAIR2 * max(cells, 1) * max(n_pairs, 1) ** 2))
+
+
+def accuracy_band_cells(n_pairs: int, n_lon: int) -> int:
+    """Cells per accuracy band for ``n_pairs`` pairs: ``ACCURACY_BAND_CELLS``, fewer when
+    that would take more than ``ACCURACY_BAND_BYTES``, never under two grid rows of
+    ``n_lon`` cells (``accuracy_problems`` refuses a request whose two rows do not fit)."""
+    fit = int(ACCURACY_BAND_BYTES / (ACCURACY_BYTES_PER_CELL_PAIR2 * max(n_pairs, 1) ** 2))
+    return max(2 * max(n_lon, 1), min(ACCURACY_BAND_CELLS, fit))
 
 
 def accuracy_bands(region: Region, step_deg: float, band_cells: int | None = None
@@ -720,7 +788,8 @@ def compute_accuracy(
     Raises ValueError from ``accuracy_map`` or when its result does not follow the grid.
     """
     region = request.region or cfg.processing.region
-    lat, lon, bands = accuracy_bands(region, request.step_deg)
+    lat, lon = region.grid(request.step_deg)
+    lat, lon, bands = accuracy_bands(region, request.step_deg, accuracy_band_cells(len(request.pairs), int(lon.size)))
     parts = []
     for band in bands:
         if should_stop():
@@ -801,14 +870,40 @@ def _load_accuracy_map() -> Callable[..., Mapping[str, Any]]:
 
 
 def accuracy_problems(cfg: SystemConfig, request: schemas.AccuracyRequest) -> list[dict[str, str]]:
+    """Why an accuracy request cannot be computed, as ``[{"loc", "msg"}]`` (empty when it
+    can): unknown or repeated channels, a pair named twice, more than
+    ``ACCURACY_MAX_PAIRS`` pairs, a band that cannot fit ``ACCURACY_BAND_BYTES``, a
+    reference carrier that is not one."""
     channels = {channel.id for site in cfg.sites for channel in site.channels}
     errors: list[dict[str, str]] = []
+    if len(request.pairs) > ACCURACY_MAX_PAIRS:
+        return [{"loc": "pairs", "msg": f"{len(request.pairs)} pairs, more than the {ACCURACY_MAX_PAIRS} a map may "
+                                        "use; choose the pairs that matter"}]
+    seen: dict[frozenset[str], int] = {}
     for i, (a, b) in enumerate(request.pairs):
         for j, channel_id in enumerate((a, b)):
             if channel_id not in channels:
                 errors.append({"loc": f"pairs.{i}.{j}", "msg": f"unknown receive channel {channel_id!r}"})
         if a == b:
             errors.append({"loc": f"pairs.{i}", "msg": "the two channels of a pair must differ"})
+            continue
+        key = frozenset((a, b))
+        if key in seen:
+            errors.append({"loc": f"pairs.{i}", "msg": f"the same pair as pairs.{seen[key]} (each pair counts once)"})
+        else:
+            seen[key] = i
+    region = request.region or cfg.processing.region
+    try:
+        _lat, lon = region.grid(request.step_deg)
+    except ValueError:
+        lon = np.zeros(1)
+    two_rows = 2 * int(lon.size)
+    needed = accuracy_band_bytes(len(request.pairs), two_rows)
+    if needed > ACCURACY_BAND_BYTES:
+        errors.append({"loc": "pairs", "msg": f"{len(request.pairs)} pairs over a grid {int(lon.size)} cells wide "
+                                              f"need about {needed // 2**20} MiB per band, more than the "
+                                              f"{ACCURACY_BAND_BYTES // 2**20} MiB allowed; use fewer pairs, a "
+                                              "coarser step_deg or a narrower region"})
     if request.reference_carrier_id is not None:
         try:
             carrier = cfg.carrier(request.reference_carrier_id)
@@ -1024,14 +1119,66 @@ async def get_config(
         return Response(text, media_type="application/yaml", headers=headers)
     envelope = runtime.config_envelope()
     try:
-        warnings = await runtime.pool.run(cfg.warnings, _now_ns() / 1e9)
+        warnings = await runtime.pool.run(cfg.warnings, _now_ns(request) / 1e9)
     except ValueError as exc:
         logger.warning("configuration warnings could not be computed: %s", exc)
         warnings = []
     envelope = envelope.model_copy(
         update={"warnings": [schemas.FieldProblem(loc=w["loc"], msg=w["msg"]) for w in warnings]}
     )
-    return _json(envelope, headers=headers)
+    return _json(_with_token_warnings(envelope, runtime.settings), headers=headers)
+
+
+def token_warnings(settings: Any, site_ids: Sequence[str]) -> list[dict[str, str]]:
+    """A warning per site whose node holds no token on this server (none in the
+    node-tokens file or ``Settings.node_tokens``, no ``PETAL_NODE_TOKEN_<SITE>`` in the
+    server's environment): such a node is refused (``bad_token``) until one is added.
+    ``loc`` is ``sites.<index>``."""
+    from petal_locate.server.settings import node_token_env_var
+
+    notes: list[dict[str, str]] = []
+    for index, site_id in enumerate(site_ids):
+        if not isinstance(site_id, str) or not site_id or settings.node_token(site_id) is not None:
+            continue
+        try:
+            env = node_token_env_var(site_id)
+        except ValueError:
+            continue
+        if settings.node_tokens_path is not None:
+            remedy = (f"add it to the node-tokens file {str(settings.node_tokens_path)!r}; the server reads the "
+                      "file again when it changes, no restart needed")
+        else:
+            remedy = "restart the server with a node-tokens file (--node-tokens FILE) that holds it"
+        notes.append({
+            "loc": f"sites.{index}",
+            "msg": f"site {site_id!r} has no node token on this server (none in the node tokens and no {env} in "
+                   f"the server's environment), so its node cannot connect; {remedy}",
+        })
+    return notes
+
+
+def _document_site_ids(document: str | dict[str, Any]) -> list[str]:
+    """The site ids of a configuration document (decoded or YAML / JSON text), for the
+    token warnings of ``/config/validate``; empty when it cannot be read."""
+    data: Any = document
+    if isinstance(document, str):
+        try:
+            data = safe_yaml_load(document)
+        except Exception:  # the validation reports the problem; nothing to warn about here
+            return []
+    sites = data.get("sites") if isinstance(data, dict) else None
+    if not isinstance(sites, list):
+        return []
+    return [site.get("id") if isinstance(site, dict) else None for site in sites]  # type: ignore[misc]
+
+
+def _with_token_warnings(envelope: schemas.ConfigEnvelope, settings: Any) -> schemas.ConfigEnvelope:
+    extra = token_warnings(settings, [site.id for site in envelope.config.sites])
+    if not extra:
+        return envelope
+    return envelope.model_copy(
+        update={"warnings": list(envelope.warnings) + [schemas.FieldProblem(**w) for w in extra]}
+    )
 
 
 def _safe_name(name: str) -> str:
@@ -1059,7 +1206,7 @@ async def put_config(request: Request) -> Response:
         raise PreconditionRequired("If-Match is required: send the version you loaded (the ETag of GET /config)")
     document, fmt = await _read_document(request, _CONFIG_ENVELOPE_KEYS, "config")
     envelope = await runtime.replace_config(document, if_match, fmt=fmt)
-    return _json(envelope, headers={"ETag": _etag(envelope.version)})
+    return _json(_with_token_warnings(envelope, runtime.settings), headers={"ETag": _etag(envelope.version)})
 
 
 @api_router.post(
@@ -1071,10 +1218,19 @@ async def put_config(request: Request) -> Response:
 )
 async def validate_config(request: Request) -> Response:
     """Validate a configuration without applying it: field errors and warnings (always
-    HTTP 200; ``ok`` says whether it would be accepted)."""
+    HTTP 200; ``ok`` says whether it would be accepted). The warnings include every site
+    whose node has no token on this server (it could not connect)."""
     runtime = get_runtime(request)
     document, fmt = await _read_document(request, _CONFIG_ENVELOPE_KEYS, "config")
-    return _json(await runtime.validate_config(document, fmt=fmt))
+    result = await runtime.validate_config(document, fmt=fmt)
+    if result.ok:
+        site_ids = await runtime.pool.run(_document_site_ids, document)
+        extra = token_warnings(runtime.settings, site_ids)
+        if extra:
+            result = result.model_copy(
+                update={"warnings": list(result.warnings) + [schemas.FieldProblem(**w) for w in extra]}
+            )
+    return _json(result)
 
 
 @api_router.get("/config/schema", tags=["configuration"], response_model=dict[str, Any])
@@ -1189,7 +1345,7 @@ async def get_subpoints(request: Request, t: str | None = Query(None, descriptio
                         ) -> Response:
     """Sub-satellite point of every satellite."""
     runtime = get_runtime(request)
-    t_ns = resolve_time_ns(t)
+    t_ns = resolve_time_ns(t, now_ns=_now_ns(request))
     return _json_list(_SUBPOINTS, await runtime.pool.run(compute_subpoints, runtime.config, t_ns))
 
 
@@ -1202,7 +1358,7 @@ async def get_footprints(
 ) -> Response:
     """Where each satellite is above ``min_elevation_deg``."""
     runtime = get_runtime(request)
-    t_ns = resolve_time_ns(t)
+    t_ns = resolve_time_ns(t, now_ns=_now_ns(request))
     rings = await runtime.pool.run(compute_footprints, runtime.config, t_ns, min_elevation_deg)
     return _json_list(_FOOTPRINTS, rings)
 
@@ -1214,7 +1370,7 @@ async def get_look_angles(request: Request, t: str | None = Query(None, descript
     """Every receive channel by every satellite: azimuth, elevation, range, off-axis
     angle, antenna gain toward the satellite and the electrically-small flag."""
     runtime = get_runtime(request)
-    t_ns = resolve_time_ns(t)
+    t_ns = resolve_time_ns(t, now_ns=_now_ns(request))
     return _json_list(_LOOK_ANGLES, await runtime.pool.run(compute_look_angles, runtime.config, t_ns))
 
 
@@ -1237,13 +1393,14 @@ async def post_accuracy(request: Request, body: schemas.AccuracyRequest) -> Resp
     if errors:
         raise ApiProblem(422, _summary(errors, "accuracy request"), errors=errors)
     region = body.region or cfg.processing.region
-    lat, lon, bands = accuracy_bands(region, body.step_deg)
+    lat, lon = region.grid(body.step_deg)
     cells = int(lat.size * lon.size)
     if cells > ACCURACY_MAX_CELLS:
         message = (f"a {body.step_deg:g} degree grid over the region has {cells} cells, more than "
                    f"{ACCURACY_MAX_CELLS}; choose a coarser step_deg or a smaller region")
         raise ApiProblem(422, message, errors=[{"loc": "step_deg", "msg": message}])
-    now = _now_ns()
+    lat, lon, bands = accuracy_bands(region, body.step_deg, accuracy_band_cells(len(body.pairs), int(lon.size)))
+    now = _now_ns(request)
     t_ns = resolve_time_ns(body.t, now_ns=now - now % 60_000_000_000)
     key = (version, body.model_dump_json(exclude={"t"}), t_ns)
     state = _api_state(request)
@@ -1306,7 +1463,7 @@ async def post_link_budget(request: Request, body: schemas.LinkBudgetRequest) ->
     resulting C/N0 and SNR, and whether the configured detection threshold is met."""
     runtime = get_runtime(request)
     cfg = runtime.config
-    t_ns = resolve_time_ns(body.t)
+    t_ns = resolve_time_ns(body.t, now_ns=_now_ns(request))
     try:
         rows = await runtime.pool.run(compute_link_budget, cfg, body.emitter, body.f_e_hz, body.lat_deg,
                                       body.lon_deg, body.alt_m, t_ns)
@@ -1367,7 +1524,7 @@ async def reset_scenario(request: Request) -> Response:
 async def get_truth(request: Request) -> Response:
     """Simulated emitters with their true positions and, per active event, the miss
     distance of the estimate (SIMULATION)."""
-    return _json(sim_truth(get_runtime(request)))
+    return _json(sim_truth(get_runtime(request), _now_ns(request)))
 
 
 # ----------------------------------------------------------------- node backplane

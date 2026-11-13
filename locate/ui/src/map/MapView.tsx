@@ -30,7 +30,9 @@ export interface MapSolution {
   semiMajorM: number;
   semiMinorM: number;
   azimuthDeg: number;
-  role: 'fix' | 'mirror';
+  /** fix: a position with its ellipse; mirror: another position of an unresolved ambiguity
+   *  (dashed); unreliable: an inconsistent fit, enlarged ellipse, not a fix (dotted, no fill) */
+  role: 'fix' | 'mirror' | 'unreliable';
   selected: boolean;
   label: string;
 }
@@ -86,6 +88,7 @@ const RAD = Math.PI / 180;
 const R_EARTH_M = 6371008.8;
 const MAX_LAT = 85;
 export const HEAT_EDGES_KM = [1, 3, 10, 30, 100, 300];
+/** One letter per error source (core.solver.ERROR_SOURCES) for the accuracy cells. */
 export const DOMINANT_LETTER: Record<string, string> = {
   noise: 'N',
   ephemeris_position: 'P',
@@ -94,6 +97,8 @@ export const DOMINANT_LETTER: Record<string, string> = {
   oscillator: 'O',
   tdoa_bias: 'B',
   reference: 'R',
+  ionosphere: 'I',
+  troposphere: 'T',
 };
 export const DOMINANT_WORD: Record<string, string> = {
   noise: 'measurement noise',
@@ -103,7 +108,13 @@ export const DOMINANT_WORD: Record<string, string> = {
   oscillator: 'oscillators',
   tdoa_bias: 'TDOA bias',
   reference: 'reference measurement',
+  ionosphere: 'ionosphere',
+  troposphere: 'troposphere',
 };
+/** The letters as the Plan screen lists them. */
+export const DOMINANT_KEY = Object.entries(DOMINANT_LETTER)
+  .map(([k, l]) => `${l} ${DOMINANT_WORD[k]}`)
+  .join(', ');
 
 function layerLabel(id: LayerId, p: MapProps): string {
   switch (id) {
@@ -507,7 +518,7 @@ export function MapView(props: MapProps) {
           ctx.fillStyle = color('--fix-fill');
           ctx.fill();
         }
-        ctx.setLineDash(s.role === 'mirror' ? [6, 4] : []);
+        ctx.setLineDash(s.role === 'mirror' ? [6, 4] : s.role === 'unreliable' ? [2, 4] : []);
         ctx.strokeStyle = color('--fix');
         ctx.lineWidth = s.selected ? 2.4 : 1.4;
         ctx.stroke();
@@ -523,7 +534,7 @@ export function MapView(props: MapProps) {
         ctx.lineTo(x, y + r);
         ctx.strokeStyle = color('--fix');
         ctx.lineWidth = 2;
-        if (s.role === 'mirror') ctx.setLineDash([3, 2]);
+        if (s.role !== 'fix') ctx.setLineDash([3, 2]);
         ctx.stroke();
         ctx.setLineDash([]);
         labeler.mark(x, y, r);
@@ -777,7 +788,7 @@ export function MapView(props: MapProps) {
       const cep = g.cep50_m[i]?.[j];
       const dom = g.dominant[i]?.[j];
       if (i >= 0 && i < g.lat_deg.length && j >= 0 && j < g.lon_deg.length) {
-        text += val === null || val === undefined ? '   no estimate possible here' : `   95 % ${km(val)} km, CEP50 ${km(cep)} km, dominant ${DOMINANT_WORD[dom ?? ''] ?? dom ?? '—'}`;
+        text += val === null || val === undefined ? '   no estimate possible here' : `   95 % semi-major ${km(val)} km, CEP50 ${km(cep)} km, dominant ${DOMINANT_WORD[dom ?? ''] ?? dom ?? '—'}`;
       }
     }
     el.textContent = text;

@@ -112,9 +112,18 @@ def _check_time(t_ns: int, name: str = "t_ns") -> int:
 class _WallClock:
     """Labelled time from the host's UTC clock, with a sleep that follows it."""
 
+    _offset_ns: int = 0
+    """Added to the host clock (simulation only: a world run from a fixed epoch)."""
+
+    @property
+    def offset_ns(self) -> int:
+        """What is added to the host clock, integer ns (0 but for simulation)."""
+        return self._offset_ns
+
     def now_ns(self) -> int:
-        """Host UTC time, integer ns since the Unix epoch (`time.time_ns`)."""
-        return time.time_ns()
+        """Host UTC time, integer ns since the Unix epoch (`time.time_ns`), plus the
+        clock's offset (0 except for a simulated node run from a fixed epoch)."""
+        return time.time_ns() + self._offset_ns
 
     async def sleep_until(self, t_ns: int) -> None:
         """Sleep until labelled time `t_ns` (UTC ns) has passed.
@@ -135,6 +144,10 @@ class SystemClock(_WallClock):
     source: what disciplines it; "ntp" unless told otherwise.
     locked: whether it is disciplined; True unless told otherwise. Not measured here.
     est_offset_ns: estimate of true time minus labelled time, ns (default 0).
+    offset_ns: integer ns added to the host clock to make labelled time (default 0).
+        Only for simulation: every process of a simulated deployment run from a fixed
+        epoch (`petal-locate demo --start`) uses the same offset, so that the server and
+        the simulated nodes agree on the simulated time. A real node keeps 0.
 
     While `locked` is false the status reports the holdover as the time since the
     clock was last marked locked (`set_locked`), or since construction when it never
@@ -146,10 +159,15 @@ class SystemClock(_WallClock):
         source: ClockSourceName = "ntp",
         locked: bool = True,
         est_offset_ns: float = 0.0,
+        offset_ns: int = 0,
     ) -> None:
         _check_source(source)
         if not isinstance(locked, bool):
             raise ValueError(f"locked: must be a bool, got {type(locked).__name__}")
+        if isinstance(offset_ns, bool) or not isinstance(offset_ns, int):
+            raise ValueError(f"offset_ns: must be an integer of nanoseconds, got {type(offset_ns).__name__}")
+        _check_time(time.time_ns() + offset_ns, "time.time_ns() + offset_ns")
+        self._offset_ns = offset_ns
         self._source: ClockSourceName = source
         self._locked = locked
         self._est_offset_ns = _check_offset(est_offset_ns)

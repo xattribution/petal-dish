@@ -43,6 +43,7 @@ from .crlb import post_correlation_snr, stein_sigmas
 from .geodesy import lla_to_ecef, radii_of_curvature
 from .geometry import elevation_deg, measurement_windows, predict_pair, search_windows, self_peak
 from .linkbudget import emitter_boresight, path_budget, uplink_budget
+from .media import row_media_partials
 from .orbits import Orbit, PerturbedOrbit, orbit_position
 from .signals import waveform_from_spec
 from .solver import ERROR_SOURCES, above_mask
@@ -51,10 +52,13 @@ from .types import PathSpec, Uncertainty
 
 __all__ = [
     "ACCURACY_CONFIDENCE",
+    "MIN_SIGNAL_BW_HZ",
     "CapturePlan",
     "PairSearch",
     "relaying_transponder",
+    "split_channel_ref",
     "channel_satellite",
+    "pair_satellites",
     "capture_plan",
     "pair_search",
     "correlation_bandwidth_hz",
@@ -67,6 +71,10 @@ __all__ = [
 
 ACCURACY_CONFIDENCE: float = 0.95
 """Probability of the ellipse whose semi-major axis the map reports (``semi_major_95_m``)."""
+
+MIN_SIGNAL_BW_HZ: float = 10.0
+"""The estimator's band filter is never narrower than this (Hz): tasking and the Monte
+Carlo driver pass ``max(occupied band, MIN_SIGNAL_BW_HZ)``, so a CW is band-limited too."""
 
 _ELLIPSE_SCALE = math.sqrt(-2.0 * math.log(1.0 - ACCURACY_CONFIDENCE))  # 2.4477
 _JAC_STEP_M = 100.0  # central-difference step of J, metres (MATH.md section 9)
@@ -84,6 +92,8 @@ _CATEGORY = {
     "ref": "reference",
     "eph_pos": "ephemeris_position",
     "eph_vel": "ephemeris_velocity",
+    "cap": "noise",
+    "refcap": "reference",
 }
 REASON_NOT_ADMISSIBLE = "not admissible"
 REASON_UNOBSERVABLE = "unobservable"
@@ -110,27 +120,97 @@ def relaying_transponder(satellite: Any, f_e_hz: float) -> Any | None:
     return best
 
 
-def channel_satellite(config: Any, channel_id: str, f_e_hz: float, name: str = "channel_id") -> tuple[str, Any] | None:
+def split_channel_ref(text: str) -> tuple[str, str | None]:
+    """``"channel_id"`` or ``"channel_id@sat_id"`` -> ``(channel_id, sat_id or None)``.
+
+    The explicit form names the satellite a pair end correlates on, for a channel that
+    watches several satellites relaying the same carrier (a fixed or wide-beam
+    pointing). Identifiers never contain ``@``. Raises ValueError for an empty part.
+    """
+    if not isinstance(text, str):
+        raise ValueError(f"a pair end must be a channel id string, got {type(text).__name__}")
+    channel_id, sep, sat_id = text.partition("@")
+    if not channel_id or (sep and not sat_id) or "@" in sat_id:
+        raise ValueError(f"{text!r} is not a channel id or 'channel_id@sat_id'")
+    return channel_id, (sat_id if sep else None)
+
+
+def channel_satellite(
+    config: Any,
+    channel_id: str,
+    f_e_hz: float,
+    name: str = "channel_id",
+    *,
+    exclude: str | None = None,
+    sat_id: str | None = None,
+) -> tuple[str, Any] | None:
     """The satellite (and its relaying transponder) a channel correlates a carrier on.
 
     The channel's watched satellites (``watched_satellite_ids``: its tracked satellite,
     or the list of a fixed pointing) are searched for one that relays ``f_e_hz`` (Hz).
-    Returns ``(sat_id, transponder)``, or None when no watched satellite relays it.
-    Raises ValueError naming ``name`` when the channel is unknown or two watched
-    satellites relay the carrier (the pair would be ambiguous).
+    ``channel_id`` may be ``"channel_id@sat_id"`` (``split_channel_ref``), which is the
+    same as passing ``sat_id``: that satellite is used, and it must be watched by the
+    channel. exclude: a satellite to leave out (the one the other end of the pair uses),
+    applied only when more than one watched satellite relays the carrier.
+    Returns ``(sat_id, transponder)``, or None when no (chosen) watched satellite relays
+    it. Raises ValueError naming ``name`` when the channel is unknown, the named
+    satellite is not watched by it, or two watched satellites relay the carrier and
+    ``exclude`` does not leave exactly one (the pair would be ambiguous).
     """
+    channel_id, named = split_channel_ref(channel_id)
+    if sat_id is not None and named is not None and sat_id != named:
+        raise ValueError(f"{name}: two satellites named for channel {channel_id!r} ({named!r}, {sat_id!r})")
+    sat_id = sat_id if sat_id is not None else named
     _, channel = config.channel(channel_id)
-    found = []
-    for sat_id in channel.watched_satellite_ids:
+    watched = list(channel.watched_satellite_ids)
+    if sat_id is not None:
+        if sat_id not in watched:
+            raise ValueError(f"{name}: channel {channel_id!r} does not watch satellite {sat_id!r} (it watches {watched})")
         tp = relaying_transponder(config.satellite(sat_id), f_e_hz)
+        return None if tp is None else (sat_id, tp)
+    found = []
+    for watched_id in watched:
+        tp = relaying_transponder(config.satellite(watched_id), f_e_hz)
         if tp is not None:
-            found.append((sat_id, tp))
+            found.append((watched_id, tp))
+    if len(found) > 1 and exclude is not None:
+        found = [item for item in found if item[0] != exclude] or found
     if len(found) > 1:
         raise ValueError(
             f"{name}: channel {channel_id!r} watches satellites {[s for s, _ in found]} that all relay "
-            f"{f_e_hz:.0f} Hz; which one a pair means is ambiguous"
+            f"{f_e_hz:.0f} Hz; which one a pair means is ambiguous (name it as '{channel_id}@<sat_id>')"
         )
     return found[0] if found else None
+
+
+def pair_satellites(
+    config: Any, end_a: str, end_b: str, f_e_hz: float, name: str = "pair"
+) -> tuple[tuple[str, Any] | None, tuple[str, Any] | None]:
+    """The satellites (and transponders) both ends of a channel pair correlate a carrier on.
+
+    end_a, end_b: ``"channel_id"`` or ``"channel_id@sat_id"``. Both ends are resolved
+    together: an end whose channel watches several satellites relaying ``f_e_hz`` takes
+    the one the other end does not use (as tasking pairs a multi-satellite channel), and
+    raises (naming ``name[0]`` / ``name[1]``) only when that still leaves a choice.
+    Returns ``(found_a, found_b)``, each ``(sat_id, transponder)`` or None as
+    ``channel_satellite``.
+    """
+    def attempt(end: str, label: str, exclude: str | None) -> tuple[str, Any] | None | ValueError:
+        try:
+            return channel_satellite(config, end, f_e_hz, label, exclude=exclude)
+        except ValueError as exc:
+            return exc
+
+    label_a, label_b = f"{name}[0]", f"{name}[1]"
+    found_a, found_b = attempt(end_a, label_a, None), attempt(end_b, label_b, None)
+    if isinstance(found_a, ValueError) and not isinstance(found_b, ValueError) and found_b is not None:
+        found_a = attempt(end_a, label_a, found_b[0])
+    elif isinstance(found_b, ValueError) and not isinstance(found_a, ValueError) and found_a is not None:
+        found_b = attempt(end_b, label_b, found_a[0])
+    for found in (found_a, found_b):
+        if isinstance(found, ValueError):
+            raise found
+    return found_a, found_b  # type: ignore[return-value]
 
 
 # --------------------------------------------------------------------------- capture plan
@@ -444,10 +524,13 @@ def covariance_batch(
     one-sigmas ``[P, m]`` (row units). active: ``[P, m]`` bool, rows that exist at each
     position (the others are ignored). gain: ``G = H_c S_c^(1/2)`` ``[P, m, n]`` (one
     column per consider parameter scaled by its one-sigma) or None. categories: the
-    error source (one of ``solver.ERROR_SOURCES``) of each column of ``gain``.
+    error source (one of ``solver.ERROR_SOURCES``) of each column of ``gain``; columns
+    of category ``"noise"`` are CAF noise shared by the rows of one capture and count
+    in ``P_noise``.
 
     With ``S = R + G G^T`` over the active rows: ``P_total = (J^T S^-1 J)^-1``,
-    ``K = P_total J^T S^-1``, ``P_noise = K R K^T``, ``P_consider = K G G^T K^T``. Works
+    ``K = P_total J^T S^-1``, ``P_noise = K (R + G_noise G_noise^T) K^T``,
+    ``P_consider = K G_other G_other^T K^T``. Works
     in sigma-normalised form (``Jn = D^-1 J``, ``Gn = D^-1 G``, ``Sn = I + Gn Gn^T``).
     Returns ``total`` (``P_noise + P_consider``), ``noise``, ``consider`` ``[P, 2, 2]``
     m^2; ``budget`` ``[P, len(ERROR_SOURCES)]`` (each source's share of the trace);
@@ -491,7 +574,12 @@ def covariance_batch(
     consider = np.zeros((p, 2, 2))
     if gn is not None:
         projected = k_n @ gn  # K G, [P, 2, n]
-        consider = projected @ np.swapaxes(projected, -1, -2)
+        is_noise = np.array([name == "noise" for name in categories], dtype=bool)
+        shared = projected[:, :, is_noise]  # CAF noise shared by rows of one capture
+        noise = noise + shared @ np.swapaxes(shared, -1, -2)
+        noise = 0.5 * (noise + np.swapaxes(noise, -1, -2))
+        rest = projected[:, :, ~is_noise]
+        consider = rest @ np.swapaxes(rest, -1, -2)
         consider = 0.5 * (consider + np.swapaxes(consider, -1, -2))
         share = np.sum(projected * projected, axis=1)  # [P, n]
         for col, name in enumerate(categories):
@@ -639,8 +727,10 @@ class _Pair:
     """Everything the map needs about one listed pair."""
 
     index: int
-    a_channel: str
+    a_channel: str  # as listed (possibly "channel@sat")
     b_channel: str
+    a_id: str = ""  # bare channel ids
+    b_id: str = ""
     a: PathSpec | None = None
     b: PathSpec | None = None
     tp_a: Any = None
@@ -653,6 +743,9 @@ class _Pair:
     ref: dict[str, Any] | None = None
     reason: str | None = None
     notes: list[str] = field(default_factory=list)
+    capture_a: tuple[Any, ...] | None = None  # identity of each capture (channel, rate, length, centre)
+    capture_b: tuple[Any, ...] | None = None
+    shares: dict[str, tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)  # kind -> per-cell shares
 
 
 def accuracy_map(
@@ -670,8 +763,11 @@ def accuracy_map(
     """Predicted location accuracy over a grid: the planning map (MATH.md section 10).
 
     config: the system configuration (read by attribute). pairs: ``[(channel_a,
-    channel_b), ...]``; each channel correlates the carrier on the one satellite it
-    watches that relays ``f_e_hz``. emitter: an ``EmitterModel`` (``eirp_dbw`` on
+    channel_b), ...]``; each channel correlates the carrier on the satellite it watches
+    that relays ``f_e_hz``. An end may be ``"channel_id@sat_id"`` to name that satellite
+    for a channel watching several that relay the carrier; otherwise both ends are
+    resolved together (``pair_satellites``: an ambiguous end takes the satellite the
+    other end does not use). emitter: an ``EmitterModel`` (``eirp_dbw`` on
     boresight, ``antenna``, ``pointing``, ``bandwidth_hz``, ``waveform``). f_e_hz:
     uplink carrier, Hz. t_ns: epoch of every row (``t_mid``), integer UTC ns. region:
     the grid's region (``grid(step_deg)``, ``contains``). step_deg: grid step,
@@ -684,19 +780,28 @@ def accuracy_map(
     Per cell and pair (ARCHITECTURE.md section 7 tasking rules): the capture plan
     (``capture_plan`` with the band ``f_e_hz +/- bandwidth_hz / 2``), the search windows
     (``pair_search``; calibrated kinds keep only the fixed margins), ``B`` and the
-    filter of the estimator (``correlation_bandwidth_hz``), ``T`` at the predicted
-    TDOA (``integration_time_s``), the two path budgets (with the configured carriers
-    that have a location and an emitter model sharing the transponder), input SNRs
-    ``g = (C/N0) / B`` in ``B``, the post-correlation SNR ``B T C`` and the Stein
-    sigmas. A pair contributes only where both satellites are at or above
-    ``solver.min_elevation_deg``, both paths exist and ``10 log10(B T C) >=
-    caf.min_snr_db``; its TDOA row only where ``sigma_tdoa <= caf.max_tdoa_sigma_s``.
-    ``P_total`` follows MATH.md section 9 with ``config.resolved_uncertainty()``. With
-    a reference: its own budgets, plan and windows give ``sigma_ref`` (the reference
-    measurement becomes a consider parameter with that sigma), and every consider
-    partial becomes ``H_c(x) - H_c,ref(x_ref)`` at the reference's ``f_e`` (clock, pair
-    bias and satellite oscillator terms cancel exactly; site oscillators leave the
-    difference of the tunings).
+    filter of the estimator (``correlation_bandwidth_hz`` of ``max(occupied band,
+    MIN_SIGNAL_BW_HZ)``, as tasking passes it, so a CW is band-limited too), ``T`` at the
+    predicted TDOA (``integration_time_s``), the two path budgets (with the configured
+    carriers that have a location and an emitter model sharing the transponder), input
+    SNRs in ``B`` against each channel's thermal noise, the relayed noise of every
+    satellite the channel hears and the copies of the carrier those other satellites
+    relay into it (co-channel copies are noise to the pair), the post-correlation SNR
+    ``B T C`` and the Stein sigmas, plus the estimator's coherent co-channel term for a
+    pair at one site whose channels both hear both satellites (``caf.CafResult.
+    leak_excess``, taken with the copies in phase). A pair contributes only where both
+    satellites are at or above ``solver.min_elevation_deg``, both paths exist and
+    ``10 log10(B T C) >= caf.min_snr_db``; its TDOA row only where ``sigma_tdoa <=
+    caf.max_tdoa_sigma_s``. ``P_total`` follows MATH.md section 9 with
+    ``config.resolved_uncertainty()``, the propagation media included, and the noise of
+    a channel's capture shared by every listed pair that uses it (each channel's share
+    from the SNRs, as ``CafResult.noise_share_*``). With a reference: its own budgets,
+    plan and windows give ``sigma_ref`` (the reference measurement becomes a consider
+    parameter with that sigma; references of one channel share its reference capture's
+    noise), and every consider partial becomes ``H_c(x) - H_c,ref(x_ref)`` at the
+    reference's ``f_e`` (clock, pair bias and satellite oscillator terms cancel exactly;
+    site oscillators leave the difference of the tunings; the media leave the uplinks at
+    the emitter and at the reference).
 
     Returns a JSON-ready dict: ``lat_deg[n_lat]``, ``lon_deg[n_lon]`` (unwrapped, as
     ``region.grid``), and ``[n_lat][n_lon]`` grids ``semi_major_95_m``,
@@ -761,21 +866,23 @@ def accuracy_map(
     active = np.zeros(shape + (m,), dtype=bool)
     usable_any = np.zeros(shape, dtype=bool)
     for k, (ch_a, ch_b) in enumerate(pair_list):
-        pm = _Pair(k, ch_a, ch_b)
+        pm = _Pair(k, ch_a, ch_b, split_channel_ref(ch_a)[0], split_channel_ref(ch_b)[0])
         models.append(pm)
-        found_a = channel_satellite(config, ch_a, f_e, f"pairs[{k}][0]")
-        found_b = channel_satellite(config, ch_b, f_e, f"pairs[{k}][1]")
+        found_a, found_b = pair_satellites(config, ch_a, ch_b, f_e, f"pairs[{k}]")
         if found_a is None or found_b is None:
             pm.reason = f"channel {ch_a if found_a is None else ch_b!r} watches no satellite relaying {f_e:.0f} Hz"
             continue
         (sat_a, tp_a), (sat_b, tp_b) = found_a, found_b
         if sat_a == sat_b:
             raise ValueError(f"pairs[{k}]: both channels use satellite {sat_a!r}; a pair needs two satellites")
-        site_a, site_b = config.channel(ch_a)[0].id, config.channel(ch_b)[0].id
-        plan = capture_plan(config, [ch_a, ch_b], f_e - 0.5 * bandwidth, f_e + 0.5 * bandwidth, duration_s=integration_s)
+        id_a, id_b = pm.a_id, pm.b_id
+        site_a, site_b = config.channel(id_a)[0].id, config.channel(id_b)[0].id
+        plan = capture_plan(config, [id_a, id_b], f_e - 0.5 * bandwidth, f_e + 0.5 * bandwidth, duration_s=integration_s)
         a = PathSpec(sat_a, site_a, plan.f_e_nom_hz, float(tp_a.translation_hz), float(tp_a.group_delay_s))
         b = PathSpec(sat_b, site_b, plan.f_e_nom_hz, float(tp_b.translation_hz), float(tp_b.group_delay_s))
         pm.a, pm.b, pm.tp_a, pm.tp_b, pm.plan = a, b, tp_a, tp_b, plan
+        pm.capture_a = (id_a, plan.sample_rate_hz, plan.n_samples, round(a.f_tune_hz))
+        pm.capture_b = (id_b, plan.sample_rate_hz, plan.n_samples, round(b.f_tune_hz))
 
         if reference is not None:
             pm.ref = _reference_model(config, reference, x_ref, pm, t, kind_list, unc, orbits, sites, integration_s)
@@ -791,24 +898,25 @@ def accuracy_map(
         correction = (0.0 if "tdoa" in pm.cal_kinds else None, 0.0 if "fdoa" in pm.cal_kinds else None)
         pm.windows = search.windows(caf_cfg, unc, correction if pm.cal_kinds else None)
         reach = _doppler_reach(pm.windows)
-        pm.noise_bw_hz, pm.n_taps = correlation_bandwidth_hz(plan.sample_rate_hz, plan.signal_bw_hz, reach, plan.n_samples)
+        # as tasking: the band filter is never narrower than MIN_SIGNAL_BW_HZ, so a CW is filtered too
+        pm.noise_bw_hz, pm.n_taps = correlation_bandwidth_hz(
+            plan.sample_rate_hz, max(plan.occupied_bw_hz, MIN_SIGNAL_BW_HZ), reach, plan.n_samples
+        )
 
-        budget_a = path_budget(config, emitter, f_e, x, sat_a, tp_a.id, ch_a, t_s, _other_pfd(config, sat_a, tp_a, t_s, orbits, None))
-        budget_b = path_budget(config, emitter, f_e, x, sat_b, tp_b.id, ch_b, t_s, _other_pfd(config, sat_b, tp_b, t_s, orbits, None))
-        if budget_a is None or budget_b is None:
-            pm.reason = f"satellite {sat_a if budget_a is None else sat_b!r} is below the horizon of site {site_a if budget_a is None else site_b!r}"
+        channel_a = _channel_power(config, emitter, f_e, x, id_a, sat_a, tp_a, search.heard_a, t_s, orbits, None)
+        channel_b = _channel_power(config, emitter, f_e, x, id_b, sat_b, tp_b, search.heard_b, t_s, orbits, None)
+        if channel_a is None or channel_b is None:
+            pm.reason = f"satellite {sat_a if channel_a is None else sat_b!r} is below the horizon of site {site_a if channel_a is None else site_b!r}"
             continue
         visible = (
             above_mask(lat2, lon2, x, orbit_position(orbits[sat_a], t_s), mask_deg)
             & above_mask(lat2, lon2, x, orbit_position(orbits[sat_b], t_s), mask_deg)
             & inside
         )
-        cn0_a = np.asarray(budget_a.cn0_total_dbhz, dtype=np.float64)
-        cn0_b = np.asarray(budget_b.cn0_total_dbhz, dtype=np.float64)
-        visible &= np.isfinite(cn0_a) & np.isfinite(cn0_b)
+        visible &= (channel_a.signal > 0.0) & (channel_b.signal > 0.0)
         usable_any |= visible
-        g_a = np.where(visible, 10.0 ** ((np.where(visible, cn0_a, 0.0) - 10.0 * math.log10(pm.noise_bw_hz)) / 10.0), 0.0)
-        g_b = np.where(visible, 10.0 ** ((np.where(visible, cn0_b, 0.0) - 10.0 * math.log10(pm.noise_bw_hz)) / 10.0), 0.0)
+        g_a = np.where(visible, channel_a.snr(pm.noise_bw_hz), 0.0)
+        g_b = np.where(visible, channel_b.snr(pm.noise_bw_hz), 0.0)
         tdoa_pred, _ = predict_pair(x, a, b, t_s, orbits, sites)
         t_int = np.asarray(integration_time_s(plan.n_samples, pm.n_taps, plan.sample_rate_hz, tdoa_pred))
         ok_t = t_int > 0.0
@@ -816,8 +924,29 @@ def accuracy_map(
         rho = np.asarray(post_correlation_snr(pm.noise_bw_hz, t_safe, g_a, g_b))
         with np.errstate(divide="ignore"):
             detected = visible & ok_t & (10.0 * np.log10(np.where(rho > 0.0, rho, 1e-300)) >= min_snr_db)
-        sig_t, sig_f = stein_sigmas(pm.noise_bw_hz, rms_bw, t_safe, np.where(detected, g_a, 1.0), np.where(detected, g_b, 1.0))
+        g_a_d, g_b_d = np.where(detected, g_a, 1.0), np.where(detected, g_b, 1.0)
+        sig_t, sig_f = stein_sigmas(pm.noise_bw_hz, rms_bw, t_safe, g_a_d, g_b_d)
         sig_t, sig_f = np.broadcast_to(sig_t, shape), np.broadcast_to(sig_f, shape)
+        # co-channel copies at one site: their self-peak sidelobes add in amplitude (caf._leak_excess)
+        excess = np.zeros(shape)
+        if site_a == site_b and sat_b in search.heard_a and sat_a in search.heard_b:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                excess = np.where(
+                    detected,
+                    2.0 * np.sqrt(channel_a.copies.get(sat_b, 0.0) * channel_b.copies.get(sat_a, 0.0)
+                                  / np.where(detected, channel_a.signal * channel_b.signal, 1.0)),
+                    0.0,
+                )
+            t_e2 = (math.pi * t_safe) ** 2 / 3.0
+            sig_f = np.sqrt(sig_f**2 + excess / (2.0 * pm.noise_bw_hz * t_safe * t_e2))
+            if rms_bw > 0.0:
+                sig_t = np.sqrt(sig_t**2 + excess / (2.0 * pm.noise_bw_hz * t_safe * (2.0 * math.pi * rms_bw) ** 2))
+        # each channel's own noise share of the variances (rows correlated from one capture share it)
+        q = max(1.0, pm.noise_bw_hz**2 / (12.0 * rms_bw**2)) if rms_bw > 0.0 else 1.0
+        inv_a, inv_b = 1.0 / g_a_d, 1.0 / g_b_d
+        for kind, q_kind in (("tdoa", q), ("fdoa", 1.0)):
+            total = inv_a + inv_b + q_kind * inv_a * inv_b + excess
+            pm.shares[kind] = (np.where(detected, inv_a / total, 0.0), np.where(detected, inv_b / total, 0.0))
         if "tdoa" in kind_list:
             row_t = detected & np.isfinite(sig_t) & (sig_t <= max_tdoa_sigma)
             active[..., 2 * k] = row_t
@@ -839,10 +968,12 @@ def accuracy_map(
     rows_per_cell = np.sum(active.reshape(-1, m), axis=1)
     if cells.size:
         xc = x.reshape(-1, 3)[cells]
-        jac, gain, categories = _design(
-            models, xc, lat2.reshape(-1)[cells], lon2.reshape(-1)[cells], t_s, height, unc, orbits, sites, m
+        cell_sigma = sigma.reshape(-1, m)[cells]
+        jac, gain, categories, own_sigma = _design(
+            models, xc, lat2.reshape(-1)[cells], lon2.reshape(-1)[cells], t_s, height, unc, orbits, sites, m,
+            cell_sigma, cells, reference_carrier_id,
         )
-        out = covariance_batch(jac, sigma.reshape(-1, m)[cells], active.reshape(-1, m)[cells], gain, categories)
+        out = covariance_batch(jac, own_sigma, active.reshape(-1, m)[cells], gain, categories)
         total[cells] = out["total"]
         budget[cells] = out["budget"]
         observable[cells] = out["observable"]
@@ -925,13 +1056,24 @@ def _design(
     orbits: Mapping[str, Orbit],
     sites: Mapping[str, Any],
     m: int,
-) -> tuple[np.ndarray, np.ndarray | None, list[str]]:
-    """``J`` ``[P, m, 2]`` and ``G = H_c S_c^(1/2)`` ``[P, m, n]`` at cells ``x`` (``[P, 3]``).
+    sigma: np.ndarray,
+    cells: np.ndarray,
+    reference_id: str | None,
+) -> tuple[np.ndarray, np.ndarray | None, list[str], np.ndarray]:
+    """``J`` ``[P, m, 2]``, ``G = H_c S_c^(1/2)`` ``[P, m, n]`` and the rows' own sigmas at
+    cells ``x`` (``[P, 3]``; ``cells`` their flat grid indices, ``sigma`` ``[P, m]`` the
+    rows' CAF sigmas).
 
     Rows ``2k`` (TDOA) and ``2k + 1`` (FDOA) belong to pair ``k``. ``J`` by central
     differences of ``predict_pair`` over 100 m east and north; ``G`` from the analytic
-    clock / oscillator / bias partials, the ephemeris partials and one reference column
-    per calibrated row, each scaled by its one-sigma.
+    clock / oscillator / bias partials, the ephemeris partials, one reference column
+    per calibrated row, the propagation media (``core.media``: one VTEC and one zenith
+    delay per ground end, ``sigma sqrt(1 - rho)`` each, plus a common column
+    ``sigma sqrt(rho)``; calibrated rows subtract the reference's), each scaled by its
+    one-sigma, and the noise of captures used by two or more pairs (category
+    ``"noise"``; the rows' own sigmas returned keep the rest, as in the solver). A
+    capture is a channel at one plan (rate, length, centre); reference captures shared
+    by two references split the same way (category ``"reference"``).
     """
     p = x.shape[0]
     stencil = _stencil(lat, lon, height)  # [P, 4, 3]: 100 m east, west, north, south
@@ -940,29 +1082,52 @@ def _design(
     sigmas: list[float] = []
     categories: list[str] = []
     const_rows: list[tuple[int, int, float]] = []  # (row, column, value) of position-independent entries
+    cell_entries: list[tuple[int, int, np.ndarray]] = []  # (row, column, [P] values) of per-cell entries
 
-    def column(key: tuple[Any, ...], sigma: float, category: str) -> int:
+    def column(key: tuple[Any, ...], sigma_c: float, category: str) -> int:
         if key not in keys:
             keys[key] = len(sigmas)
-            sigmas.append(sigma)
+            sigmas.append(sigma_c)
             categories.append(category)
         return keys[key]
 
+    used = [pm for pm in models if pm.windows is not None and pm.a is not None and pm.b is not None]
     sats: list[str] = []
-    for pm in models:
-        if pm.windows is not None and pm.a is not None and pm.b is not None:
-            for s in (pm.a.sat_id, pm.b.sat_id):
-                if s not in sats:
-                    sats.append(s)
+    for pm in used:
+        for sat in (pm.a.sat_id, pm.b.sat_id):  # type: ignore[union-attr]
+            if sat not in sats:
+                sats.append(sat)
     eph = _ephemeris_params(sats, unc)
-    eph_cols = [column(("eph", s, v, c), sig, "ephemeris_velocity" if v else "ephemeris_position") for s, v, c, sig in eph]
+    eph_cols = [column(("eph", sat, v, c), sig, "ephemeris_velocity" if v else "ephemeris_position") for sat, v, c, sig in eph]
     eph_entries: list[tuple[int, np.ndarray]] = []  # (row, [P, n_eph] partial times sigma)
 
+    # captures (and reference captures) used by two or more pairs share their noise
+    capture_users: dict[tuple[Any, ...], int] = {}
+    ref_users: dict[tuple[Any, ...], int] = {}
+    for pm in used:
+        for cap in (pm.capture_a, pm.capture_b):
+            capture_users[cap] = capture_users.get(cap, 0) + 1  # type: ignore[index]
+        if pm.cal_kinds and pm.ref is not None:
+            for cap in (pm.ref["capture_a"], pm.ref["capture_b"]):
+                ref_users[cap] = ref_users.get(cap, 0) + 1
+    own = sigma.copy()
+
     sig_eph = np.array([sig for *_, sig in eph])
-    for pm in models:
-        if pm.windows is None or pm.a is None or pm.b is None:
-            continue
+    media = [(name, sig, rho) for name, sig, rho in (
+        ("ionosphere", float(unc.iono_vtec_tecu), float(unc.iono_correlation)),
+        ("troposphere", float(unc.tropo_zenith_m), float(unc.tropo_correlation)),
+    ) if sig > 0.0]
+    media_rows: dict[str, dict[Any, np.ndarray]] = {name: {} for name, _, _ in media}  # end -> [P, m] partials
+
+    def media_add(name: str, end: Any, row: int, values: np.ndarray) -> None:
+        table = media_rows[name]
+        if end not in table:
+            table[end] = np.zeros((p, m))
+        table[end][:, row] += values
+
+    for pm in used:
         a, b, k = pm.a, pm.b, pm.index
+        assert a is not None and b is not None
         tdoa_s, fdoa_s = predict_pair(stencil, a, b, t_s, orbits, sites)  # [P, 4]
         jac[:, 2 * k, 0] = (tdoa_s[:, 0] - tdoa_s[:, 1]) / (2.0 * _JAC_STEP_M)
         jac[:, 2 * k, 1] = (tdoa_s[:, 2] - tdoa_s[:, 3]) / (2.0 * _JAC_STEP_M)
@@ -990,8 +1155,17 @@ def _design(
                     entries[key] = entries.get(key, 0.0) - value
                 if ref_partial is not None:
                     values = values - ref_partial[kind_i][None, :]
-                col = column(("ref", k, kind), float(ref["sigma"][kind]), "reference")
-                const_rows.append((row, col, float(ref["sigma"][kind])))
+                ref_sigma = float(ref["sigma"][kind])
+                own_fraction = 1.0
+                for cap, share, side in ((ref["capture_a"], ref["shares"][kind][0], 1.0),
+                                         (ref["capture_b"], ref["shares"][kind][1], -1.0)):
+                    if share > 0.0 and ref_users.get(cap, 0) >= 2:
+                        col = column(("refcap", cap, kind), 1.0, "reference")
+                        const_rows.append((row, col, side * ref_sigma * math.sqrt(share)))
+                        own_fraction -= share
+                own_sigma = ref_sigma * math.sqrt(max(own_fraction, 0.01))
+                col = column(("ref", k, kind), own_sigma, "reference")
+                const_rows.append((row, col, own_sigma))
             for key, value in entries.items():
                 sig = _analytic_sigma(key, unc)
                 if sig > 0.0 and value != 0.0:
@@ -999,16 +1173,55 @@ def _design(
                     const_rows.append((row, col, value * sig))
             if eph:
                 eph_entries.append((row, values * sig_eph))
+            # this pair's captures, shared with other pairs: the noise columns and the rows' own rest
+            shares = pm.shares.get(kind)
+            if shares is not None:
+                fraction = np.zeros(p)
+                for cap, share, side in ((pm.capture_a, shares[0], 1.0), (pm.capture_b, shares[1], -1.0)):
+                    if capture_users.get(cap, 0) >= 2:  # type: ignore[arg-type]
+                        share_c = np.asarray(share).reshape(-1)[cells]
+                        col = column(("cap", cap, kind), 1.0, "noise")
+                        cell_entries.append((row, col, side * sigma[:, row] * np.sqrt(share_c)))
+                        fraction += share_c
+                own[:, row] = sigma[:, row] * np.sqrt(np.maximum(1.0 - fraction, 0.01))
+            # propagation media: the emitter's uplinks, the sites' downlinks, minus the reference's
+            if media:
+                parts = row_media_partials(kind, a, b, np.array([t_s]), x, orbits, sites)
+                for name, _, _ in media:
+                    for end, part in parts[name].items():
+                        media_add(name, end, row, np.broadcast_to(np.asarray(part)[..., 0], (p,)))
+                if calibrated:
+                    assert ref is not None
+                    ref_parts = row_media_partials(kind, ref["a"], ref["b"], np.array([t_s]), np.asarray(ref["x_ref"]),
+                                                   orbits, sites, ("ref", reference_id))
+                    for name, _, _ in media:
+                        for end, part in ref_parts[name].items():
+                            media_add(name, end, row, np.full(p, -float(np.asarray(part)[0])))
+
+    media_cols: list[tuple[int, np.ndarray]] = []
+    for name, sig, rho in media:
+        ends = list(media_rows[name].values())
+        if not ends:
+            continue
+        if rho < 1.0:
+            for end_k, values in enumerate(ends):
+                media_cols.append((column(("media", name, end_k), 1.0, name), values * (sig * math.sqrt(1.0 - rho))))
+        if rho > 0.0:
+            media_cols.append((column(("media", name, "common"), 1.0, name), np.sum(ends, axis=0) * (sig * math.sqrt(rho))))
 
     n = len(sigmas)
     if n == 0:
-        return jac, None, []
+        return jac, None, [], own
     gain = np.zeros((p, m, n))
     for row, col, value in const_rows:
         gain[:, row, col] += value
+    for row, col, cell_values in cell_entries:
+        gain[:, row, col] += cell_values
     for row, values in eph_entries:
         gain[:, row, eph_cols] += values
-    return jac, gain, categories
+    for col, values in media_cols:
+        gain[:, :, col] += values
+    return jac, gain, categories, own
 
 
 def _reference_model(
@@ -1023,13 +1236,15 @@ def _reference_model(
     sites: Mapping[str, Any],
     integration_s: float | None,
 ) -> dict[str, Any]:
-    """Predicted reference measurement on a pair: its paths, sigmas, SNR and ephemeris partials.
+    """Predicted reference measurement on a pair: its paths, sigmas, SNR and captures.
 
     The reference must be relayed by the pair's two transponders (MATH.md section 9: same
     satellites, sites and transponders). Its capture plan, windows (prediction at its
-    surveyed position, uncalibrated widening), ``B``, ``T`` and budgets follow the same
-    rules as the target's, with the carrier's own ``EmitterModel`` and frequency.
-    Returns ``{"reason": str}`` when it cannot calibrate the pair.
+    surveyed position, uncalibrated widening), ``B`` (never narrower than
+    ``MIN_SIGNAL_BW_HZ``), ``T`` and budgets follow the same rules as the target's, with
+    the carrier's own ``EmitterModel`` and frequency; each channel's noise includes the
+    copies of the reference relayed by the other satellites that channel hears. Returns
+    ``{"reason": str}`` when it cannot calibrate the pair.
     """
     assert pm.a is not None and pm.b is not None
     f_ref = float(carrier.uplink_center_hz)
@@ -1039,7 +1254,7 @@ def _reference_model(
     if tp_a is None or tp_b is None or tp_a.id != pm.tp_a.id or tp_b.id != pm.tp_b.id:
         return {"reason": f"reference {carrier.id!r} is not relayed by the pair's transponders"}
     width = float(model.bandwidth_hz)
-    plan = capture_plan(config, [pm.a_channel, pm.b_channel], f_ref - 0.5 * width, f_ref + 0.5 * width, duration_s=integration_s)
+    plan = capture_plan(config, [pm.a_id, pm.b_id], f_ref - 0.5 * width, f_ref + 0.5 * width, duration_s=integration_s)
     t_s = sec(t_ns)
     ra = PathSpec(pm.a.sat_id, pm.a.site_id, plan.f_e_nom_hz, pm.a.translation_hz, pm.a.tau_x_s)
     rb = PathSpec(pm.b.sat_id, pm.b.site_id, plan.f_e_nom_hz, pm.b.translation_hz, pm.b.tau_x_s)
@@ -1047,14 +1262,16 @@ def _reference_model(
     if search is None:
         return {"reason": f"reference {carrier.id!r}: no window"}
     windows = search.windows(config.processing.caf, unc)
-    noise_bw, n_taps = correlation_bandwidth_hz(plan.sample_rate_hz, plan.signal_bw_hz, _doppler_reach(windows), plan.n_samples)
-    budgets = []
-    for sat, tp, ch in ((ra.sat_id, tp_a, pm.a_channel), (rb.sat_id, tp_b, pm.b_channel)):
-        pb = path_budget(config, model, f_ref, x_ref, sat, tp.id, ch, t_s, _other_pfd(config, sat, tp, t_s, orbits, carrier.id))
-        if pb is None:
+    noise_bw, n_taps = correlation_bandwidth_hz(
+        plan.sample_rate_hz, max(plan.occupied_bw_hz, MIN_SIGNAL_BW_HZ), _doppler_reach(windows), plan.n_samples
+    )
+    powers = []
+    for sat, tp, ch, heard in ((ra.sat_id, tp_a, pm.a_id, search.heard_a), (rb.sat_id, tp_b, pm.b_id, search.heard_b)):
+        power = _channel_power(config, model, f_ref, x_ref, ch, sat, tp, heard, t_s, orbits, carrier.id)
+        if power is None or not float(power.signal) > 0.0:
             return {"reason": f"reference {carrier.id!r} has no path through {sat!r} into {ch!r}"}
-        budgets.append(float(pb.cn0_total_dbhz))
-    g_a, g_b = (10.0 ** ((c - 10.0 * math.log10(noise_bw)) / 10.0) for c in budgets)
+        powers.append(power)
+    g_a, g_b = (float(pw.snr(noise_bw)) for pw in powers)
     tdoa_ref, _ = predict_pair(x_ref, ra, rb, t_s, orbits, sites)
     t_int = float(integration_time_s(plan.n_samples, n_taps, plan.sample_rate_hz, float(tdoa_ref)))
     if not t_int > 0.0:
@@ -1063,12 +1280,25 @@ def _reference_model(
     if snr_db < float(config.processing.caf.min_snr_db):
         return {"reason": f"reference {carrier.id!r}: predicted post-correlation SNR {snr_db:.1f} dB below threshold",
                 "snr_db": snr_db}
-    sig_t, sig_f = stein_sigmas(noise_bw, model_rms_bandwidth_hz(model), t_int, g_a, g_b)
+    rms_ref = model_rms_bandwidth_hz(model)
+    sig_t, sig_f = stein_sigmas(noise_bw, rms_ref, t_int, g_a, g_b)
+    excess = 0.0
+    if ra.site_id == rb.site_id and rb.sat_id in search.heard_a and ra.sat_id in search.heard_b:
+        excess = 2.0 * math.sqrt(float(powers[0].copies.get(rb.sat_id, 0.0)) * float(powers[1].copies.get(ra.sat_id, 0.0))
+                                 / (float(powers[0].signal) * float(powers[1].signal)))
+        sig_f = math.sqrt(sig_f**2 + excess / (2.0 * noise_bw * t_int * (math.pi * t_int) ** 2 / 3.0))
+        if rms_ref > 0.0:
+            sig_t = math.sqrt(sig_t**2 + excess / (2.0 * noise_bw * t_int * (2.0 * math.pi * rms_ref) ** 2))
     sigma: dict[str, float | None] = {
         "tdoa": float(sig_t) if math.isfinite(sig_t) and sig_t <= float(config.processing.caf.max_tdoa_sigma_s) else None,
         "fdoa": float(sig_f) if math.isfinite(sig_f) else None,
     }
     sigma = {kd: v for kd, v in sigma.items() if kd in kinds}
+    q = max(1.0, noise_bw**2 / (12.0 * rms_ref**2)) if rms_ref > 0.0 else 1.0
+    shares = {}
+    for kind, q_kind in (("tdoa", q), ("fdoa", 1.0)):
+        total = 1.0 / g_a + 1.0 / g_b + q_kind / (g_a * g_b) + excess
+        shares[kind] = ((1.0 / g_a) / total, (1.0 / g_b) / total)
     return {
         "reason": None,
         "a": ra,
@@ -1080,7 +1310,79 @@ def _reference_model(
         "integration_s": t_int,
         "sample_rate_hz": plan.sample_rate_hz,
         "n_samples": plan.n_samples,
+        "capture_a": ("ref", pm.a_id, plan.sample_rate_hz, plan.n_samples, round(ra.f_tune_hz)),
+        "capture_b": ("ref", pm.b_id, plan.sample_rate_hz, plan.n_samples, round(rb.f_tune_hz)),
+        "shares": shares,
     }
+
+
+@dataclass
+class _ChannelPower:
+    """What one receive channel holds of a carrier: linear powers, W and W/Hz.
+
+    signal: the carrier through the pair's satellite (0 where that path does not exist).
+    noise_density: the channel's thermal noise plus the relayed noise of every
+    satellite it hears in the capture band. copies: the carrier relayed by each other
+    satellite the channel hears (a co-channel copy, noise to this pair).
+    """
+
+    signal: Any
+    noise_density: Any
+    copies: dict[str, Any]
+
+    def snr(self, noise_bw_hz: float) -> Any:
+        """Input SNR in ``noise_bw_hz``: signal over noise and the co-channel copies."""
+        rest = self.noise_density * noise_bw_hz + sum(self.copies.values())
+        return np.asarray(self.signal) / rest
+
+
+def _channel_power(
+    config: Any, emitter: Any, f_e: float, x: np.ndarray, channel_id: str, sat_id: str, tp: Any,
+    heard: Sequence[str], t_s: float, orbits: Mapping[str, Orbit], skip: str | None,
+) -> _ChannelPower | None:
+    """Budgets of a carrier at ``x`` (``[..., 3]`` or ``[3]``) into ``channel_id`` (bare id).
+
+    The pair's path through ``sat_id`` (None when the satellite is below the site's
+    horizon), plus, for every other satellite in ``heard`` (those whose copy reaches the
+    capture), that copy's power and that transponder's relayed noise (MATH.md section
+    4: a channel hears every visible satellite's downlink). ``skip``: a carrier to leave
+    out of the power robbing (the one being budgeted).
+    """
+    x = np.asarray(x, dtype=np.float64)
+    single = x.ndim == 1
+    xb = x[None, :] if single else x  # a batch: a path the emitter cannot see still brings its relayed noise
+
+    def finish(value: Any) -> Any:
+        arr = np.asarray(value, dtype=np.float64)
+        return float(arr.reshape(-1)[0]) if single and arr.ndim else (float(arr) if arr.ndim == 0 else arr)
+
+    main = path_budget(config, emitter, f_e, xb, sat_id, tp.id, channel_id, t_s, _other_pfd(config, sat_id, tp, t_s, orbits, skip))
+    if main is None:
+        return None
+    down = main.downlink
+    signal = _lin_finite(down.c_rx_dbw)
+    density = 10.0 ** (float(down.site_n0_dbw_hz) / 10.0) + _lin_finite(down.relayed_n0_dbw_hz)
+    copies: dict[str, Any] = {}
+    for other in heard:
+        if other == sat_id:
+            continue
+        tp_o = relaying_transponder(config.satellite(other), f_e)
+        if tp_o is None:
+            continue
+        budget = path_budget(config, emitter, f_e, xb, other, tp_o.id, channel_id, t_s,
+                             _other_pfd(config, other, tp_o, t_s, orbits, skip))
+        if budget is None:  # below the site's horizon: the channel does not hear it
+            continue
+        copies[other] = finish(_lin_finite(budget.downlink.c_rx_dbw))
+        density = density + _lin_finite(budget.downlink.relayed_n0_dbw_hz)
+    return _ChannelPower(finish(signal), finish(density), copies)
+
+
+def _lin_finite(db: Any) -> Any:
+    """``10^(dB / 10)``, 0 where the dB value is -inf (absent)."""
+    arr = np.asarray(db, dtype=np.float64)
+    out = np.where(np.isfinite(arr), 10.0 ** (np.where(np.isfinite(arr), arr, 0.0) / 10.0), 0.0)
+    return float(out) if out.ndim == 0 else out
 
 
 def _other_pfd(config: Any, sat_id: str, tp: Any, t_s: float, orbits: Mapping[str, Orbit], skip: str | None) -> list[float]:
@@ -1195,7 +1497,11 @@ def _pairs(pairs: Any) -> list[tuple[str, str]]:
             raise ValueError(f"pairs[{k}] must be (channel_a, channel_b)") from None
         if not isinstance(ch_a, str) or not isinstance(ch_b, str):
             raise ValueError(f"pairs[{k}] must hold two channel ids")
-        if ch_a == ch_b:
+        try:
+            id_a, id_b = split_channel_ref(ch_a)[0], split_channel_ref(ch_b)[0]
+        except ValueError as exc:
+            raise ValueError(f"pairs[{k}]: {exc}") from None
+        if id_a == id_b:
             raise ValueError(f"pairs[{k}]: a channel cannot be paired with itself")
         out.append((ch_a, ch_b))
     return out

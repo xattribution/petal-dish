@@ -324,7 +324,18 @@ def _wire_capabilities(capabilities: Any) -> WireCapabilities:
         raise ValueError(f"driver capabilities are unusable: {exc}") from exc
 
 
+def _sanitize(text: str) -> str:
+    """`text` with anything UTF-8 cannot carry escaped (`\\udce9`): driver messages
+    can hold the lone surrogates `os.fsdecode` makes of a non-UTF-8 file name, and the
+    server refuses a message that holds one."""
+    if text.isascii():
+        return text
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
 def _clip(text: str, limit: int = _MAX_ERROR_TEXT) -> str:
+    """Driver or peer text made safe for a message: sanitised, then cut to `limit`."""
+    text = _sanitize(str(text))
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
@@ -1153,14 +1164,24 @@ class _Session:
                 capture_id=request.capture_id, channel_id=request.channel_id, code=code
             ),
         )
-        self._outbox.post(
-            CaptureErrorMessage(
-                capture_id=request.capture_id,
-                channel_id=request.channel_id,
-                code=code,
-                message=_clip(message),
+        try:
+            self._outbox.post(
+                CaptureErrorMessage(
+                    capture_id=request.capture_id,
+                    channel_id=request.channel_id,
+                    code=code,
+                    message=_clip(message),
+                )
             )
-        )
+        except (ValueError, TypeError) as exc:  # pydantic's serialisation errors are ValueErrors
+            # The server must still hear that the capture failed, or it waits for the deadline.
+            logger.error("capture_error could not be built (%s); sending it without the message", exc,
+                         extra=self._extra(capture_id=request.capture_id))
+            self._outbox.post(
+                CaptureErrorMessage(
+                    capture_id=request.capture_id, channel_id=request.channel_id, code=code, message=""
+                )
+            )
 
     async def _serve_capture(self, request: CaptureRequest) -> None:
         """Read, chunk and upload one capture; every failure becomes a `capture_error`."""
@@ -1339,6 +1360,7 @@ class NodeAgent:
         *,
         driver: str = "noise",
         driver_options: Mapping[str, Any] | None = None,
+        channel_driver_options: Mapping[str, Mapping[str, Any]] | None = None,
         driver_factory: DriverFactory | None = None,
         node_id: str | None = None,
         state_path: str | Path | None = None,
@@ -1372,6 +1394,10 @@ class NodeAgent:
         driver, driver_options: name and keyword options for `drivers.get_driver`;
             one driver is built per assigned channel. Ignored with `driver_factory`,
             except that `driver` is still the name reported in `hello`.
+        channel_driver_options: channel_id -> further options for that channel's
+            driver only, laid over `driver_options` (a site with one radio per channel
+            names each radio here, for example a soapy `device` per channel). Options
+            for a channel the server never assigns are unused.
         driver_factory: called with each `ChannelAssignment` to build its unopened
             driver (tests inject fakes here).
         node_id: this node's identity; None reads it from `state_path`.
@@ -1477,14 +1503,26 @@ class NodeAgent:
         self.chunk_payload_bytes = chunk_payload_bytes
         self._driver_name = driver
         options = dict(driver_options or {})
+        per_channel: dict[str, dict[str, Any]] = {}
+        for channel_id, extra in (channel_driver_options or {}).items():
+            if not isinstance(channel_id, str) or not channel_id:
+                raise ValueError("channel_driver_options: channel ids must be non-empty strings")
+            if not isinstance(extra, Mapping):
+                raise ValueError(f"channel_driver_options[{channel_id!r}]: must be a mapping of driver options")
+            per_channel[channel_id] = dict(extra)
+        self.channel_driver_options: dict[str, dict[str, Any]] = per_channel
         self.driver_factory: DriverFactory = (
             driver_factory
             if driver_factory is not None
-            else (lambda assignment: get_driver(driver, **options))
+            else (
+                lambda assignment: get_driver(
+                    driver, **{**options, **per_channel.get(assignment.channel_id, {})}
+                )
+            )
         )
         self._node_id = node_id
         self._state_path = Path(state_path) if state_path is not None else None
-        self._software = software or f"petal-locate/{__version__}"
+        self._software = _sanitize(software or f"petal-locate/{__version__}")
         self._backoff = (float(backoff_base_s), float(backoff_max_s), float(backoff_jitter))
         self._open_timeout_s = float(open_timeout_s)
         self._handshake_timeout_s = float(handshake_timeout_s)
@@ -1772,7 +1810,7 @@ class NodeAgent:
             site_id=self.site_id,
             token=self.token,
             software=self._software,
-            driver=self._driver_name,
+            driver=_sanitize(self._driver_name),
             clock=self.clock.status(),
             t_ns=self.clock.now_ns(),
         )

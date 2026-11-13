@@ -129,11 +129,11 @@ for (const theme of ['dark', 'light'] as const) {
       await page.keyboard.press('j');
       await expect(page).toHaveURL(/#\/event\//);
 
-      // ---- an ambiguous fix: the mirror is listed and drawn
+      // ---- an ambiguous fix: every position that fits is listed (none as "the" fix) and drawn
       const ambiguous = page.locator('.qrow', { hasText: 'ambiguous' }).first();
       if (await ambiguous.count()) {
         await ambiguous.click();
-        await expect(page.getByRole('region', { name: 'Location' })).toContainText('Mirror 1');
+        await expect(page.getByRole('region', { name: 'Location' })).toContainText(/One of \d positions|Mirror 1/);
         await page.getByRole('region', { name: 'Location' }).scrollIntoViewIfNeeded();
         await shot(page, 'event-ambiguous', theme);
       }
@@ -249,8 +249,17 @@ for (const theme of ['dark', 'light'] as const) {
   });
 }
 
+/** The server's API token for a walk outside the themed describe blocks (PETAL_TOKEN). */
+async function useToken(page: Page): Promise<void> {
+  const token = process.env.PETAL_TOKEN ?? '';
+  await page.addInitScript((t) => {
+    if (t) sessionStorage.setItem('petal.apiToken', t);
+  }, token);
+}
+
 test('narrow window (1024 px) keeps the queue and the map', async ({ page }) => {
   const errors = watchConsole(page);
+  await useToken(page);
   await page.addInitScript(() => localStorage.setItem('petal.theme', 'dark'));
   await page.setViewportSize({ width: 1024, height: 768 });
   await open(page, 'watch');
@@ -262,12 +271,21 @@ test('narrow window (1024 px) keeps the queue and the map', async ({ page }) => 
 });
 
 test('keyboard reaches the views and shows focus', async ({ page }) => {
+  await useToken(page);
   await open(page, 'watch');
   await expect(page.locator('.qrow').first()).toBeVisible();
   await page.keyboard.press('3');
   await expect(page).toHaveURL(/#\/network/);
+  // focus lands in the new view, not on <body> (UX-11)
+  await expect(page.locator('main')).toBeFocused();
+  await expect(page).toHaveTitle(/^Network/);
   await page.keyboard.press('1');
   await expect(page).toHaveURL(/#\/watch/);
+  // The address changes at once but the view changes on the hashchange that follows, and
+  // <main> still holds focus from Network: wait for the Watch title (set in the same
+  // commit that focuses <main>), or Tab can land before that commit takes focus back.
+  await expect(page).toHaveTitle(/^Watch/);
+  await expect(page.locator('main')).toBeFocused();
   await page.keyboard.press('Tab');
   const outline = await page.evaluate(() => getComputedStyle(document.activeElement ?? document.body).outlineStyle);
   expect(outline).not.toBe('none');

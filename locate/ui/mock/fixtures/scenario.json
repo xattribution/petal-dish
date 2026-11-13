@@ -175,6 +175,10 @@
       "iono": {
         "enabled": false,
         "vtec_tecu": 30.0
+      },
+      "tropo": {
+        "enabled": false,
+        "zenith_m": 2.3
       }
     }
   }

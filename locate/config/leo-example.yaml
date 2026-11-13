@@ -2,9 +2,9 @@
 #
 # EVERYTHING NUMERIC HERE IS ILLUSTRATIVE: the orbits, the transponder plan and the
 # link numbers are invented for geometry and solver tests and describe no real
-# spacecraft. The site is a city-centre coordinate with a neutral name, not a facility.
+# spacecraft. The site is a city-center coordinate with a neutral name, not a facility.
 #
-# Both satellites (800 km, 60 degrees inclination, neighbouring planes) are above the
+# Both satellites (800 km, 60 degrees inclination, neighboring planes) are above the
 # horizon of the site from the epoch, 2026-01-01T00:00:00Z, for the next 8 minutes:
 # leo-a climbs from 27 to 85 degrees elevation (culminating about 180 s after the
 # epoch) and leo-b from 52 to 54 degrees (about 30 s after), then both set.
@@ -14,7 +14,7 @@ version: 1
 name: leo-example
 description: >-
   Illustrative low-Earth-orbit example for geometry and solver tests: two satellites
-  defined by Kepler elements sharing one transponder plan, and one city-centre site
+  defined by Kepler elements sharing one transponder plan, and one city-center site
   with a fixed zenith-pointing channel that watches both. Orbits, frequencies and link
   parameters are illustrative placeholders, not data for any real system; the site is
   not a real facility. Both satellites are above the site's horizon from the epoch
@@ -62,7 +62,8 @@ satellites:
 
 sites:
   - id: naha
-    name: Naha (city centre)
+    name: Naha (city center)
+    time_zone: Asia/Tokyo
     lat_deg: 26.212
     lon_deg: 127.679
     alt_m: 0.0

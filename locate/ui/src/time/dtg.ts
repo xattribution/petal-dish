@@ -101,10 +101,14 @@ export function dtgNs(ns: string): string {
   return dtg(nsToDate(ns), 'UTC');
 }
 
-/** DTG with seconds, Zulu: "DDHHMM:SSZ MON YY" (for event times that change by the second). */
+/**
+ * A DTG followed by the Zulu time to the second, for event times that change by the
+ * second: "131657Z NOV 26 16:57:36Z". The DTG itself stays a standard DTG (no seconds
+ * inserted into it).
+ */
 export function dtgSecondsNs(ns: string): string {
   const p = parts(nsToDate(ns), 'UTC');
-  return `${p.dd}${p.hh}${p.mm}:${p.ss}Z ${p.mon} ${p.yy}`;
+  return `${p.dd}${p.hh}${p.mm}Z ${p.mon} ${p.yy} ${p.hh}:${p.mm}:${p.ss}Z`;
 }
 
 /** Zulu time of day "HH:MM:SSZ". */

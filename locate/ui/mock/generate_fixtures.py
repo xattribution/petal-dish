@@ -19,8 +19,12 @@ numeric core on ``config/pacific-uhf.yaml``:
   split into a baseline and per-emitter contributions so the mock can switch emitters.
 - geometry: sub-satellite points, footprints and look angles from ``core.geometry`` /
   ``core.geodesy`` / ``core.antennas``.
-- accuracy: predicted 95 % error over the region from path budgets, Stein sigmas
-  (``core.crlb``) and ``core.solver.position_covariance``.
+- accuracy: the server's own accuracy maps, from ``core.accuracy.accuracy_map`` through
+  ``server.api.rest.compute_accuracy`` (the banded call ``POST /analysis/accuracy`` makes),
+  for the console's default request and the other combinations the mock answers.
+- advisories, fit assessment and site clock estimates: ``server.pipeline.advisory.advise``,
+  ``events`` (fit consistency) and ``tasking.site_clock_offsets``, so their wording and
+  rules are the server's.
 
 Every fixture is validated against the pydantic models of ``server/api/schemas.py``
 before it is written. Times are fixed at T0 (below); the mock shifts every ``*_ns``
@@ -50,7 +54,6 @@ from petal_locate.core import antennas  # noqa: E402
 from petal_locate.core.caf import caf_estimate  # noqa: E402
 from petal_locate.core.channel import render_path, thermal_noise  # noqa: E402
 from petal_locate.core.constants import C  # noqa: E402
-from petal_locate.core.crlb import post_correlation_snr, stein_sigmas, coherence  # noqa: E402
 from petal_locate.core.geodesy import geodesic_distance_m, lla_to_ecef, look_angles, angle_between_deg  # noqa: E402
 from petal_locate.core.geometry import (  # noqa: E402
     bent_pipe,
@@ -63,10 +66,15 @@ from petal_locate.core.linkbudget import direct_budget, emitter_boresight, path_
 from petal_locate.core.lop import lop_geojson  # noqa: E402
 from petal_locate.core.orbits import PerturbedOrbit, orbit_position, subsatellite_point  # noqa: E402
 from petal_locate.core.signals import waveform_from_spec  # noqa: E402
-from petal_locate.core.solver import calibration_correction, position_covariance, solve  # noqa: E402
+from petal_locate.core.solver import calibration_correction, solve  # noqa: E402
 from petal_locate.core.timebase import iso_from_ns, ns_from_iso  # noqa: E402
 from petal_locate.core.types import Measurement, PathSpec  # noqa: E402
+from petal_locate.core.accuracy import accuracy_map  # noqa: E402
 from petal_locate.server.api import schemas as S  # noqa: E402
+from petal_locate.server.api.rest import compute_accuracy  # noqa: E402
+from petal_locate.server.pipeline import events as server_events  # noqa: E402
+from petal_locate.server.pipeline.advisory import advise  # noqa: E402
+from petal_locate.server.pipeline.tasking import UNLOCATABLE_ONE_SATELLITE, ClockEdge, _chi2_text, site_clock_offsets  # noqa: E402
 from petal_locate.sim.scenario import Scenario  # noqa: E402
 
 T0_ISO = "2026-11-13T18:00:00Z"
@@ -526,7 +534,7 @@ def monitors_of(channel: Any) -> list[Any]:
 
 def emitter_downlinks(em: Emitter, channel_id: str, t_s: float) -> list[tuple[float, float, float]]:
     """(f_center_hz, C_rx / N0_site linear [1/Hz... per Hz], bandwidth) of every path of the
-    emitter into the channel: (centre, C/N0_site in Hz, bandwidth)."""
+    emitter into the channel: (center, C/N0_site in Hz, bandwidth)."""
     site, channel = cfg.channel(channel_id)
     n0_site = 10 ** ((-228.6 + 10 * math.log10(channel.system_noise_temp_k)) / 10)
     out = []
@@ -575,9 +583,19 @@ def spectral_shape(freqs: np.ndarray, bin_hz: float, f0: float, bw: float, wavef
 # --------------------------------------------------------------------------- builders
 
 
+LOST_NS = T0_NS - 63_000_000_000  # EV-0042 lost here ...
+RESUMED_NS = T0_NS - 22_000_000_000  # ... and detected again 41 s later (over REACQUIRE_KEEP_S)
+
+
 def build_events() -> dict[str, Any]:
+    """EV-0042: located, then lost for 41 s; on its return the earlier position and rows
+    are set aside (``EventBook.reopen`` beyond ``REACQUIRE_KEEP_S``) and it is located
+    again from the new rows only, so the dossier shows the break, the start of the
+    current transmission and the set-aside ellipses."""
     log("events: synthesising IQ and correlating (this takes a minute)")
-    epochs = [T0_NS - (5 - k) * 5_000_000_000 for k in range(6)]  # 6 captures, 5 s apart, last at T0 - 0 s
+    pre = [T0_NS - 75_000_000_000 + k * 5_000_000_000 for k in range(3)]  # before the break
+    post = [T0_NS - (3 - k) * 5_000_000_000 for k in range(4)]  # after it, last at T0
+    epochs = pre + post
     unlocked = {"manila"}
     j1 = "jammer-psea"
     # all emitters radiating in the band are in the synthesis, including the reference carriers
@@ -586,7 +604,7 @@ def build_events() -> dict[str, Any]:
     # Reference calibration of pair P1 on ref-guam (shared-1 of every satellite)
     ref = EMITTERS["ref-guam"]
     cal_pair = ("naha-pac", "naha-172e")
-    cal_pr = correlate(cal_pair[0], cal_pair[1], ref.freq, bandwidth_of(ref), epochs[-1] - 2_000_000_000, band_emitters)
+    cal_pr = correlate(cal_pair[0], cal_pair[1], ref.freq, bandwidth_of(ref), post[-1] - 2_000_000_000, band_emitters)
     cal: dict[str, tuple[float, Any]] = {}
     for kind in ("tdoa", "fdoa"):
         z = cal_pr.res.tdoa_s if kind == "tdoa" else cal_pr.res.fdoa_hz
@@ -612,17 +630,28 @@ def build_events() -> dict[str, Any]:
                 latest_pr = pr
         all_rows.append(rows_k)
         log(f"  epoch {k}: " + ", ".join(f"{r.kind}:{'ok' if r.used else r.reason}" for r in rows_k))
-    rows = [r for rk in all_rows for r in rk]
     history = []
     sol = None
-    for k in range(1, len(epochs)):
-        subset = [r for rk in all_rows[: k + 1] for r in rk]
-        s, why = solve_rows(subset)
-        if s is not None:
-            history.append({"t_ns": ns_str(all_rows[k][0].pr.t_mid_ns), "semi_major_m": s.ellipse["semi_major_m"], "semi_minor_m": s.ellipse["semi_minor_m"], "n_measurements": s.n_measurements})
-            sol = s
-        log(f"  solve with epochs 0..{k}: {why or (round(s.lat_deg, 3), round(s.lon_deg, 3), round(s.ellipse['semi_major_m']), s.ambiguity_resolved_by, len(s.ambiguities))}")
+    # solves before the break (later set aside), then from the new rows only
+    for part, first_k, last_k in (("pre", 0, len(pre) - 1), ("post", len(pre), len(epochs) - 1)):
+        for k in range(first_k + 1, last_k + 1):
+            subset = [r for rk in all_rows[first_k: k + 1] for r in rk]
+            s, why = solve_rows(subset)
+            if s is not None:
+                history.append({"t_ns": ns_str(all_rows[k][0].pr.t_mid_ns), "semi_major_m": s.ellipse["semi_major_m"], "semi_minor_m": s.ellipse["semi_minor_m"],
+                                "n_measurements": s.n_measurements, "fit_consistent": True, "set_aside": part == "pre"})
+                if part == "post":
+                    sol = s
+            log(f"  {part} solve with epochs {first_k}..{k}: {why or (round(s.lat_deg, 3), round(s.lon_deg, 3), round(s.ellipse['semi_major_m']), s.ambiguity_resolved_by, len(s.ambiguities))}")
     assert sol is not None, "jammer-psea did not solve"
+    # the rows measured before the break: kept in the table, no longer used
+    lost_at = server_events._clock_text(LOST_NS)
+    for rk in all_rows[: len(pre)]:
+        for r in rk:
+            if r.used:
+                r.used = False
+                r.reason = f"{server_events.SET_ASIDE_REASON}: measured before the signal was lost at {lost_at}"
+    rows = [r for rk in all_rows for r in rk]
     truth = EMITTERS[j1]
     miss = float(geodesic_distance_m(sol.lat_deg, sol.lon_deg, truth.lat, truth.lon))
     log(f"  fix {sol.lat_deg:.4f} {sol.lon_deg:.4f} miss {miss:.0f} m, ellipse {sol.ellipse}, dominant {sol.dominant_error}")
@@ -636,7 +665,54 @@ def build_events() -> dict[str, Any]:
     features = lop1["features"]
     log(f"  {len(features)} LOP features")
 
-    return {"rows": rows, "solution": sol, "history": history, "caf": caf_display(latest_pr), "lop": lop1, "miss": miss, "epochs": epochs}
+    return {"rows": rows, "solution": sol, "history": history, "caf": caf_display(latest_pr), "lop": lop1, "miss": miss, "epochs": epochs, "pre": pre, "post": post}
+
+
+def build_event_mixed() -> dict[str, Any]:
+    """EV-0040: two transmitters on one frequency, detected alternately (fictional): the
+    rows of both go into one solve, which the server flags inconsistent (UX-1) and never
+    calls located. The newest rows are mixed too, so the split test (K2) cannot separate
+    them; the position is shown enlarged and is not a fix."""
+    log("event mixed: two jammers on shared-2 detected alternately")
+    extra = {}
+    for eid, lat, lon in (("mixed-a", 14.0, 148.0), ("mixed-b", 16.2, 146.3)):
+        spec = EmitterModel(eirp_dbw=25.0, antenna={"type": "isotropic", "gain_dbi": 0.0}, pointing="omni", bandwidth_hz=2000.0, waveform="noise")
+        wf = type("W", (), {"type": "noise", "bandwidth_hz": 2000.0, "seed": 7 if eid == "mixed-a" else 8})()
+        extra[eid] = Emitter(id=eid, kind="jammer", lat=lat, lon=lon, height=10.0, freq=301.1235e6, model=spec, spec=wf, xyz=lla_to_ecef(lat, lon, 10.0))
+    EMITTERS.update(extra)
+    try:
+        epochs = [T0_NS - (50 - 5 * k) * 1_000_000_000 for k in range(6)]
+        who = ["mixed-a", "mixed-b"] * 3
+        pairs = [("naha-pac", "naha-172e"), ("naha-io", "naha-172e")]
+        all_rows = []
+        for t, eid in zip(epochs, who):
+            rk = []
+            for a_ch, b_ch in pairs:
+                pr = correlate(a_ch, b_ch, 301.1235e6, 2000.0, t, [eid, "psk-honshu", "ref-sapporo"])
+                rk += rows_from_pair(pr, clock_unlocked_sites={"manila"})
+            all_rows.append(rk)
+            log(f"  {eid}: " + ", ".join(f"{r.kind}:{'ok' if r.used else r.reason}" for r in rk))
+        rows = [r for rk in all_rows for r in rk]
+        history, sol = [], None
+        for k in range(1, len(epochs)):
+            subset = [r for rk in all_rows[: k + 1] for r in rk]
+            s, why = solve_rows(subset)
+            if s is not None:
+                out = server_events._assessed(s.as_dict(), PROC.solver.max_reduced_chi2)
+                history.append({"t_ns": ns_str(all_rows[k][0].pr.t_mid_ns), "semi_major_m": out["ellipse"]["semi_major_m"], "semi_minor_m": out["ellipse"]["semi_minor_m"],
+                                "n_measurements": s.n_measurements, "fit_consistent": out["fit_consistent"], "set_aside": False})
+                sol = s
+            log(f"  solve 0..{k}: {why or (round(s.lat_deg, 3), round(s.lon_deg, 3), round(s.reduced_chi2 or 0, 1))}")
+        assert sol is not None, "the mixed event did not solve"
+        newest: dict[tuple[str, str, str], Row] = {}
+        for r in rows:
+            if r.used and r.m is not None:
+                newest[(r.pr.a_ch, r.pr.b_ch, r.kind)] = r
+        return {"rows": rows, "solution": sol, "history": history, "caf": caf_display(all_rows[-1][-1].pr), "lop": lop_collection("EV-0040", rows, newest),
+                "epochs": epochs, "truth": extra}
+    finally:
+        for eid in extra:
+            EMITTERS.pop(eid, None)
 
 
 def build_event2() -> dict[str, Any]:
@@ -905,99 +981,144 @@ def link_budget_rows(em: Emitter, t_s: float) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- accuracy
 
 
-ACC_EMITTER = EmitterModel(eirp_dbw=25.0, bandwidth_hz=8000.0, waveform="noise")
-ACC_F_E = 301.005e6
-ACC_STEP = 3.0
-
-
-def accuracy_grid(pairs: list[tuple[str, str]], kinds: tuple[str, ...], reference: str | None, t_ns: int) -> dict[str, Any]:
-    t_s = t_ns * 1e-9
-    lat_axis, lon_axis = PROC.region.grid(ACC_STEP)
-    lat, lon = np.meshgrid(lat_axis, lon_axis, indexing="ij")
-    x = lla_to_ecef(lat, lon, PROC.solver.height_m)
-    bw = ACC_EMITTER.bandwidth_hz
-    T = PROC.capture.duration_s
-    rms = bw / math.sqrt(12.0)
-    per_pair = []
-    for a_ch, b_ch in pairs:
-        sa, sb = channel_sat(a_ch), channel_sat(b_ch)
-        ta, tb = transponder_for(sa, ACC_F_E), transponder_for(sb, ACC_F_E)
-        pa = path_budget(cfg, ACC_EMITTER, ACC_F_E, x, sa, ta.id, a_ch, t_s)
-        pb = path_budget(cfg, ACC_EMITTER, ACC_F_E, x, sb, tb.id, b_ch, t_s)
-        if pa is None or pb is None:
-            continue
-        g1 = 10 ** (np.asarray(pa.snr_db(bw)) / 10)
-        g2 = 10 ** (np.asarray(pb.snr_db(bw)) / 10)
-        st, sf = stein_sigmas(bw, rms, T, g1, g2)
-        rho_db = 10 * np.log10(np.maximum(post_correlation_snr(bw, T, g1, g2), 1e-30))
-        a = PathSpec(sa, cfg.channel(a_ch)[0].id, ACC_F_E, ta.translation_hz)
-        b = PathSpec(sb, cfg.channel(b_ch)[0].id, ACC_F_E, tb.translation_hz)
-        cal = {}
-        if reference:
-            car = cfg.carrier(reference)
-            ra = path_budget(cfg, car.emitter, car.uplink_center_hz, car.location.xyz(), sa, transponder_for(sa, car.uplink_center_hz).id, a_ch, t_s)
-            rb = path_budget(cfg, car.emitter, car.uplink_center_hz, car.location.xyz(), sb, transponder_for(sb, car.uplink_center_hz).id, b_ch, t_s)
-            if ra is not None and rb is not None:
-                rbw = car.emitter.bandwidth_hz
-                rg1, rg2 = 10 ** (float(ra.snr_db(rbw)) / 10), 10 ** (float(rb.snr_db(rbw)) / 10)
-                rst, rsf = stein_sigmas(rbw, rbw / math.sqrt(12.0), T, rg1, rg2)
-                ap = PathSpec(sa, a.site_id, car.uplink_center_hz, ta.translation_hz)
-                bp = PathSpec(sb, b.site_id, car.uplink_center_hz, tb.translation_hz)
-                from petal_locate.core.types import CalRef
-                cal = {"tdoa": CalRef(f"{reference}|tdoa|{a_ch}|{b_ch}", car.location.xyz(), ap, bp, t_ns, float(rst)),
-                       "fdoa": CalRef(f"{reference}|fdoa|{a_ch}|{b_ch}", car.location.xyz(), ap, bp, t_ns, float(rsf))}
-        per_pair.append((a, b, np.asarray(st), np.asarray(sf), rho_db, cal))
-    semi = [[None] * len(lon_axis) for _ in lat_axis]
-    cep = [[None] * len(lon_axis) for _ in lat_axis]
-    dom = [[None] * len(lon_axis) for _ in lat_axis]
-    for i in range(len(lat_axis)):
-        for j in range(len(lon_axis)):
-            rows = []
-            for a, b, st, sf, rho_db, cal in per_pair:
-                if not np.isfinite(rho_db[i, j]) or rho_db[i, j] < PROC.caf.min_snr_db:
+def default_accuracy_request(config: SystemConfig) -> dict[str, Any]:
+    """The console's starting accuracy request for a configuration, the rule of
+    ``ui/src/domain/plan.ts`` (``accuracyDefaults``): the uplink band most satellites relay
+    in common, the site whose channels watch the most of them (up to two pairs sharing its
+    last channel; else a pair across sites), the band center and 0.32 of its width
+    (1 kHz to 5 MHz). The mock must hold a grid for exactly this request, so the
+    console's first "Compute accuracy map" answers."""
+    ends = []
+    for site in config.sites:
+        for ch in site.channels:
+            sats = list(ch.watched_satellite_ids)
+            for sat in sats:
+                ends.append({"value": f"{ch.id}@{sat}" if len(sats) > 1 else ch.id, "channel": ch.id, "sat": sat, "site": site.id})
+    best = None
+    for sat in config.satellites:
+        for tp in sat.transponders:
+            lo, hi = tp.uplink_center_hz - tp.bandwidth_hz / 2, tp.uplink_center_hz + tp.bandwidth_hz / 2
+            group = [sat.id]
+            for other in config.satellites:
+                if other.id == sat.id:
                     continue
-                if "tdoa" in kinds and np.isfinite(st[i, j]) and st[i, j] <= PROC.caf.max_tdoa_sigma_s:
-                    rows.append(Measurement("tdoa", 0.0, float(st[i, j]), t_ns, a, b, cal=cal.get("tdoa")))
-                if "fdoa" in kinds and np.isfinite(sf[i, j]):
-                    rows.append(Measurement("fdoa", 0.0, float(sf[i, j]), t_ns, a, b, cal=cal.get("fdoa")))
-            if len(rows) < 2:
+                overlap = None
+                for t in other.transponders:
+                    lo2, hi2 = max(lo, t.uplink_center_hz - t.bandwidth_hz / 2), min(hi, t.uplink_center_hz + t.bandwidth_hz / 2)
+                    if hi2 > lo2 and (overlap is None or hi2 - lo2 > overlap[1] - overlap[0]):
+                        overlap = (lo2, hi2)
+                if overlap:
+                    group.append(other.id)
+                    lo, hi = overlap
+            if len(group) < 2:
                 continue
-            lon_w = ((float(lon_axis[j]) + 180.0) % 360.0) - 180.0
-            r = position_covariance(rows, float(lat_axis[i]), lon_w, ORBITS, SITES_XYZ, PROC.solver.height_m, UNC, 0.95)
-            if r is None:
-                continue
-            semi[i][j] = round(float(r["ellipse"]["semi_major_m"]), 1)
-            cep[i][j] = round(float(r["cep50_m"]), 1)
-            dom[i][j] = r["dominant_error"]
-    return {"t_ns": ns_str(t_ns), "lat_deg": [float(v) for v in lat_axis], "lon_deg": [float(v) for v in lon_axis],
-            "semi_major_95_m": semi, "cep50_m": cep, "dominant": dom}
+            candidates = []
+            for site in config.sites:
+                at_site = [e for e in ends if e["site"] == site.id and e["sat"] in group]
+                chosen: dict[str, dict[str, str]] = {}
+                for e in at_site:
+                    prev = chosen.get(e["sat"])
+                    if prev is None or ("@" in prev["value"] and "@" not in e["value"]):
+                        chosen[e["sat"]] = e
+                here = [e for e in at_site if chosen.get(e["sat"]) is e]
+                if not here:
+                    continue
+                last = here[-1]
+                pairs = [(e["value"], last["value"]) for e in here[:-1] if e["channel"] != last["channel"]][:2]
+                if pairs:
+                    candidates.append((pairs, len(here)))
+            if not candidates:
+                a = next((e for e in ends if e["sat"] in group), None)
+                b = next((e for e in ends if a and e["sat"] in group and e["sat"] != a["sat"] and e["channel"] != a["channel"]), None)
+                if a and b:
+                    candidates.append(([(a["value"], b["value"])], 2))
+            for pairs, n_sats in candidates:
+                if best is None or len(pairs) > len(best[0]) or (len(pairs) == len(best[0]) and n_sats > best[1]):
+                    best = (pairs, n_sats, lo, hi)
+    if best is None:
+        raise ValueError("no pair of channels on satellites relaying a common frequency")
+    pairs, _, lo, hi = best
+    return {"pairs": [list(p) for p in pairs], "f_e_hz": float(round((lo + hi) / 2)),
+            "bandwidth_hz": float(min(5e6, max(1e3, round((hi - lo) * 0.32))))}
+
+
+ACC_STEP = 3.0
+ACC_EIRP_DBW = 25.0
+
+
+def accuracy_grid(pairs: list[list[str]], kinds: tuple[str, ...], reference: str | None, f_e_hz: float, bandwidth_hz: float, t_ns: int) -> dict[str, Any]:
+    """``POST /analysis/accuracy`` as the server answers it (``compute_accuracy`` over
+    ``core.accuracy.accuracy_map``, banded the same way)."""
+    request = S.AccuracyRequest.model_validate({
+        "pairs": pairs, "emitter": {"eirp_dbw": ACC_EIRP_DBW, "bandwidth_hz": bandwidth_hz, "waveform": "noise"},
+        "f_e_hz": f_e_hz, "step_deg": ACC_STEP, "kinds": list(kinds), "reference_carrier_id": reference,
+    })
+    return compute_accuracy(accuracy_map, cfg, request, t_ns).model_dump(mode="json")
 
 
 def build_accuracy() -> None:
+    default = default_accuracy_request(cfg)
+    log(f"accuracy: the console's default request is {default}")
     variants = []
-    pair_sets = {"naha2": [("naha-pac", "naha-172e"), ("naha-io", "naha-172e")], "naha1": [("naha-pac", "naha-172e")]}
+    pair_sets = {"default": default["pairs"], "naha2": [["naha-pac", "naha-172e"], ["naha-io", "naha-172e"]], "naha1": [["naha-pac", "naha-172e"]]}
     for pname, pairs in pair_sets.items():
         for kinds in (("tdoa", "fdoa"), ("tdoa",)):
             for ref in (None, "ref-guam"):
+                if pname == "naha1" and kinds == ("tdoa",):
+                    continue  # one TDOA row: a line, never a position
                 t0 = time.time()
-                grid = check(S.AccuracyGrid, accuracy_grid(pairs, kinds, ref, T0_NS))
+                grid = check(S.AccuracyGrid, accuracy_grid(pairs, kinds, ref, default["f_e_hz"], default["bandwidth_hz"], T0_NS))
                 n_ok = sum(v is not None for row in grid["semi_major_95_m"] for v in row)
                 log(f"accuracy {pname} {kinds} ref={ref}: {n_ok} cells in {time.time() - t0:.0f} s")
-                variants.append({"pairs": [list(p) for p in pairs], "kinds": list(kinds), "reference_carrier_id": ref,
-                                 "emitter": ACC_EMITTER.model_dump(mode="json"), "f_e_hz": ACC_F_E, "step_deg": ACC_STEP, "grid": grid})
+                variants.append({"pairs": pairs, "kinds": list(kinds), "reference_carrier_id": ref,
+                                 "emitter": {"eirp_dbw": ACC_EIRP_DBW, "bandwidth_hz": default["bandwidth_hz"], "waveform": "noise"},
+                                 "f_e_hz": default["f_e_hz"], "step_deg": ACC_STEP, "grid": grid})
     write("accuracy.json", {"variants": variants})
 
 
 # --------------------------------------------------------------------------- main assembly
 
 
-def solution_summary(sol: Any) -> dict[str, Any] | None:
+def solution_out(sol: Any) -> dict[str, Any]:
+    """SolutionOut as the server publishes a solve: ``Solution.as_dict()`` with the fit
+    assessment of ``processing.solver.max_reduced_chi2`` applied (fit_consistent,
+    fit_p_value, ellipse_scale; an inconsistent fit enlarged), the same helper the
+    server's EventBook uses."""
+    return server_events._assessed(sol.as_dict(), PROC.solver.max_reduced_chi2)
+
+
+def solution_summary(sol: dict[str, Any] | None) -> dict[str, Any] | None:
+    """SolutionSummary of a published SolutionOut dict (as EventBook.summary)."""
     if sol is None:
         return None
-    return {"lat_deg": sol.lat_deg, "lon_deg": sol.lon_deg, "semi_major_m": sol.ellipse["semi_major_m"], "semi_minor_m": sol.ellipse["semi_minor_m"],
-            "azimuth_deg": sol.ellipse["azimuth_deg"], "cep50_m": sol.cep50_m, "ambiguous": len(sol.ambiguities) > 0,
-            "ambiguities": [{"lat_deg": a.lat_deg, "lon_deg": a.lon_deg, "semi_major_m": a.ellipse["semi_major_m"],
-                             "semi_minor_m": a.ellipse["semi_minor_m"], "azimuth_deg": a.ellipse["azimuth_deg"]} for a in sol.ambiguities]}
+    return {"lat_deg": sol["lat_deg"], "lon_deg": sol["lon_deg"], "semi_major_m": sol["ellipse"]["semi_major_m"], "semi_minor_m": sol["ellipse"]["semi_minor_m"],
+            "azimuth_deg": sol["ellipse"]["azimuth_deg"], "cep50_m": sol["cep50_m"], "ambiguous": len(sol["ambiguities"]) > 0,
+            "ambiguities": [{"lat_deg": a["lat_deg"], "lon_deg": a["lon_deg"], "semi_major_m": a["ellipse"]["semi_major_m"],
+                             "semi_minor_m": a["ellipse"]["semi_minor_m"], "azimuth_deg": a["ellipse"]["azimuth_deg"]} for a in sol["ambiguities"]],
+            "fit_consistent": sol.get("fit_consistent", True)}
+
+
+def record_of(ev: dict[str, Any]) -> Any:
+    """A server EventRecord holding what the advisory reads, from an Event document."""
+    state = ev["state"]
+    tasking_doc = ev.get("tasking")
+    return server_events.EventRecord(
+        id=ev["id"], seq=int(ev["id"].split("-")[1]), created_ns=int(ev["first_seen_ns"]), space="up",
+        lo_hz=ev["uplink_lo_hz"], hi_hz=ev["uplink_hi_hz"], first_seen_ns=int(ev["first_seen_ns"]), last_seen_ns=int(ev["last_seen_ns"]),
+        settle_from_ns=int(ev["first_seen_ns"]), progress=state if state not in ("lost", "closed") else "located",
+        lost=state == "lost", closed=state == "closed", verdict=ev["verdict"],
+        verdict_basis="two_sites" if ev["verdict"] != "undetermined" else "single_site", verdict_reason=ev["verdict_reason"],
+        evidence=[S.EvidenceRow.model_validate(r) for r in ev["evidence"]],
+        transponders=[S.EventTransponder.model_validate(t) for t in ev["transponders"]],
+        satellite_ids=list(ev["satellite_ids"]),
+        classification=None if ev["classification"] is None else S.ClassificationOut.model_validate(ev["classification"]),
+        solution_out=None if ev["solution"] is None else S.SolutionOut.model_validate(ev["solution"]),
+        tasking=None if tasking_doc is None else S.TaskingStatus.model_validate(tasking_doc),
+        onset_ns=None if ev.get("onset_ns") is None else int(ev["onset_ns"]),
+        resumed_ns=None if ev.get("resumed_ns") is None else int(ev["resumed_ns"]),
+        break_s=ev.get("break_s"), recheck=ev.get("recheck"),
+        not_visible_satellite_ids=list(ev.get("not_visible_satellite_ids") or []),
+    )
 
 
 def downlink_ranges(f_lo_up: float, f_hi_up: float) -> list[dict[str, Any]]:
@@ -1056,12 +1177,13 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
     if want("events"):
         e1 = build_events()
         e2 = build_event2()
-        sol1, sol2 = e1["solution"], e2["solution"]
+        e0 = build_event_mixed()
+        sol1, sol2, sol0 = e1["solution"], e2["solution"], e0["solution"]
         j1 = EMITTERS["jammer-psea"]
         j2 = EMITTERS["psk-honshu"]
         lo1, hi1 = j1.freq - 4000.0, j1.freq + 4000.0
         lo2, hi2 = j2.freq - bandwidth_of(j2) / 2, j2.freq + bandwidth_of(j2) / 2
-        first1 = e1["epochs"][0] - 18_000_000_000
+        first1 = e1["pre"][0] - 18_000_000_000
         first2 = e2["epochs"][0] - 15_000_000_000
         # evidence from the expected detections
         def seen_map(em: Emitter, sats: list[str]) -> dict[str, tuple[float, float]]:
@@ -1122,8 +1244,15 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                             "Keep captures running; the ellipse shrinks with every 5 s capture"],
             },
             "evidence": ev1_evidence,
-            "transitions": transitions(first1, [(0, "detected", "undetermined"), (6 * sec, "detected", "uplink"), (7 * sec, "characterizing", "uplink"), (18 * sec, "locating", "uplink"), (23 * sec, "located", "uplink")]),
-            "solution": sol1.as_dict(), "solution_t_ns": e1["history"][-1]["t_ns"], "solution_history": e1["history"],
+            "transitions": transitions(first1, [(0, "detected", "undetermined"), (6 * sec, "detected", "uplink"), (7 * sec, "characterizing", "uplink"), (18 * sec, "locating", "uplink"), (23 * sec, "located", "uplink")])
+            + [{"t_ns": ns_str(LOST_NS), "state": "lost", "verdict": "uplink", "reason": "all detections released"},
+               {"t_ns": ns_str(RESUMED_NS), "state": "characterizing", "verdict": "undetermined",
+                "reason": f"detected again after a break of {server_events._duration_text((RESUMED_NS - LOST_NS) / 1e9)}; the earlier position and measurements are set aside until it is located again"},
+               {"t_ns": ns_str(RESUMED_NS + 6 * sec), "state": "characterizing", "verdict": "uplink", "reason": f"verdict settled after {PROC.detection.verdict_settle_s:g} s"},
+               {"t_ns": ns_str(e1["post"][1]), "state": "locating", "verdict": "uplink", "reason": "first correlation accepted"},
+               {"t_ns": e1["history"][-2]["t_ns"] if len(e1["history"]) > 1 else e1["history"][-1]["t_ns"], "state": "located", "verdict": "uplink", "reason": "converged solution"}],
+            "onset_ns": ns_str(RESUMED_NS - 500_000_000), "resumed_ns": ns_str(RESUMED_NS), "break_s": (RESUMED_NS - LOST_NS) / 1e9,
+            "solution": solution_out(sol1), "solution_t_ns": e1["history"][-1]["t_ns"], "solution_history": e1["history"],
             "measurements": measurement_rows(e1["rows"], sol1), "caf": e1["caf"],
             "truth": {"emitter_id": "jammer-psea", "lat_deg": j1.lat, "lon_deg": j1.lon, "miss_m": e1["miss"], "inside_ellipse": inside_ellipse(sol1, j1.lat, j1.lon)},
         }
@@ -1142,11 +1271,34 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
             },
             "evidence": ev2_evidence,
             "transitions": transitions(first2, [(0, "detected", "undetermined"), (5 * sec, "detected", "uplink"), (6 * sec, "characterizing", "uplink"), (15 * sec, "locating", "uplink")] + ([(26 * sec, "located", "uplink")] if sol2 is not None else [])),
-            "solution": None if sol2 is None else sol2.as_dict(), "solution_t_ns": e2["history"][-1]["t_ns"] if e2["history"] else None,
+            "solution": None if sol2 is None else solution_out(sol2), "solution_t_ns": e2["history"][-1]["t_ns"] if e2["history"] else None,
             "solution_history": e2["history"], "measurements": measurement_rows(e2["rows"], sol2), "caf": e2["caf"],
             "truth": {"emitter_id": "psk-honshu", "lat_deg": j2.lat, "lon_deg": j2.lon,
                       "miss_m": None if sol2 is None else float(geodesic_distance_m(sol2.lat_deg, sol2.lon_deg, j2.lat, j2.lon)),
                       "inside_ellipse": None if sol2 is None else inside_ellipse(sol2, j2.lat, j2.lon)},
+        }
+        # two transmitters on shared-2 detected alternately: an inconsistent fit (UX-1)
+        mixed = e0["truth"]["mixed-a"]
+        lo0, hi0 = mixed.freq - 1000.0, mixed.freq + 1000.0
+        sats0 = [s.id for s, _ in cfg.transponders_covering(lo0, hi0)]
+        seen0 = seen_map(mixed, sats0)
+        prim0 = max(seen0, key=lambda c: seen0[c][0]) if seen0 else None
+        ev0_evidence = evidence_for(sats0, {s: (lo0 + transponder_for(s, mixed.freq).translation_hz, hi0 + transponder_for(s, mixed.freq).translation_hz) for s in sats0}, seen0, {"hilo"}, t_s, prim0)
+        for r in ev0_evidence:
+            if r["state"] == "seen":
+                r["last_seen_ns"] = ns_str(T0_NS - 700_000_000)
+        first0 = e0["epochs"][0] - 14 * sec
+        meas0 = measurement_rows(e0["rows"], sol0)
+        ev0 = {
+            "id": "EV-0040", "state": "locating", "verdict": "uplink",
+            "first_seen_ns": ns_str(first0), "last_seen_ns": ns_str(T0_NS - 700_000_000),
+            "uplink_lo_hz": lo0, "uplink_hi_hz": hi0, "satellite_ids": sats0, "transponders": downlink_ranges(lo0, hi0),
+            "classification": {"label": "noise", "confidence": 0.86, "features": {"occupied_bw_hz": 1980.0, "spectral_flatness": 0.93, "envelope_kurtosis": 2.0, "sweep_linearity": 0.02, "symbol_line_db": 0.3, "duty_cycle": 1.0}},
+            "advisory": {"headline": "-", "detail": "-", "actions": []},
+            "evidence": ev0_evidence,
+            "transitions": transitions(first0, [(0, "detected", "undetermined"), (6 * sec, "detected", "uplink"), (7 * sec, "characterizing", "uplink"), (14 * sec, "locating", "uplink")]),
+            "solution": solution_out(sol0), "solution_t_ns": e0["history"][-1]["t_ns"], "solution_history": e0["history"],
+            "measurements": meas0, "caf": e0["caf"], "truth": None,
         }
         # local event at Busan on solo-pac (direct path only)
         l1 = EMITTERS["local-busan"]
@@ -1243,20 +1395,38 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
         ev2["tasking"] = tasking(ev2["measurements"])
         ev3["tasking"] = None  # local: tasking only works on uplink and undetermined events
         ev4["tasking"] = {"state": "idle", "rounds": 1, "last_round_ns": ns_str(first4 + 7 * sec), "next_round_ns": None, "channels": ["honolulu-172e"],
-                          "message": "No second satellite with a usable channel relays this frequency, so the emitter cannot be located.", "solve_reason": None}
+                          "message": "No second satellite with a usable channel relays this frequency, so the emitter cannot be located.", "solve_reason": None,
+                          "unlocatable_reason": UNLOCATABLE_ONE_SATELLITE}
+        rchi = ev0["solution"]["reduced_chi2"]
+        ev0["tasking"] = tasking(ev0["measurements"], message=(
+            f"The measurements do not fit one stationary transmitter (reduced chi-square {_chi2_text(rchi)}, limit {PROC.solver.max_reduced_chi2:g}): "
+            "more than one transmitter may share the frequency, the transmitter may be moving, or a site clock or satellite position may be wrong. "
+            "The position is shown with its ellipse enlarged and is not a fix."))
         ev5["tasking"] = None
         ev6["tasking"] = None
-        for e in (ev1, ev2, ev3, ev4, ev5, ev6):
+        verdict_reasons["EV-0040"] = "Seen at sites 7,400 km apart through three satellites."
+        all_events = (ev0, ev1, ev2, ev3, ev4, ev5, ev6)
+        for e in all_events:
             e["verdict_reason"] = verdict_reasons[e["id"]]
             e["simulated"] = True
             e.setdefault("merged_into", None)
-        events = [check(S.Event, e) for e in (ev1, ev2, ev3, ev4, ev5, ev6)]
+            # what is received at the sites that see it (Event.received_*, seen_site_ids)
+            seen_rows = [r for r in e["evidence"] if r["state"] == "seen" and r.get("downlink_lo_hz") is not None]
+            e["received_lo_hz"] = min((r["downlink_lo_hz"] for r in seen_rows), default=None)
+            e["received_hi_hz"] = max((r["downlink_hi_hz"] for r in seen_rows), default=None)
+            e["seen_site_ids"] = list(dict.fromkeys(r["site_id"] for r in e["evidence"] if r["state"] == "seen"))
+            e.setdefault("onset_ns", e["first_seen_ns"])
+            e.setdefault("not_visible_satellite_ids", [])
+            # the server's own advice for this record (wording, conventions, report actions)
+            e["advisory"] = advise(record_of(check(S.Event, e)), cfg, simulated=False).model_dump(mode="json")
+        events = [check(S.Event, e) for e in all_events]
         write("events.json", events)
-        write("lop.json", {"EV-0042": e1["lop"], "EV-0043": e2["lop"]})
+        write("lop.json", {"EV-0042": e1["lop"], "EV-0043": e2["lop"], "EV-0040": e0["lop"]})
         summaries = [check(S.EventSummary, {"id": e["id"], "state": e["state"], "verdict": e["verdict"], "first_seen_ns": e["first_seen_ns"], "last_seen_ns": e["last_seen_ns"],
                                             "uplink_lo_hz": e["uplink_lo_hz"], "uplink_hi_hz": e["uplink_hi_hz"], "satellite_ids": e["satellite_ids"],
                                             "label": e["classification"]["label"] if e["classification"] else None, "headline": e["advisory"]["headline"],
-                                            "solution": solution_summary(sol1 if e["id"] == "EV-0042" else (sol2 if e["id"] == "EV-0043" else None)), "simulated": True}) for e in events]
+                                            "solution": solution_summary(e["solution"]), "simulated": True, "onset_ns": e["onset_ns"],
+                                            "received_lo_hz": e["received_lo_hz"], "received_hi_hz": e["received_hi_hz"], "seen_site_ids": e["seen_site_ids"]}) for e in events]
         write("event_summaries.json", summaries, 2)
         truth = check(S.SimTruth, {
             "version": 3,
@@ -1276,7 +1446,8 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
             "philippine-sea-exercise": ("The default exercise: noise jammer in the Philippine Sea, carrier east of the Marianas, local interferer at Busan.", SCENARIO),
             "quiet": ("No interference: only the two reference carriers radiate.", {**SCENARIO, "name": "quiet", "description": "SIMULATION. Reference carriers only.", "emitters": [], "errors": {}}),
             "jammer-only": ("The Philippine Sea noise jammer alone, no truth errors.", {**SCENARIO, "name": "jammer-only", "description": "SIMULATION. One noise jammer, perfect ephemerides and clocks.", "emitters": [SCENARIO["emitters"][0]], "errors": {}}),
-            "ionosphere": ("The default exercise with a 30 TECU ionosphere the solver does not model.", {**SCENARIO, "name": "ionosphere", "errors": {**SCENARIO["errors"], "iono": {"enabled": True, "vtec_tecu": 30.0}}}),
+            "ionosphere": ("The default exercise with a 30 TECU ionosphere and a 2.3 m zenith troposphere (the solver carries both as consider terms).",
+                           {**SCENARIO, "name": "ionosphere", "errors": {**SCENARIO["errors"], "iono": {"enabled": True, "vtec_tecu": 30.0}, "tropo": {"enabled": True, "zenith_m": 2.3}}}),
         }
         write("presets.json", {"list": check(list[S.Preset], [{"name": k, "description": v[0]} for k, v in presets.items()]),
                                "scenarios": {k: check(Scenario, v[1]) for k, v in presets.items()}}, 2)
@@ -1302,11 +1473,26 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
             nodes.append({
                 "site_id": site.id, "node_id": f"5f0c{k:02d}a2-1b7e-4c19-9d3a-{k:04d}e8c1a0f7" if online else None, "online": online,
                 "latency_ms": lat_ms[site.id], "clock": clock, "driver": drv if online else None, "software": "petal-locate 0.1.0" if online else None,
-                "channels": [{"channel_id": ch.id, "ok": online, "last_frame_age_s": 0.4 if online else 1420.0} for ch in site.channels],
+                "channels": [{"channel_id": ch.id, "ok": online, "last_frame_age_s": 0.4 if online else 1420.0,
+                              "windows": [{"monitor_id": m.id, "last_frame_age_s": 0.4 if online else 1420.0, "detection_frame_age_s": 0.4 if online else None,
+                                           "blind": False, "blind_reason": None, "learning": False, "floor_raised_db": None, "note": None} for m in ch.monitors],
+                              "detection_problem": None} for ch in site.channels],
                 "connected_since": iso_from_ns(T0_NS - (4 * 3600 + k * 611) * 1_000_000_000) if online else None,
             })
-        status = check(S.Status, {"server_t_ns": ns_str(T0_NS), "config_version": CONFIG_VERSION, "nodes": nodes, "events_active": 4,
-                                  "queue": {"captures_pending": 2, "jobs_running": 1, "jobs_waiting": 0}})
+        # site clocks as tasking estimates them from cross-site TDOA calibrations (UX-10): the
+        # scenario's truth (labelled minus true time = -site_clock_offset_ns) between the
+        # online sites, one calibration per pair through the satellites they share
+        truth_off = {sid: -SCN.errors.site_clock_offset_ns.get(sid, 0.0) * 1e-9 for sid in ("honolulu", "tokyo", "naha", "seoul", "busan", "manila")}
+        edges = []
+        for a, b, sat_a, sat_b in (("honolulu", "naha", "muos-pac", "uhf-172e"), ("honolulu", "tokyo", "uhf-172e", "muos-pac"), ("naha", "manila", "muos-pac", "muos-io"),
+                                   ("tokyo", "manila", "muos-io", "uhf-172e"), ("seoul", "busan", "muos-pac", "uhf-172e"), ("busan", "manila", "uhf-172e", "muos-io"),
+                                   ("seoul", "naha", "muos-io", "muos-pac")):
+            edges.append(ClockEdge(sat_a, a, sat_b, b, truth_off[a] - truth_off[b], eph_s=5e-9))
+        site_clocks = [c.model_dump(mode="json") for c in site_clock_offsets(edges, cfg)]
+        satellites = [{"sat_id": sat.id, "ephemeris_ok": True, "unavailable_since_ns": None, "message": None} for sat in cfg.satellites]
+        status = check(S.Status, {"server_t_ns": ns_str(T0_NS), "config_version": CONFIG_VERSION, "nodes": nodes, "events_active": 5,
+                                  "queue": {"captures_pending": 2, "jobs_running": 1, "jobs_waiting": 0},
+                                  "satellites": satellites, "site_clocks": site_clocks})
         write("status.json", status, 2)
 
     if want("accuracy") and not skip_accuracy:

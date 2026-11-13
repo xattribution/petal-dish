@@ -63,6 +63,7 @@ from ..core.orbits import Orbit as NumericOrbit
 from ..core.orbits import orbit_from_config, orbit_position, tle_checksum
 from ..core.timebase import MAX_UNIX_S, iso_from_ns, ns_from_datetime, ns_from_iso
 from ..core.types import Uncertainty
+from ..protocol.messages import unencodable_path
 
 __all__ = [
     "DEFAULT_MONITOR_FRAME_RATE_HZ",
@@ -73,7 +74,11 @@ __all__ = [
     "MIN_BASELINE_FRAMES",
     "MIN_DERIVED_NFFT",
     "MIN_MONITOR_NFFT",
+    "MONITOR_COVERAGE_WARN",
     "MONITOR_SPAN_FACTOR",
+    "TLE_AGE_WARN_DAYS",
+    "TLE_AGE_WARN_DAYS_FAST",
+    "TLE_FAST_REV_PER_DAY",
     "Antenna",
     "AzElPointing",
     "BeamAntenna",
@@ -136,6 +141,23 @@ MIN_BASELINE_FRAMES: float = 10.0
 monitor (``core.detect.SignalTracker`` refuses a shorter baseline)."""
 MONITOR_SPAN_FACTOR: float = 1.25
 """A derived monitor spans this many transponder bandwidths (when the channel can sample that fast)."""
+
+MONITOR_COVERAGE_WARN: float = 0.9
+"""``warnings`` notes a watched transponder whose downlink passband the windows of a
+channel cover less than this fraction of (derived windows are capped at the channel's
+``max_sample_rate_hz``, so a wide transponder is watched over its centre only)."""
+
+TLE_AGE_WARN_DAYS: float = 14.0
+"""``warnings`` notes a TLE whose epoch is further than this from the evaluation time,
+days, for an orbit of at most ``TLE_FAST_REV_PER_DAY`` (geosynchronous and other high
+orbits)."""
+
+TLE_AGE_WARN_DAYS_FAST: float = 3.0
+"""The same limit for an orbit faster than ``TLE_FAST_REV_PER_DAY`` (low and medium
+orbits, where drag and resonances make old elements drift sooner), days."""
+
+TLE_FAST_REV_PER_DAY: float = 2.0
+"""Mean motion above which a TLE counts as a fast (low or medium) orbit, rev/day."""
 
 _FIT_RTOL = 1e-12  # tolerance of the frame-fits-the-period comparison
 _LON_TOL_DEG = 1e-9  # tolerance of Region longitude comparisons
@@ -900,7 +922,15 @@ class CafConfig(_Model):
 
 
 class SolverConfig(_Model):
-    """Position solver settings (MATH.md section 9)."""
+    """Position solver settings (MATH.md section 9).
+
+    max_reduced_chi2: fit-consistency limit of the server. A solution whose reduced
+    chi-square exceeds it, and whose chi-square is also significant (tail probability
+    below 0.001), does not fit one stationary transmitter (two transmitters' rows, a
+    moving one, a wrong clock or ephemeris): the server publishes it flagged
+    inconsistent, with its ellipse enlarged by sqrt(reduced chi-square), and never as
+    ``located``.
+    """
 
     height_m: float = 0.0
     min_elevation_deg: float = Field(0.0, ge=0, lt=90)
@@ -909,6 +939,7 @@ class SolverConfig(_Model):
     n_starts: int = Field(16, ge=1)
     chi2_ambiguity: NonNegativeFloat = 9.0
     max_measurements: int = Field(400, ge=2)
+    max_reduced_chi2: float = Field(5.0, gt=1.0)
 
 
 def _operator_sigma() -> EphemerisSigma:
@@ -933,12 +964,27 @@ class UncertaintyConfig(_Model):
     sat_osc_frac: fractional error of a satellite's translation oscillator,
     uncalibrated. site_osc_frac: fractional error of a site's reference oscillator.
     tdoa_bias_ns: per-pair TDOA bias, ns.
+
+    Propagation media (MATH.md section 9, ``core.media``). The measurement model has no
+    ionospheric or tropospheric delay, so these sigmas stand for the whole delay at each
+    ground end of a leg (the emitter, every site, every reference): iono_vtec_tecu is
+    the vertical total electron content, TECU (0 turns the ionospheric term off; its
+    delay scales as 1 / f^2, 434 ns per leg at 305 MHz for 30 TECU at the zenith,
+    under 0.3 ns at 12 GHz); tropo_zenith_m is the zenith tropospheric delay, m (about
+    2.3 m at sea level, the same at every frequency; 0 turns it off).
+    iono_correlation, tropo_correlation: correlation of that quantity between two
+    ground ends, 0 to 1: the part common to every end (a regional level) against the
+    part that differs from end to end.
     """
 
     ephemeris: EphemerisUncertainty = Field(default_factory=EphemerisUncertainty)
     sat_osc_frac: NonNegativeFloat = 1e-6
     site_osc_frac: NonNegativeFloat = 1e-11
     tdoa_bias_ns: NonNegativeFloat = 50.0
+    iono_vtec_tecu: NonNegativeFloat = 30.0
+    iono_correlation: float = Field(default=0.5, ge=0.0, le=1.0)
+    tropo_zenith_m: NonNegativeFloat = 2.4
+    tropo_correlation: float = Field(default=0.9, ge=0.0, le=1.0)
 
 
 class CalibrationConfig(_Model):
@@ -1169,6 +1215,22 @@ class SystemConfig(_Model):
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
 
     # ------------------------------------------------------------------ validation
+
+    @model_validator(mode="before")
+    @classmethod
+    def _text_is_unicode(cls, data: Any) -> Any:
+        """Refuse text that cannot be written out again: a string holding an unpaired
+        UTF-16 surrogate (JSON lets ``"\\ud800"`` through) would be accepted, stored and
+        then break every reply that carries the configuration."""
+        if isinstance(data, dict):
+            where = unencodable_path(data)
+            if where is not None:
+                safe = where.encode("utf-8", "backslashreplace").decode("utf-8")[:120]
+                raise PydanticCustomError(
+                    "config_error", "{reason}",
+                    {"reason": f"{safe}: text that is not valid Unicode (an unpaired surrogate)"},
+                )
+        return data
 
     @model_validator(mode="after")
     def _cross_check(self) -> SystemConfig:
@@ -1462,7 +1524,8 @@ class SystemConfig(_Model):
         ``Satellite.ephemeris_sigma`` when set, otherwise from
         ``processing.uncertainty.ephemeris.tle`` for ``tle`` orbits and ``.operator``
         for every other type. Site clocks come from ``Site.clock.sigma_ns``; the
-        oscillator fractions and the TDOA bias from ``processing.uncertainty``.
+        oscillator fractions, the TDOA bias and the propagation media from
+        ``processing.uncertainty``.
         """
         settings = self.processing.uncertainty
         pos: dict[str, np.ndarray] = {}
@@ -1480,6 +1543,10 @@ class SystemConfig(_Model):
             site_osc_frac={site.id: settings.site_osc_frac for site in self.sites},
             sat_osc_frac={satellite.id: settings.sat_osc_frac for satellite in self.satellites},
             tdoa_bias_s=settings.tdoa_bias_ns * 1e-9,
+            iono_vtec_tecu=settings.iono_vtec_tecu,
+            iono_correlation=settings.iono_correlation,
+            tropo_zenith_m=settings.tropo_zenith_m,
+            tropo_correlation=settings.tropo_correlation,
         )
 
     # ------------------------------------------------------------------ export and advice
@@ -1519,7 +1586,18 @@ class SystemConfig(_Model):
           downlink passband of a transponder of a satellite it watches: nothing on that
           transponder can be detected through the channel. Configured monitors do not
           follow the frequency plan, so this is what a transponder moved after the
-          monitors were written down looks like.
+          monitors were written down looks like;
+        - a watched transponder whose downlink passband the channel's windows (derived
+          or configured) cover only partly, below ``MONITOR_COVERAGE_WARN`` (90 %) of
+          it: the covered percentage and the blind bands (derived windows stop at the
+          channel's ``max_sample_rate_hz``, so a wide transponder is watched over its
+          centre only);
+        - a channel whose windows spread over more than ``max_sample_rate_hz`` from
+          the lowest edge to the highest: one radio limited to that rate cannot serve
+          them all at one tuning; the windows lost at a tuning in the middle are named;
+        - with ``t_s`` given: a TLE whose epoch is more than ``TLE_AGE_WARN_DAYS`` (14)
+          days from ``t_s``, or ``TLE_AGE_WARN_DAYS_FAST`` (3) for an orbit faster than
+          ``TLE_FAST_REV_PER_DAY`` (2 rev/day); its sigmas assume fresh elements.
         """
         notes: list[dict[str, str]] = []
         sats = {satellite.id: satellite for satellite in self.satellites}
@@ -1539,6 +1617,10 @@ class SystemConfig(_Model):
                             "msg": f"satellite {satellite.id!r}: the orbit cannot be evaluated at t_s = {t!r} ({exc})",
                         }
                     )
+                if isinstance(satellite.orbit, TleOrbitModel):
+                    stale = _tle_age_note(satellite.id, satellite.orbit, t)
+                    if stale is not None:
+                        notes.append({"loc": f"satellites.{k}.orbit", "msg": stale})
         for k, carrier in enumerate(self.carriers):
             transponder = sats[carrier.satellite_id].transponder(carrier.transponder_id)
             if (
@@ -1610,6 +1692,10 @@ class SystemConfig(_Model):
                                         f"({lo:.0f} to {hi:.0f} Hz); nothing on it can be detected through this channel",
                                     }
                                 )
+                notes.extend(_coverage_notes(base, channel, sats))
+                extent = _extent_note(channel)
+                if extent is not None:
+                    notes.append({"loc": f"{base}.monitors", "msg": extent})
                 for sat_id in channel.watched_satellite_ids:
                     position = positions.get(sat_id)
                     if position is not None:
@@ -1630,6 +1716,119 @@ def _numeric_orbit(model: Any, dut1_s: float) -> NumericOrbit:
     if isinstance(model, TableOrbitModel):
         return model.numeric_orbit()
     return orbit_from_config(model, dut1_s)
+
+
+def tle_epoch_s(line1: str) -> float:
+    """Epoch of a TLE as Unix seconds (columns 19-32 of line 1: two-digit year, 57 to
+    99 meaning 19xx, and the fractional day of the year counted from 1)."""
+    year = int(line1[18:20])
+    year += 1900 if year >= 57 else 2000
+    day = float(line1[20:32])
+    start = _dt.datetime(year, 1, 1, tzinfo=_dt.timezone.utc)
+    return (start + _dt.timedelta(days=day - 1.0)).timestamp()
+
+
+def _tle_age_note(sat_id: str, orbit: TleOrbitModel, t_s: float) -> str | None:
+    """A warning when a TLE's epoch lies further from ``t_s`` than its orbit allows
+    (``TLE_AGE_WARN_DAYS``, or ``TLE_AGE_WARN_DAYS_FAST`` above
+    ``TLE_FAST_REV_PER_DAY``); None when it is fresh enough or cannot be read."""
+    try:
+        epoch = tle_epoch_s(orbit.line1)
+        mean_motion = float(orbit.line2[52:63])
+    except (ValueError, OverflowError):
+        return None
+    fast = mean_motion > TLE_FAST_REV_PER_DAY
+    limit = TLE_AGE_WARN_DAYS_FAST if fast else TLE_AGE_WARN_DAYS
+    age_days = abs(t_s - epoch) / 86400.0
+    if age_days <= limit:
+        return None
+    when = iso_from_ns(int(round(epoch * 1e9)))
+    side = "before" if epoch < t_s else "after"
+    return (
+        f"satellite {sat_id!r}: its TLE epoch ({when}) is {age_days:.0f} days {side} the time evaluated; "
+        f"elements of a {'low or medium' if fast else 'high'} orbit ({mean_motion:.2f} rev/day) more than "
+        f"{limit:g} days old can be far off, while the configured TLE ephemeris sigmas assume fresh "
+        "elements; load current elements"
+    )
+
+
+def _windows(channel: ReceiveChannel) -> list[tuple[float, float, str]]:
+    return [
+        (m.center_hz - 0.5 * m.span_hz, m.center_hz + 0.5 * m.span_hz, m.id) for m in channel.monitors
+    ]
+
+
+def _coverage_notes(base: str, channel: ReceiveChannel, sats: dict[str, Satellite]) -> list[dict[str, str]]:
+    """Watched transponders whose downlink passband the channel's windows (derived or
+    configured) cover only partly: below ``MONITOR_COVERAGE_WARN`` of it, but not
+    nothing (no overlap at all has its own note for configured windows)."""
+    windows = sorted((lo, hi) for lo, hi, _ in _windows(channel))
+    notes: list[dict[str, str]] = []
+    for sat_id in channel.watched_satellite_ids:
+        for transponder in sats[sat_id].transponders:
+            lo, hi = transponder.downlink_lo_hz, transponder.downlink_hi_hz
+            if hi <= lo:
+                continue
+            covered: list[tuple[float, float]] = []
+            for w_lo, w_hi in windows:
+                a, b = max(w_lo, lo), min(w_hi, hi)
+                if b <= a:
+                    continue
+                if covered and a <= covered[-1][1]:
+                    covered[-1] = (covered[-1][0], max(covered[-1][1], b))
+                else:
+                    covered.append((a, b))
+            fraction = sum(b - a for a, b in covered) / (hi - lo)
+            if not covered or fraction >= MONITOR_COVERAGE_WARN:
+                continue
+            gaps: list[tuple[float, float]] = []
+            edge = lo
+            for a, b in covered:
+                if a > edge:
+                    gaps.append((edge, a))
+                edge = max(edge, b)
+            if edge < hi:
+                gaps.append((edge, hi))
+            blind = ", ".join(f"{a / 1e6:.3f} to {b / 1e6:.3f} MHz" for a, b in gaps)
+            why = (
+                f" (derived windows are at most max_sample_rate_hz = {channel.max_sample_rate_hz / 1e6:g} MHz wide)"
+                if channel.monitors_derived
+                else ""
+            )
+            notes.append(
+                {
+                    "loc": f"{base}.monitors",
+                    "msg": f"channel {channel.id!r}: its monitor windows cover {100.0 * fraction:.0f} % of the "
+                    f"downlink of transponder {transponder.id!r} of satellite {sat_id!r}{why}; nothing in "
+                    f"{blind} can be detected through this channel, and a wider signal is measured over the "
+                    "window only; add monitors that tile the passband",
+                }
+            )
+    return notes
+
+
+def _extent_note(channel: ReceiveChannel) -> str | None:
+    """A warning when a channel's windows spread wider than one tuning of its
+    ``max_sample_rate_hz`` can sample: a radio limited to that rate serves at most the
+    windows inside one ``max_sample_rate_hz`` band (a driver tuned to the middle of
+    the windows, as the soapy driver tunes, loses the others on every frame)."""
+    windows = _windows(channel)
+    if len(windows) < 2:
+        return None
+    lo = min(w[0] for w in windows)
+    hi = max(w[1] for w in windows)
+    rate = float(channel.max_sample_rate_hz)
+    if hi - lo <= rate * (1.0 + 1e-9):
+        return None
+    middle = 0.5 * (lo + hi)
+    outside = [w[2] for w in windows if w[0] < middle - 0.5 * rate - 1e-6 or w[1] > middle + 0.5 * rate + 1e-6]
+    return (
+        f"channel {channel.id!r}: its monitor windows span {(hi - lo) / 1e6:.3f} MHz "
+        f"({lo / 1e6:.3f} to {hi / 1e6:.3f} MHz), more than one tuning at max_sample_rate_hz = "
+        f"{rate / 1e6:g} MHz can sample; a radio limited to that rate, tuned to the middle, cannot serve "
+        f"{', '.join(outside)}; split the channel, choose windows within one tuning, or raise "
+        "max_sample_rate_hz to what the radio really does"
+    )
 
 
 def _dotted(loc: Sequence[Union[str, int]]) -> str:

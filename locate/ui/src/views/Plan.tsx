@@ -5,8 +5,9 @@ import { ValidationError } from '../api/client';
 import type { AccuracyGrid, AccuracyRequest, LookAngle, SystemConfig } from '../api/types.gen';
 import { Empty, ErrorNote, Info, Loading, StatusSymbol } from '../components/common';
 import { transpondersRelaying } from '../domain/config';
-import { db, deg, fixed, km, mhz, parseMhzToHz } from '../format/units';
-import { DOMINANT_WORD, MapView, type MapData } from '../map/MapView';
+import { accuracyDefaults, pairEnds, type PairEnd } from '../domain/plan';
+import { db, deg, fixed, hzToMhzInput, km, mhz, parseMhzToHz } from '../format/units';
+import { DOMINANT_KEY, DOMINANT_WORD, MapView, type MapData } from '../map/MapView';
 import { href, setParams, useRoute } from '../router';
 import { configResource, footprintsResource, lookAnglesResource, subpointsResource } from '../state/resources';
 import { api } from '../state/store';
@@ -184,22 +185,24 @@ interface AccForm {
 }
 
 function Accuracy({ cfg }: { cfg: SystemConfig }) {
-  const channels = cfg.sites.flatMap((s) => s.channels.map((c) => ({ id: c.id, site: s.id, sat: 'satellite_id' in c.pointing ? c.pointing.satellite_id : c.pointing.satellite_ids.join('+') })));
+  // ADAPT-4: a channel watching several satellites offers one "channel@sat" end per satellite
+  const ends = useMemo(() => pairEnds(cfg), [cfg]);
   const refs = (cfg.carriers ?? []).filter((c) => c.use_as_reference);
-  const [form, setForm] = useState<AccForm>({
-    pairs: [
-      ['naha-pac', 'naha-172e'],
-      ['naha-io', 'naha-172e'],
-    ].filter(([a, b]) => channels.some((c) => c.id === a) && channels.some((c) => c.id === b)) as Array<[string, string]>,
-    eirp: '25',
-    bwKhz: '8',
-    waveform: 'noise',
-    feMhz: '301.005',
-    tdoa: true,
-    fdoa: true,
-    reference: '',
-    integration: '',
-    step: '3',
+  // ADAPT-10: the starting request comes from the loaded configuration, whatever it holds
+  const [form, setForm] = useState<AccForm>(() => {
+    const d = accuracyDefaults(cfg);
+    return {
+      pairs: d.pairs,
+      eirp: '25',
+      bwKhz: String(Math.round(d.bwHz / 100) / 10),
+      waveform: 'noise',
+      feMhz: d.feHz !== null ? hzToMhzInput(d.feHz) : '',
+      tdoa: true,
+      fdoa: true,
+      reference: '',
+      integration: '',
+      step: '3',
+    };
   });
   const [grid, setGrid] = useState<AccuracyGrid | null>(null);
   const [gridWhatIf, setGridWhatIf] = useState(false);
@@ -219,6 +222,12 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
       satOsc: String(u?.sat_osc_frac ?? 1e-6),
       siteOsc: String(u?.site_osc_frac ?? 1e-11),
       bias: String(u?.tdoa_bias_ns ?? 50),
+      // propagation media (processing.uncertainty); a what-if must carry them, or the
+      // server would take its defaults instead of the configured values
+      vtec: String(u?.iono_vtec_tecu ?? 30),
+      ionoRho: String(u?.iono_correlation ?? 0.5),
+      tropo: String(u?.tropo_zenith_m ?? 2.4),
+      tropoRho: String(u?.tropo_correlation ?? 0.9),
     }),
     [u],
   );
@@ -236,14 +245,15 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
     const errs: Record<string, string> = {};
     if (!form.pairs.length) errs.pairs = 'Add at least one pair of channels.';
     form.pairs.forEach(([a, b], i) => {
-      if (a === b) errs[`pairs.${i}`] = 'A pair needs two different channels.';
+      if (a.split('@')[0] === b.split('@')[0]) errs[`pairs.${i}`] = 'A pair needs two different channels.';
     });
-    if (!(feHz && feHz > 0)) errs.f_e_hz = 'Enter the emitter frequency in MHz, for example 301.005.';
+    if (!(feHz && feHz > 0)) errs.f_e_hz = 'Enter the emitter uplink frequency in MHz.';
     if (!form.tdoa && !form.fdoa) errs.kinds = 'Choose TDOA, FDOA or both.';
     const bw = Number(form.bwKhz) * 1000;
     if (form.waveform !== 'cw' && !(bw > 0)) errs['emitter.bandwidth_hz'] = 'A bandwidth above 0 kHz is needed unless the waveform is a carrier (cw).';
     const num = (t: string) => (t.trim() === '' ? NaN : Number(t));
-    if (whatIf && [...wu.op, ...wu.tle, wu.satOsc, wu.siteOsc, wu.bias].some((t) => !(num(t) >= 0))) errs.uncertainty = 'Every uncertainty must be a number of 0 or more.';
+    if (whatIf && [...wu.op, ...wu.tle, wu.satOsc, wu.siteOsc, wu.bias, wu.vtec, wu.tropo].some((t) => !(num(t) >= 0))) errs.uncertainty = 'Every uncertainty must be a number of 0 or more.';
+    if (whatIf && [wu.ionoRho, wu.tropoRho].some((t) => !(num(t) >= 0 && num(t) <= 1))) errs.uncertainty = 'A correlation must be a number from 0 to 1.';
     setFieldErr(errs);
     if (Object.keys(errs).length) return;
     const uncertainty = whatIf
@@ -255,6 +265,10 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
           sat_osc_frac: num(wu.satOsc),
           site_osc_frac: num(wu.siteOsc),
           tdoa_bias_ns: num(wu.bias),
+          iono_vtec_tecu: num(wu.vtec),
+          iono_correlation: num(wu.ionoRho),
+          tropo_zenith_m: num(wu.tropo),
+          tropo_correlation: num(wu.tropoRho),
         }
       : null;
     const req: AccuracyRequest = {
@@ -308,11 +322,16 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
     [cfg, subs.data, grid, field, letters],
   );
 
-  const chOpt = (c: { id: string; site: string; sat: string }) => (
-    <option key={c.id} value={c.id}>
-      {c.id} ({c.sat})
+  // UX-13: the channel (or channel@sat) only, so the selects fit; the satellite is in the tooltip
+  const chOpt = (c: PairEnd) => (
+    <option key={c.value} value={c.value} title={`${c.channel} watching ${c.sat}`}>
+      {c.value}
     </option>
   );
+  const endTitle = (v: string) => {
+    const e = ends.find((x) => x.value === v);
+    return e ? `${e.channel} watching ${e.sat}` : v;
+  };
   return (
     <div className="split">
       <form
@@ -327,12 +346,12 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
           {form.pairs.map(([a, b], i) => (
             <div key={i} className="field" style={{ marginBottom: 6 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: 6, alignItems: 'center' }}>
-                <select aria-label={`Pair ${i + 1} channel A`} value={a} onChange={(e) => set({ pairs: form.pairs.map((p, k) => (k === i ? [e.target.value, p[1]] : p)) })} aria-invalid={fieldErr[`pairs.${i}`] ? true : undefined}>
-                  {channels.map(chOpt)}
+                <select aria-label={`Pair ${i + 1} channel A`} title={endTitle(a)} value={a} onChange={(e) => set({ pairs: form.pairs.map((p, k) => (k === i ? [e.target.value, p[1]] : p)) })} aria-invalid={fieldErr[`pairs.${i}`] ? true : undefined}>
+                  {ends.map(chOpt)}
                 </select>
                 <span aria-hidden="true">−</span>
-                <select aria-label={`Pair ${i + 1} channel B`} value={b} onChange={(e) => set({ pairs: form.pairs.map((p, k) => (k === i ? [p[0], e.target.value] : p)) })}>
-                  {channels.map(chOpt)}
+                <select aria-label={`Pair ${i + 1} channel B`} title={endTitle(b)} value={b} onChange={(e) => set({ pairs: form.pairs.map((p, k) => (k === i ? [p[0], e.target.value] : p)) })}>
+                  {ends.map(chOpt)}
                 </select>
                 <button type="button" className="btn small" aria-label={`Remove pair ${i + 1}`} onClick={() => set({ pairs: form.pairs.filter((_, k) => k !== i) })}>
                   Remove
@@ -341,7 +360,8 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
               {fieldErr[`pairs.${i}`] ? <span className="err">{fieldErr[`pairs.${i}`]}</span> : null}
             </div>
           ))}
-          <button type="button" className="btn small" onClick={() => set({ pairs: [...form.pairs, [channels[0]?.id ?? '', channels[1]?.id ?? '']] })}>
+          {form.pairs.length === 0 && ends.length < 2 ? <p className="ink2">This configuration has fewer than two receive channels, so there is no pair to correlate.</p> : null}
+          <button type="button" className="btn small" disabled={ends.length < 2} onClick={() => set({ pairs: [...form.pairs, [ends[0]?.value ?? '', ends.find((e) => e.channel !== ends[0]?.channel)?.value ?? ends[1]?.value ?? '']] })}>
             Add pair
           </button>
           {fieldErr.pairs ? <p className="err-text" role="alert">{fieldErr.pairs}</p> : null}
@@ -467,6 +487,10 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
                     ['satOsc', 'Satellite oscillator', 'fraction'],
                     ['siteOsc', 'Site oscillator', 'fraction'],
                     ['bias', 'TDOA bias', 'ns'],
+                    ['vtec', 'Ionosphere, VTEC', 'TECU'],
+                    ['ionoRho', 'Ionosphere, correlation', '0 to 1'],
+                    ['tropo', 'Troposphere, zenith', 'm'],
+                    ['tropoRho', 'Troposphere, correlation', '0 to 1'],
                   ] as const
                 ).map(([key, label, unit]) => (
                   <div className="field" key={key}>
@@ -494,6 +518,14 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
               <dd className="mono">{configuredU.siteOsc}</dd>
               <dt>TDOA bias</dt>
               <dd className="mono">{configuredU.bias} ns</dd>
+              <dt>Ionosphere</dt>
+              <dd className="mono">
+                {configuredU.vtec} TECU, correlation {configuredU.ionoRho}
+              </dd>
+              <dt>Troposphere</dt>
+              <dd className="mono">
+                {configuredU.tropo} m zenith, correlation {configuredU.tropoRho}
+              </dd>
             </dl>
           )}
           <p style={{ marginTop: 6 }}>
@@ -550,7 +582,7 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
             </div>
             {letters ? (
               <p className="ink2" style={{ marginTop: 6 }}>
-                Letters (drawn when cells are large enough; zoom in): N noise, P ephemeris position, V ephemeris velocity, C site clocks, O oscillators, B TDOA bias, R reference.
+                Letters (drawn when cells are large enough; zoom in): {DOMINANT_KEY}.
               </p>
             ) : null}
           </div>

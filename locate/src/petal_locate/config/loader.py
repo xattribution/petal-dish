@@ -6,6 +6,13 @@
 
 Every failure to read, parse or validate is a ``ConfigError`` (a ``ValueError``) that
 names the file and, for validation failures, the path of each field at fault.
+
+``safe_yaml_load`` is the YAML reader of every document the package accepts from
+outside (configurations, scenarios, node-token files, request and node files of the
+command line): a ``yaml.SafeLoader`` that refuses a mapping with the same key twice,
+a document that nests deeper than the interpreter can follow, and one whose anchors
+and aliases expand to more than ``MAX_YAML_NODES`` nodes (a few kilobytes of aliases
+can otherwise stand for billions of nodes, each validated in turn).
 """
 from __future__ import annotations
 
@@ -18,9 +25,81 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from ..protocol.messages import unencodable_path
 from .models import SystemConfig, field_errors
 
-__all__ = ["ConfigError", "load_config", "loads_config", "dump_config", "config_json_schema"]
+__all__ = [
+    "MAX_YAML_NODES",
+    "ConfigError",
+    "YamlLimitError",
+    "config_json_schema",
+    "dump_config",
+    "load_config",
+    "loads_config",
+    "safe_yaml_load",
+    "unicode_problem",
+]
+
+MAX_YAML_NODES: int = 1_000_000
+"""Most nodes a YAML document may stand for, every use of an alias counted with the
+whole subtree it names (a module variable, so that a deployment can tune it). The
+shipped configurations have about a thousand."""
+
+
+class YamlLimitError(yaml.YAMLError):
+    """A YAML document refused for its shape rather than its syntax: nested too deeply,
+    a recursive alias, or more than ``MAX_YAML_NODES`` nodes once aliases are expanded."""
+
+
+def unicode_problem(data: Any) -> dict[str, str] | None:
+    """Why decoded YAML or JSON data cannot be accepted as text, as ``{"loc", "msg"}``,
+    or None: a string or key holding an unpaired UTF-16 surrogate (an escape such as
+    ``"\\ud800"``), which no reply, log or store could write out again. ``loc`` is the
+    dotted path (unencodable characters escaped)."""
+    where = unencodable_path(data)
+    if where is None:
+        return None
+    safe = where.encode("utf-8", "backslashreplace").decode("utf-8")[:120]
+    return {"loc": safe, "msg": "text that is not valid Unicode (an unpaired surrogate)"}
+
+
+def _children(node: yaml.Node) -> list[yaml.Node]:
+    if isinstance(node, yaml.MappingNode):
+        return [part for pair in node.value for part in pair]
+    if isinstance(node, yaml.SequenceNode):
+        return list(node.value)
+    return []
+
+
+def _check_expansion(root: yaml.Node, limit: int) -> None:
+    """Raise ``YamlLimitError`` when the node graph (aliases share nodes) expands to more
+    than ``limit`` nodes, or holds a cycle (a recursive alias). Iterative: any depth."""
+    sizes: dict[int, int] = {}
+    open_nodes: set[int] = set()
+    stack: list[tuple[yaml.Node, bool]] = [(root, False)]
+    while stack:
+        node, finished = stack.pop()
+        key = id(node)
+        if finished:
+            open_nodes.discard(key)
+            total = 1 + sum(sizes[id(child)] for child in _children(node))
+            if total > limit:
+                raise YamlLimitError(
+                    f"the document expands to more than {limit} nodes once its aliases are followed "
+                    f"(near line {node.start_mark.line + 1}); write the repeated parts out or use fewer aliases"
+                )
+            sizes[key] = total
+            continue
+        if key in sizes:
+            continue
+        open_nodes.add(key)
+        stack.append((node, True))
+        for child in _children(node):
+            child_key = id(child)
+            if child_key in open_nodes:
+                raise YamlLimitError(f"recursive alias near line {child.start_mark.line + 1}")
+            if child_key not in sizes:
+                stack.append((child, False))
 
 
 class ConfigError(ValueError):
@@ -59,6 +138,28 @@ class _UniqueKeyLoader(yaml.SafeLoader):
                 seen.add(key)
         return super().construct_mapping(node, deep=deep)
 
+    def compose_document(self) -> yaml.Node:  # type: ignore[override]
+        node = super().compose_document()
+        _check_expansion(node, MAX_YAML_NODES)
+        return node
+
+
+def safe_yaml_load(text: str) -> Any:
+    """Parse one YAML document safely (see the module docstring).
+
+    Raises ``yaml.YAMLError`` for invalid YAML, a duplicate key, and (as
+    ``YamlLimitError``) a document nested too deeply, with a recursive alias or with
+    more than ``MAX_YAML_NODES`` nodes once aliases are followed. ``ValueError`` comes
+    through for scalars PyYAML cannot build (an impossible unquoted date).
+    """
+    loader = _UniqueKeyLoader(text)
+    try:
+        return loader.get_single_data()
+    except RecursionError:
+        raise YamlLimitError("the document is nested too deeply") from None
+    finally:
+        loader.dispose()
+
 
 def load_config(path: str | os.PathLike[str]) -> SystemConfig:
     """Read and validate a system configuration file.
@@ -94,18 +195,26 @@ def loads_config(text: str, fmt: str = "yaml", source: str = "<string>") -> Syst
     """
     if fmt == "yaml":
         try:
-            data = yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader subclass
+            data = safe_yaml_load(text)
+        except YamlLimitError as exc:
+            raise ConfigError(f"{source}: refused: {exc}", [{"loc": "(root)", "msg": str(exc)}]) from None
         except (yaml.YAMLError, ValueError) as exc:  # ValueError: e.g. an impossible unquoted date
             raise ConfigError(f"{source}: not valid YAML: {exc}") from exc
     elif fmt == "json":
         try:
             data = json.loads(text, object_pairs_hook=_unique_object)
+        except RecursionError:
+            message = "the document is nested too deeply"
+            raise ConfigError(f"{source}: refused: {message}", [{"loc": "(root)", "msg": message}]) from None
         except ValueError as exc:
             raise ConfigError(f"{source}: not valid JSON: {exc}") from exc
     else:
         raise ConfigError(f"fmt must be 'yaml' or 'json', got {fmt!r}")
     if not isinstance(data, dict):
         raise ConfigError(f"{source}: the top level must be a mapping, got {type(data).__name__}")
+    problem = unicode_problem(data)
+    if problem is not None:
+        raise ConfigError(f"{source}: 1 configuration error\n  {problem['loc']}: {problem['msg']}", [problem])
     try:
         return SystemConfig.model_validate(data)
     except ValidationError as exc:

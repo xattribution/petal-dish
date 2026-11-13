@@ -524,6 +524,32 @@ async def test_events_are_published_stored_closed_and_resumed_as_history(files: 
     assert ("server restarted: kept as history",) in transitions and ("closed by operator",) in transitions
 
 
+async def test_a_node_coming_online_resets_its_windows_and_status_carries_window_health(running: Running) -> None:
+    """SRV-1 wiring: the runtime hands the hub the detection pipeline's window health,
+    and a new session of a node forgets the frame times of that site's windows, so a node
+    whose clock was corrected back while it was away is not refused."""
+    from petal_locate.server.hub import StatusEvent
+
+    runtime, hub = running.runtime, running.hub
+    assert hub._window_health == runtime.detection.window_health
+    spec = runtime.detection.windows[("alpha-a", "sat-a:t1")]
+    rng = np.random.default_rng(9)
+    first = _frames(spec, 0, False, rng)
+    await runtime.detection.on_psd(first)
+    earlier = _frames(spec, 1, False, rng)
+    earlier = PsdFrame(site_id=earlier.site_id, header=earlier.header.model_copy(update={"t_ns": first.t_ns - 10**9}),
+                       psd_db=earlier.psd_db, received_ns=earlier.received_ns)
+    await runtime.detection.on_psd(earlier)  # one second older than the newest: refused
+    assert runtime.detection.counters()["out_of_order"] == 1
+    runtime._on_node_status(StatusEvent(site_id="alpha", kind="online", reason="hello", status={"node_id": "n"},
+                                        t_ns=time.time_ns()))
+    await runtime.detection.on_psd(earlier)  # the new session's frame is accepted
+    counters = runtime.detection.counters()
+    assert counters["accepted"] == 2 and counters["site_resets"] == 1
+    health = runtime.detection.window_health("alpha-a", "sat-a:t1")
+    assert health is not None and health["blind"] is False and health["learning"] is True
+
+
 async def _rows(data: Path, sql: str) -> list[tuple[Any, ...]]:
     store = Store(data)
     await store.open()
@@ -729,5 +755,53 @@ async def test_runtime_holder_delegates_once_a_runtime_is_attached(files: dict[s
     try:
         assert providers.assignments_for("alpha") == runtime.assignments_for("alpha")
         assert providers.config_version() == 1 and providers.simulation_info()["version"] == 1
+    finally:
+        await runtime.stop()
+
+
+# --------------------------------------------------------------------- orbit validity (ADAPT-7)
+
+
+async def test_status_reports_a_satellite_whose_ephemeris_has_ended(tmp_path: Path) -> None:
+    """ADAPT-7: the runtime checks every satellite's orbit at the server time; a table
+    that has ended is reported in /status (and the status message) with the table's
+    end, and the report clears when the ephemeris is valid again."""
+    from petal_locate.core.orbits import orbit_state
+    from petal_locate.core.timebase import iso_from_ns, ns_from_iso
+
+    base = make_config()
+    now = ns_from_iso("2026-11-13T03:00:00Z")
+    end = now - 120 * 1_000_000_000
+    orbit = base.orbit("sat-a")
+    samples = []
+    for k in range(-10, 1):
+        t_ns = end + k * 60 * 1_000_000_000
+        r, v = orbit_state(orbit, t_ns / 1e9)
+        samples.append({"t": iso_from_ns(t_ns), "r_m": [float(x) for x in r], "v_mps": [float(x) for x in v]})
+    data = base.model_dump(mode="json")
+    data["satellites"][0]["orbit"] = {"type": "table", "samples": samples}
+    cfg = SystemConfig.model_validate(data)
+    store = Store(tmp_path / "data")
+    await store.open()
+    clock = {"t": now}
+    runtime = ServerRuntime(
+        Settings(config_path=tmp_path / "c.yaml", data_dir=tmp_path / "data"), cfg, None, store, clock=lambda: clock["t"]
+    )
+    try:
+        rows = {r.sat_id: r for r in runtime.check_orbits()}
+        assert rows["sat-a"].ephemeris_ok is False and rows["sat-a"].unavailable_since_ns == end
+        assert rows["sat-a"].message.startswith(f"satellite {cfg.satellite('sat-a').name} (sat-a): ephemeris not available since 2026-11-13T02:58:00")
+        assert "its pairs are not tasked" in rows["sat-a"].message
+        assert all(r.ephemeris_ok and r.message is None for s, r in rows.items() if s != "sat-a")
+        status = runtime.status()
+        assert [s.sat_id for s in status.satellites] == [s.id for s in cfg.satellites]
+        assert status.site_clocks == []  # no tasking, no calibrations
+        message = json.loads(runtime.status_message().model_dump_json())
+        assert message["satellites"][0]["ephemeris_ok"] is False
+        assert message["satellites"][0]["unavailable_since_ns"] == str(end)
+        # back inside the table: available again
+        clock["t"] = end - 60 * 1_000_000_000
+        rows = {r.sat_id: r for r in runtime.check_orbits()}
+        assert rows["sat-a"].ephemeris_ok and rows["sat-a"].unavailable_since_ns is None
     finally:
         await runtime.stop()

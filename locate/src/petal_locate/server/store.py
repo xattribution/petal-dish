@@ -17,6 +17,14 @@ One SQLite database under the data directory (stdlib ``sqlite3``, WAL journal) h
   which of them the retention limit has deleted.
 - ``runs``: one row per server run.
 
+Retention. Capture files are kept up to ``capture_limit_bytes`` in total (the oldest
+are deleted beyond it). Event history is kept for ever unless ``history_max_age_s``
+or ``history_max_events`` is set: then ``prune_history`` deletes the events not
+updated for longer than the age, and those beyond the count (least recently updated
+first), with their transitions, evidence snapshots, measurements and solutions;
+calibrations and node sessions older than the age go too. The store prunes when it
+opens and then at most once every ``PRUNE_INTERVAL_S`` while events are written.
+
 Threading. A single writer connection lives on one dedicated worker thread; every
 read and write is a short transaction run there, in submission order, so the event
 loop never waits on the disk. The ``async`` methods return when their transaction is
@@ -55,7 +63,9 @@ __all__ = [
     "CAPTURE_DIR_NAME",
     "DB_FILE_NAME",
     "DEFAULT_CAPTURE_LIMIT_BYTES",
+    "PRUNE_INTERVAL_S",
     "SCHEMA_VERSION",
+    "PruneResult",
     "ConfigSource",
     "SavedCapture",
     "Store",
@@ -83,6 +93,12 @@ refused with ``StoreError`` (logged by the caller) instead of queuing without bo
 
 DEFAULT_CAPTURE_LIMIT_BYTES: Final[int] = 512 * 1024 * 1024
 """Default total size of saved capture data files before the oldest are deleted."""
+
+PRUNE_INTERVAL_S: float = 60.0
+"""Shortest time between two automatic history prunes while events are written, s."""
+
+_EVENT_TABLES: Final[tuple[str, ...]] = ("event_transitions", "evidence_snapshots", "measurements", "solutions")
+_DELETE_CHUNK: Final[int] = 500
 
 _BUSY_TIMEOUT_S: Final[float] = 5.0
 _SAFE_NAME: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9._-]")
@@ -259,6 +275,16 @@ class StoredEvent:
 
 
 @dataclass(frozen=True)
+class PruneResult:
+    """What one ``prune_history`` deleted: events (with their history rows),
+    calibrations and node sessions."""
+
+    events: int
+    calibrations: int
+    node_sessions: int
+
+
+@dataclass(frozen=True)
 class SavedCapture:
     """A capture written to disk: ``data_path`` (``.sigmf-data``, complex64 little
     endian), ``meta_path`` (``.sigmf-meta`` JSON), ``bytes`` of the data file, and
@@ -306,6 +332,8 @@ class Store:
         *,
         save_captures: bool = True,
         capture_limit_bytes: int = DEFAULT_CAPTURE_LIMIT_BYTES,
+        history_max_age_s: float | None = None,
+        history_max_events: int | None = None,
         clock: Callable[[], int] = _now_ns,
     ) -> None:
         """
@@ -314,7 +342,13 @@ class Store:
             None and writes nothing).
         capture_limit_bytes: total size of capture data files kept; the oldest are
             deleted beyond it (> 0).
-        clock: integer UTC ns, for the times the store stamps itself.
+        history_max_age_s: delete events not updated for longer than this, seconds
+            (> 0), with their history rows, and older calibrations and node sessions;
+            None keeps everything.
+        history_max_events: keep at most this many events (>= 1), the most recently
+            updated; None for no limit.
+        clock: integer UTC ns, for the times the store stamps itself (and the age of
+            the history).
         Raises ValueError naming a bad argument.
         """
         self._data_dir = Path(data_dir)
@@ -323,6 +357,21 @@ class Store:
         if limit <= 0:
             raise ValueError("capture_limit_bytes: must be positive")
         self._capture_limit = limit
+        if history_max_age_s is not None:
+            age = _finite(history_max_age_s, "history_max_age_s")
+            if age <= 0:
+                raise ValueError("history_max_age_s: must be positive")
+            self._max_age_ns: int | None = int(age * 1e9)
+        else:
+            self._max_age_ns = None
+        if history_max_events is not None:
+            count = _require_int(history_max_events, "history_max_events")
+            if count < 1:
+                raise ValueError("history_max_events: must be at least 1")
+            self._max_events: int | None = count
+        else:
+            self._max_events = None
+        self._last_prune_ns: int | None = None
         self._clock = clock
         self._run_id = uuid.uuid4().hex[:12]
         self._executor: concurrent.futures.ThreadPoolExecutor | None = None
@@ -369,6 +418,17 @@ class Store:
         """Whether ``save_capture`` writes to disk."""
         return self._save_captures
 
+    @property
+    def capture_limit_bytes(self) -> int:
+        """Total size of capture data files kept, bytes."""
+        return self._capture_limit
+
+    @property
+    def history_limits(self) -> tuple[float | None, int | None]:
+        """``(history_max_age_s, history_max_events)``; None where there is no limit."""
+        age = None if self._max_age_ns is None else self._max_age_ns / 1e9
+        return age, self._max_events
+
     def counters(self) -> dict[str, int]:
         """Diagnostics: writes done and failed per operation."""
         return dict(self._counters)
@@ -404,6 +464,8 @@ class Store:
             self._previous_run,
             extra={"path": str(self.path), "run_id": self._run_id},
         )
+        if self._max_age_ns is not None or self._max_events is not None:
+            await self.prune_history()
 
     async def close(self) -> None:
         """Wait for every pending write, record the end of the run and close the
@@ -750,7 +812,79 @@ class Store:
                     args,
                 )
 
-        return self._submit("put_event", work)
+        future = self._submit("put_event", work)
+        self._maybe_prune()
+        return future
+
+    # --------------------------------------------------------------------- retention
+
+    def _prune_work(self, conn: sqlite3.Connection) -> PruneResult:
+        now = self._clock()
+        victims: set[str] = set()
+        with conn:
+            if self._max_age_ns is not None:
+                cutoff = now - self._max_age_ns
+                victims.update(
+                    str(r[0]) for r in conn.execute("SELECT event_id FROM events WHERE updated_ns < ?", (cutoff,))
+                )
+            if self._max_events is not None:
+                victims.update(
+                    str(r[0])
+                    for r in conn.execute(
+                        "SELECT event_id FROM events ORDER BY updated_ns DESC, seq DESC LIMIT -1 OFFSET ?",
+                        (self._max_events,),
+                    )
+                )
+            ids = sorted(victims)
+            for start in range(0, len(ids), _DELETE_CHUNK):
+                chunk = ids[start:start + _DELETE_CHUNK]
+                marks = ",".join("?" * len(chunk))
+                for table in _EVENT_TABLES:
+                    conn.execute(f"DELETE FROM {table} WHERE event_id IN ({marks})", chunk)  # noqa: S608
+                conn.execute(f"DELETE FROM events WHERE event_id IN ({marks})", chunk)  # noqa: S608
+            calibrations = sessions = 0
+            if self._max_age_ns is not None:
+                cutoff = now - self._max_age_ns
+                calibrations = conn.execute("DELETE FROM calibrations WHERE t_ns < ?", (cutoff,)).rowcount
+                sessions = conn.execute(
+                    "DELETE FROM node_sessions WHERE disconnected_ns IS NOT NULL AND disconnected_ns < ?",
+                    (cutoff,),
+                ).rowcount
+        return PruneResult(events=len(ids), calibrations=max(calibrations, 0), node_sessions=max(sessions, 0))
+
+    def _log_prune(self, result: PruneResult) -> None:
+        if result.events or result.calibrations or result.node_sessions:
+            logger.info(
+                "history retention: deleted %d event(s), %d calibration(s), %d node session(s)",
+                result.events, result.calibrations, result.node_sessions,
+                extra={"max_age_s": self.history_limits[0], "max_events": self._max_events},
+            )
+
+    async def prune_history(self) -> PruneResult:
+        """Apply the history limits now (see the module docstring); returns what was
+        deleted. Does nothing (all zero) when no limit is set."""
+        if self._max_age_ns is None and self._max_events is None:
+            return PruneResult(0, 0, 0)
+        self._last_prune_ns = self._clock()
+        result = await self._run("prune_history", self._prune_work)
+        self._log_prune(result)
+        return result
+
+    def _maybe_prune(self) -> None:
+        """Queue a prune when limits are set and the last one is ``PRUNE_INTERVAL_S`` old."""
+        if self._max_age_ns is None and self._max_events is None:
+            return
+        now = self._clock()
+        if self._last_prune_ns is not None and now - self._last_prune_ns < PRUNE_INTERVAL_S * 1e9:
+            return
+        self._last_prune_ns = now
+        try:
+            future = self._submit("prune_history", self._prune_work)
+        except StoreError:
+            return
+        future.add_done_callback(
+            lambda f: None if f.cancelled() or f.exception() is not None else self._log_prune(f.result())
+        )
 
     def add_transitions(
         self, event_id: str, rows: Iterable[tuple[int, str, str, str | None]]

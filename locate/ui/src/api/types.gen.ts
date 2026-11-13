@@ -205,10 +205,18 @@ export interface ChannelRef {
   site_id: string;
 }
 
+/**
+ * channel_id, ok (ready, and no window blind to detection), last_frame_age_s (the
+ * newest frame over its windows). windows: one ``WindowStatus`` per assigned monitor
+ * window. detection_problem: a sentence naming blind or floor-raised windows, null
+ * when there are none.
+ */
 export interface ChannelStatus {
   channel_id: string;
+  detection_problem?: string | null;
   last_frame_age_s: number | null;
   ok: boolean;
+  windows?: WindowStatus[];
 }
 
 /**
@@ -393,9 +401,29 @@ export interface ErrorResponse {
  * is missing. merged_into: set when this event was folded into another one (it is
  * then ``closed``). simulated: the event comes from the simulator. tasking: what
  * capture tasking is doing for it (null until tasking has looked at it).
+ *
+ * satellite_ids / transponders: the satellites (and transponders) that relay the
+ * interference. Before a consistent position exists this is the frequency plan
+ * (every transponder covering the uplink range: some may not see the transmitter);
+ * once one exists, only satellites above ``solver.min_elevation_deg`` (and the
+ * horizon) at the fix, at an end of one of its 95 % ellipse axes or at an ambiguity
+ * (never none). not_visible_satellite_ids: satellites of the plan left out because
+ * they cannot see the transmitter's position (empty before a consistent fix).
+ * onset_ns: start of the current transmission, labelled time: the first detection
+ * after the latest break, or the first detection that showed another transmitter
+ * took the frequency; equal to ``first_seen_ns`` while neither happened. Report this
+ * as the start time. resumed_ns: server time the event was detected again after its
+ * latest loss (null if it was never lost); break_s: the length of that break, s.
+ * recheck: why the position and measurements shown are being checked against new
+ * measurements (the event came back after a short break, or its waveform, power or
+ * width changed); a disagreeing detection sets them aside. Null otherwise.
+ * received_lo_hz / received_hi_hz: union of the downlink ranges of the ``seen``
+ * evidence rows (what is on the air at the sites that see it; null while nothing is
+ * seen). seen_site_ids: sites with a ``seen`` row, in row order.
  */
 export interface Event {
   advisory: Advisory;
+  break_s?: number | null;
   caf: CafDisplay | null;
   classification: ClassificationOut | null;
   downlink_hi_hz?: number | null;
@@ -406,7 +434,14 @@ export interface Event {
   last_seen_ns: NsString;
   measurements: MeasurementRow[];
   merged_into?: string | null;
+  not_visible_satellite_ids?: string[];
+  onset_ns?: NsString | null;
+  received_hi_hz?: number | null;
+  received_lo_hz?: number | null;
+  recheck?: string | null;
+  resumed_ns?: NsString | null;
   satellite_ids: string[];
+  seen_site_ids?: string[];
   simulated?: boolean;
   solution: SolutionOut | null;
   solution_history: SolutionHistoryRow[];
@@ -425,7 +460,9 @@ export interface Event {
 /**
  * Row of ``GET /events``. ``uplink_lo_hz`` / ``uplink_hi_hz`` are null for an event
  * outside every transponder passband (see ``Event``). ``simulated``: the event comes
- * from the simulator.
+ * from the simulator. ``onset_ns``, ``received_lo_hz``, ``received_hi_hz``,
+ * ``seen_site_ids``: as in ``Event`` (for a ``local`` event the queue shows the
+ * received range and the sites, not the uplink range).
  */
 export interface EventSummary {
   first_seen_ns: NsString;
@@ -433,7 +470,11 @@ export interface EventSummary {
   id: string;
   label: string | null;
   last_seen_ns: NsString;
+  onset_ns?: NsString | null;
+  received_hi_hz?: number | null;
+  received_lo_hz?: number | null;
   satellite_ids: string[];
+  seen_site_ids?: string[];
   simulated?: boolean;
   solution: SolutionSummary | null;
   state: "detected" | "characterizing" | "locating" | "located" | "lost" | "closed";
@@ -557,7 +598,8 @@ export interface GeoOrbitModel {
 }
 
 /**
- * Ionospheric group delay applied to every path (not modelled by the solver).
+ * Ionospheric group delay applied to every path, one VTEC (TECU) at every ground end
+ * (the solver carries it as a consider parameter, ``processing.uncertainty.iono_vtec_tecu``).
  */
 export interface IonoError {
   enabled?: boolean;
@@ -898,6 +940,24 @@ export interface Satellite {
 }
 
 /**
+ * Whether the server can place one configured satellite now (its orbit can be
+ * evaluated at the server's time; checked every ``ORBIT_CHECK_S``).
+ *
+ * ephemeris_ok: the orbit evaluates now. unavailable_since_ns: when it stopped (the
+ * end of an ephemeris table when the orbit says so, otherwise the first check that
+ * failed); null while it is available. message: one sentence for the operator, for
+ * example "satellite MUOS Pacific (muos-pac): ephemeris not available since
+ * 2026-11-13 03:12:00Z (t_s outside the ephemeris table span ...); its pairs are not
+ * tasked"; null while available.
+ */
+export interface SatelliteStatus {
+  ephemeris_ok: boolean;
+  message?: string | null;
+  sat_id: string;
+  unavailable_since_ns?: NsString | null;
+}
+
+/**
  * A simulated world: emitters plus truth errors.
  */
 export interface Scenario {
@@ -982,12 +1042,42 @@ export interface SiteClock {
 }
 
 /**
- * How the ellipse shrank as measurements accumulated.
+ * A site's clock offset estimated from reference-carrier calibrations (the TDOA
+ * corrections of cross-site pairs; MATH.md section 9).
+ *
+ * offset_us: estimated offset of the site's sample timestamps, labelled time minus true
+ * time, microseconds (positive: its clock runs ahead; negative: behind, "late"), relative to the
+ * median of its group of compared sites (the least-squares fit of the cross-site TDOA
+ * corrections ``c ~ o_a - o_b``). sigma_us: RMS residual of the corrections it rests
+ * on, microseconds (null with a single correction). n_calibrations: TDOA calibrations used.
+ * compared_with: the other sites of those calibrations. caution: ``|offset_us|``
+ * reaches ``max(tasking.CLOCK_CAUTION_NS = 1000 ns, 10 x sites[].clock.sigma_ns)``; in a
+ * group of only two sites both are flagged when their difference reaches it (which one
+ * is off cannot be told). message: plain sentence when caution, else null.
+ */
+export interface SiteClockEstimate {
+  caution: boolean;
+  compared_with: string[];
+  message?: string | null;
+  n_calibrations: number;
+  offset_us: number;
+  sigma_us: number | null;
+  site_id: string;
+}
+
+/**
+ * How the ellipse shrank as measurements accumulated: the 95 % semi-axes of each
+ * converged solve. fit_consistent: false for an inconsistent fit (its semi-axes are
+ * the enlarged ones, ``SolutionOut.ellipse_scale``). set_aside: the solve belongs to
+ * measurements set aside later (``EventBook.set_aside``: a break, another
+ * transmitter, a local signal), so later rows start afresh.
  */
 export interface SolutionHistoryRow {
+  fit_consistent?: boolean;
   n_measurements: number;
   semi_major_m: number;
   semi_minor_m: number;
+  set_aside?: boolean;
   t_ns: NsString;
 }
 
@@ -999,7 +1089,19 @@ export interface SolutionHistoryRow {
  * solutions (for example the mirror image across the equator); they carry no
  * ambiguities of their own. ``dominant_error`` is one of ``noise``,
  * ``ephemeris_position``, ``ephemeris_velocity``, ``clock``, ``oscillator``,
- * ``tdoa_bias``, ``reference`` (``core.solver.ERROR_SOURCES``).
+ * ``tdoa_bias``, ``reference``, ``ionosphere``, ``troposphere``
+ * (``core.solver.ERROR_SOURCES``).
+ *
+ * Fit consistency (set by the server when it publishes a solve; the defaults describe
+ * a solution the server did not assess). fit_p_value: probability that a chi-square
+ * with ``dof`` degrees of freedom reaches ``chi2`` (null when ``dof < 1``).
+ * fit_consistent: false when ``reduced_chi2`` exceeds ``processing.solver.
+ * max_reduced_chi2`` and ``fit_p_value`` is below 0.001: the measurements do not fit
+ * one stationary transmitter (rows of two transmitters, a moving one, a clock or
+ * ephemeris fault), so the position must not be reported as a fix; the event is then
+ * never ``located``. ellipse_scale: factor already applied to ``ellipse`` axes and
+ * ``cep50_m`` (and its square to the three covariances): ``sqrt(reduced_chi2)`` for an
+ * inconsistent fit, else 1. An ambiguity is assessed on its own chi-square.
  */
 export interface SolutionOut {
   ambiguities: SolutionOut[];
@@ -1013,6 +1115,9 @@ export interface SolutionOut {
   dof: number;
   dominant_error: string;
   ellipse: EllipseOut;
+  ellipse_scale?: number;
+  fit_consistent?: boolean;
+  fit_p_value?: number | null;
   height_m: number;
   lat_deg: number;
   lon_deg: number;
@@ -1025,12 +1130,15 @@ export interface SolutionOut {
  * Enough of a solution to draw it on the map and list it. ``ambiguous``: the
  * ambiguity is unresolved; ``ambiguities`` then lists every other position that fits
  * as well (``SolutionOut.ambiguities``), so a map can draw all of them.
+ * fit_consistent: ``SolutionOut.fit_consistent`` (false: the measurements are
+ * inconsistent, the ellipse is enlarged and the position is not a fix).
  */
 export interface SolutionSummary {
   ambiguities?: AmbiguitySummary[];
   ambiguous: boolean;
   azimuth_deg: number;
   cep50_m: number;
+  fit_consistent?: boolean;
   lat_deg: number;
   lon_deg: number;
   semi_major_m: number;
@@ -1039,6 +1147,13 @@ export interface SolutionSummary {
 
 /**
  * Position solver settings (MATH.md section 9).
+ *
+ * max_reduced_chi2: fit-consistency limit of the server. A solution whose reduced
+ * chi-square exceeds it, and whose chi-square is also significant (tail probability
+ * below 0.001), does not fit one stationary transmitter (two transmitters' rows, a
+ * moving one, a wrong clock or ephemeris): the server publishes it flagged
+ * inconsistent, with its ellipse enlarged by sqrt(reduced chi-square), and never as
+ * ``located``.
  */
 export interface SolverConfig {
   chi2_ambiguity?: number;
@@ -1046,19 +1161,25 @@ export interface SolverConfig {
   grid_step_deg?: number;
   height_m?: number;
   max_measurements?: number;
+  max_reduced_chi2?: number;
   min_elevation_deg?: number;
   n_starts?: number;
 }
 
 /**
- * ``GET /status``.
+ * ``GET /status``. satellites: one row per configured satellite (empty before the
+ * first orbit check). site_clocks: clock offsets estimated from calibrations, one row
+ * per site that took part in a cross-site TDOA calibration still valid (empty without
+ * calibrations).
  */
 export interface Status {
   config_version: number;
   events_active: number;
   nodes: NodeStatus[];
   queue: QueueStatus;
+  satellites?: SatelliteStatus[];
   server_t_ns: NsString;
+  site_clocks?: SiteClockEstimate[];
 }
 
 export interface Subpoint {
@@ -1129,6 +1250,12 @@ export interface TableSample {
  * ambiguous ..." for a repeating sweep); null when all went well.
  * solve_reason: why the last solve gave no position (for example ``unobservable``
  * or ``fewer than two accepted measurements``); null after a successful solve.
+ * unlocatable_reason: set when the signal itself cannot be located by satellite
+ * correlation, whatever more rounds do: every pair of the last round failed for a
+ * reason of the waveform (a periodic waveform whose correlation is ambiguous, delay
+ * and Doppler coupled) with no row accepted since, or no second satellite with a usable
+ * channel relays the frequency. One plain sentence; null otherwise (and as soon as a
+ * row is accepted).
  */
 export interface TaskingStatus {
   channels: string[];
@@ -1138,6 +1265,7 @@ export interface TaskingStatus {
   rounds: number;
   solve_reason: string | null;
   state: "waiting" | "capturing" | "processing" | "idle";
+  unlocatable_reason?: string | null;
 }
 
 /**
@@ -1190,12 +1318,23 @@ export interface Transponder {
 }
 
 /**
+ * Tropospheric delay applied to every leg of every path (envelope and carrier phase
+ * alike), ``zenith_m * m(el) / C`` with the mapping of ``core.media.tropo_mapping``, one
+ * zenith delay (m) at every ground end (the solver carries it as a consider parameter,
+ * ``processing.uncertainty.tropo_zenith_m``). The direct terrestrial path gets none.
+ */
+export interface TropoError {
+  enabled?: boolean;
+  zenith_m?: number;
+}
+
+/**
  * How the simulated world differs from what the system believes.
  *
  * ephemeris: per satellite id. sat_osc_frac: fractional error of each satellite's
  * translation oscillator. site_clock_offset_ns: ``delta_g`` per site, true time
  * minus labelled time, ns. site_osc_frac: fractional error of each site's reference
- * oscillator (``eps_g``). iono: ionospheric delay.
+ * oscillator (``eps_g``). iono: ionospheric delay. tropo: tropospheric delay.
  */
 export interface TruthErrors {
   ephemeris?: Record<string, EphemerisError>;
@@ -1203,6 +1342,7 @@ export interface TruthErrors {
   sat_osc_frac?: Record<string, number>;
   site_clock_offset_ns?: Record<string, number>;
   site_osc_frac?: Record<string, number>;
+  tropo?: TropoError;
 }
 
 /**
@@ -1211,12 +1351,27 @@ export interface TruthErrors {
  * sat_osc_frac: fractional error of a satellite's translation oscillator,
  * uncalibrated. site_osc_frac: fractional error of a site's reference oscillator.
  * tdoa_bias_ns: per-pair TDOA bias, ns.
+ *
+ * Propagation media (MATH.md section 9, ``core.media``). The measurement model has no
+ * ionospheric or tropospheric delay, so these sigmas stand for the whole delay at each
+ * ground end of a leg (the emitter, every site, every reference): iono_vtec_tecu is
+ * the vertical total electron content, TECU (0 turns the ionospheric term off; its
+ * delay scales as 1 / f^2, 434 ns per leg at 305 MHz for 30 TECU at the zenith,
+ * under 0.3 ns at 12 GHz); tropo_zenith_m is the zenith tropospheric delay, m (about
+ * 2.3 m at sea level, the same at every frequency; 0 turns it off).
+ * iono_correlation, tropo_correlation: correlation of that quantity between two
+ * ground ends, 0 to 1: the part common to every end (a regional level) against the
+ * part that differs from end to end.
  */
 export interface UncertaintyConfig {
   ephemeris?: EphemerisUncertainty;
+  iono_correlation?: number;
+  iono_vtec_tecu?: number;
   sat_osc_frac?: number;
   site_osc_frac?: number;
   tdoa_bias_ns?: number;
+  tropo_correlation?: number;
+  tropo_zenith_m?: number;
 }
 
 /**
@@ -1251,6 +1406,35 @@ export interface WaveformSpec {
   type?: "cw" | "noise" | "chirp" | "psk";
 }
 
+/**
+ * Detection health of one monitor window of a channel.
+ *
+ * last_frame_age_s: seconds since the newest spectrum frame of the window reached the
+ * server (null before any). detection_frame_age_s: seconds since the detection
+ * pipeline last accepted one (null before any): it grows while frames arrive but are
+ * refused. blind: frames arrive but none has been accepted for ``BLIND_FRAMES`` frame
+ * periods; the channel is then not ``ok``. blind_reason: the drop reason of the
+ * latest refused frame (``out_of_order``, ``retuned``, ``nfft_mismatch``,
+ * ``non_finite``, ``tracker_error``, ``no_tracker``, ...), null when not blind.
+ * learning: the window's tracker still judges most bins against its start-up prior
+ * (the noise floor plus the relayed-noise rise) rather than their own history.
+ * floor_raised_db: how far the window's noise floor estimate lies above the lowest
+ * one among the channel's other windows of the same span, dB, when that exceeds the
+ * detection threshold: a signal filling the window may have been taken for its noise
+ * (null otherwise, or when the channel has no comparable window). note: one sentence
+ * for the operator when blind or floor_raised_db is set, else null.
+ */
+export interface WindowStatus {
+  blind?: boolean;
+  blind_reason?: string | null;
+  detection_frame_age_s?: number | null;
+  floor_raised_db?: number | null;
+  last_frame_age_s?: number | null;
+  learning?: boolean | null;
+  monitor_id: string;
+  note?: string | null;
+}
+
 export interface WsConfigMessage {
   config_version: number;
   type?: "config";
@@ -1267,7 +1451,7 @@ export interface WsSimMessage {
 }
 
 /**
- * About once a second.
+ * About once a second. ``satellites`` and ``site_clocks`` as in ``Status``.
  */
 export interface WsStatusMessage {
   config_version: number;
@@ -1275,8 +1459,10 @@ export interface WsStatusMessage {
   marking: Marking | null;
   nodes: NodeStatus[];
   queue: QueueStatus;
+  satellites?: SatelliteStatus[];
   server_t_ns: NsString;
   simulation: boolean;
+  site_clocks?: SiteClockEstimate[];
   type?: "status";
 }
 

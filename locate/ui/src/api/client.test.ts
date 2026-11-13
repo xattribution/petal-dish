@@ -32,6 +32,16 @@ describe('ApiClient', () => {
     expect((f.calls[1]!.init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
+  it('marks its state-changing requests as the console\'s own (X-Petal-Client), not its reads', async () => {
+    const f = fakeFetch([{ status: 200, body: {} }, { status: 200, body: { id: 'EV-1' } }]);
+    const c = new ApiClient({ fetchImpl: f.impl });
+    await c.status();
+    await c.closeEvent('EV-1');
+    expect((f.calls[0]!.init.headers as Record<string, string>)['X-Petal-Client']).toBeUndefined();
+    expect(f.calls[1]!.init.method).toBe('POST');
+    expect((f.calls[1]!.init.headers as Record<string, string>)['X-Petal-Client']).toBe('console');
+  });
+
   it('returns the ETag of GET /config and sends it back in If-Match', async () => {
     const env = { version: 7, config: cfg, warnings: [] };
     const f = fakeFetch([{ status: 200, body: env, headers: { ETag: '"7"' } }, { status: 200, body: { ...env, version: 8 }, headers: { ETag: '"8"' } }]);

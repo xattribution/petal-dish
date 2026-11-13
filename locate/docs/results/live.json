@@ -3,134 +3,141 @@
  "simulated": true,
  "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
  "config": "config/pacific-uhf.yaml",
- "config_sha256_16": "cddfa8e4de45f202",
+ "config_sha256_16": "c1dffdc7253968bf",
  "script": "scripts/capability_study.py",
- "method": "petal-locate demo (server plus seven node subprocesses with the simulated radio driver, real WebSockets, 127.0.0.1) started on the quiet preset; each preset loaded through POST /api/v1/sim/presets/{name}/load and the event read through GET /api/v1/events/{id} until its solution used 16 rows (about 4 to 8 rounds); 'uncorrected_rows' re-solves the very rows the server used without their reference-carrier corrections. The epoch is the wall-clock time of the run, so the geometry differs from the fixed epochs of the other sections.",
+ "media_assumed_by_solver": {
+  "iono_vtec_tecu": 30.0,
+  "iono_correlation": 0.5,
+  "tropo_zenith_m": 2.4,
+  "tropo_correlation": 0.9
+ },
+ "start": "2026-01-01T03:00:00Z",
+ "method": "petal-locate demo --start (server plus seven node subprocesses with the simulated radio driver, real WebSockets, 127.0.0.1, simulated time starting at the main epoch of the other sections) started on the quiet preset; each preset loaded through POST /api/v1/sim/presets/{name}/load and the event read through GET /api/v1/events/{id} (with the demo's API token) until its solution used 16 rows (about 4 to 8 rounds); 'uncorrected_rows' re-solves the very rows the server used without their reference-carrier corrections, with the same solver settings. The shipped presets have no ionosphere or troposphere; the server's solver carries both at the configured sigmas.",
  "pacific-demo": {
-  "loaded_t_ns": 1794579619921583806,
+  "loaded_host_t_ns": 1794607387913297745,
   "history": [
    {
-    "t_ns": 1794579632061503696,
+    "host_t_ns": 1794607400037699864,
     "n_measurements": 4,
-    "miss_m": 94.09097068972638,
+    "miss_m": 353.38986298937436,
     "inside_ellipse": true,
-    "semi_major_m": 418.284598242153,
-    "semi_minor_m": 92.77996729739463,
-    "dominant_error": "ephemeris_velocity"
+    "semi_major_m": 559.6626393399123,
+    "semi_minor_m": 246.05677111718163,
+    "dominant_error": "ionosphere"
    },
    {
-    "t_ns": 1794579636154940914,
+    "host_t_ns": 1794607404092714753,
     "n_measurements": 8,
-    "miss_m": 66.21789392067966,
+    "miss_m": 251.50007373538304,
     "inside_ellipse": true,
-    "semi_major_m": 392.1321303108987,
-    "semi_minor_m": 86.19291542146237,
-    "dominant_error": "ephemeris_velocity"
+    "semi_major_m": 537.1437291710379,
+    "semi_minor_m": 241.6372562646852,
+    "dominant_error": "ionosphere"
    },
    {
-    "t_ns": 1794579646251081685,
+    "host_t_ns": 1794607416205996878,
     "n_measurements": 12,
-    "miss_m": 24.455681810865002,
+    "miss_m": 236.73730904867512,
     "inside_ellipse": true,
-    "semi_major_m": 383.08584655982565,
-    "semi_minor_m": 83.90414486709915,
-    "dominant_error": "ephemeris_velocity"
+    "semi_major_m": 529.3409604560908,
+    "semi_minor_m": 240.11228813071935,
+    "dominant_error": "ionosphere"
    },
    {
-    "t_ns": 1794579656371615442,
+    "host_t_ns": 1794607426246585779,
     "n_measurements": 16,
-    "miss_m": 32.099809722743224,
+    "miss_m": 227.02813273990668,
     "inside_ellipse": true,
-    "semi_major_m": 378.50946755076956,
-    "semi_minor_m": 82.74500540200157,
-    "dominant_error": "ephemeris_velocity"
+    "semi_major_m": 496.0100422721736,
+    "semi_minor_m": 231.49304405668585,
+    "dominant_error": "ionosphere"
    }
   ],
   "event_id": "EV-000001",
   "verdict": "uplink",
-  "seconds_to_verdict": 5.000431108,
-  "seconds_to_located": 7.154776727,
+  "seconds_to_verdict": 5.034320896,
+  "seconds_to_located": 7.420804864,
   "rows_used": 16,
   "rows_calibrated": 16,
   "final": {
-   "t_ns": 1794579656371615442,
+   "host_t_ns": 1794607426246585779,
    "n_measurements": 16,
-   "miss_m": 32.099809722743224,
+   "miss_m": 227.02813273990668,
    "inside_ellipse": true,
-   "semi_major_m": 378.50946755076956,
-   "semi_minor_m": 82.74500540200157,
-   "dominant_error": "ephemeris_velocity"
+   "semi_major_m": 496.0100422721736,
+   "semi_minor_m": 231.49304405668585,
+   "dominant_error": "ionosphere"
   },
   "uncorrected_rows": {
-   "miss_m": 13282.869586913972,
-   "nees_total": 0.648243541494207,
-   "semi_major_m": 46688.98950072763,
-   "reduced_chi2": 0.722355910158475,
+   "miss_m": 421.33509572172176,
+   "nees_total": 0.16335887143269254,
+   "semi_major_m": 5448.625238639485,
+   "reduced_chi2": 0.7843052189713637,
    "n_ambiguities": 0
   }
  },
  "ephemeris-error": {
-  "loaded_t_ns": 1794579662077131226,
+  "loaded_host_t_ns": 1794607432733436861,
   "history": [
    {
-    "t_ns": 1794579674194452013,
+    "host_t_ns": 1794607444853592310,
     "n_measurements": 4,
-    "miss_m": 92.4224384279038,
+    "miss_m": 87.51291759290574,
     "inside_ellipse": true,
-    "semi_major_m": 391.94093360377656,
-    "semi_minor_m": 90.13424975409987,
-    "dominant_error": "reference"
+    "semi_major_m": 500.57407743842634,
+    "semi_minor_m": 209.4564764947187,
+    "dominant_error": "ionosphere"
    },
    {
-    "t_ns": 1794579678219077182,
+    "host_t_ns": 1794607448868918035,
     "n_measurements": 8,
-    "miss_m": 94.66993986806067,
-    "inside_ellipse": false,
-    "semi_major_m": 349.1503591412096,
-    "semi_minor_m": 81.76359020658771,
-    "dominant_error": "reference"
+    "miss_m": 14.942232174617741,
+    "inside_ellipse": true,
+    "semi_major_m": 476.565076700794,
+    "semi_minor_m": 196.69360069222608,
+    "dominant_error": "ionosphere"
    },
    {
-    "t_ns": 1794579688258975168,
+    "host_t_ns": 1794607458950116952,
     "n_measurements": 12,
-    "miss_m": 71.3327459680292,
+    "miss_m": 17.745602375941942,
     "inside_ellipse": true,
-    "semi_major_m": 334.10456023891896,
-    "semi_minor_m": 78.76682098335607,
-    "dominant_error": "reference"
+    "semi_major_m": 468.2505596154028,
+    "semi_minor_m": 191.76498863053092,
+    "dominant_error": "ionosphere"
    },
    {
-    "t_ns": 1794579698343461276,
+    "host_t_ns": 1794607470992974088,
     "n_measurements": 16,
-    "miss_m": 69.29261314165342,
+    "miss_m": 61.176410300702656,
     "inside_ellipse": true,
-    "semi_major_m": 326.3573385658233,
-    "semi_minor_m": 77.26109776307095,
-    "dominant_error": "reference"
+    "semi_major_m": 436.6720480216432,
+    "semi_minor_m": 164.4682434305341,
+    "dominant_error": "ionosphere"
    }
   ],
   "event_id": "EV-000002",
   "verdict": "uplink",
-  "seconds_to_verdict": 5.013157023,
-  "seconds_to_located": 7.368760673,
+  "seconds_to_verdict": 5.002362521,
+  "seconds_to_located": 7.410403529,
   "rows_used": 16,
   "rows_calibrated": 16,
   "final": {
-   "t_ns": 1794579698343461276,
+   "host_t_ns": 1794607470992974088,
    "n_measurements": 16,
-   "miss_m": 69.29261314165342,
+   "miss_m": 61.176410300702656,
    "inside_ellipse": true,
-   "semi_major_m": 326.3573385658233,
-   "semi_minor_m": 77.26109776307095,
-   "dominant_error": "reference"
+   "semi_major_m": 436.6720480216432,
+   "semi_minor_m": 164.4682434305341,
+   "dominant_error": "ionosphere"
   },
   "uncorrected_rows": {
-   "miss_m": 225890.284694695,
-   "nees_total": 53.36021471269624,
-   "semi_major_m": 129029.18716816822,
-   "reduced_chi2": 3.6410425827984545,
+   "miss_m": 12020.532747414356,
+   "nees_total": 30.989650759102386,
+   "semi_major_m": 5336.113734594809,
+   "reduced_chi2": 0.3445590861177151,
    "n_ambiguities": 0
   }
  },
- "elapsed_s": 104.5688226222992
+ "elapsed_s": 108.02135109901428
 }

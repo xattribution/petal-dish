@@ -136,7 +136,9 @@ async def serving(settings: Settings, presets: Path | None = None, static_dir: P
     app = create_app(settings, presets_dir=presets, static_dir=static_dir)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test", headers=headers or {}) as client:
+        # the console's own header: a state-changing request without a JSON body needs it
+        sent = {"X-Petal-Client": "test", **(headers or {})}
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1", headers=sent) as client:
             yield app, client
 
 
@@ -210,7 +212,7 @@ async def test_meta_status_and_openapi(files: dict[str, Path]) -> None:
 async def test_console_routes_answer_503_without_a_runtime(files: dict[str, Path]) -> None:
     app = create_app(settings_for(files), hub_providers=HubProviders.unconfigured())
     async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
             for path in ("/meta", "/status", "/events", "/config"):
                 reply = await client.get(f"{API}{path}")
                 assert reply.status_code == 503 and reply.headers["retry-after"]
@@ -931,3 +933,246 @@ async def test_heavy_routes_keep_the_event_loop_responsive(
         assert [r.status_code for r in replies] == [200] * 6
         assert lags and max(lags) < 0.1, max(lags)
     assert gc.get_freeze_count() == 0  # handed back at shutdown
+
+
+# --------------------------------------------------------------------------- review hardening
+
+
+async def test_text_that_is_not_valid_unicode_never_reaches_the_configuration(files: dict[str, Path]) -> None:
+    """A configuration whose description held a lone surrogate passed validation, PUT
+    answered 500 after applying it, and GET /config answered 500 from then on (M5)."""
+    async with serving(settings_for(files), files["presets"]) as (_app, client):
+        current = (await client.get(f"{API}/config")).json()["config"]
+        bad = dict(current, description="x\ud800")
+        body = json.dumps(bad).encode("ascii")  # the escape travels as plain ASCII
+        reply = await client.post(f"{API}/config/validate", content=body, headers={"Content-Type": "application/json"})
+        assert reply.status_code == 200 and reply.json()["ok"] is False
+        assert reply.json()["errors"][0]["loc"] == "description"
+        for envelope in (False, True):
+            doc = json.dumps({"version": 1, "config": bad} if envelope else bad).encode("ascii")
+            reply = await client.put(f"{API}/config", content=doc,
+                                     headers={"Content-Type": "application/json", "If-Match": "*"})
+            assert reply.status_code == 422, reply.text
+            assert "not valid Unicode" in reply.text
+        reply = await client.put(f"{API}/config", content='description: "\\ud800"\nname: y\n',
+                                 headers={"Content-Type": "application/yaml", "If-Match": "*"})
+        assert reply.status_code == 422
+        after = await client.get(f"{API}/config")
+        assert after.status_code == 200 and after.json()["version"] == 1  # nothing was applied
+        scenario = (await client.get(f"{API}/sim/scenario")).json()["scenario"]
+        reply = await client.put(f"{API}/sim/scenario", content=json.dumps(dict(scenario, name="s\udce9")).encode("ascii"),
+                                 headers={"Content-Type": "application/json"})
+        assert reply.status_code == 422 and (await client.get(f"{API}/sim/scenario")).status_code == 200
+
+
+async def test_malformed_input_is_a_4xx_not_a_500(files: dict[str, Path], caplog: pytest.LogCaptureFixture) -> None:
+    """Deep nesting, a NUL in a static path and times outside 1970..2262 gave HTTP 500
+    with a traceback each (SRV-5)."""
+    deep_json = ('{"a": ' + "[" * 100000 + "]" * 100000 + "}").encode()
+    deep_yaml = ("a: " + "[" * 20000 + "]" * 20000).encode()
+    async with serving(settings_for(files), files["presets"]) as (_app, client):
+        reply = await client.post(f"{API}/config/validate", content=deep_json, headers={"Content-Type": "application/json"})
+        assert reply.status_code == 200 and reply.json() == {
+            "ok": False, "errors": [{"loc": "(root)", "msg": "the document is nested too deeply"}], "warnings": []}
+        reply = await client.post(f"{API}/config/validate", content=deep_yaml, headers={"Content-Type": "application/yaml"})
+        assert reply.status_code == 200 and reply.json()["ok"] is False
+        reply = await client.put(f"{API}/config", content=deep_json,
+                                 headers={"Content-Type": "application/json", "If-Match": "*"})
+        assert reply.status_code == 422
+        reply = await client.put(f"{API}/sim/scenario", content=deep_json, headers={"Content-Type": "application/json"})
+        assert reply.status_code == 422 and reply.json()["errors"][0]["loc"] == "(root)"
+        for path in ("/index.html%00", "/a%00.js", "/assets/x%00.js"):
+            assert (await client.get(path)).status_code == 404, path
+        budget = {"emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 1e4}, "f_e_hz": 300.0e6, "lat_deg": 20.0,
+                  "lon_deg": 135.0}
+        for t in ("2300-01-01T00:00:00Z", "1900-01-01T00:00:00Z"):
+            reply = await client.post(f"{API}/analysis/link-budget", json=dict(budget, t=t))
+            assert reply.status_code == 422 and reply.json()["errors"] == [
+                {"loc": "t", "msg": "outside the times the server represents (1970-01-01 to 2262-04-11 UTC)"}]
+            reply = await client.post(f"{API}/analysis/accuracy", json={
+                "pairs": [["alpha-a", "bravo-b"]], "emitter": budget["emitter"], "f_e_hz": 300.0e6, "t": t})
+            assert reply.status_code == 422 and reply.json()["errors"][0]["loc"] == "t"
+            assert (await client.get(f"{API}/geometry/subpoints", params={"t": t})).status_code == 422
+    assert not [r for r in caplog.records if r.exc_info], "a traceback was logged"
+
+
+async def test_browser_facing_requests_check_host_origin_and_request_kind(files: dict[str, Path]) -> None:
+    """Without an API token another local page (or a DNS-rebound name) could read the
+    API and change the scenario with a CORS simple request (SRV-3)."""
+    async with serving(settings_for(files), files["presets"], headers={"X-Petal-Client": ""}) as (_app, client):
+        del client.headers["X-Petal-Client"]
+        # DNS rebinding: the request names a host the server does not answer to
+        reply = await client.get(f"{API}/config", headers={"Host": "rebind.evil.example"})
+        assert reply.status_code == 400 and "--allowed-host" in reply.json()["detail"]
+        assert (await client.get("/", headers={"Host": "rebind.evil.example:8080"})).status_code == 400
+        for host in ("localhost", "127.0.0.1:8080", "[::1]:8080", "LOCALHOST."):
+            assert (await client.get(f"{API}/meta", headers={"Host": host})).status_code == 200, host
+        # node-facing paths take any name (nodes dial whatever the network calls the server)
+        assert (await client.get("/healthz", headers={"Host": "server.site.example"})).status_code == 200
+        # a cross-site simple request: no JSON, no token, no custom header -> refused
+        before = (await client.get(f"{API}/sim/scenario")).json()["version"]
+        for headers in ({"Content-Type": "text/plain", "Origin": "http://evil.example"}, {},
+                        {"Content-Type": "application/x-www-form-urlencoded"}):
+            reply = await client.post(f"{API}/sim/presets/north/load", headers=headers)
+            assert reply.status_code == 403 and "X-Petal-Client" in reply.json()["detail"], headers
+        assert (await client.get(f"{API}/sim/scenario")).json()["version"] == before
+        reply = await client.post(f"{API}/config/validate", content="name: x\n", headers={"Content-Type": "text/plain"})
+        assert reply.status_code == 403
+        # the console's header, a JSON body or a YAML type make it a request no page sends unasked
+        assert (await client.post(f"{API}/sim/presets/north/load", headers={"X-Petal-Client": "console"})).status_code == 200
+        reply = await client.post(f"{API}/config/validate", content="name: x\n", headers={"Content-Type": "application/yaml"})
+        assert reply.status_code == 200
+        assert (await client.post(f"{API}/config/validate", json={"name": "x"})).status_code == 200
+    # configured names, and '*'
+    async with serving(settings_for(files, allowed_hosts=("Console.Example",)), files["presets"]) as (_app, client):
+        assert (await client.get(f"{API}/meta", headers={"Host": "console.example:443"})).status_code == 200
+        assert (await client.get(f"{API}/meta", headers={"Host": "other.example"})).status_code == 400
+    async with serving(settings_for(files, allowed_hosts=("*",)), files["presets"]) as (_app, client):
+        assert (await client.get(f"{API}/meta", headers={"Host": "other.example"})).status_code == 200
+    # with an API token the Authorization header itself marks the request as not simple
+    async with serving(settings_for(files, api_token="tok"), files["presets"],
+                       headers={"Authorization": "Bearer tok", "X-Petal-Client": ""}) as (_app, client):
+        del client.headers["X-Petal-Client"]
+        assert (await client.post(f"{API}/sim/reset")).status_code == 200
+
+
+async def test_every_api_body_is_capped_and_accuracy_requests_are_bounded(
+    files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 100 MB body was read in full before a 422, and 3500 duplicate pairs drove the
+    server out of memory (SRV-4, M6)."""
+    calls: list[Any] = []
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: stand_in_accuracy(calls))
+    monkeypatch.setattr(rest, "MAX_BODY_BYTES", 4096)
+    async with serving(settings_for(files), files["presets"]) as (_app, client):
+        big = b'{"pad": "' + b"x" * 10_000 + b'"}'
+        for path in ("/analysis/link-budget", "/analysis/accuracy", "/config/validate"):
+            reply = await client.post(f"{API}{path}", content=big, headers={"Content-Type": "application/json"})
+            assert reply.status_code == 413, path
+
+        async def chunks() -> AsyncIterator[bytes]:  # no Content-Length: counted as it streams
+            for _ in range(10):
+                yield b" " * 1000
+
+        reply = await client.post(f"{API}/analysis/link-budget", content=chunks(),
+                                  headers={"Content-Type": "application/json"})
+        assert reply.status_code == 413
+        monkeypatch.setattr(rest, "MAX_BODY_BYTES", 4 * 1024 * 1024)
+        body = {"pairs": [["alpha-a", "bravo-b"]], "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
+                "f_e_hz": 300.0e6, "step_deg": 5.0, "t": T_FIXED}
+        reply = await client.post(f"{API}/analysis/accuracy", json=dict(body, pairs=[["alpha-a", "bravo-b"]] * 3500))
+        assert reply.status_code == 422 and reply.json()["errors"][0]["loc"] == "pairs"
+        assert not calls  # refused before any work
+        reply = await client.post(f"{API}/analysis/accuracy",
+                                  json=dict(body, pairs=[["alpha-a", "bravo-b"], ["bravo-b", "alpha-a"]]))
+        assert reply.status_code == 422
+        assert reply.json()["errors"] == [{"loc": "pairs.1", "msg": "the same pair as pairs.0 (each pair counts once)"}]
+        monkeypatch.setattr(rest, "ACCURACY_BAND_BYTES", 1000)  # two grid rows no longer fit
+        reply = await client.post(f"{API}/analysis/accuracy", json=body)
+        assert reply.status_code == 422 and "MiB per band" in reply.json()["errors"][0]["msg"]
+        assert not calls
+    monkeypatch.undo()
+    # bands shrink as the pairs grow, never under two rows
+    assert rest.accuracy_band_cells(1, 15) == rest.ACCURACY_BAND_CELLS
+    many = rest.accuracy_band_cells(128, 15)
+    assert 30 <= many <= rest.ACCURACY_BAND_CELLS
+    assert rest.accuracy_band_bytes(128, many) <= rest.ACCURACY_BAND_BYTES or many == 30
+
+
+async def test_sites_without_a_node_token_are_warned_about(files: dict[str, Path]) -> None:
+    """A site added through PUT /config could never connect, and nothing said why
+    (ADAPT-3). charlie has no token in these settings."""
+    tokens = files["data"].parent / "tokens.yaml"
+    tokens.write_text("alpha: token-alpha\nbravo: token-bravo\n")
+    settings = settings_for(files, node_tokens={"alpha": "token-alpha", "bravo": "token-bravo"},
+                            node_tokens_path=tokens)
+    async with serving(settings, files["presets"]) as (_app, client):
+        envelope = (await client.get(f"{API}/config")).json()
+        notes = [w for w in envelope["warnings"] if "node token" in w["msg"]]
+        assert [w["loc"] for w in notes] == ["sites.2"] and "'charlie'" in notes[0]["msg"]
+        assert str(tokens) in notes[0]["msg"] and "no restart" in notes[0]["msg"]
+        current = envelope["config"]
+        current["sites"].append(dict(current["sites"][1], id="delta", name="Delta", channels=[
+            dict(current["sites"][1]["channels"][0], id="delta-a")]))
+        result = (await client.post(f"{API}/config/validate", json=current)).json()
+        assert result["ok"] and {w["loc"] for w in result["warnings"] if "node token" in w["msg"]} == {"sites.2", "sites.3"}
+        reply = await client.put(f"{API}/config", json=current, headers={"If-Match": "*"})
+        assert reply.status_code == 200
+        assert {w["loc"] for w in reply.json()["warnings"] if "node token" in w["msg"]} == {"sites.2", "sites.3"}
+        # the operator adds the token to the file: no restart, the warning goes away
+        tokens.write_text("alpha: token-alpha\nbravo: token-bravo\ndelta: token-delta\n")
+        import os
+
+        os.utime(tokens, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+        envelope = (await client.get(f"{API}/config")).json()
+        assert [w["loc"] for w in envelope["warnings"] if "node token" in w["msg"]] == ["sites.2"]
+        assert settings.check_node_token("delta", "token-delta")
+
+
+async def test_link_budget_leaves_out_a_satellite_it_cannot_place(files: dict[str, Path]) -> None:
+    """An ephemeris table that does not cover t made the whole link budget a 422 (and
+    'petal-locate check' crash): the other satellites' rows are given (ADAPT-6)."""
+    from petal_locate.core.orbits import orbit_state
+    from petal_locate.core.timebase import iso_from_ns, ns_from_iso
+
+    cfg = make_config()
+    t_end = ns_from_iso(T_FIXED)
+    samples = []
+    for k in range(-30, 1):
+        t = t_end + k * 60 * 10**9
+        r, v = orbit_state(cfg.orbit("sat-b"), sec(t))
+        samples.append({"t": iso_from_ns(t), "r_m": [float(x) for x in r], "v_mps": [float(x) for x in v]})
+    data = cfg.export_dict()
+    data["satellites"][1]["orbit"] = {"type": "table", "samples": samples}
+    table_cfg = SystemConfig.model_validate(data)
+    emitter = table_cfg.carriers[0].emitter
+    assert emitter is not None
+    before = rest.compute_link_budget(table_cfg, emitter, 300.0e6, 20.0, 135.0, 0.0, t_end - 60 * 10**9)
+    after = rest.compute_link_budget(table_cfg, emitter, 300.0e6, 20.0, 135.0, 0.0, t_end + 3600 * 10**9)
+    assert {r.sat_id for r in before} == {"sat-a", "sat-b"}
+    assert {r.sat_id for r in after} == {"sat-a"}
+
+
+async def test_a_simulated_time_offset_moves_the_whole_server_clock(files: dict[str, Path]) -> None:
+    """`petal-locate demo --start` (K8): the server's time base carries the offset, and
+    so does the hub, while the application runs; the default stays the host clock."""
+    from petal_locate.server import hub as hub_module
+
+    offset = -200 * 86400 * 10**9
+    settings = settings_for(files, sim_time_offset_ns=offset)
+    async with serving(settings, files["presets"]) as (app, client):
+        meta = (await client.get(f"{API}/meta")).json()
+        assert abs(int(meta["server_t_ns"]) - (time.time_ns() + offset)) < 5 * 10**9
+        status = (await client.get(f"{API}/status")).json()
+        assert abs(int(status["server_t_ns"]) - (time.time_ns() + offset)) < 5 * 10**9
+        # the hub takes the server clock (or, with a hub that has no clock parameter, the
+        # application shifts the hub module's time while it runs)
+        hub_clock = getattr(app.state.hub, "_clock", None)
+        hub_now = hub_clock() if callable(hub_clock) else hub_module.time.time_ns()
+        assert abs(hub_now - (time.time_ns() + offset)) < 5 * 10**9
+        assert abs(app.state.runtime.store._clock() - (time.time_ns() + offset)) < 5 * 10**9
+    assert hub_module.time is time  # put back when the application stops
+    async with serving(settings_for(files), files["presets"]) as (app, client):
+        assert app.state.clock is time.time_ns and hub_module.time is time
+
+
+async def test_a_console_address_carrying_the_token_opens_an_authenticated_console(
+    files: dict[str, Path], tmp_path: Path
+) -> None:
+    """`petal-locate demo` prints the console address with its random API token; the
+    page served for it hands the token to the console (and drops it from the address)."""
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "index.html").write_text("<!doctype html><html><head><title>c</title></head><body></body></html>")
+    async with serving(settings_for(files, api_token="tok-<&>"), files["presets"], static_dir=static,
+                       headers={"Authorization": "Bearer tok-<&>"}) as (_app, client):
+        reply = await client.get("/", params={"token": "tok-<&>"})
+        assert reply.status_code == 200
+        assert 'sessionStorage.setItem("petal.apiToken","tok-\\u003c\\u0026\\u003e")' in reply.text
+        assert "history.replaceState" in reply.text and "<&>" not in reply.text
+        assert reply.headers["cache-control"] == "no-store" and reply.headers["referrer-policy"] == "no-referrer"
+        for params in ({"token": "wrong"}, {}):  # nothing else is ever written into the page
+            reply = await client.get("/", params=params)
+            assert reply.status_code == 200 and "sessionStorage" not in reply.text and "wrong" not in reply.text
+    async with serving(settings_for(files), files["presets"], static_dir=static) as (_app, client):
+        assert "sessionStorage" not in (await client.get("/", params={"token": "x"})).text  # no token configured

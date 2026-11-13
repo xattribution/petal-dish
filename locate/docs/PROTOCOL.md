@@ -18,7 +18,9 @@ warning when it would send it over `ws://` to a host that is not a loopback addr
 All absolute times are integer UTC nanoseconds (`*_ns`), sent as JSON integers on this
 interface (both ends are Python), in `0 .. 2^63 - 1`. `t_first_ns` and every `t_ns` are
 **labelled** times (the node's clock). The one `*_ns` field that is not an absolute
-time, `ClockStatus.est_offset_ns`, is a JSON number.
+time, `ClockStatus.est_offset_ns`, is a JSON number. Under `petal-locate demo --start`
+the server's clock and every simulated node's clock are the host clock plus one fixed
+offset (simulation only), so every time on both interfaces is simulated time.
 
 permessage-deflate is disabled on both ends (`websockets.connect(compression=None)`;
 uvicorn `ws_per_message_deflate=False`) and both accept messages of exactly 1 MiB
@@ -39,6 +41,13 @@ out of the log, and nodes then see close code 1012 instead of 1001 at shutdown.
   `assign_ack`, and a duplicate `monitor_id` within a channel, are malformed.
 - A text frame whose `type` is `psd` or `capture_data`, or a binary header whose type is
   a control message, is malformed (not an unknown type).
+- Text must be valid Unicode: a JSON string or key holding an unpaired UTF-16 surrogate
+  (the escape `\ud800` on its own) makes a control message or binary header malformed
+  (`<control message|binary frame header>: <field.path>: text that is not valid Unicode
+  (an unpaired surrogate)`). The node escapes such characters in text it passes on from
+  its driver or peer (`hello.software` and `driver`, `capture_error.message`, a channel
+  error in `assign_ack`) as `\udce9`; a `capture_error` whose message cannot be built is
+  sent with `message: ""`.
 - Error details name fields and never quote values, so the `hello` token cannot reach an
   `error` reply, a log line or a traceback.
 
@@ -130,8 +139,9 @@ section 3); a capture is 1 to 8,388,608 samples (64 MiB).
 minus labelled time). It is displayed and never applied to measurements. A capture
 whose ClockStatus has `locked = false` yields no TDOA unless both channels of the pair
 are at the same site. The shipped `SystemClock` reports `ntp`, locked, without asking
-the operating system whether NTP is synchronised; `--clock` and `--clock-unlocked`
-override what is reported (OPERATIONS.md).
+the operating system whether NTP is synchronised; a node run with `--driver sim`
+reports `sim`, locked; `--clock` and `--clock-unlocked` override what is reported
+(OPERATIONS.md).
 
 ## Spectrum frames (node -> server, binary)
 
@@ -144,8 +154,14 @@ wins), so gaps in `seq` are normal. `center_hz`, `span_hz` and `t_ns` are what t
 driver actually measured. `seq` restarts at 0 when a channel is reopened or a session
 starts. The server drops (and counts, without treating them as malformed) frames for
 channels not acknowledged under the current assignment, windows that are not assigned,
-or a different `nfft`; its detection pipeline also drops frames whose centre moved by
-more than half a bin, that hold a non-finite bin, or whose `t_ns` repeats or goes back.
+or a different `nfft`, and frames stamped more than `PSD_FUTURE_TOLERANCE_S` (60 s)
+ahead of the server clock (counter `psd_dropped_future`, one warning per session; such a
+frame does not count as the window's newest). Its detection pipeline also drops frames
+whose centre moved by more than half a bin, that hold a non-finite bin, or whose `t_ns`
+repeats or goes back by up to three frame periods. A frame more than three frame
+periods older than the newest accepted is taken as a step of the node's clock: it is
+accepted as the new time base (the learned baseline is kept) and warned about once per
+window. A new session of a site resets its windows' frame times.
 
 ## Captures
 
@@ -163,7 +179,8 @@ Node -> one or more binary frames, header
 sample_rate_hz, center_hz, n_samples_total, offset, n, overflow: bool, clock:
 ClockStatus}`; payload `complex64[n]` (interleaved float32 I, Q). Chunks are at most
 256 KiB of payload (32 KiB by default, so that heartbeats still get through a
-44 kbit/s uplink; `NodeAgent(chunk_payload_bytes=...)`) and arrive in order; `offset`
+44 kbit/s uplink; `petal-locate node --chunk-payload-bytes`,
+`NodeAgent(chunk_payload_bytes=...)`) and arrive in order; `offset`
 is the index of the chunk's first sample. Between chunks the node sends any waiting
 control message and the waiting spectrum frame of every window. Across the chunks of
 one capture `capture_id`, `channel_id`, `t_first_ns`, `sample_rate_hz`, `center_hz` and
@@ -229,7 +246,8 @@ token of any configured site) returns `{version: int, effective_ns: string, conf
 SystemConfig, scenario: Scenario}` (a decimal string here because the body is also read
 by the console; `sim_update` on the node socket carries the same instant as a JSON
 integer). The token is checked first: 401 `{detail}` without a valid node token, then
-404 when not simulating. The route is outside the API-token check. A node refuses a
+404 when not simulating. The route is outside the API-token and `Host` checks of
+section B, as are `/ws/node` and `/healthz`. A node refuses a
 document over 32 MiB, one whose `effective_ns` is not a decimal string of integer ns,
 and one whose scenario does not validate against its config.
 
@@ -239,22 +257,58 @@ scenario version doubles as the document version and is also raised by every con
 change while simulating, so nodes always refetch. The node fetches immediately and uses
 the new world for samples at or after `effective_ns` and the previous world before it;
 a simulated node also refetches before sending `assign_ack` (through `on_assign`).
-There is no polling. Real drivers never use this channel. How a simulated node switches
-worlds is in ARCHITECTURE.md section 6.
+The node hands a `sim_update` only to drivers already open, so one that arrives while
+its channels are opening would be lost: the server therefore sends the newest
+`sim_update` again right after an accepted `assign_ack` whenever one was sent while
+that session's assignment was unacknowledged (between `welcome` or `assign` and the
+ack; counter `sim_update_resent`). A node may thus receive the same `sim_update` twice;
+the sim driver ignores a version it holds. There is no polling. Real drivers never use
+this channel. How a simulated node switches worlds is in ARCHITECTURE.md section 6.
 
 # B. Console to server
 
 REST under `/api/v1`, JSON. **Every absolute-time `*_ns` field is a decimal string** on
 this interface (JavaScript numbers cannot hold nanosecond timestamps); other times are
 ISO 8601 UTC ending in `Z`. The exception is `ClockStatus.est_offset_ns` inside
-`NodeStatus`: a signed offset, not an absolute time, sent as a JSON number. Nothing is
+`NodeStatus`: a signed offset, not an absolute time, sent as a JSON number (fields such
+as `SiteClockEstimate.offset_us` are offsets in microseconds, plain numbers). Nothing is
 ever NaN or infinite; a value that could not be computed is `null`. Unknown fields in
-request bodies are errors (422).
+request bodies are errors (422), and so is text holding an unpaired UTF-16 surrogate
+(`<path>: text that is not valid Unicode (an unpaired surrogate)`).
 
 When the server has an API token, every `/api/v1` request except `GET /meta` carries
 `Authorization: Bearer <token>` (401 `{detail}` with `WWW-Authenticate: Bearer`
 otherwise), and the `/ws/ui` handshake carries `?token=` (browsers cannot set headers
-on a WebSocket; the server's log filter writes it as `?token=[redacted]`).
+on a WebSocket; the server's log filter writes it as `?token=[redacted]`). `GET /` (or
+a console route) with `?token=<the API token>` returns the console page with a script
+that stores the token in `sessionStorage` (`petal.apiToken`) and removes it from the
+address bar (headers `Cache-Control: no-store`, `Referrer-Policy: no-referrer`); a
+wrong or absent token serves the page unchanged. `petal-locate demo` prints such an
+address with a random per-run token.
+
+Checks before any route, whether or not there is a token:
+
+- `Host`: every path except `/ws/node`, `/healthz` and the node backplane must carry a
+  `Host` whose host part is the bound address, `localhost`, `127.0.0.1`, `::1`, a name
+  given with `--allowed-host` (`*` for any) or, when bound to `0.0.0.0` or `::`, this
+  machine's host name, fully qualified name and addresses. Otherwise HTTP 400 `{detail:
+  "the host name '<host>' is not one this server answers to; start it with
+  --allowed-host NAME to allow it"}`, or a refused WebSocket handshake (HTTP 403). A
+  request without `Host` passes.
+- Request kind: a POST, PUT, PATCH or DELETE under `/api` whose `Content-Type` is empty,
+  `text/plain`, `application/x-www-form-urlencoded` or `multipart/form-data` (what a
+  web page can send cross-site unasked) and that carries neither `Authorization` nor
+  `X-Petal-Client` is refused 403 `{detail: "a state-changing request must carry
+  Content-Type application/json or application/yaml, an Authorization header, or the
+  header X-Petal-Client (cross-site request defence)"}`. The console sends
+  `X-Petal-Client: console` on every such request.
+- Size: the body of every such request is limited to 4 MiB (`rest.MAX_BODY_BYTES`,
+  `Content-Length` or bytes streamed): 413 `{detail: "the request body is larger than
+  4194304 bytes"}`.
+- `/ws/ui` `Origin`: a handshake whose `Origin` is neither the server's own
+  (`http(s)://<Host>`, the scheme following `X-Forwarded-Proto` from a trusted proxy)
+  nor given with `--allowed-origin` (`*` for any) is accepted and closed with 1008
+  `this origin may not open the console socket`. A handshake without `Origin` passes.
 
 ## Errors
 
@@ -270,12 +324,18 @@ FieldErrorResponse   {detail, errors: [{loc, msg}], warnings: [{loc, msg}]}    e
 or the name of the query parameter, without FastAPI's `body` / `query` prefix and
 pydantic's union-member names; `(root)` or `""` is the whole document. `detail` repeats
 the first error in words. Request validation by FastAPI also answers with
-`FieldErrorResponse`. Status codes in use: 400 (unreadable `Content-Length`), 401, 404,
-405 (other methods on unknown paths), 409, 413 (body over 4 MiB), 415 (a `Content-Type`
-other than JSON or YAML), 422, 428 (`If-Match` missing), 500 (storage failure or an
-unexpected error; logged with its traceback), 501 (`core.accuracy` not importable), 503
-(server starting, with `Retry-After: 2`; or too many accuracy maps waiting, with
-`Retry-After: 10`), 504 (accuracy map over its time limit).
+`FieldErrorResponse`. Status codes in use: 400 (unreadable `Content-Length`, or a `Host`
+the server does not answer to), 401, 403 (a state-changing request of a kind a foreign
+web page could send), 404 (also a static path holding a NUL or one the file system
+cannot look up), 405 (other methods on unknown paths), 409, 413 (body over 4 MiB, on
+every state-changing `/api` route), 415 (a `Content-Type` other than JSON or YAML), 422
+(also a time outside 1970-01-01 to 2262-04-11 UTC, loc `t`: `outside the times the
+server represents (1970-01-01 to 2262-04-11 UTC)`), 428 (`If-Match` missing), 500
+(storage failure or an unexpected error; logged with its traceback), 501
+(`core.accuracy` not importable), 503 (server starting, with `Retry-After: 2`; or too
+many accuracy maps waiting, with `Retry-After: 10`), 504 (accuracy map over its time
+limit). Every error reply escapes text that is not valid Unicode, so it can always be
+written.
 
 ## Routes
 
@@ -285,7 +345,8 @@ GET  /config                    ConfigEnvelope, ETag "<version>"; ?format=yaml: 
 PUT  /config                    replace; body: SystemConfig, a ConfigEnvelope, or YAML; If-Match "<version>" or * required -> ConfigEnvelope, new ETag
                                 428 without If-Match; 409 ConflictResponse when stale; 422 FieldErrorResponse (also loc "(scenario)" when the running
                                 scenario no longer fits); 413; 415. The body's own version is ignored.
-POST /config/validate           ValidateResult {ok, errors, warnings} (always HTTP 200; same bodies as PUT)
+POST /config/validate           ValidateResult {ok, errors, warnings} (always HTTP 200; same bodies as PUT; a document nested too deeply
+                                gives ok false with {loc "(root)", msg "the document is nested too deeply"}, which PUT answers 422)
 GET  /config/schema             JSON Schema (draft 2020-12) of SystemConfig
 GET  /status                    Status
 GET  /events?state=&limit=      [EventSummary], newest first; state: one of detected, characterizing, locating, located, lost, closed,
@@ -294,13 +355,16 @@ GET  /events/{id}               Event (404 for an unknown id, or one dropped fro
 POST /events/{id}/close         Event (closing a closed event changes nothing)
 GET  /events/{id}/lop?step_deg= LopCollection; step_deg 0.05..5, automatic by default (at least 0.25 degree, at most 250 000 cells);
                                 422 above 500 000 cells
-GET  /geometry/subpoints?t=     [Subpoint]                       (t: ISO 8601 UTC, default now; 422 when not a time)
+GET  /geometry/subpoints?t=     [Subpoint]                       (t: ISO 8601 UTC, default now; 422 when not a time or outside 1970..2262)
 GET  /geometry/footprints?t=&min_elevation_deg=   [Footprint]    (min_elevation_deg in (-90, 90), default 0)
 GET  /geometry/look-angles?t=   [LookAngle]                      (every channel by every satellite)
-POST /analysis/accuracy         AccuracyRequest -> AccuracyGrid; 422 above 20 000 cells; 503 when 4 maps already wait; 504 after 120 s
-POST /analysis/link-budget      LinkBudgetRequest -> LinkBudgetResponse
+POST /analysis/accuracy         AccuracyRequest -> AccuracyGrid; 422 above 20 000 cells, above 128 pairs, for a pair listed twice
+                                ([A, B] and [B, A] count as one), or when two grid rows would need more than 256 MiB;
+                                503 when 4 maps already wait; 504 after 120 s
+POST /analysis/link-budget      LinkBudgetRequest -> LinkBudgetResponse (satellites whose orbit cannot be evaluated at t are left out)
 GET  /sim/scenario              ScenarioEnvelope                 (404 when not simulating, here and below)
 PUT  /sim/scenario              replace; body: Scenario, a ScenarioEnvelope, or YAML -> ScenarioEnvelope; announced to nodes, effective 2 s later
+                                (YAML aliases expanding beyond 1 000 000 nodes, duplicate keys and too-deep nesting are 422, loc "(root)")
 GET  /sim/presets               [Preset] (the *.yaml, *.yml, *.json files of the presets directory, by file stem)
 POST /sim/presets/{name}/load   ScenarioEnvelope (announced like PUT)
 POST /sim/reset                 ScenarioEnvelope: back to the scenario the server started with
@@ -311,13 +375,23 @@ Outside `/api/v1`: `GET /healthz` (`{status, version, nodes_online}`, no token),
 `GET /openapi.json` (the schema; `/docs` loads Swagger UI from a CDN and does not work
 offline), the node backplane (section A), and the console build at `/` (paths without a
 file extension fall back to `index.html`; paths under `api/`, `ws/` and `node/` never
-do).
+do; a query string on an asset, such as the console's `?retry=N` after a failed chunk
+load, is ignored).
 
 Bodies of `PUT /config`, `POST /config/validate` and `PUT /sim/scenario` are read by
 `Content-Type`: `application/json` (or `+json`), `application/yaml` and its aliases (or
-`+yaml`); with none, `text/plain` or `application/octet-stream` a body starting with `{`
-is JSON, anything else YAML. A JSON envelope as the server returns it is unwrapped. An
-empty body is a 422.
+`+yaml`); with `application/octet-stream` (or, from a client that passes the
+request-kind check with `Authorization` or `X-Petal-Client`, none or `text/plain`) a
+body starting with `{` is JSON, anything else YAML. A JSON envelope as the server
+returns it is unwrapped. An empty body is a 422. YAML is read with unique keys, aliases
+expanding to at most 1 000 000 nodes and bounded nesting.
+
+`GET /config`, the reply of `PUT /config` and `POST /config/validate` (when `ok`) add a
+warning per site whose node has no token on the server: `{loc: "sites.<index>", msg:
+"site '<id>' has no node token on this server (none in the node tokens and no
+PETAL_NODE_TOKEN_<SITE> in the server's environment), so its node cannot connect;
+<remedy>"}`, the remedy naming the node-tokens file (re-read when it changes) or a
+restart with `--node-tokens`.
 
 `GET /config` returns the configuration with its derived monitors filled in; the ids of
 those channels are listed in `derived_monitors`. Send them back with `monitors: []` to
@@ -330,24 +404,34 @@ whole document freezes them as explicit windows.
 Meta             {version, marking: {level, line} | null, simulation, server_t_ns, config_name, api_token_required}
 ConfigEnvelope   {version, config: SystemConfig, warnings: [{loc, msg}], derived_monitors: [channel_id]}
 Status           {server_t_ns, config_version, nodes: [NodeStatus], events_active,
-                  queue: {captures_pending, jobs_running, jobs_waiting}}
+                  queue: {captures_pending, jobs_running, jobs_waiting},
+                  satellites: [SatelliteStatus], site_clocks: [SiteClockEstimate]}
 NodeStatus       {site_id, node_id | null, online, latency_ms | null, clock: ClockStatus | null, driver | null, software | null,
-                  channels: [{channel_id, ok, last_frame_age_s | null}], connected_since: ISO | null}
+                  channels: [ChannelStatus], connected_since: ISO | null}
                   # one row per configured site; an offline site keeps its last node_id, clock, driver and software
+ChannelStatus    {channel_id, ok, last_frame_age_s | null, windows: [WindowStatus], detection_problem | null}
+WindowStatus     {monitor_id, last_frame_age_s | null, detection_frame_age_s | null, blind, blind_reason | null,
+                  learning | null, floor_raised_db | null, note | null}
+SatelliteStatus  {sat_id, ephemeris_ok, unavailable_since_ns | null, message | null}
+SiteClockEstimate {site_id, offset_us, sigma_us | null, n_calibrations, compared_with: [site_id], caution, message | null}
 EventSummary     {id, state, verdict, first_seen_ns, last_seen_ns, uplink_lo_hz | null, uplink_hi_hz | null, satellite_ids,
-                  label | null, headline, solution: SolutionSummary | null, simulated}
+                  label | null, headline, solution: SolutionSummary | null, simulated,
+                  onset_ns | null, received_lo_hz | null, received_hi_hz | null, seen_site_ids}
 SolutionSummary  {lat_deg, lon_deg, semi_major_m, semi_minor_m, azimuth_deg, cep50_m, ambiguous,
-                  ambiguities: [{lat_deg, lon_deg, semi_major_m, semi_minor_m, azimuth_deg}]}
+                  ambiguities: [{lat_deg, lon_deg, semi_major_m, semi_minor_m, azimuth_deg}], fit_consistent}
 Event            {id, state, verdict, verdict_reason | null, first_seen_ns, last_seen_ns,
                   uplink_lo_hz | null, uplink_hi_hz | null, downlink_lo_hz | null, downlink_hi_hz | null,
                   satellite_ids, transponders: [{sat_id, transponder_id, downlink_lo_hz, downlink_hi_hz}],
+                  not_visible_satellite_ids,
                   classification: {label, confidence, features: {name: number}} | null,
                   advisory: {headline, detail, actions: [text]},
                   evidence: [EvidenceRow], transitions: [{t_ns, state, verdict, reason | null}],
                   solution: SolutionOut | null, solution_t_ns | null,
-                  solution_history: [{t_ns, semi_major_m, semi_minor_m, n_measurements}],
+                  solution_history: [{t_ns, semi_major_m, semi_minor_m, n_measurements, fit_consistent, set_aside}],
                   measurements: [MeasurementRow], caf: CafDisplay | null, truth: EventTruth | null,
-                  merged_into | null, simulated, tasking: TaskingStatus | null}
+                  merged_into | null, simulated, tasking: TaskingStatus | null,
+                  onset_ns | null, resumed_ns | null, break_s | null, recheck | null,
+                  received_lo_hz | null, received_hi_hz | null, seen_site_ids}
 EvidenceRow      {channel_id, site_id, sat_id | null, state: "seen" | "not_seen_capable" | "not_capable" | "stale",
                   snr_db | null, cn0_dbhz | null, predicted_margin_db | null, last_seen_ns | null,
                   monitor_id | null, downlink_lo_hz | null, downlink_hi_hz | null}
@@ -357,11 +441,12 @@ CafDisplay       {t_ns, pair, surface: [[dB]], delay_axis_s, doppler_axis_hz, de
                   peak_tdoa_s | null, peak_fdoa_hz | null, snr_db, detected, reason | null,
                   candidates: [{tdoa_s | null, fdoa_hz, snr_db}]}
 TaskingStatus    {state: "waiting" | "capturing" | "processing" | "idle", rounds, last_round_ns | null, next_round_ns | null,
-                  channels: [channel_id], message | null, solve_reason | null}
+                  channels: [channel_id], message | null, solve_reason | null, unlocatable_reason | null}
 EventTruth       {emitter_id, lat_deg, lon_deg, miss_m | null, inside_ellipse | null}          # simulation only
 SolutionOut      core.solver.Solution.as_dict(): {lat_deg, lon_deg, height_m, cov_en_m2, cov_noise_en_m2, cov_consider_en_m2,
                   ellipse: {semi_major_m, semi_minor_m, azimuth_deg, confidence}, cep50_m, chi2, dof, reduced_chi2 | null,
                   residuals, ambiguities: [SolutionOut], ambiguity_resolved_by, converged, dominant_error, n_measurements}
+                  plus fit_consistent (true), fit_p_value | null, ellipse_scale (1.0)
 LopCollection    {type: "FeatureCollection", features: [{type: "Feature", geometry, properties: LopProperties}]}
 LopProperties    {role: "line" | "band", kind, event_id, seq, tag, a_sat_id, a_site_id, a_channel_id, b_sat_id, b_site_id,
                   b_channel_id, t_ns, value, correction, calibrated, sigma, sigma_total, k_sigma (2), height_m}
@@ -369,8 +454,9 @@ Subpoint         {sat_id, lat_deg, lon_deg, alt_m}
 Footprint        {sat_id, min_elevation_deg, ring: [[lon, lat], ...]}       # closed; longitudes continuous around the sub-point
 LookAngle        {site_id, channel_id, sat_id, az_deg, el_deg, range_km, off_axis_deg, gain_dbi, peak_gain_dbi, freq_hz,
                   visible, watched, electrically_small}
-AccuracyRequest  {pairs: [[channel_a, channel_b]], emitter: EmitterModel, f_e_hz, t?: ISO, region?: Region, step_deg (0.25..10, 2),
-                  kinds (["tdoa", "fdoa"]), reference_carrier_id?, integration_s?, uncertainty?: UncertaintyConfig}
+AccuracyRequest  {pairs: [[channel_a, channel_b]] (at most 128), emitter: EmitterModel, f_e_hz, t?: ISO, region?: Region,
+                  step_deg (0.25..10, 2), kinds (["tdoa", "fdoa"]), reference_carrier_id?, integration_s?,
+                  uncertainty?: UncertaintyConfig}
 AccuracyGrid     {t_ns, lat_deg: [..], lon_deg: [..], semi_major_95_m: [[m | null]], cep50_m: [[m | null]], dominant: [[source | null]]}
 LinkBudgetRequest  {emitter: EmitterModel, f_e_hz, lat_deg, lon_deg, alt_m (0), t?: ISO}
 LinkBudgetResponse {t_ns, rows: [{sat_id, transponder_id, site_id, channel_id, f_down_hz, uplink_elevation_deg,
@@ -389,11 +475,44 @@ Notes on the fields:
   `downlink_lo_hz` / `downlink_hi_hz` then say where it was seen. `merged_into` is set
   on an event folded into another (it is then `closed`). `simulated` events have an
   advisory headline starting `Simulation: `.
-- `Transition.reason` is plain words: `all detections released`, `detected again`,
-  `closed by operator`, `merged into EV-000012`, `split from ...`,
-  `server restarted: kept as history`, and the set-aside reasons of ARCHITECTURE.md
-  section 7. A document keeps the first and the newest 200 transitions and 500
-  solution-history rows, and the newest 1000 measurement rows (the store keeps all).
+- `Event.satellite_ids` and `transponders` (also in `EventSummary`) are the frequency
+  plan until a consistent fix exists; after that only the satellites above
+  `max(solver.min_elevation_deg, 0)` at the fix, at an end of either 95 % ellipse axis
+  or at any ambiguity (never none; a satellite whose orbit cannot be evaluated is
+  kept). The others are listed in `not_visible_satellite_ids`: they relay the frequency
+  but cannot see the transmitter, and tasking does not pair them.
+- `onset_ns` is the start of the current transmission (labelled time): `first_seen_ns`
+  unless the event broke off or another transmitter took over; report it as the start
+  time. `resumed_ns` is the server time of the latest re-detection after a loss and
+  `break_s` that loss in seconds. `recheck` is a plain sentence while a position or
+  measurements from before a break, or from before a change of waveform class, level
+  (6 dB) or width (twice and at least 1 kHz), are checked against new measurements;
+  null otherwise. `received_lo_hz` / `received_hi_hz` span the downlink ranges of the
+  `seen` evidence rows and `seen_site_ids` lists the sites with a `seen` row, in row
+  order, so a local event can be shown by where it is received.
+- `Transition.reason` is plain words: `all detections released`, `detected again after
+  a break of <duration>` (within 30 s, with a position or rows, followed by `; the
+  earlier position (or measurements) is checked against new measurements before it is
+  kept`), `re-check: <why>`, `re-check passed: <why>`, `another transmission: <why>;
+  earlier position and measurements set aside`, `position withdrawn: measurements
+  inconsistent (reduced chi-square N): ...`, `the measurements agree again`, `closed by
+  operator`, `merged into EV-000012`, `split from ...`, `server restarted: kept as
+  history`, and the set-aside reasons of ARCHITECTURE.md section 7. A document keeps the
+  first and the newest 200 transitions and 500 solution-history rows, and the newest
+  1000 measurement rows (the store keeps all).
+- An event is `located` only with a converged and consistent solution. A fit is
+  inconsistent when `reduced_chi2 > processing.solver.max_reduced_chi2` (5) and the
+  chi-square tail probability is below 0.001: it is published with `fit_consistent:
+  false`, `fit_p_value` and `ellipse_scale = sqrt(reduced_chi2)` already applied to
+  `ellipse.semi_major_m`, `semi_minor_m` and `cep50_m` (its square to the three
+  covariances), and a located event goes back to `locating`. Each ambiguity is judged on
+  its own chi-square; `fit_p_value` is null when `dof < 1`. `SolutionSummary` and
+  `solution_history` rows carry `fit_consistent` (their semi-axes are the enlarged
+  ones); a history row has `set_aside: true` once its measurements were set aside (a
+  break, another transmitter, a local signal). `dominant_error` (and the accuracy map's
+  `dominant` grid) is one of `core.solver.ERROR_SOURCES`: `noise`,
+  `ephemeris_position`, `ephemeris_velocity`, `clock`, `oscillator`, `tdoa_bias`,
+  `reference`, `ionosphere`, `troposphere`.
 - `EvidenceRow.sat_id` is null for an event outside every passband.
   `predicted_margin_db` is how far above the channel's threshold the signal should be
   given the strongest sighting (null when it cannot be predicted). `last_seen_ns` is
@@ -421,16 +540,52 @@ Notes on the fields:
 - `TaskingStatus` is null until tasking has looked at an event. `idle` means nothing to
   capture (no usable channel, no second relaying satellite, or the event was judged
   `local`; `message` says which). `message` describes the last completed round and stays
-  while the next one runs; `solve_reason` says why the last solve gave no position
-  (`unobservable`, `fewer than two accepted measurements`, ...).
+  while the next one runs; it also names a satellite whose orbit cannot be evaluated
+  (`Satellite X: orbit not available (...); its pairs are not tasked.`) and an
+  inconsistent fit (`The measurements do not fit one stationary transmitter (reduced
+  chi-square N, limit L): ...`). `solve_reason` says why the last solve gave no position
+  (`unobservable`, `fewer than two accepted measurements`, ...). `unlocatable_reason` is
+  set when the signal itself cannot be located, one of three sentences: every pair of
+  the latest round was ambiguous (`... the waveform repeats itself ...`) or coupled
+  (`... delay and Doppler cannot be told apart ...`) and no row has been used since, or
+  fewer than two visible satellites relay the frequency (`Only one satellite relays
+  this frequency (or can see the transmitter) ...`); it clears once a row is used.
+- `Status.satellites` has one row per configured satellite, refreshed every 30 s and on
+  a configuration change: `ephemeris_ok` false when its orbit cannot be evaluated at the
+  server's time, with `unavailable_since_ns` (an ephemeris table's last sample, else the
+  first failing check) and `message` (`satellite <name> (<id>): ephemeris not available
+  since|until <ISO> (<reason>); its pairs are not tasked and nothing is located through
+  it until the ephemeris is updated`).
+- `Status.site_clocks` are per-site clock offsets fitted from the TDOA calibrations
+  still valid (MATH.md section 9): `offset_us` is the site's labelled time minus true
+  time in microseconds (negative: late), relative to the median of the sites it is
+  compared with; `sigma_us` the RMS residual (null with one correction). `caution` is
+  set when `|offset| >= max(1 us, 10 x clock.sigma_ns, 3 x the site-dependent ephemeris
+  allowance)` (in a group of two sites both are flagged), and only then `message`.
+- `ChannelStatus.windows` gives each monitor window's state: `last_frame_age_s` (from
+  the hub), `detection_frame_age_s` (the newest frame detection accepted), `blind`
+  (frames arrive but none has been accepted for 10 frame periods) with `blind_reason`,
+  `learning` (fewer than half the tracker's bins on their own history yet: it still
+  works from its start-up floor), `floor_raised_db` (the window's
+  noise floor is more than `detection.threshold_db` above the lowest of the channel's
+  other windows of the same span: a signal may fill the window) and `note`.
+  `detection_problem` summarizes them in words. `ok` is false while the node is online
+  and a window is blind. These fields are null or false without detection data and for
+  an offline node.
 - `AccuracyRequest.t` defaults to the start of the current minute (so a repeated
   request is answered from the cache of 8 maps). `uncertainty` replaces
-  `processing.uncertainty` for that map only; satellites with their own
-  `ephemeris_sigma` keep it and site clocks keep `Site.clock.sigma_ns`. One map is
+  `processing.uncertainty` for that map only (its `iono_vtec_tecu`, `iono_correlation`,
+  `tropo_zenith_m` and `tropo_correlation` default to 30, 0.5, 2.4 and 0.9 when left
+  out, whatever the configuration says); satellites with their own `ephemeris_sigma`
+  keep it and site clocks keep `Site.clock.sigma_ns`. Pair ends are channel ids;
+  `core.accuracy` also takes `channel@satellite` for a channel watching several
+  satellites, but this route refuses that form as an unknown channel. One map is
   computed at a time, up to 4 wait; the grid is computed in latitude bands of about 256
-  cells and the 120 s limit is checked between bands.
+  cells, fewer when many pairs would need more than 256 MiB per band (never under two
+  grid rows), and the 120 s limit is checked between bands.
 - `LinkBudgetRow` exists only for paths that exist (satellite above both horizons,
-  frequency inside the transponder). `snr_db` is in the emitter's bandwidth (1 Hz for
+  frequency inside the transponder, an orbit that can be evaluated at `t`). `snr_db` is
+  in the emitter's bandwidth (1 Hz for
   zero width); `detectable` is `10 log10(1 + C / (N0 max(bandwidth, bin))) >=
   processing.detection.threshold_db` in the bins of the monitor covering `f_down_hz`
   (`monitor_id`; null and not detectable when no window covers it).
@@ -441,14 +596,14 @@ Notes on the fields:
 
 Server to browser, text frames:
 
-- `status {type, server_t_ns, config_version, marking, simulation, nodes: [NodeStatus], events_active, queue}` about once a second (a new client gets the latest one at once)
+- `status {type, server_t_ns, config_version, marking, simulation, nodes: [NodeStatus], events_active, queue, satellites, site_clocks}` about once a second (a new client gets the latest one at once)
 - `event {type, event: Event}` (the whole object on every published change)
 - `config {type, config_version}` when configuration is replaced
 - `sim {type, version}` when the scenario changes
 
 An event is published at once on a material change (state, verdict, evidence states,
-satellites, classification, a measurement, a solution, a correlation surface) and at
-most every 5 s for numeric drift (SNR, C/N0, margins, edges).
+satellites, classification, a measurement, a solution, a correlation surface, a
+re-check) and at most every 5 s for numeric drift (SNR, C/N0, margins, edges).
 
 Binary frames reuse the `PLB1` framing with header
 `{type: "psd", channel_id, monitor_id, t_ns: "<string>", center_hz, span_hz, nfft, seq,
@@ -458,14 +613,17 @@ PSD followed by `float32[nfft]` baseline when `has_baseline` (false until the tr
 has learned a baseline, since a NaN payload is never sent).
 
 Browser to server: `subscribe {type, psd: [[channel_id, monitor_id], ...]}` (at most
-256 windows) replaces the streamed selection. Other messages are ignored (the first
-three logged). Each client has a mailbox in which a newer message of the same kind
+256 windows) replaces the streamed selection. Other messages, and a `subscribe` holding
+text that is not valid Unicode, are ignored (the first three logged). Each client has a
+mailbox in which a newer message of the same kind
 (status, config, sim, one event id, one spectrum window) replaces an undelivered older
 one, so a slow browser only loses its own intermediate frames and never blocks the
 pipeline or other clients.
 
-Close codes: 1008 for a missing or wrong `?token=` (the handshake is accepted and closed
-at once so the browser learns why), 1013 while the server is starting or when a frame
+Close codes: 1008 for a missing or wrong `?token=` and for a foreign `Origin` (the
+handshake is accepted and closed at once so the browser learns why; a `Host` the server
+does not answer to is refused before the handshake), 1013 while the server is starting
+or when a frame
 has taken longer than 30 s to leave (`ws.SEND_TIMEOUT_S`; a very slow link receiving a
 large event may need more), 1001 at shutdown and for handshakes during shutdown, 1011
 for an internal error, 1000 when the browser leaves.

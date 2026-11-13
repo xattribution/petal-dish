@@ -1226,3 +1226,16 @@ async def test_velocity_ephemeris_errors_grow_from_the_version_effective_time(
         # 100 s more drift is 5 m of range, several carrier cycles: the anchor matters
         other = world(drifting, effective - 100 * NS).render_iq("tokyo-pac", t0, 2048, FS, FC)
         assert not np.array_equal(capture.iq, other)
+
+
+def test_sim_clock_reports_sim_and_can_carry_the_demo_offset() -> None:
+    """A simulated site reports source 'sim' (PROTOCOL.md); `petal-locate demo --start`
+    shifts its labelled time like the server's (review K7, K8)."""
+    import time as _time
+
+    from petal_locate.node.drivers.sim import sim_clock
+
+    plain = sim_clock()
+    assert plain.status().source == "sim" and plain.status().locked and plain.offset_ns == 0
+    shifted = sim_clock(offset_ns=-3_600 * 10**9)
+    assert abs(shifted.now_ns() - (_time.time_ns() - 3_600 * 10**9)) < 10**9

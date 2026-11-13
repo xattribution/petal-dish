@@ -8,7 +8,10 @@ The tests then use nothing but the HTTP API under `/api/v1` and the console WebS
 loaded with `POST /sim/presets/{name}/load`, events are read with `GET /events` and
 `GET /events/{id}`, the simulated truth with `GET /sim/truth`.
 
-One demo serves the whole module. It starts on the `quiet` scenario (nothing but the
+One demo serves the whole module. It runs the simulated world from a fixed epoch
+(`--start`, 03 UTC, where the scenarios' geometry gives one fix), so the outcome does not
+depend on the time of day the tests run, and it carries the random API token the demo
+prints in its console address. It starts on the `quiet` scenario (nothing but the
 two reference carriers), so every interferer appears after the trackers have learned
 the noise floor, as in operation. Each scenario test loads its preset, waits for what
 the operator should see, checks it, and then returns the world to `quiet`, waits for
@@ -30,6 +33,9 @@ What the scenarios must show (config/scenarios/*.yaml):
   solved without their corrections land more than 10 km off.
 - uplink-swept: ambiguous correlations and no false position.
 - two-jammers: two separate events, each located near its own jammer.
+- pacific-demo, then ephemeris-error loaded with no break (another jammer on the same
+  frequency, 1,000 km away): the rows of the first are set aside (or a new event is
+  raised) and the second is located afresh, never from a mix of the two.
 
 The scenario tests take 30 to 90 s each and are marked slow; `test_smoke` is the fast
 check of the stack. Nothing is left behind: the fixture stops the demo with SIGINT,
@@ -61,12 +67,15 @@ import websockets
 from petal_locate.config import loads_config
 from petal_locate.core.geodesy import geodesic_distance_m
 from petal_locate.core.solver import solve
+from petal_locate.core.timebase import ns_from_iso
 from petal_locate.core.types import Measurement, PathSpec
 from petal_locate.protocol.framing import decode_console_psd, decode_frame
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = ROOT / "config" / "scenarios"
 START_SCENARIO = "quiet"
+START_EPOCH = "2026-11-13T03:00:00Z"
+"""Simulated time the demo starts from (`petal-locate demo --start`)."""
 API = "/api/v1"
 NS = 1_000_000_000
 STARTUP_S = 90.0
@@ -83,6 +92,12 @@ class Demo:
     process: subprocess.Popen[str]
     base_url: str
     log_path: Path
+    token: str = ""
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """The API token, as every console request carries it."""
+        return {"Authorization": f"Bearer {self.token}"}
 
     def log_text(self) -> str:
         return self.log_path.read_text(encoding="utf-8", errors="replace")
@@ -117,6 +132,7 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Demo]:
         "--port", "0",
         "--data-dir", str(work / "data"),
         "--scenario", str(SCENARIOS / f"{START_SCENARIO}.yaml"),
+        "--start", START_EPOCH,
         "--log-level", "info",
         "--node-log-level", "warning",
     ]
@@ -125,8 +141,8 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Demo]:
             argv, stdout=subprocess.PIPE, stderr=log, text=True, env=env, cwd=str(ROOT), start_new_session=True
         )
     try:
-        base_url = _console_address(process, log_path)
-        running = Demo(process, base_url, log_path)
+        base_url, token = _console_address(process, log_path)
+        running = Demo(process, base_url, log_path, token)
         _wait_nodes_online(running)
         yield running
     finally:
@@ -162,24 +178,25 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Demo]:
     assert worst_ms < 500 and over <= 0.05 * probes
 
 
-def _console_address(process: subprocess.Popen[str], log_path: Path) -> str:
+def _console_address(process: subprocess.Popen[str], log_path: Path) -> tuple[str, str]:
+    """The console's base URL and the API token its printed address carries."""
     assert process.stdout is not None
     deadline = time.monotonic() + STARTUP_S
     while time.monotonic() < deadline:
         line = process.stdout.readline()
         if not line:
             raise AssertionError(f"the demo exited before serving:\n{log_path.read_text()[-4000:]}")
-        match = re.search(r"Console:\s+(http://\S+?)/?\s*$", line)
+        match = re.search(r"Console:\s+(http://[^/\s]+)/\?token=(\S+)\s*$", line)
         if match:
             # After the banner the demo prints two short lines at most (nodes online,
             # stopped), far below a pipe's buffer, so nothing needs to read them.
-            return match.group(1)
+            return match.group(1), match.group(2)
     raise AssertionError("the demo printed no console address")
 
 
 def _wait_nodes_online(demo: Demo) -> None:
     deadline = time.monotonic() + STARTUP_S
-    with httpx.Client(base_url=demo.base_url, timeout=10.0) as client:
+    with httpx.Client(base_url=demo.base_url, timeout=10.0, headers=demo.headers) as client:
         while time.monotonic() < deadline:
             status = client.get(f"{API}/status").json()
             if status["nodes"] and all(n["online"] for n in status["nodes"]):
@@ -202,6 +219,7 @@ class ConsoleRecorder:
     every binary spectrum frame of the subscribed windows (decoded)."""
 
     base_url: str
+    token: str = ""
     psd: list[tuple[str, str]] = field(default_factory=list)
     events: dict[str, list[tuple[float, dict[str, Any]]]] = field(default_factory=dict)
     statuses: list[dict[str, Any]] = field(default_factory=list)
@@ -221,7 +239,7 @@ class ConsoleRecorder:
             await self._task
 
     async def _run(self) -> None:
-        url = self.base_url.replace("http://", "ws://") + "/ws/ui"
+        url = self.base_url.replace("http://", "ws://") + "/ws/ui" + (f"?token={self.token}" if self.token else "")
         async with websockets.connect(url, max_size=32 * 2**20, compression=None) as ws:
             await ws.send(json.dumps({"type": "subscribe", "psd": [list(w) for w in self.psd]}))
             async for message in ws:
@@ -310,10 +328,10 @@ async def _settle_quiet(client: httpx.AsyncClient) -> None:
 @contextlib.asynccontextmanager
 async def _scenario(demo: Demo, name: str, psd: list[tuple[str, str]] | None = None):  # type: ignore[no-untyped-def]
     """Load a preset with a console attached; afterwards return to the quiet world."""
-    async with httpx.AsyncClient(base_url=demo.base_url, timeout=60.0) as client:
+    async with httpx.AsyncClient(base_url=demo.base_url, timeout=60.0, headers=demo.headers) as client:
         await _settle_quiet(client)
         known = {s["id"] for s in await _events(client)}
-        async with ConsoleRecorder(demo.base_url, psd=psd or []) as console:
+        async with ConsoleRecorder(demo.base_url, token=demo.token, psd=psd or []) as console:
             loaded = await client.post(f"{API}/sim/presets/{name}/load")
             assert loaded.status_code == 200, loaded.text
             assert loaded.json()["scenario"]["name"] == name
@@ -358,14 +376,18 @@ async def test_smoke(demo: Demo) -> None:
     """The stack as the browser console meets it: meta and marking, every node online,
     the status message on the socket within a second, presets, configuration with its
     ETag, the node backplane closed to strangers, and a quiet world without events."""
-    async with httpx.AsyncClient(base_url=demo.base_url, timeout=30.0) as client:
+    async with httpx.AsyncClient(base_url=demo.base_url, timeout=30.0, headers=demo.headers) as client:
         meta = (await client.get(f"{API}/meta")).json()
         assert meta["simulation"] is True and meta["marking"]["level"] == "UNCLASSIFIED"
         assert meta["server_t_ns"].isdigit()
-        async with ConsoleRecorder(demo.base_url) as console:
+        # the simulated world runs from the fixed epoch, whatever the time of day
+        assert 0 <= int(meta["server_t_ns"]) - ns_from_iso(START_EPOCH) < 2 * 3600 * NS
+        assert (await client.get(f"{API}/status", headers={"Authorization": "Bearer wrong"})).status_code == 401
+        async with ConsoleRecorder(demo.base_url, token=demo.token) as console:
             first = await _wait_for(lambda: _first(console.statuses), 5.0, "a status message", every_s=0.05)
         assert first["simulation"] is True and len(first["nodes"]) == 7
         assert all(n["online"] for n in first["nodes"]) and console.problems == []
+        assert all(n["clock"]["source"] == "sim" for n in first["nodes"])  # simulated sites say so
         presets = {p["name"] for p in (await client.get(f"{API}/sim/presets")).json()}
         assert presets == {p.stem for p in SCENARIOS.glob("*.yaml")}
         config = await client.get(f"{API}/config")
@@ -391,10 +413,10 @@ async def test_quiet_world_raises_no_event_and_carriers_stay_authorised(demo: De
     """Only the reference carriers are on the air. They move by tens of hertz with the
     satellites' Doppler; neither they nor their edges may become an event."""
     windows = [("tokyo-pac", "muos-pac:shared-2"), ("seoul-pac", "muos-pac:shared-2"), ("honolulu-172e", "uhf-172e:shared-1")]
-    async with httpx.AsyncClient(base_url=demo.base_url, timeout=30.0) as client:
+    async with httpx.AsyncClient(base_url=demo.base_url, timeout=30.0, headers=demo.headers) as client:
         await _settle_quiet(client)
         known = {s["id"] for s in await _events(client)}
-        async with ConsoleRecorder(demo.base_url, psd=windows) as console:
+        async with ConsoleRecorder(demo.base_url, token=demo.token, psd=windows) as console:
             await asyncio.sleep(40.0)
         assert await _new_events(client, known) == []
         assert console.events == {}, list(console.events)
@@ -684,3 +706,58 @@ async def test_two_jammers_are_two_events_each_located_near_its_own(demo: Demo) 
             assert event["truth"]["miss_m"] < 5_000.0
         lo = sorted((e["uplink_lo_hz"], e["uplink_hi_hz"]) for e in events)
         assert lo[0][1] < lo[1][0]  # separate ranges, not merged
+
+
+@pytest.mark.slow
+async def test_another_jammer_on_the_same_frequency_is_located_afresh(demo: Demo) -> None:
+    """K2 / UX-5: the pacific-demo jammer (20 N 132 E) is located; then the world is
+    replaced by ephemeris-error, whose jammer radiates the same signal on the same
+    frequency from 17 N 141 E, with no break. The event must not mix the two: the rows
+    measured before the swap are set aside (or a new event is raised), and the jammer is
+    located afresh, near 17 N 141 E, with the truth inside the ellipse."""
+    async with _scenario(demo, "pacific-demo") as (client, console, known):
+
+        async def located() -> list[dict[str, Any]]:
+            return [s for s in await _new_events(client, known) if s["state"] == "located"]
+
+        (first,) = await _wait_for(located, 120.0, "the first jammer to be located")
+        first_event = await _event(client, first["id"])
+        assert first_event["truth"]["miss_m"] < 5_000.0
+        swap_ns = int((await client.get(f"{API}/meta")).json()["server_t_ns"])
+        loaded = await client.post(f"{API}/sim/presets/ephemeris-error/load")
+        assert loaded.status_code == 200, loaded.text
+
+        async def relocated() -> dict[str, Any] | None:
+            for summary in await _new_events(client, known):
+                event = await _event(client, summary["id"])
+                solution, truth = event.get("solution"), event.get("truth") or {}
+                if event["state"] != "located" or solution is None or event["solution_t_ns"] is None:
+                    continue
+                if int(event["solution_t_ns"]) <= swap_ns:
+                    continue
+                if truth.get("miss_m") is not None and truth["miss_m"] < 10_000.0:
+                    return event
+            return None
+
+        event = await _wait_for(relocated, 180.0, "the second jammer to be located near 17 N 141 E")
+        _report("another-jammer", event)
+        solution = event["solution"]
+        assert solution["fit_consistent"] is True
+        assert geodesic_distance_m(solution["lat_deg"], solution["lon_deg"], 17.0, 141.0) < 10_000.0
+        assert event["truth"]["inside_ellipse"] is True
+        used = [m for m in event["measurements"] if m["used"]]
+        assert used and all(int(m["t_ns"]) > swap_ns for m in used), "rows of the first jammer are still used"
+        if event["id"] == first["id"]:
+            assert int(event["onset_ns"]) > swap_ns - 10 * NS
+            reasons = " | ".join(t.get("reason") or "" for t in event["transitions"])
+            assert "another transmission" in reasons or "set aside" in reasons, reasons
+            assert any(r["set_aside"] for r in event["solution_history"])
+        # never a consistent position between the two jammers
+        for _, doc in console.events.get(event["id"], []):
+            sol = doc.get("solution")
+            if sol and sol.get("fit_consistent", True) and doc["state"] == "located":
+                nearest = min(
+                    geodesic_distance_m(sol["lat_deg"], sol["lon_deg"], 20.0, 132.0),
+                    geodesic_distance_m(sol["lat_deg"], sol["lon_deg"], 17.0, 141.0),
+                )
+                assert nearest < 20_000.0, sol

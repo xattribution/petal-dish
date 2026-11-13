@@ -55,7 +55,7 @@
     },
     {
       "id": "ref-guam",
-      "name": "Reference carrier, Guam city centre (illustrative)",
+      "name": "Reference carrier, Guam city center (illustrative)",
       "kind": "carrier",
       "lat_deg": 13.476,
       "lon_deg": 144.749,
@@ -68,7 +68,7 @@
     },
     {
       "id": "ref-sapporo",
-      "name": "Reference carrier, Sapporo city centre (illustrative)",
+      "name": "Reference carrier, Sapporo city center (illustrative)",
       "kind": "carrier",
       "lat_deg": 43.062,
       "lon_deg": 141.354,
@@ -82,15 +82,21 @@
   ],
   "events": [
     {
+      "event_id": "EV-0040",
+      "emitter_id": null,
+      "miss_m": null,
+      "inside_ellipse": null
+    },
+    {
       "event_id": "EV-0042",
       "emitter_id": "jammer-psea",
-      "miss_m": 651.2160845020936,
+      "miss_m": 533.5716645859909,
       "inside_ellipse": true
     },
     {
       "event_id": "EV-0043",
       "emitter_id": "psk-honshu",
-      "miss_m": 2211598.777929809,
+      "miss_m": 2211598.558293846,
       "inside_ellipse": false
     },
     {

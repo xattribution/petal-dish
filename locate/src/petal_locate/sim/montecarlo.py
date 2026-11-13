@@ -29,6 +29,10 @@ runs it (ARCHITECTURE.md section 7), against a ``SimWorld`` instead of radios:
   undetected, ambiguous, coupled or mirror-ambiguous are recorded with their reason
   and not used, as in tasking; a mirror-ambiguous reference gives no calibration), the
   configured solver settings, region and ``resolved_uncertainty()``, global search.
+  Every row (and reference row) names the two captures it was correlated from and
+  carries each channel's noise share (``CafResult.noise_share_tdoa`` /
+  ``noise_share_fdoa``), so the noise the pairs share through the primary capture (and
+  the references through the primary's reference capture) is modelled.
 
 Every trial is independent and deterministic in ``(seed, trial index)``: the trial's
 scenario seed (which keys every waveform, the relayed transponder noise and the site
@@ -36,10 +40,11 @@ thermal noise) and its drawn truth errors come from hashes of the two. With
 ``draw_errors`` each trial replaces the scenario's truth errors by a fresh draw from
 the configured one-sigma uncertainties: satellite ephemeris (RIC position and
 velocity, ``t_ref`` at the measurement epoch, which is how the solver defines its
-velocity parameter), satellite and site oscillators, site clocks, and the per-pair
-TDOA bias, which the simulator has no model for and which is therefore applied by
-rendering channel B of a pair that much later than its label (so its reference
-capture carries the same bias, as a hardware delay would).
+velocity parameter), satellite and site oscillators, site clocks, an ionosphere and a
+troposphere (one value for the whole world, unless the scenario sets its own), and
+the per-pair TDOA bias, which the simulator has no model for and which is therefore
+applied by rendering channel B of a pair that much later than its label (so its
+reference capture carries the same bias, as a hardware delay would).
 
 Everything returned is simulated and labelled so.
 """
@@ -56,12 +61,14 @@ import numpy as np
 
 from petal_locate.config.models import SystemConfig
 from petal_locate.core.accuracy import (
+    MIN_SIGNAL_BW_HZ,
     CapturePlan,
     PairSearch,
     capture_plan,
-    channel_satellite,
+    pair_satellites,
     pair_search,
     relaying_transponder,
+    split_channel_ref,
 )
 from petal_locate.core.caf import CafResult, caf_estimate
 from petal_locate.core.constants import C, T_REF_S
@@ -96,7 +103,7 @@ REASON_MIRROR_AMBIGUOUS = "mirror ambiguous"
 
 _SAME_SITE_PREFERENCE_DB = 3.0  # a channel at the primary's site is preferred within this of the best
 _EPHEMERIS_SIGMAS = 6.0  # uncalibrated windows widened by this many |sigma| per satellite (as tasking)
-_MIN_SIGNAL_BW_HZ = 10.0  # the band filter is never narrower than this (as tasking): a CW is filtered too
+_MIN_SIGNAL_BW_HZ = MIN_SIGNAL_BW_HZ  # the band filter is never narrower than this (as tasking): a CW is filtered too
 _CHI2_2_95 = -2.0 * math.log(0.05)  # 5.991: the 95 % ellipse of a 2-D Gaussian
 
 
@@ -200,7 +207,11 @@ def plan_event(
     world: the simulated world (its link budgets choose the primary channel, standing in
     for the detection with the highest ``snr_db``; nothing else is taken from truth).
     t_start_ns: first-sample time of the captures, integer UTC ns. pairs: explicit
-    ``[(channel_a, channel_b), ...]`` instead of the automatic choice. capture_s:
+    ``[(channel_a, channel_b), ...]`` instead of the automatic choice; an end may be
+    ``"channel_id@sat_id"`` to name the satellite of a channel that watches several
+    relaying the carrier, otherwise both ends are resolved together
+    (``core.accuracy.pair_satellites``: an ambiguous end takes the satellite the other
+    end does not use). capture_s:
     capture length, s (replaces ``capture.duration_s``, for targets and references).
     fs: target sample rate, Hz (replaces the rule; references keep theirs).
     reference_carrier_id: calibrate against this carrier only.
@@ -225,13 +236,18 @@ def plan_event(
                 ch_a, ch_b = item
             except (TypeError, ValueError):
                 raise ValueError(f"pairs[{k}] must be (channel_a, channel_b)") from None
-            found_a = channel_satellite(config, ch_a, f_nom, f"pairs[{k}][0]")
-            found_b = channel_satellite(config, ch_b, f_nom, f"pairs[{k}][1]")
+            try:
+                id_a, id_b = split_channel_ref(ch_a)[0], split_channel_ref(ch_b)[0]
+            except ValueError as exc:
+                raise ValueError(f"pairs[{k}]: {exc}") from None
+            if id_a == id_b:
+                raise ValueError(f"pairs[{k}]: a channel cannot be paired with itself")
+            found_a, found_b = pair_satellites(config, ch_a, ch_b, f_nom, f"pairs[{k}]")
             if found_a is None or found_b is None:
                 raise ValueError(f"pairs[{k}]: channel {ch_a if found_a is None else ch_b!r} watches no satellite relaying {f_nom:.0f} Hz")
             if found_a[0] == found_b[0]:
                 raise ValueError(f"pairs[{k}]: both channels use satellite {found_a[0]!r}")
-            chosen.append((ch_a, found_a[0], found_a[1], ch_b, found_b[0], found_b[1]))
+            chosen.append((id_a, found_a[0], found_a[1], id_b, found_b[0], found_b[1]))
     if not chosen:
         raise ValueError(f"emitter_id {emitter_id!r}: no channel pair can correlate it at t_ns ({'; '.join(skipped) or 'no pairs'})")
 
@@ -392,7 +408,12 @@ def draw_truth_errors(config: SystemConfig, uncertainty: Uncertainty, rng: np.ra
     parameter does not move the satellite at a row's own epoch), and a translation
     oscillator fraction; per site: a clock offset (ns) and an oscillator fraction. Every
     entity consumes the same number of normal draws whatever its sigma (a zero sigma
-    gives 0), so the draws of one entity do not depend on the others' sigmas.
+    gives 0), so the draws of one entity do not depend on the others' sigmas. Then the
+    propagation media: one VTEC ``|N(0, iono_vtec_tecu)|`` and one zenith delay
+    ``|N(0, tropo_zenith_m)|`` for the whole world (the simulator applies one value at
+    every ground end, so these draws are the fully correlated case of the solver's
+    per-end model; the magnitude keeps the delay physical with the variance of the
+    sigma), ``iono`` and ``tropo`` enabled when non-zero.
     """
     t_ref = iso_from_ns(int(t_ref_ns))
     ephemeris: dict[str, Any] = {}
@@ -411,7 +432,13 @@ def draw_truth_errors(config: SystemConfig, uncertainty: Uncertainty, rng: np.ra
     for site in config.sites:
         clock[site.id] = float(rng.standard_normal() * float(uncertainty.site_clock_s.get(site.id, 0.0)) * 1e9)
         site_osc[site.id] = float(rng.standard_normal() * float(uncertainty.site_osc_frac.get(site.id, 0.0)))
-    return {"ephemeris": ephemeris, "sat_osc_frac": sat_osc, "site_clock_offset_ns": clock, "site_osc_frac": site_osc}
+    vtec = abs(float(rng.standard_normal()) * float(uncertainty.iono_vtec_tecu))
+    zenith = abs(float(rng.standard_normal()) * float(uncertainty.tropo_zenith_m))
+    return {
+        "ephemeris": ephemeris, "sat_osc_frac": sat_osc, "site_clock_offset_ns": clock, "site_osc_frac": site_osc,
+        "iono": {"enabled": vtec > 0.0, "vtec_tecu": vtec},
+        "tropo": {"enabled": zenith > 0.0, "zenith_m": zenith},
+    }
 
 
 # --------------------------------------------------------------------------- trials
@@ -441,8 +468,9 @@ def run_trials(
     ``[(channel_a, channel_b), ...]``; None applies the tasking rule (module docstring).
     seed: run seed; trial ``i`` is a pure function of ``(seed, i)``. draw_errors: draw
     fresh truth errors from the configured uncertainty in every trial (replacing the
-    scenario's ephemeris, oscillator and clock errors; its ionosphere setting is kept)
-    and a per-pair TDOA bias. use_calibration: calibrate against reference carriers.
+    scenario's ephemeris, oscillator and clock errors, and drawing an ionosphere and a
+    troposphere unless the scenario enables its own, which is then kept) and a per-pair
+    TDOA bias. use_calibration: calibrate against reference carriers.
     capture_s: capture length, s (default: the tasking rule). fs: target sample rate,
     Hz (default: the tasking rule). t_ns: capture start, integer UTC ns (default
     ``DEFAULT_T_NS``, or the emitter's ``t_start`` when later); every trial uses the
@@ -561,22 +589,31 @@ def _run_trial(
         drawn = draw_truth_errors(config, uncertainty, rng, t_mid)
         biases_ns = [int(round(float(rng.standard_normal()) * float(uncertainty.tdoa_bias_s) * 1e9)) for _ in plan.pairs]
         errors_out = drawn
-        data["errors"] = {**drawn, "iono": scenario.errors.iono.model_dump(mode="json")}
+        # an ionosphere or troposphere the scenario sets is kept (a study at a given level)
+        for medium in ("iono", "tropo"):
+            if getattr(scenario.errors, medium).enabled:
+                drawn = {**drawn, medium: getattr(scenario.errors, medium).model_dump(mode="json")}
+        errors_out = drawn
+        data["errors"] = drawn
     trial_scenario = Scenario.model_validate(data)
     world = base.rebuild(scenario=trial_scenario)
     caf_cfg = config.processing.caf
     captures: dict[tuple[str, int, int, float, float], np.ndarray] = {}
 
-    def capture(channel: str, render_ns: int, cp: CapturePlan, fc: float) -> np.ndarray:
+    def capture(channel: str, render_ns: int, cp: CapturePlan, fc: float) -> tuple[np.ndarray, str]:
+        """The capture (rendered once) and its identity: rows correlated from one capture share its noise."""
         key = (channel, render_ns, cp.n_samples, cp.sample_rate_hz, fc)
         if key not in captures:
             captures[key] = world.render_iq(channel, render_ns, cp.n_samples, cp.sample_rate_hz, fc)
-        return captures[key]
+        return captures[key], "|".join(str(v) for v in key)
+
+    capture_ids: dict[str, tuple[str, str]] = {}
 
     def estimate(task_a: str, task_b: str, a: PathSpec, b: PathSpec, cp: CapturePlan, search: PairSearch,
-                 bias_ns: int, correction: Any) -> tuple[CafResult | None, str | None]:
-        ya = capture(task_a, plan.t_start_ns, cp, a.f_tune_hz)
-        yb = capture(task_b, plan.t_start_ns + bias_ns, cp, b.f_tune_hz)
+                 bias_ns: int, correction: Any, label: str) -> tuple[CafResult | None, str | None]:
+        ya, id_a = capture(task_a, plan.t_start_ns, cp, a.f_tune_hz)
+        yb, id_b = capture(task_b, plan.t_start_ns + bias_ns, cp, b.f_tune_hz)
+        capture_ids[label] = (id_a, id_b)
         delay_w, doppler_w, mirror_w = _with_allowance(search, uncertainty, correction).windows(caf_cfg, uncertainty, correction)
         try:
             result = caf_estimate(
@@ -598,7 +635,8 @@ def _run_trial(
         if task.reference is not None:
             ref = task.reference
             ref_mid = ref.plan.t_mid_ns(plan.t_start_ns)
-            r_ref, why = estimate(task.a_channel, task.b_channel, ref.a, ref.b, ref.plan, ref.search, biases_ns[k], None)
+            r_ref, why = estimate(task.a_channel, task.b_channel, ref.a, ref.b, ref.plan, ref.search, biases_ns[k], None,
+                                  f"ref{k}")
             if r_ref is not None and r_ref.mirror_ambiguous:
                 why = why or REASON_MIRROR_AMBIGUOUS
             ref_report: dict[str, Any] = {"carrier_id": ref.carrier_id, "reason": why}
@@ -608,7 +646,10 @@ def _run_trial(
                 for kind, value, sigma in (("tdoa", r_ref.tdoa_s, r_ref.sigma_tdoa_s), ("fdoa", r_ref.fdoa_hz, r_ref.sigma_fdoa_hz)):
                     if value is None or sigma is None:
                         continue
-                    row = Measurement(kind, float(value), float(sigma), ref_mid, ref.a, ref.b)
+                    share = r_ref.noise_share_tdoa if kind == "tdoa" else r_ref.noise_share_fdoa
+                    row = Measurement(kind, float(value), float(sigma), ref_mid, ref.a, ref.b,
+                                      capture_a=capture_ids[f"ref{k}"][0], capture_b=capture_ids[f"ref{k}"][1],
+                                      noise_share_a=share[0], noise_share_b=share[1])
                     cal_id = f"{ref.carrier_id}|{task.a_channel}|{task.b_channel}|{kind}|{index}"
                     corrections[kind] = calibration_correction(row, ref.x_ref, orbits, sites, cal_id)
                     ref_report[f"correction_{kind}"] = corrections[kind][0]
@@ -617,7 +658,8 @@ def _run_trial(
         if corrections:
             correction = (corrections["tdoa"][0] if "tdoa" in corrections else None,
                           corrections["fdoa"][0] if "fdoa" in corrections else None)
-        result, why = estimate(task.a_channel, task.b_channel, task.a, task.b, task.plan, task.search, biases_ns[k], correction)
+        result, why = estimate(task.a_channel, task.b_channel, task.a, task.b, task.plan, task.search, biases_ns[k], correction,
+                               f"pair{k}")
         if result is not None and result.mirror_ambiguous:
             why = why or REASON_MIRROR_AMBIGUOUS
         report["reason"] = why
@@ -637,8 +679,11 @@ def _run_trial(
                 if value is None or sigma is None or result.mirror_ambiguous:  # as tasking: never solved
                     continue
                 c, cal = corrections.get(kind, (0.0, None))
+                share = result.noise_share_tdoa if kind == "tdoa" else result.noise_share_fdoa
                 rows.append(Measurement(kind, float(value), float(sigma), t_mid, task.a, task.b, correction=c, cal=cal,
-                                        tag=f"{task.a_channel}|{task.b_channel}"))
+                                        tag=f"{task.a_channel}|{task.b_channel}",
+                                        capture_a=capture_ids[f"pair{k}"][0], capture_b=capture_ids[f"pair{k}"][1],
+                                        noise_share_a=share[0], noise_share_b=share[1]))
                 if cal is not None:
                     report["calibrated"].append(kind)
         pair_reports.append(report)

@@ -14,7 +14,7 @@
     },
     {
       "name": "ionosphere",
-      "description": "The default exercise with a 30 TECU ionosphere the solver does not model."
+      "description": "The default exercise with a 30 TECU ionosphere and a 2.3 m zenith troposphere (the solver carries both as consider terms)."
     }
   ],
   "scenarios": {
@@ -193,6 +193,10 @@
         "iono": {
           "enabled": false,
           "vtec_tecu": 30.0
+        },
+        "tropo": {
+          "enabled": false,
+          "zenith_m": 2.3
         }
       }
     },
@@ -209,6 +213,10 @@
         "iono": {
           "enabled": false,
           "vtec_tecu": 30.0
+        },
+        "tropo": {
+          "enabled": false,
+          "zenith_m": 2.3
         }
       }
     },
@@ -257,6 +265,10 @@
         "iono": {
           "enabled": false,
           "vtec_tecu": 30.0
+        },
+        "tropo": {
+          "enabled": false,
+          "zenith_m": 2.3
         }
       }
     },
@@ -435,6 +447,10 @@
         "iono": {
           "enabled": true,
           "vtec_tecu": 30.0
+        },
+        "tropo": {
+          "enabled": true,
+          "zenith_m": 2.3
         }
       }
     }

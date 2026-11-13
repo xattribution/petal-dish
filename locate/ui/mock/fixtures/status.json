@@ -19,12 +19,78 @@
         {
           "channel_id": "honolulu-pac",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "honolulu-172e",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": "2026-11-13T14:00:00Z"
@@ -41,12 +107,78 @@
         {
           "channel_id": "hilo-pac",
           "ok": false,
-          "last_frame_age_s": 1420.0
+          "last_frame_age_s": 1420.0,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 1420.0,
+              "detection_frame_age_s": null,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 1420.0,
+              "detection_frame_age_s": null,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 1420.0,
+              "detection_frame_age_s": null,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "hilo-172e",
           "ok": false,
-          "last_frame_age_s": 1420.0
+          "last_frame_age_s": 1420.0,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 1420.0,
+              "detection_frame_age_s": null,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 1420.0,
+              "detection_frame_age_s": null,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 1420.0,
+              "detection_frame_age_s": null,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": null
@@ -68,17 +200,116 @@
         {
           "channel_id": "tokyo-pac",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "tokyo-172e",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "tokyo-io",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-io:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:solo-io",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": "2026-11-13T13:39:38Z"
@@ -100,17 +331,116 @@
         {
           "channel_id": "naha-pac",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "naha-172e",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "naha-io",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-io:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:solo-io",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": "2026-11-13T13:29:27Z"
@@ -132,17 +462,116 @@
         {
           "channel_id": "seoul-pac",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "seoul-172e",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "seoul-io",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-io:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:solo-io",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": "2026-11-13T13:19:16Z"
@@ -164,17 +593,116 @@
         {
           "channel_id": "busan-pac",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "busan-172e",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "busan-io",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-io:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:solo-io",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": "2026-11-13T13:09:05Z"
@@ -196,26 +724,221 @@
         {
           "channel_id": "manila-pac",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-pac:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-pac:solo-pac",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "manila-172e",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "uhf-172e:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "uhf-172e:solo-172e",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         },
         {
           "channel_id": "manila-io",
           "ok": true,
-          "last_frame_age_s": 0.4
+          "last_frame_age_s": 0.4,
+          "windows": [
+            {
+              "monitor_id": "muos-io:shared-1",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:shared-2",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            },
+            {
+              "monitor_id": "muos-io:solo-io",
+              "last_frame_age_s": 0.4,
+              "detection_frame_age_s": 0.4,
+              "blind": false,
+              "blind_reason": null,
+              "learning": false,
+              "floor_raised_db": null,
+              "note": null
+            }
+          ],
+          "detection_problem": null
         }
       ],
       "connected_since": "2026-11-13T12:58:54Z"
     }
   ],
-  "events_active": 4,
+  "events_active": 5,
   "queue": {
     "captures_pending": 2,
     "jobs_running": 1,
     "jobs_waiting": 0
-  }
+  },
+  "satellites": [
+    {
+      "sat_id": "muos-pac",
+      "ephemeris_ok": true,
+      "unavailable_since_ns": null,
+      "message": null
+    },
+    {
+      "sat_id": "uhf-172e",
+      "ephemeris_ok": true,
+      "unavailable_since_ns": null,
+      "message": null
+    },
+    {
+      "sat_id": "muos-io",
+      "ephemeris_ok": true,
+      "unavailable_since_ns": null,
+      "message": null
+    }
+  ],
+  "site_clocks": [
+    {
+      "site_id": "busan",
+      "offset_us": 2.086153472191654e-14,
+      "sigma_us": 4.030459852421804e-15,
+      "n_calibrations": 2,
+      "compared_with": [
+        "manila",
+        "seoul"
+      ],
+      "caution": false,
+      "message": null
+    },
+    {
+      "site_id": "honolulu",
+      "offset_us": -4.433786671143025e-15,
+      "sigma_us": 2.1332681160273123e-15,
+      "n_calibrations": 2,
+      "compared_with": [
+        "naha",
+        "tokyo"
+      ],
+      "caution": false,
+      "message": null
+    },
+    {
+      "site_id": "manila",
+      "offset_us": -1.7999999999999952,
+      "sigma_us": 8.93050935801841e-15,
+      "n_calibrations": 3,
+      "compared_with": [
+        "busan",
+        "naha",
+        "tokyo"
+      ],
+      "caution": true,
+      "message": "Reference calibrations against Busan (city center), Naha (city center), Tokyo (city center) put the timing of Manila (city center) about 1.8 \u00b5s behind the other sites: its clock is probably off; check its timing receiver (GPS, PPS and 10 MHz reference); an error in the position of muos-io, uhf-172e beyond its configured uncertainty, seen from this site, would look the same."
+    },
+    {
+      "site_id": "naha",
+      "offset_us": -0.011999999999989769,
+      "sigma_us": 8.216161316979692e-15,
+      "n_calibrations": 3,
+      "compared_with": [
+        "honolulu",
+        "manila",
+        "seoul"
+      ],
+      "caution": false,
+      "message": null
+    },
+    {
+      "site_id": "seoul",
+      "offset_us": 4.433786671143025e-15,
+      "sigma_us": 7.249937470824835e-15,
+      "n_calibrations": 2,
+      "compared_with": [
+        "busan",
+        "naha"
+      ],
+      "caution": false,
+      "message": null
+    },
+    {
+      "site_id": "tokyo",
+      "offset_us": 0.0079999999999838,
+      "sigma_us": 7.696808135472535e-15,
+      "n_calibrations": 2,
+      "compared_with": [
+        "honolulu",
+        "manila"
+      ],
+      "caution": false,
+      "message": null
+    }
+  ]
 }

@@ -38,6 +38,7 @@ independent between two different captures.
 """
 from __future__ import annotations
 
+import logging
 import math
 import threading
 from collections import OrderedDict
@@ -72,6 +73,7 @@ from petal_locate.core.geometry import (
     downlink_delay,
 )
 from petal_locate.core.iono import group_delay_s
+from petal_locate.core.media import tropo_delay_s
 from petal_locate.core.linkbudget import (
     RADIO_HORIZON_M_PER_SQRT_M,
     DownlinkBudget,
@@ -96,6 +98,8 @@ from petal_locate.core.signals import (
 from petal_locate.core.timebase import iso_from_ns, ns_from_iso, sec
 from petal_locate.core.types import PathSpec
 from petal_locate.sim.scenario import EmitterSpec, Scenario, ScenarioError, WaveformSpec
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "PHASE_FIT_TOL_CYCLES",
@@ -511,6 +515,7 @@ class SimWorld:
         self.scenario = scenario
         self.epoch_ns = None if epoch_ns is None else _as_ns(epoch_ns, "epoch_ns")
         self._lock = threading.RLock()
+        self._unplaced_noted: set[str] = set()
 
         self._sats: dict[str, Satellite] = {s.id: s for s in config.satellites}
         self._tps: dict[tuple[str, str], Transponder] = {
@@ -533,6 +538,8 @@ class SimWorld:
         self._eps_sat = {sid: float(v) for sid, v in errors.sat_osc_frac.items()}
         self._iono_on = bool(errors.iono.enabled)
         self._vtec = float(errors.iono.vtec_tecu)
+        self._tropo_on = bool(errors.tropo.enabled)
+        self._zenith_m = float(errors.tropo.zenith_m)
 
         self._believed: dict[str, Orbit] = config.orbits()
         self._truth: dict[str, Orbit] = {}
@@ -764,8 +771,12 @@ class SimWorld:
         t_s = sec(t)
         sats = []
         for sat_id in self._sats:
-            believed = orbit_position(self._believed[sat_id], t_s)
-            true = orbit_position(self._truth[sat_id], t_s)
+            try:
+                believed = orbit_position(self._believed[sat_id], t_s)
+                true = orbit_position(self._truth[sat_id], t_s)
+            except ValueError as exc:
+                self._note_unplaced(f"satellite {sat_id!r}", t_s, exc)
+                continue
             sats.append({
                 "id": sat_id,
                 "believed_ecef_m": [float(v) for v in believed],
@@ -839,13 +850,24 @@ class SimWorld:
         factor of each transponder is set by the emitters active at ``t_ns``.
         """
         t_s = sec(t_ns)
-        sat_r = {sid: orbit_position(orbit, t_s) for sid, orbit in self._truth.items()}
+        sat_r: dict[str, npt.NDArray[np.float64]] = {}
+        for sid, orbit in self._truth.items():
+            try:
+                sat_r[sid] = orbit_position(orbit, t_s)
+            except ValueError as exc:  # an ephemeris table that does not cover t: no paths through it
+                self._note_unplaced(f"satellite {sid!r}", t_s, exc)
         up: dict[tuple[str, str], UplinkBudget] = {}
         for e in self._emitters:
             if not e.enabled or not self._relays[e.id]:
                 continue
-            boresight = emitter_boresight(e, e.xyz, self._truth, t_s)
+            try:
+                boresight = emitter_boresight(e, e.xyz, self._truth, t_s)
+            except ValueError as exc:  # aimed at a satellite that cannot be placed
+                self._note_unplaced(f"emitter {e.id!r} (its pointing)", t_s, exc)
+                continue
             for sat_id in {s for s, _ in self._relays[e.id]}:
+                if sat_id not in sat_r:
+                    continue
                 tp0 = self._tps[next((s, t) for s, t in self._relays[e.id] if s == sat_id)]
                 budget = uplink_budget(e.eirp_dbw, e.antenna, boresight, e.xyz, sat_r[sat_id], e.freq_hz, tp0)
                 if float(budget.elevation_deg) > 0.0:
@@ -863,6 +885,24 @@ class SimWorld:
                 pfd = float(up[(e.id, sat_id)].pfd_dbw_m2)
                 eirp_c[(e.id, sat_id, tp_id)] = tp.eirp_sat_dbw - tp.sfd_dbw_m2 + pfd + scale_db
         return _TpState(t_ns, t_s, sat_r, up, eirp_c, relay_n0)
+
+    def _note_unplaced(self, what: str, t_s: float, exc: Exception) -> None:
+        """Log once that something cannot be placed (its paths are left out)."""
+        with self._lock:
+            if what in self._unplaced_noted:
+                return
+            self._unplaced_noted.add(what)
+        logger.warning("simulated %s cannot be placed at t = %.3f s (%s); its paths are left out", what, t_s, exc,
+                       extra={"what": what})
+
+    def _placeable(self, sat_id: str, t_lo_s: float, t_hi_s: float) -> bool:
+        """Whether the truth orbit of a satellite can be evaluated over ``[t_lo_s, t_hi_s]``."""
+        try:
+            orbit_position(self._truth[sat_id], np.array([t_lo_s, t_hi_s], dtype=np.float64))
+        except ValueError as exc:
+            self._note_unplaced(f"satellite {sat_id!r}", t_lo_s, exc)
+            return False
+        return True
 
     def _tp_node(self, k: int) -> _TpState:
         hit = self._lru_get(self._tp_cache, k)
@@ -888,11 +928,17 @@ class SimWorld:
         xg = self._site_xyz[site.id]
         up_g = self._site_up[site.id]
         t_s = state.t_s
-        boresight = self._boresight(site, channel, t_s)
+        try:
+            boresight = self._boresight(site, channel, t_s)
+        except ValueError as exc:  # it tracks a satellite that cannot be placed: aimed nowhere
+            self._note_unplaced(f"channel {channel_id!r} (its pointing)", t_s, exc)
+            return {}
         n0_site = self._site_n0_dbw_hz(channel)
         paths: dict[tuple[str, ...], _PathNode] = {}
         for sat_id, sat in self._sats.items():
-            r = state.sat_r[sat_id]
+            r = state.sat_r.get(sat_id)
+            if r is None:
+                continue  # its orbit cannot be evaluated now (logged in _tp_state)
             if not float(_elevation(xg, up_g, r)) > 0.0:
                 continue  # below the site's horizon: nothing from this satellite
             orbit = self._truth[sat_id]
@@ -960,7 +1006,12 @@ class SimWorld:
             if dist >= RADIO_HORIZON_M_PER_SQRT_M * (math.sqrt(e.antenna_height_m) + math.sqrt(site.antenna_height_m)):
                 continue
             try:
-                db = direct_budget(e.eirp_dbw, e.antenna, emitter_boresight(e, e.xyz, self._truth, t_s), e.xyz,
+                e_boresight = emitter_boresight(e, e.xyz, self._truth, t_s)
+            except ValueError as exc:  # aimed at a satellite that cannot be placed
+                self._note_unplaced(f"emitter {e.id!r} (its pointing)", t_s, exc)
+                continue
+            try:
+                db = direct_budget(e.eirp_dbw, e.antenna, e_boresight, e.xyz,
                                    e.antenna_height_m, xg, site.antenna_height_m, channel, boresight, e.freq_hz)
             except ValueError as exc:
                 raise ValueError(f"emitter {e.id!r} and site {site.id!r}: {exc}") from None
@@ -1079,10 +1130,12 @@ class SimWorld:
         """True-time envelope delay (s) and carrier-phase delay term (cycles) of a path,
         for reception at ``t_base_s + dt_true`` (true time).
 
-        relay:  delay = D + iono_u + iono_d;  phase = -(f + T)(tau_d + tau_x - iono_d) - f (tau_u - iono_u)
-        noise:  delay = tau_d + iono_d;        phase = -(f + T)(tau_d - iono_d)
+        relay:  delay = D + iono_u + iono_d + trop_u + trop_d;
+                phase = -(f + T)(tau_d + tau_x - iono_d + trop_d) - f (tau_u - iono_u + trop_u)
+        noise:  delay = tau_d + iono_d + trop_d;  phase = -(f + T)(tau_d - iono_d + trop_d)
         direct: delay = |x_g - x_e| / C;       phase = -f delay
-        with ``f`` the carrier in the source frame and ``T`` the true translation.
+        with ``f`` the carrier in the source frame and ``T`` the true translation; the
+        troposphere delays envelope and phase alike (``_tropo_leg``).
         """
         xg = self._site_xyz[site_id]
         t_true = node.t_nom_hz + node.t_true_small_hz
@@ -1099,7 +1152,8 @@ class SimWorld:
         if node.kind == "noise":
             tau_d = np.asarray(downlink_delay(orbit, xg, t_base_s, dt_true), dtype=np.float64)
             iono_d = self._iono_leg(xg, orbit, t_base_s + dt_true, f_down) if self._iono_on else 0.0
-            return tau_d + iono_d, -f_down * (tau_d - iono_d)
+            trop_d = self._tropo_leg(xg, orbit, t_base_s + dt_true) if self._tropo_on else 0.0
+            return tau_d + iono_d + trop_d, -f_down * (tau_d - iono_d + trop_d)
         assert node.emitter is not None
         bp = bent_pipe(node.emitter.xyz, orbit, xg, t_base_s, tau_x, dt_true)
         tau_d = np.asarray(bp.tau_d, dtype=np.float64)
@@ -1110,9 +1164,22 @@ class SimWorld:
             iono_u = self._iono_leg(node.emitter.xyz, orbit, t_abs - tau_d - tau_x, f_c)
         else:
             iono_d = iono_u = 0.0
-        delay = np.asarray(bp.D, dtype=np.float64) + iono_u + iono_d
-        phase = -f_down * (tau_d + tau_x - iono_d) - f_c * (tau_u - iono_u)
+        if self._tropo_on:
+            t_abs = t_base_s + dt_true
+            trop_d = self._tropo_leg(xg, orbit, t_abs)
+            trop_u = self._tropo_leg(node.emitter.xyz, orbit, t_abs - tau_d - tau_x)
+        else:
+            trop_d = trop_u = 0.0
+        delay = np.asarray(bp.D, dtype=np.float64) + iono_u + iono_d + trop_u + trop_d
+        phase = -f_down * (tau_d + tau_x - iono_d + trop_d) - f_c * (tau_u - iono_u + trop_u)
         return delay, phase
+
+    def _tropo_leg(self, ground: npt.NDArray[np.float64], orbit: Orbit, t_s: Any) -> npt.NDArray[np.float64]:
+        """Tropospheric delay of one leg (s), ``zenith_m * m(el) / C`` (``core.media``); the
+        elevation is clipped to [0, 90] as for the ionosphere."""
+        up = _up_vector(ground)
+        el = _elevation(ground, up, orbit_position(orbit, np.asarray(t_s, dtype=np.float64)))
+        return np.asarray(tropo_delay_s(self._zenith_m, np.clip(el, 0.0, 90.0)), dtype=np.float64)
 
     def _iono_leg(self, ground: npt.NDArray[np.float64], orbit: Orbit, t_s: Any, freq: float) -> npt.NDArray[np.float64]:
         """Thin-shell group delay of one leg (s); the elevation is clipped to [0, 90] at
@@ -1152,6 +1219,7 @@ class SimWorld:
         t_mid = t0 + int(round(0.5 * duration * 1e9))
         i_mid = min(t_mid // step - ks[0], len(ks) - 2)
         w_mid = (t_mid - ks[i_mid] * step) / step
+        placeable: dict[str, bool] = {}
         for key in self._union(nodes):
             p_nodes = np.array([node[key].p_hz if key in node else 0.0 for node in nodes])
             if not np.any(p_nodes > 0.0):
@@ -1161,6 +1229,14 @@ class SimWorld:
                 ref = next(node[key] for node in nodes if key in node)
             else:
                 ref = self._interpolated(a, b, w_mid)
+            if ref.sat_id is not None:
+                # a capture across the end of an ephemeris table: the satellite's paths are
+                # left out rather than failing the whole capture
+                if ref.sat_id not in placeable:
+                    t_lo = t0 * 1e-9 + delta - 1.0
+                    placeable[ref.sat_id] = self._placeable(ref.sat_id, t_lo, t_lo + duration + 2.0)
+                if not placeable[ref.sat_id]:
+                    continue
             if ref.emitter is not None:
                 e = ref.emitter
                 if e.active_fraction(t0 - math.ceil((ref.delay_s - delta + 1.0) * 1e9), duration + 2.0) <= 0.0:
@@ -1428,7 +1504,8 @@ class SimWorld:
     def _labelled_fbb(self, node: _PathNode, tp: Transponder, path: PathSpec, t_base_s: float, offset_s: float) -> float:
         """Baseband frequency (Hz) of a path at labelled time ``t_base_s + offset_s`` in a
         channel tuned to ``path.f_tune_hz`` (MATH.md section 4), with the ionospheric
-        phase-advance rate when the ionosphere is on."""
+        phase-advance rate when the ionosphere is on and the tropospheric phase-delay rate
+        when the troposphere is on."""
         site_id = path.site_id
         delta = self._delta_s.get(site_id, 0.0)
         eps_g = self._eps_site.get(site_id, 0.0)
@@ -1447,6 +1524,13 @@ class SimWorld:
             iono_d = self._iono_leg(xg, orbit, t_abs, e.freq_hz + t_true)
             iono_u = self._iono_leg(e.xyz, orbit, t_abs - np.asarray(bp.tau_d) - tp.group_delay_s, e.freq_hz)
             f_bb += float((e.freq_hz + t_true) * (iono_d @ _IONO_WEIGHTS) + e.freq_hz * (iono_u @ _IONO_WEIGHTS))
+        if self._tropo_on:  # the troposphere delays the carrier phase: the opposite sign
+            dts = dt + _IONO_STENCIL
+            bp = bent_pipe(e.xyz, orbit, xg, t_base_s, tp.group_delay_s, dts)
+            t_abs = t_base_s + dts
+            trop_d = self._tropo_leg(xg, orbit, t_abs)
+            trop_u = self._tropo_leg(e.xyz, orbit, t_abs - np.asarray(bp.tau_d) - tp.group_delay_s)
+            f_bb -= float((e.freq_hz + t_true) * (trop_d @ _IONO_WEIGHTS) + e.freq_hz * (trop_u @ _IONO_WEIGHTS))
         return f_bb
 
     def truth_measurement(self, emitter_id: str, a: PathSpec, b: PathSpec, t_ns: int) -> tuple[float, float]:

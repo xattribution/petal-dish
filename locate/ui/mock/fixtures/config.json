@@ -3,7 +3,7 @@
   "config": {
     "version": 7,
     "name": "pacific-uhf",
-    "description": "Illustrative legacy-UHF bent-pipe scenario over the Pacific: three satellites with 25 kHz channels near 300 MHz uplink, seven city-centre monitoring sites and two reference carriers. All orbital slots, inclinations, channel frequencies, translations, link parameters, antennas and powers are illustrative placeholders, not data for any real system; no site or reference location is a real facility.",
+    "description": "Illustrative legacy-UHF bent-pipe scenario over the Pacific: three satellites with 25 kHz channels near 300 MHz uplink, seven city-center monitoring sites and two reference carriers. All orbital slots, inclinations, channel frequencies, translations, link parameters, antennas and powers are illustrative placeholders, not data for any real system; no site or reference location is a real facility.",
     "dut1_s": 0.0,
     "satellites": [
       {
@@ -151,7 +151,7 @@
     "sites": [
       {
         "id": "honolulu",
-        "name": "Honolulu (city centre)",
+        "name": "Honolulu (city center)",
         "lat_deg": 21.307,
         "lon_deg": -157.858,
         "alt_m": 0.0,
@@ -243,11 +243,11 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Pacific/Honolulu"
       },
       {
         "id": "hilo",
-        "name": "Hilo (city centre)",
+        "name": "Hilo (city center)",
         "lat_deg": 19.707,
         "lon_deg": -155.085,
         "alt_m": 0.0,
@@ -341,11 +341,11 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Pacific/Honolulu"
       },
       {
         "id": "tokyo",
-        "name": "Tokyo (city centre)",
+        "name": "Tokyo (city center)",
         "lat_deg": 35.681,
         "lon_deg": 139.767,
         "alt_m": 0.0,
@@ -479,11 +479,11 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Asia/Tokyo"
       },
       {
         "id": "naha",
-        "name": "Naha (city centre)",
+        "name": "Naha (city center)",
         "lat_deg": 26.212,
         "lon_deg": 127.679,
         "alt_m": 0.0,
@@ -616,11 +616,11 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Asia/Tokyo"
       },
       {
         "id": "seoul",
-        "name": "Seoul (city centre)",
+        "name": "Seoul (city center)",
         "lat_deg": 37.566,
         "lon_deg": 126.978,
         "alt_m": 0.0,
@@ -754,11 +754,11 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Asia/Seoul"
       },
       {
         "id": "busan",
-        "name": "Busan (city centre)",
+        "name": "Busan (city center)",
         "lat_deg": 35.18,
         "lon_deg": 129.075,
         "alt_m": 0.0,
@@ -892,11 +892,11 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Asia/Seoul"
       },
       {
         "id": "manila",
-        "name": "Manila (city centre)",
+        "name": "Manila (city center)",
         "lat_deg": 14.599,
         "lon_deg": 120.984,
         "alt_m": 0.0,
@@ -1030,13 +1030,13 @@
             ]
           }
         ],
-        "time_zone": null
+        "time_zone": "Asia/Manila"
       }
     ],
     "carriers": [
       {
         "id": "ref-guam",
-        "name": "Reference carrier, Guam city centre (illustrative)",
+        "name": "Reference carrier, Guam city center (illustrative)",
         "satellite_id": "muos-io",
         "transponder_id": "shared-1",
         "uplink_center_hz": 300992500.0,
@@ -1061,7 +1061,7 @@
       },
       {
         "id": "ref-sapporo",
-        "name": "Reference carrier, Sapporo city centre (illustrative)",
+        "name": "Reference carrier, Sapporo city center (illustrative)",
         "satellite_id": "uhf-172e",
         "transponder_id": "shared-2",
         "uplink_center_hz": 301117500.0,
@@ -1120,7 +1120,8 @@
         "grid_step_deg": 1.0,
         "n_starts": 16,
         "chi2_ambiguity": 9.0,
-        "max_measurements": 400
+        "max_measurements": 400,
+        "max_reduced_chi2": 5.0
       },
       "uncertainty": {
         "ephemeris": {
@@ -1151,7 +1152,11 @@
         },
         "sat_osc_frac": 1e-06,
         "site_osc_frac": 1e-11,
-        "tdoa_bias_ns": 50.0
+        "tdoa_bias_ns": 50.0,
+        "iono_vtec_tecu": 30.0,
+        "iono_correlation": 0.5,
+        "tropo_zenith_m": 2.4,
+        "tropo_correlation": 0.9
       },
       "calibration": {
         "enabled": true,

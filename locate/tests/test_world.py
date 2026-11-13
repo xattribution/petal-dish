@@ -845,3 +845,47 @@ def test_pacific_demo_claims_hold(cfg: SystemConfig) -> None:
     worst = min(cn0.values())
     g = lin(worst - 10 * math.log10(bw))
     assert 10 * math.log10(post_correlation_snr(bw, 1.0, g, g)) > cfg.processing.caf.min_snr_db + 20.0
+
+
+# ------------------------------------------------- an ephemeris table that ends (review ADAPT-7)
+
+
+def test_a_satellite_whose_table_has_ended_is_left_out_not_every_channel(cfg_bare: SystemConfig,
+                                                                       caplog: pytest.LogCaptureFixture) -> None:
+    """When muos-io's ephemeris table ends, only its paths go: channels on the other
+    satellites keep rendering, and the failure is logged once (it used to make every
+    monitor frame and capture of every channel fail)."""
+    from petal_locate.core.orbits import orbit_state
+
+    end = T0 - T0 % (60 * 10**9)
+    orbit = cfg_bare.orbit("muos-io")
+    samples = []
+    for k in range(-120, 1):
+        t = end + k * 60 * 10**9
+        r, v = orbit_state(orbit, sec(t))
+        samples.append({"t": iso_from_ns(t), "r_m": [float(x) for x in r], "v_mps": [float(x) for x in v]})
+    data = cfg_bare.export_dict()
+    for sat in data["satellites"]:
+        if sat["id"] == "muos-io":
+            sat["orbit"] = {"type": "table", "samples": samples}
+    table_cfg = SystemConfig.model_validate(data)
+    world = SimWorld(table_cfg, scenario([jammer()]))
+    after = end + 600 * 10**9  # ten minutes past the table's end
+    fs, n = 50e3, 4096
+    a, _ = pair(table_cfg)
+    caplog.set_level("WARNING", logger="petal_locate.sim.world")
+    iq = world.render_iq("honolulu-pac", after, n, fs, a.f_tune_hz)  # a muos-pac channel: unaffected
+    assert iq.shape == (n,) and np.all(np.isfinite(iq))
+    io_channel = "tokyo-io"
+    tune_io = F_J + translation(table_cfg, "muos-io")
+    paths = world.channel_paths(io_channel, after, tune_io, fs)
+    assert not [p for p in paths if p.sat_id == "muos-io"]  # nothing from the satellite it cannot place
+    assert world.render_iq(io_channel, after, n, fs, tune_io).shape == (n,)  # thermal noise only
+    psd = world.render_psd("tokyo-pac", after, a.f_tune_hz, 50e3, 256, 8)
+    assert psd.shape == (256,) and np.all(np.isfinite(psd))
+    noted = [r.getMessage() for r in caplog.records if "cannot be placed" in r.getMessage()]
+    assert any("muos-io" in m for m in noted)
+    assert len([m for m in noted if "satellite 'muos-io'" in m]) == 1  # logged once
+    # before the end the satellite is there as before
+    before = end - 600 * 10**9
+    assert [p for p in world.channel_paths(io_channel, before, tune_io, fs) if p.sat_id == "muos-io"]

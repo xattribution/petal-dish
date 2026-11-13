@@ -29,8 +29,10 @@ from that loop. Three rules keep the loop free:
   tens of microseconds). The receive loop gives the event loop one turn after every
   frame, so frames that arrive back to back never hold it either.
 
-Time. Absolute times are integer UTC nanoseconds (`time.time_ns`); intervals are
-measured on the monotonic clock.
+Time. Absolute times are integer UTC nanoseconds of the server clock (`clock`, by
+default `time.time_ns`; a demonstration with a fixed simulated start gives the shifted
+clock the runtime and the simulated nodes use); intervals are measured on the monotonic
+clock.
 
 Close codes. PROTOCOL.md names 1001 (shutdown) and 4001 (replaced). The other ways a
 session ends are given codes here: 1008 after a `reject` and when a site is removed
@@ -58,6 +60,14 @@ Readings of PROTOCOL.md that the text leaves open, as implemented here:
 * A well-formed message that only a server sends, or a second `hello`, is malformed.
 * Unknown message types are counted every time and warned about once per type and
   socket.
+* A spectrum frame stamped more than `PSD_FUTURE_TOLERANCE_S` ahead of the server clock
+  is dropped and counted (`psd_dropped_future`), with one warning per session: one such
+  frame would otherwise be the newest time of its window and make the detection
+  pipeline drop every correct frame after it.
+* A `sim_update` announced while a node had not yet acknowledged its assignment (its
+  channels were still opening, and a node hands the update only to open channels) is
+  sent to it again once its `assign_ack` arrives. Without that, a scenario replaced in
+  the first seconds of a session never reached the node's simulated radios.
 """
 from __future__ import annotations
 
@@ -127,6 +137,7 @@ __all__ = [
     "CLOSE_CODE_INTERNAL",
     "CLOSE_CODE_REJECTED",
     "CLOSE_CODE_SILENT",
+    "PSD_FUTURE_TOLERANCE_S",
     "STATUS_BACKLOG",
     "AssignmentsProvider",
     "CaptureFailed",
@@ -136,6 +147,7 @@ __all__ = [
     "StatusCallback",
     "StatusEvent",
     "Subscription",
+    "WindowHealthProvider",
 ]
 
 logger = logging.getLogger(__name__)
@@ -188,11 +200,22 @@ _UNKNOWN_TYPES_REPORTED: Final[int] = 16
 
 _NS_PER_S: Final[int] = 1_000_000_000
 
+PSD_FUTURE_TOLERANCE_S: Final[float] = 60.0
+"""A spectrum frame whose `t_ns` lies further than this ahead of the server clock is
+dropped (`psd_dropped_future`), s. Node clocks are disciplined to well under a second;
+a minute is far beyond any honest offset and short of anything a glitch produces."""
+
 K = TypeVar("K", bound=Hashable)
 T = TypeVar("T")
 
 AssignmentsProvider = Callable[[str], list[ChannelAssignment] | None]
 """`assignments_for(site_id)`: the channels of a site, or None for an unknown site."""
+
+WindowHealthProvider = Callable[[str, str], Mapping[str, Any] | None]
+"""`window_health(channel_id, monitor_id)`: what the detection pipeline knows of a
+monitor window (`detection_frame_age_s`, `blind`, `blind_reason`, `learning`,
+`floor_raised_db`, `note`), or None for a window it does not know. Called on the event
+loop for every status report; it must not block."""
 
 
 # ---------------------------------------------------------------------- public types
@@ -740,6 +763,7 @@ class _Session:
         channels: Iterable[ChannelAssignment],
         config_version: int,
         heartbeat_s: float,
+        now_ns: int,
     ) -> None:
         self.conn = conn
         self.site_id: str = hello.site_id
@@ -747,8 +771,13 @@ class _Session:
         self.software: str = hello.software
         self.driver: str = hello.driver
         self.clock: ClockStatus = hello.clock
-        self.connected_since_ns: int = time.time_ns()
+        self.connected_since_ns: int = now_ns
         self.heartbeat_s = heartbeat_s
+        # A sim_update sent while the assignment was not yet acknowledged may have met
+        # no open channel at the node: it is sent again after the assign_ack.
+        self.awaiting_ack = True
+        self.sim_resend = False
+        self.future_warned = False
         self.assigned: dict[str, ChannelAssignment] = {}
         self.monitors: dict[tuple[str, str], MonitorAssignment] = {}
         self.assigned_version = config_version
@@ -774,6 +803,7 @@ class _Session:
         self.ready = {}
         self.channel_errors = {}
         self.psd_shape_reported.clear()
+        self.awaiting_ack = True
 
     def log_fields(self) -> dict[str, Any]:
         """Fields identifying the session, for the `extra` of a log record."""
@@ -885,6 +915,9 @@ class Hub:
         assignments_for: AssignmentsProvider,
         config_version: Callable[[], int],
         simulation_info: Callable[[], Mapping[str, Any]],
+        *,
+        clock: Callable[[], int] = time.time_ns,
+        psd_future_tolerance_s: float = PSD_FUTURE_TOLERANCE_S,
     ) -> None:
         """
         settings: tokens (`check_node_token`), `heartbeat_s`, `hello_timeout_s` and
@@ -896,6 +929,11 @@ class Hub:
             from (a non-negative integer); must change whenever they change.
         simulation_info: returns the `simulation` object of `welcome`:
             `{"enabled": bool, "scenario_url"?: str, "version"?: int}`.
+        clock: the server clock, integer UTC ns (`welcome.server_t_ns`, heartbeat
+            acks, `received_ns` of spectrum frames, status event times, capture
+            deadlines and the check of frames stamped in the future).
+        psd_future_tolerance_s: how far ahead of `clock` a spectrum frame may be
+            stamped before it is dropped, s.
 
         The providers are plain functions called on the event loop; they must not block.
         """
@@ -903,6 +941,10 @@ class Hub:
         self._assignments_for = assignments_for
         self._config_version = config_version
         self._simulation_info = simulation_info
+        self._clock = clock
+        self._psd_future_ns = int(round(float(psd_future_tolerance_s) * _NS_PER_S))
+        self._last_sim_update: SimUpdate | None = None
+        self._window_health: WindowHealthProvider | None = None
         self._sessions: dict[str, _Session] = {}
         self._records: dict[str, _Session] = {}
         self._channel_site: dict[str, str] = {}
@@ -991,6 +1033,17 @@ class Hub:
         """
         return self._status.subscribe(callback, name)
 
+    def set_window_health(self, provider: WindowHealthProvider | None) -> None:
+        """Let node status carry what the detection pipeline knows of each window.
+
+        provider: `window_health(channel_id, monitor_id)` (see `WindowHealthProvider`),
+            or None to stop. Its fields are added to the window entries of
+            `node_status`; a window it reports `blind` makes its channel not `ok`.
+        """
+        if provider is not None and not callable(provider):
+            raise TypeError("set_window_health: provider must be callable or None")
+        self._window_health = provider
+
     # ---------------------------------------------------------------------- queries
 
     def is_online(self, site_id: str) -> bool:
@@ -1049,13 +1102,18 @@ class Hub:
             site the hub has never seen is reported offline with null fields.
         Each entry is JSON-ready and shaped like `NodeStatus` of PROTOCOL.md section B:
         `{site_id, node_id, online, latency_ms, clock, driver, software,
-        channels: [{channel_id, ok, last_frame_age_s}], connected_since}`.
+        channels: [{channel_id, ok, last_frame_age_s, windows, detection_problem}],
+        connected_since}`.
         `latency_ms` is the latest heartbeat round trip (None offline or before one is
         measured); `clock` the latest `ClockStatus` as a dict; `ok` whether the channel
-        is ready; `last_frame_age_s` the age of the channel's newest spectrum frame
-        over its monitors (None before any); `connected_since` ISO 8601 UTC of the
-        `welcome` (None offline). For an offline site the other fields are the last
-        known ones.
+        is ready and none of its windows is blind to detection; `last_frame_age_s` the
+        age of the channel's newest spectrum frame over its monitors (None before
+        any); `windows` one entry per assigned monitor window, `{monitor_id,
+        last_frame_age_s}` plus the fields of the window-health provider
+        (`set_window_health`; null without one); `detection_problem` a sentence naming
+        the blind or floor-raised windows (None when there are none);
+        `connected_since` ISO 8601 UTC of the `welcome` (None offline). For an offline
+        site the other fields are the last known ones.
         """
         if site_ids is None:
             return [self._status_of(self._records[site_id]) for site_id in sorted(self._records)]
@@ -1146,7 +1204,7 @@ class Hub:
                 f"{MAX_CONCURRENT_CAPTURES} captures pending",
                 channel_id=channel_id,
             )
-        wait_s = (request.deadline_ns - time.time_ns()) / _NS_PER_S
+        wait_s = (request.deadline_ns - self._clock()) / _NS_PER_S
         if wait_s <= 0.0:
             self._counters["capture_failed_deadline"] += 1
             raise CaptureFailed(
@@ -1361,15 +1419,21 @@ class Hub:
             ns (the caller sets it to server time plus `SIM_UPDATE_LEAD_NS`).
         Returns the ids of the sites the message was queued for, sorted. Raises
         `ValueError` naming the argument at fault.
+
+        A node whose assignment is not acknowledged yet may have no channel open to
+        take the update (a node hands it only to open channels); it gets the newest
+        update again once its `assign_ack` arrives.
         """
         message = SimUpdate(
             version=_as_int(version, "version"), effective_ns=_as_int(effective_ns, "effective_ns")
         )
-        sent = [
-            session.site_id
-            for session in list(self._sessions.values())
-            if self._send(session, message)
-        ]
+        self._last_sim_update = message
+        sent: list[str] = []
+        for session in list(self._sessions.values()):
+            if self._send(session, message):
+                sent.append(session.site_id)
+                if session.awaiting_ack:
+                    session.sim_resend = True
         logger.info(
             "sim_update version %d announced to %d node(s)",
             message.version,
@@ -1531,7 +1595,7 @@ class Hub:
                 f"simulation_info: must return a mapping, got {type(simulation).__name__}"
             )
         welcome = Welcome(
-            server_t_ns=time.time_ns(),
+            server_t_ns=self._clock(),
             heartbeat_s=self._settings.heartbeat_s,
             config_version=version,
             channels=list(channels),
@@ -1549,7 +1613,9 @@ class Hub:
             self._end_session(existing, "replaced", "a new session of the same node took over")
             existing.conn.request_close(CLOSE_CODE_REPLACED, "replaced")
 
-        session = _Session(conn, hello, channels, version, self._settings.heartbeat_s)
+        session = _Session(
+            conn, hello, channels, version, self._settings.heartbeat_s, welcome.server_t_ns
+        )
         conn.session = session
         self._sessions[session.site_id] = session
         self._records[session.site_id] = session
@@ -1693,7 +1759,7 @@ class Hub:
         session.clock = beat.clock
         if beat.rtt_ms is not None:
             session.rtt_ms.append(beat.rtt_ms)
-        self._send(session, HeartbeatAck(seq=beat.seq, server_t_ns=time.time_ns()))
+        self._send(session, HeartbeatAck(seq=beat.seq, server_t_ns=self._clock()))
         if clock_changed:
             logger.info(
                 "clock of site %r is now %s, %s",
@@ -1736,6 +1802,19 @@ class Hub:
                 errors[channel_id] = "the node's assign_ack did not mention the channel"
         session.ready = ready
         session.channel_errors = errors
+        session.awaiting_ack = False
+        if session.sim_resend and self._last_sim_update is not None:
+            # The channels the ack names are open now; an update that arrived while
+            # they were opening met none of them.
+            session.sim_resend = False
+            if self._send(session, self._last_sim_update):
+                self._counters["sim_update_resent"] += 1
+                logger.info(
+                    "sim_update version %d sent again to site %r after its assign_ack",
+                    self._last_sim_update.version,
+                    session.site_id,
+                    extra={**session.log_fields(), "sim_version": self._last_sim_update.version},
+                )
         level = logging.INFO if ack.ok and not errors else logging.WARNING
         logger.log(
             level,
@@ -1842,7 +1921,10 @@ class Hub:
         Raises `ProtocolError` for a malformed frame. A well-formed frame that does
         not belong (a window the node is not assigned, a channel not acknowledged
         under the current assignment, or the wrong number of bins) is dropped and
-        counted: frames are droppable, and these occur around a reassignment.
+        counted: frames are droppable, and these occur around a reassignment. So is a
+        frame stamped more than `psd_future_tolerance_s` ahead of the server clock
+        (`psd_dropped_future`, warned about once per session); it does not count as
+        the window's newest frame.
         """
         header, psd = decode_psd(header, payload)
         key = (header.channel_id, header.monitor_id)
@@ -1867,13 +1949,31 @@ class Hub:
                     extra=session.log_fields(),
                 )
             return
+        received_ns = self._clock()
+        ahead_ns = header.t_ns - received_ns
+        if ahead_ns > self._psd_future_ns:
+            # One such frame would become the newest time of its window, and the
+            # detection pipeline would drop every correctly stamped frame after it.
+            self._counters["psd_dropped_future"] += 1
+            if not session.future_warned:
+                session.future_warned = True
+                logger.warning(
+                    "site %r sends spectrum frames stamped %.1f s ahead of the server clock "
+                    "(window %s/%s); dropping every frame more than %.0f s ahead (reported "
+                    "once per session)",
+                    session.site_id,
+                    ahead_ns / _NS_PER_S,
+                    _clip(header.channel_id, 60),
+                    _clip(header.monitor_id, 60),
+                    self._psd_future_ns / _NS_PER_S,
+                    extra={**session.log_fields(), "ahead_s": round(ahead_ns / _NS_PER_S, 3)},
+                )
+            return
         self._last_frame[key] = time.monotonic()
         self._counters["psd_frames"] += 1
         self._psd.publish(
             key,
-            PsdFrame(
-                site_id=session.site_id, header=header, psd_db=psd, received_ns=time.time_ns()
-            ),
+            PsdFrame(site_id=session.site_id, header=header, psd_db=psd, received_ns=received_ns),
         )
 
     # --------------------------------------------------------------- session helpers
@@ -2029,16 +2129,29 @@ class Hub:
         online = not session.ended and self._sessions.get(session.site_id) is session
         channels: list[dict[str, Any]] = []
         for channel_id, channel in session.assigned.items():
-            ages = [
-                age
-                for monitor in channel.monitors
-                if (age := self.last_frame_age_s(channel_id, monitor.monitor_id)) is not None
-            ]
+            windows = [self._window_status(channel_id, monitor.monitor_id) for monitor in channel.monitors]
+            ages = [w["last_frame_age_s"] for w in windows if w["last_frame_age_s"] is not None]
+            blind = [w for w in windows if w["blind"]] if online else []
+            raised = [w for w in windows if w["floor_raised_db"] is not None] if online else []
+            problems: list[str] = []
+            if blind:
+                problems.append(
+                    "detection is blind on "
+                    + ", ".join(f"{w['monitor_id']} ({w['note'] or w['blind_reason']})" for w in blind)
+                )
+            if raised:
+                problems.append(
+                    "noise floor raised on "
+                    + ", ".join(f"{w['monitor_id']} (+{w['floor_raised_db']:.1f} dB)" for w in raised)
+                    + ": a signal may fill the window and be taken for its noise"
+                )
             channels.append(
                 {
                     "channel_id": channel_id,
-                    "ok": online and channel_id in session.ready,
+                    "ok": online and channel_id in session.ready and not blind,
                     "last_frame_age_s": min(ages) if ages else None,
+                    "windows": windows,
+                    "detection_problem": "; ".join(problems) if problems else None,
                 }
             )
         return {
@@ -2052,6 +2165,35 @@ class Hub:
             "channels": channels,
             "connected_since": _iso_utc(session.connected_since_ns) if online else None,
         }
+
+    def _window_status(self, channel_id: str, monitor_id: str) -> dict[str, Any]:
+        """One window entry of `NodeStatus.channels[].windows`: the hub's frame age plus
+        what the window-health provider reports (null fields without one)."""
+        entry: dict[str, Any] = {
+            "monitor_id": monitor_id,
+            "last_frame_age_s": self.last_frame_age_s(channel_id, monitor_id),
+            "detection_frame_age_s": None,
+            "blind": False,
+            "blind_reason": None,
+            "learning": None,
+            "floor_raised_db": None,
+            "note": None,
+        }
+        provider = self._window_health
+        if provider is None:
+            return entry
+        try:
+            health = provider(channel_id, monitor_id)
+        except Exception:  # status must be reportable whatever the provider does
+            self._counters["window_health_errors"] += 1
+            logger.exception("window health of %s/%s could not be read", channel_id, monitor_id)
+            return entry
+        if health:
+            for name in ("detection_frame_age_s", "blind", "blind_reason", "learning", "floor_raised_db", "note"):
+                if name in health:
+                    entry[name] = health[name]
+            entry["blind"] = bool(entry["blind"])
+        return entry
 
     def _publish_status(
         self,
@@ -2067,6 +2209,6 @@ class Hub:
                 kind=kind,
                 reason=reason,
                 status=self._status_of(session),
-                t_ns=time.time_ns(),
+                t_ns=self._clock(),
             ),
         )

@@ -14,7 +14,13 @@
 - `GET /healthz`: liveness probe, no authentication, nothing sensitive.
 - `/`: the operator console built into `server/static/` (index.html for client-side
   routes, long cache lifetimes for hashed assets, no-cache for index.html), or a
-  placeholder page saying how to build it.
+  placeholder page saying how to build it. `/?token=<api token>` serves index.html
+  with a script that hands the token to the console (`CONSOLE_TOKEN_KEY`).
+- `RequestGuardMiddleware`, before any route: the `Host` header must name an allowed
+  host (DNS-rebinding defence), a state-changing `/api` request must not be one a
+  foreign page can send unasked (403), and `/api` bodies are capped (413).
+- Time: `app.state.clock` is `Settings.clock()` (the host clock, plus the simulation
+  offset of `petal-locate demo --start`); the runtime, the store and the hub use it.
 
 `create_app(settings, hub_providers=...)` instead builds an application whose caller
 owns the configuration: the lifespan only runs the hub, and the console routes answer
@@ -31,10 +37,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import gc
+import inspect
+import json
 import logging
 import re
 import socket
 import sys
+import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -51,12 +60,16 @@ from petal_locate.server.hub import Hub
 from petal_locate.server.settings import Settings
 
 __all__ = [
+    "CLIENT_HEADER",
+    "CONSOLE_TOKEN_KEY",
     "DEFAULT_STATIC_DIR",
     "GRACEFUL_SHUTDOWN_S",
     "HubProviders",
     "HubServer",
     "InboundTextTraceFilter",
     "QueryTokenFilter",
+    "RequestGuardMiddleware",
+    "allowed_host_names",
     "build_server",
     "create_app",
     "health_router",
@@ -221,6 +234,26 @@ def _index_html(index: Path, base_href: str | None) -> bytes:
     return content[: match.end()] + tag + content[match.end():]
 
 
+CONSOLE_TOKEN_KEY: Final[str] = "petal.apiToken"
+"""Where the console keeps the API token (``sessionStorage``); a console address that
+carries the token (``/?token=<api token>``) is served with a script that stores it
+there, so the address ``petal-locate demo`` prints opens an authenticated console."""
+
+
+def _with_token(content: bytes, token: str) -> bytes:
+    """index.html with a script, first in ``<head>``, that hands ``token`` to the console
+    and takes it out of the address bar (so that it is not bookmarked or shared)."""
+    literal = json.dumps(token).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    script = (
+        f'<script>try{{sessionStorage.setItem("{CONSOLE_TOKEN_KEY}",{literal})}}catch(e){{}}'
+        'try{history.replaceState(null,"",location.pathname+location.hash)}catch(e){}</script>'
+    ).encode("utf-8")
+    match = re.search(rb"<head[^>]*>", content, flags=re.IGNORECASE)
+    if match is None:
+        return script + content
+    return content[: match.end()] + script + content[match.end():]
+
+
 def _serve_index(request: Request, static_dir: Path, nested: bool) -> Response:
     index = static_dir / "index.html"
     headers = {"Cache-Control": NO_CACHE}
@@ -232,24 +265,36 @@ def _serve_index(request: Request, static_dir: Path, nested: bool) -> Response:
     except OSError as exc:
         logger.error("console index.html cannot be read: %s", exc)
         return HTMLResponse(placeholder_page(), headers=headers)
+    presented = request.query_params.get("token")
+    settings: Settings | None = getattr(request.app.state, "settings", None)
+    if presented is not None and settings is not None and settings.api_token is not None:
+        # Only the server's own token is ever written into the page (never other input).
+        if settings.check_api_token(presented):
+            content = _with_token(content, settings.api_token)
+            headers = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
     return Response(content, media_type="text/html; charset=utf-8", headers=headers)
 
 
 @static_router.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
 async def static_file(request: Request, path: str) -> Response:
     """A file of the console build; index.html for client-side routes (paths without
-    a file extension); the placeholder page when there is no build."""
+    a file extension); the placeholder page when there is no build. A path the file
+    system cannot even look up (a NUL character, one too long) is a 404."""
     first = path.split("/", 1)[0]
-    if first in _RESERVED_PREFIXES:
+    if first in _RESERVED_PREFIXES or "\x00" in path:
         return JSONResponse({"detail": "Not Found"}, status_code=404)
     static_dir: Path = getattr(request.app.state, "static_dir", DEFAULT_STATIC_DIR)
     if path in ("", "index.html"):
         return _serve_index(request, static_dir, nested=False)
-    root = static_dir.resolve()
-    candidate = (static_dir / path).resolve()
-    if candidate != root and not candidate.is_relative_to(root):
+    try:
+        root = static_dir.resolve()
+        candidate = (static_dir / path).resolve()
+        if candidate != root and not candidate.is_relative_to(root):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        is_file = candidate.is_file()
+    except (ValueError, OSError):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
-    if candidate.is_file():
+    if is_file:
         name = candidate.name
         if name == "index.html":
             return _serve_index(request, static_dir, nested=False)
@@ -269,6 +314,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start the hub, then (when the app owns it) build and start the runtime; stop
     them in the reverse order: console sockets, runtime, hub."""
     hub: Hub = app.state.hub
+    undo_hub_clock = _hub_clock(app.state.clock)
     hub.start()
     owned = None
     frozen = False
@@ -282,8 +328,23 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             # during a solve; 1 ms cuts such convoys fivefold.
             sys.setswitchinterval(SERVER_SWITCH_INTERVAL_S)
             from petal_locate.server.runtime import ServerRuntime
+            from petal_locate.server.store import Store
 
-            owned = await ServerRuntime.from_settings(app.state.settings, presets_dir=app.state.presets_dir)
+            settings: Settings = app.state.settings
+            store = Store(
+                settings.data_dir,
+                capture_limit_bytes=settings.capture_limit_bytes,
+                history_max_age_s=settings.history_max_age_s,
+                history_max_events=settings.history_max_events,
+                clock=app.state.clock,
+            )
+            try:
+                owned = await ServerRuntime.from_settings(
+                    settings, presets_dir=app.state.presets_dir, store=store, clock=app.state.clock
+                )
+            except BaseException:
+                await store.close()
+                raise
             try:
                 await owned.start(hub)
             except BaseException:
@@ -310,6 +371,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 gc.unfreeze()
         sys.setswitchinterval(switch_interval)
         await hub.close()
+        undo_hub_clock()
         logger.info("server stopped")
 
 
@@ -326,6 +388,206 @@ def _freeze_heap() -> bool:
     gc.freeze()
     logger.info("startup heap frozen for the garbage collector", extra={"objects": gc.get_freeze_count()})
     return True
+
+
+# --------------------------------------------------------------------------- request guard
+
+CLIENT_HEADER: Final[str] = "x-petal-client"
+"""Header a client sends on a state-changing request that carries no JSON or YAML body
+(the console sends ``X-Petal-Client: console`` on every POST, PUT and DELETE)."""
+
+_UNSAFE_METHODS: Final[frozenset[str]] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_SIMPLE_TYPES: Final[frozenset[str]] = frozenset(
+    {"", "text/plain", "application/x-www-form-urlencoded", "multipart/form-data"}
+)
+"""Content types a browser sends cross-site without asking the server first (a CORS
+"simple request"): a request that carries one of them, no custom header and no
+Authorization could come from any web page the operator's browser shows."""
+
+_NODE_PATHS: Final[tuple[str, ...]] = ("/ws/node", "/healthz")
+"""Paths outside the browser-facing surface: no Host check (nodes may dial any name)."""
+
+
+def _host_name(value: str) -> str:
+    """The host part of a Host header (port and IPv6 brackets removed), lower case."""
+    host = value.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end > 0 else host
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host.rstrip(".")
+
+
+def allowed_host_names(settings: Settings) -> frozenset[str] | None:
+    """Host names the browser-facing routes answer (``Host`` header), or None for any.
+
+    The bound address, ``localhost``, ``127.0.0.1``, ``::1`` and ``Settings.allowed_hosts``;
+    when the server binds every interface (``0.0.0.0``, ``::``) also this machine's host
+    name, fully qualified name and the addresses they resolve to. ``*`` among the
+    allowed hosts disables the check."""
+    from petal_locate.server.settings import LOCAL_HOST_NAMES
+
+    extra = {_host_name(h) for h in settings.allowed_hosts}
+    if "*" in extra:
+        return None
+    names = set(LOCAL_HOST_NAMES) | extra | {_host_name(settings.host)}
+    if settings.host in ("0.0.0.0", "::", ""):
+        try:
+            hostname = socket.gethostname()
+            names |= {hostname.lower(), socket.getfqdn().lower()}
+            names |= {a.lower() for a in socket.gethostbyname_ex(hostname)[2]}
+        except OSError:
+            pass
+    names.discard("")
+    return frozenset(names)
+
+
+class RequestGuardMiddleware:
+    """Checks every request before routing (SRV-3, SRV-4 of the review):
+
+    - ``Host``: a browser-facing request (anything but ``/ws/node``, ``/healthz`` and
+      the node backplane) must name an allowed host (``allowed_host_names``), else
+      HTTP 400 (or a refused WebSocket handshake). This stops DNS rebinding, where a
+      page of another site re-points its own name at this server.
+    - State-changing ``/api`` requests (POST, PUT, PATCH, DELETE) must carry a
+      ``Content-Type`` a browser cannot send cross-site unasked (``application/json``,
+      ``application/yaml``, ...), an ``Authorization`` header or the
+      ``X-Petal-Client`` header; else HTTP 403. Cross-site requests that could carry
+      them need the server's permission (CORS), which it never gives.
+    - Every ``/api`` request body is limited to ``rest.MAX_BODY_BYTES`` (4 MiB): a
+      larger ``Content-Length``, or more bytes streamed, is answered 413 before any
+      route reads it.
+    """
+
+    def __init__(self, app: Any, *, allowed_hosts: frozenset[str] | None, exempt: tuple[str, ...]) -> None:
+        self.app = app
+        self.allowed_hosts = allowed_hosts
+        self.exempt = exempt
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        kind = scope.get("type")
+        if kind not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        path: str = scope.get("path", "")
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", ())}
+        if self.allowed_hosts is not None and not any(path == p or path.startswith(p + "/") for p in self.exempt):
+            host = headers.get("host", "")
+            if host and _host_name(host) not in self.allowed_hosts:
+                logger.warning("request for host %r refused (not an allowed host name)", host[:100],
+                               extra={"path": path[:200], "host": host[:100]})
+                if kind == "websocket":
+                    await send({"type": "websocket.close", "code": 1008})
+                    return
+                await _plain_error(send, 400, f"the host name {host[:100]!r} is not one this server answers to; "
+                                              "start it with --allowed-host NAME to allow it")
+                return
+        if kind == "http" and (path == "/api" or path.startswith("/api/")):
+            method = scope.get("method", "GET").upper()
+            if method in _UNSAFE_METHODS:
+                ctype = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                if ctype in _SIMPLE_TYPES and "authorization" not in headers and CLIENT_HEADER not in headers:
+                    await _plain_error(
+                        send, 403,
+                        "a state-changing request must carry Content-Type application/json or application/yaml, "
+                        "an Authorization header, or the header X-Petal-Client (cross-site request defence)",
+                    )
+                    return
+                buffered = await _buffer_body(scope, receive, headers)
+                if buffered is None:
+                    from petal_locate.server.api import rest
+
+                    await _plain_error(send, 413, f"the request body is larger than {rest.MAX_BODY_BYTES} bytes")
+                    return
+                receive = buffered
+        await self.app(scope, receive, send)
+
+
+async def _buffer_body(scope: Any, receive: Any, headers: Mapping[str, str]) -> Any | None:
+    """Read a request body of at most ``rest.MAX_BODY_BYTES`` and return a ``receive``
+    that replays it; None when the body is larger (``Content-Length`` or bytes read)."""
+    from petal_locate.server.api import rest
+
+    limit = int(rest.MAX_BODY_BYTES)
+    declared = headers.get("content-length")
+    if declared is not None and declared.strip().isdigit() and int(declared) > limit:
+        return None
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        message = await receive()
+        if message["type"] != "http.request":
+            # the client went away: let the route see it
+            pending: list[Mapping[str, Any]] = [message]
+
+            async def gone() -> Mapping[str, Any]:
+                return pending.pop() if pending else await receive()
+
+            return gone
+        body = message.get("body", b"")
+        size += len(body)
+        if size > limit:
+            return None
+        chunks.append(body)
+        if not message.get("more_body", False):
+            break
+    replay: list[Mapping[str, Any]] = [{"type": "http.request", "body": b"".join(chunks), "more_body": False}]
+
+    async def replayed() -> Mapping[str, Any]:
+        return replay.pop() if replay else await receive()
+
+    return replayed
+
+
+async def _plain_error(send: Any, status: int, detail: str) -> None:
+    body = json.dumps({"detail": detail}).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": status,
+        "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
+    })
+    await send({"type": "http.response.body", "body": body})
+
+
+class _ShiftedTime:
+    """The ``time`` module as seen by a hub that cannot take a clock: ``time_ns`` is the
+    server's clock (host clock plus the simulation offset), everything else is the real
+    module. See ``_hub_clock``."""
+
+    def __init__(self, clock: Callable[[], int]) -> None:
+        self._clock = clock
+
+    def time_ns(self) -> int:
+        return self._clock()
+
+    def __getattr__(self, name: str) -> Any:
+        import time as real
+
+        return getattr(real, name)
+
+
+def _hub_clock(clock: Callable[[], int]) -> Callable[[], None]:
+    """Make the hub use the server clock; returns how to undo it.
+
+    With no simulation offset the clock is the host clock and nothing is done. With one
+    (``petal-locate demo --start``), the hub must stamp and compare times on the same
+    clock as the runtime and the simulated nodes. A hub whose constructor takes
+    ``clock`` gets it in ``create_app``; for one that does not, the ``time`` name of its
+    module is pointed at ``_ShiftedTime`` while this application runs."""
+    import time as real
+
+    from petal_locate.server import hub as hub_module
+
+    if clock is real.time_ns or "clock" in inspect.signature(Hub.__init__).parameters:
+        return lambda: None
+    previous = hub_module.__dict__.get("time")
+    hub_module.time = _ShiftedTime(clock)  # type: ignore[attr-defined]
+
+    def undo() -> None:
+        hub_module.time = previous  # type: ignore[attr-defined]
+
+    return undo
 
 
 def create_app(
@@ -359,10 +621,13 @@ def create_app(
     from petal_locate.server.api.ws import UiSockets, ui_router
     from petal_locate.server.runtime import RuntimeHolder
 
+    from petal_locate.server.runtime import SIM_BACKPLANE_PATH
+
     manage_runtime = hub_providers is None
     holder = RuntimeHolder()
     providers = holder.hub_providers() if manage_runtime else hub_providers
     assert providers is not None
+    clock = settings.clock()
     app = FastAPI(
         title="PETAL Locate",
         version=__version__,
@@ -378,13 +643,25 @@ def create_app(
     app.state.static_dir = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
     app.state.api = ApiState()
     app.state.ui_sockets = UiSockets()
+    app.state.clock = clock
+    hub_options: dict[str, Any] = {}
+    if clock is not time.time_ns and "clock" in inspect.signature(Hub.__init__).parameters:
+        hub_options["clock"] = clock
     app.state.hub = Hub(
         settings,
         assignments_for=providers.assignments_for,
         config_version=providers.config_version,
         simulation_info=providers.simulation_info,
+        **hub_options,
     )
+    app.state.allowed_hosts = allowed_host_names(settings)
     install_error_handlers(app)
+    # Added last, so it runs first: nothing is routed (or read) before the checks.
+    app.add_middleware(
+        RequestGuardMiddleware,
+        allowed_hosts=app.state.allowed_hosts,
+        exempt=_NODE_PATHS + (SIM_BACKPLANE_PATH,),
+    )
     app.include_router(node_router)
     app.include_router(health_router)
     app.include_router(public_router)

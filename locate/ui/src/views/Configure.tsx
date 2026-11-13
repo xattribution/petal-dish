@@ -266,7 +266,8 @@ function SatelliteEditor({ cfg, i }: { cfg: SystemConfig; i: number }) {
             type="button"
             className="btn small"
             onClick={() => {
-              const last = sat.transponders.at(-1);
+              // a new transponder copies this satellite's last one, else the last one configured anywhere (ADAPT-10)
+              const last = sat.transponders.at(-1) ?? cfg.satellites.flatMap((x) => x.transponders).at(-1);
               update([...base, 'transponders'], [
                 ...sat.transponders,
                 { id: `tp-${sat.transponders.length + 1}`, uplink_center_hz: (last?.uplink_center_hz ?? 300e6) + (last?.bandwidth_hz ?? 25e3) * 2, bandwidth_hz: last?.bandwidth_hz ?? 25e3, translation_hz: last?.translation_hz ?? -41e6, g_over_t_dbk: last?.g_over_t_dbk ?? -14, sfd_dbw_m2: last?.sfd_dbw_m2 ?? -136, eirp_sat_dbw: last?.eirp_sat_dbw ?? 26 },
@@ -333,7 +334,7 @@ function AntennaEditor({ base, ch, cfg }: { base: Path; ch: ReceiveChannel; cfg:
           {/* ledger: caution rung, the condition the brief names */}
           <strong>Electrically small dish.</strong> At {mhz(small.freqHz, 3)} MHz ({small.satId}) the wavelength is {fixed(small.wavelengthM, 2)} m, so this {fixed(small.diameterM, 2)} m
           dish is {fixed(small.diametersInWavelengths, 2)} wavelengths across, under 3. It behaves as a reflector, not a focusing dish: about {fixed(small.peakGainDbi, 1)} dBi
-          with a beam about {fixed(small.hpbwDeg, 0)}° wide, so it also hears satellites well off its pointing and gives little protection from co-channel neighbours.
+          with a beam about {fixed(small.hpbwDeg, 0)}° wide, so it also hears satellites well off its pointing and gives little protection from co-channel neighbors.
         </div>
       ) : null}
     </div>
@@ -500,7 +501,7 @@ function SiteEditor({ cfg, i }: { cfg: SystemConfig; i: number }) {
           <NumF path={[...base, 'lat_deg']} label="Latitude" unit="° (N positive)" />
           <NumF path={[...base, 'lon_deg']} label="Longitude" unit="° (E positive)" />
           <NumF path={[...base, 'alt_m']} label="Altitude" unit="m above WGS 84" optional />
-          <NumF path={[...base, 'antenna_height_m']} label="Antenna height" unit="m above ground" optional />
+          <NumF path={[...base, 'antenna_height_m']} label="Antenna height" unit="m AGL" optional />
           <NumF path={[...base, 'clock', 'sigma_ns']} label="Clock 1-sigma" unit="ns" optional />
           <TextF
             path={[...base, 'time_zone']}

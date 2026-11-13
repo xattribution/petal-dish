@@ -20,7 +20,13 @@ event and every other group becomes a new event (``split from``). A unit that
 overlaps no active event re-opens the most recent ``lost`` event with an overlapping
 range lost less than ``reopen_window_s`` ago, else raises a new event. While a closed
 event still holds detections it absorbs units of its range, so closing an event that
-is still on the air does not raise it again at once.
+is still on the air does not raise it again at once. Such a unit is first held until
+every window still delivering frames has reported one of the same instant or later
+(at most ``new_event_hold_s``); the held units are then placed together, overlapping
+ones as one group. The fragments a window reports of one wideband signal near the
+threshold, which only another window's detection joins, thus raise one event instead
+of a burst of events merged into the first a few milliseconds later and kept in
+history.
 
 Evidence. One row per receive channel watching a satellite whose transponder relays
 the event's range and whose monitor window contains the mapped downlink centre (for an
@@ -37,6 +43,13 @@ event outside every passband: every channel whose window contains it):
   (null when there is no sighting on that satellite or ``q`` is unknown). For an event
   outside every passband ``q_B - q_A`` is replaced by ``10 log10(T_A / T_B)`` (system
   noise temperatures: receiver sensitivity only).
+
+Relaying satellites. ``satellite_ids`` and ``transponders`` follow the frequency plan
+(every transponder covering the range) until the event has a consistent position; from
+then on a satellite below ``solver.min_elevation_deg`` at the fix, at every end of its
+ellipse axes and at every ambiguity (``events.visible_satellites``) is left out and
+listed in ``not_visible_satellite_ids`` instead (never every satellite). Tasking then
+stops pairing it and the advisory stops naming it.
 
 Verdict (``decide_verdict``), evaluated once ``verdict_settle_s`` has passed since the
 event was raised (or re-opened), then on every change: ``uplink`` when ``seen`` at two
@@ -70,11 +83,12 @@ from petal_locate.core.geodesy import geodesic_distance_m
 from petal_locate.core.linkbudget import downlink_quality_db
 from petal_locate.server.api import schemas
 from petal_locate.server.pipeline.detection import WindowKey, WindowReport, WindowSpec
-from petal_locate.server.pipeline.events import EventBook, EventRecord, Unit, UnitKey
+from petal_locate.server.pipeline.events import EventBook, EventRecord, Unit, UnitKey, visible_satellites
 
 __all__ = [
     "CAF_EVIDENCE_S",
     "LOCAL_OVERRIDE_S",
+    "NEW_EVENT_HOLD_S",
     "REOPEN_WINDOW_S",
     "SPLIT_HOLD_S",
     "STALE_FRAMES",
@@ -103,6 +117,10 @@ rounds at the default ``capture.interval_s``; tasking renews it every round it m
 LOCAL_OVERRIDE_S: Final[float] = 15.0
 """How long the evidence alone must say ``local``, without a fresh cross-satellite
 measurement, before an ``uplink`` verdict gives way to it, s."""
+
+NEW_EVENT_HOLD_S: Final[float] = 1.0
+"""Longest a detection that overlaps no event waits for the other windows' frames of the
+same instant before it raises (or re-opens) one, s."""
 
 _NS: Final[int] = 1_000_000_000
 
@@ -344,6 +362,7 @@ class _WindowState:
     units: dict[UnitKey, Unit] = field(default_factory=dict)
     last_received_ns: int | None = None
     threshold_db: float | None = None
+    last_t_ns: int | None = None  # labelled time of the newest frame reported
 
 
 class Correlator:
@@ -367,17 +386,24 @@ class Correlator:
         stale_frames: int = STALE_FRAMES,
         caf_evidence_s: float = CAF_EVIDENCE_S,
         local_override_s: float = LOCAL_OVERRIDE_S,
+        new_event_hold_s: float = NEW_EVENT_HOLD_S,
     ) -> None:
         """
         config: the ``SystemConfig``. book: the ``EventBook`` events live in.
         windows: window specs (``build_window_specs``). quality: ``QualityTable``.
         is_online: whether the node of a site is connected. clock: server time,
         integer UTC ns. reopen_window_s, split_hold_s, stale_frames, caf_evidence_s,
-        local_override_s: see the module docstring.
+        local_override_s, new_event_hold_s: see the module docstring.
         """
         self._book = book
         self._is_online = is_online
         self._clock = clock
+        self._new_event_hold_ns = int(new_event_hold_s * _NS)
+        # Detections that overlap no event, waiting for the other windows' frames of the
+        # same instant before they raise one (identity, ``NEW_EVENT_HOLD_S``): the unit,
+        # and (frame time of the report that brought it, server time it was first held).
+        self._held: dict[UnitKey, Unit] = {}
+        self._held_since: dict[UnitKey, tuple[int, int]] = {}
         self._caf_evidence_ns = int(caf_evidence_s * _NS)
         self._local_override_ns = int(local_override_s * _NS)
         self._reopen_ns = int(reopen_window_s * _NS)
@@ -422,6 +448,13 @@ class Correlator:
                     self._watchers.setdefault(sat_id, []).append((site.id, channel.id))
         self._site_names = {site.id: site.name for site in config.sites}
         self._sat_names = {sat.id: sat.name for sat in config.satellites}
+        try:
+            self._orbits: dict[str, Any] = dict(config.orbits())
+        except ValueError as exc:  # an orbit that cannot be built: visibility is not judged
+            logger.warning("orbits not available for the visibility check: %s", exc)
+            self._orbits = {}
+        self._min_elevation_deg = float(config.processing.solver.min_elevation_deg)
+        self._visibility: dict[str, tuple[tuple[Any, ...], list[str]]] = {}
 
         now = self._clock()
         affected: set[EventRecord] = set()
@@ -444,7 +477,8 @@ class Correlator:
         # Re-map what is currently detected with the new frequency plan.
         for key, state in new_windows.items():
             if state.units:
-                self._replace_units(state, self._remap(state), affected, now)
+                self._replace_units(state, self._remap(state), affected, now, state.last_t_ns)
+        self._resolve_held(affected, now)
         affected.update(self._book.active())
         self._settle(affected, now)
         self._book.flush()
@@ -457,7 +491,8 @@ class Correlator:
     # ---------------------------------------------------------------- queries
 
     def counters(self) -> dict[str, int]:
-        """Diagnostics: reports, units mapped and unmapped, merges, splits, re-opens."""
+        """Diagnostics: reports, units mapped and unmapped, units held before a new
+        event (``held``), events created, merges, splits, re-opens."""
         return dict(self._counters)
 
     def sightings(self, event_id: str) -> list[Unit]:
@@ -487,6 +522,7 @@ class Correlator:
         state.spec = report.spec
         state.last_received_ns = int(report.received_ns)
         state.threshold_db = float(report.threshold_db)
+        state.last_t_ns = int(report.t_ns)
         self._counters["reports"] += 1
         now = self._clock()
         units: dict[UnitKey, Unit] = {}
@@ -494,7 +530,8 @@ class Correlator:
             for unit in self._units_for(report.spec, generation, detection, int(report.received_ns)):
                 units[unit.key] = unit
         affected: set[EventRecord] = set()
-        self._replace_units(state, units, affected, now)
+        self._replace_units(state, units, affected, now, int(report.t_ns))
+        self._resolve_held(affected, now)
         self._settle(affected, now)
         self._book.flush()
 
@@ -508,7 +545,9 @@ class Correlator:
             self._remove_unit(unit, affected)
         channel_windows = self._windows_by_channel.get(key[0], [])
         self._windows_by_channel[key[0]] = [w for w in channel_windows if w.key != key]
-        self._settle(affected, self._clock())
+        now = self._clock()
+        self._resolve_held(affected, now)  # the window no longer holds anything back
+        self._settle(affected, now)
         self._book.flush()
 
     def tick(self) -> None:
@@ -530,6 +569,7 @@ class Correlator:
                 for unit in list(state.units.values()):
                     self._remove_unit(unit, affected)
                 state.units = {}
+        self._resolve_held(affected, now)
         affected.update(self._book.active())
         self._settle(affected, now)
         self._book.flush()
@@ -620,7 +660,12 @@ class Correlator:
     # ---------------------------------------------------------------- membership
 
     def _replace_units(
-        self, state: _WindowState, units: dict[UnitKey, Unit], affected: set[EventRecord], now: int
+        self,
+        state: _WindowState,
+        units: dict[UnitKey, Unit],
+        affected: set[EventRecord],
+        now: int,
+        t_ns: int | None = None,
     ) -> None:
         old = state.units
         for key in [k for k in old if k not in units]:
@@ -633,9 +678,11 @@ class Correlator:
                 record.members[key] = unit
                 affected.add(record)
             else:
-                self._add_unit(unit, affected, now)
+                self._add_unit(unit, affected, now, t_ns)
 
     def _remove_unit(self, unit: Unit, affected: set[EventRecord]) -> None:
+        if self._held.pop(unit.key, None) is not None:
+            self._held_since.pop(unit.key, None)
         event_id = self._unit_event.pop(unit.key, None)
         if event_id is None:
             return
@@ -649,18 +696,70 @@ class Correlator:
         self._unit_event[unit.key] = record.id
         affected.add(record)
 
-    def _add_unit(self, unit: Unit, affected: set[EventRecord], now: int) -> None:
-        candidates = [
-            r
-            for r in self._book.active()
-            if r.space == unit.space and _overlap(r.lo_hz, r.hi_hz, unit.lo_hz, unit.hi_hz)
-        ]
-        if candidates:
-            target = min(candidates, key=lambda r: r.seq)
+    def _join_active(self, units: Sequence[Unit], lo: float, hi: float, affected: set[EventRecord]) -> bool:
+        """Attach the units to the oldest active event overlapping [lo, hi] (merging the
+        others into it). Returns False when none overlaps."""
+        space = units[0].space
+        candidates = [r for r in self._book.active() if r.space == space and _overlap(r.lo_hz, r.hi_hz, lo, hi)]
+        if not candidates:
+            return False
+        target = min(candidates, key=lambda r: r.seq)
+        for unit in units:
             self._attach(unit, target, affected)
-            for other in candidates:
-                if other is not target:
-                    self._merge(other, target, affected)
+        for other in candidates:
+            if other is not target:
+                self._merge(other, target, affected)
+        return True
+
+    def _add_unit(self, unit: Unit, affected: set[EventRecord], now: int, t_ns: int | None = None) -> None:
+        if self._join_active([unit], unit.lo_hz, unit.hi_hz, affected):
+            if self._held.pop(unit.key, None) is not None:
+                self._held_since.pop(unit.key, None)
+            return
+        # It overlaps no active event: hold it until the other windows have reported
+        # the same instant (``_resolve_held``), so that what joins it there is placed
+        # with it instead of raising events of its own.
+        if unit.key not in self._held_since:
+            self._held_since[unit.key] = (now if t_ns is None else int(t_ns), now)
+            self._counters["held"] += 1
+        self._held[unit.key] = unit
+
+    def _resolve_held(self, affected: set[EventRecord], now: int, *, force: bool = False) -> None:
+        """Place the held units once every window still delivering frames has reported
+        the instant of the oldest one (or later), or after ``new_event_hold_s``.
+        Overlapping held units are placed as one group."""
+        if not self._held:
+            return
+        oldest_t = min(t for t, _ in self._held_since.values())
+        first_held = min(held for _, held in self._held_since.values())
+        if not (force or now - first_held >= self._new_event_hold_ns or self._caught_up(oldest_t, now)):
+            return
+        units = list(self._held.values())
+        self._held.clear()
+        self._held_since.clear()
+        for space in ("up", "down"):
+            for group in _components([u for u in units if u.space == space]):
+                self._place_new(group, affected, now)
+
+    def _caught_up(self, t_ns: int, now: int) -> bool:
+        """Whether every window that delivered a frame within ``stale_frames`` frame
+        periods has reported a frame stamped ``t_ns`` or later."""
+        for state in self._windows.values():
+            if state.last_received_ns is None:
+                continue
+            if now - state.last_received_ns > self._stale_frames * state.spec.frame_period_s * _NS:
+                continue
+            if state.last_t_ns is None or state.last_t_ns < t_ns:
+                return False
+        return True
+
+    def _place_new(self, group: Sequence[Unit], affected: set[EventRecord], now: int) -> None:
+        """Place overlapping units that joined no active event: into an active event
+        that overlaps them now, a closed event still holding detections of their range,
+        the latest re-openable lost event, or else one new event."""
+        space = group[0].space
+        lo, hi = min(u.lo_hz for u in group), max(u.hi_hz for u in group)
+        if self._join_active(group, lo, hi, affected):
             return
         for record in self._book.records():
             if (
@@ -668,11 +767,12 @@ class Correlator:
                 and not record.historic
                 and record.merged_into is None
                 and record.members
-                and record.space == unit.space
-                and _overlap(record.lo_hz, record.hi_hz, unit.lo_hz, unit.hi_hz)
+                and record.space == space
+                and _overlap(record.lo_hz, record.hi_hz, lo, hi)
             ):
-                self._counters["absorbed_by_closed"] += 1
-                self._attach(unit, record, affected)
+                self._counters["absorbed_by_closed"] += len(group)
+                for unit in group:
+                    self._attach(unit, record, affected)
                 return
         lost = [
             r
@@ -680,26 +780,28 @@ class Correlator:
             if r.lost
             and not r.closed
             and not r.historic
-            and r.space == unit.space
+            and r.space == space
             and r.lost_ns is not None
             and now - r.lost_ns <= self._reopen_ns
-            and _overlap(r.lo_hz, r.hi_hz, unit.lo_hz, unit.hi_hz)
+            and _overlap(r.lo_hz, r.hi_hz, lo, hi)
         ]
         if lost:
             record = max(lost, key=lambda r: r.lost_ns or 0)
             self._counters["reopened"] += 1
-            self._attach(unit, record, affected)
+            for unit in group:
+                self._attach(unit, record, affected)
             self._book.reopen(record)
             return
         record = self._book.create(
-            space=unit.space,
-            lo_hz=unit.lo_hz,
-            hi_hz=unit.hi_hz,
-            first_seen_ns=unit.first_seen_ns,
-            last_seen_ns=unit.last_seen_ns,
+            space=space,
+            lo_hz=lo,
+            hi_hz=hi,
+            first_seen_ns=min(u.first_seen_ns for u in group),
+            last_seen_ns=max(u.last_seen_ns for u in group),
         )
         self._counters["created"] += 1
-        self._attach(unit, record, affected)
+        for unit in group:
+            self._attach(unit, record, affected)
 
     def _merge(self, source: EventRecord, target: EventRecord, affected: set[EventRecord]) -> None:
         for key, unit in list(source.members.items()):
@@ -944,10 +1046,41 @@ class Correlator:
                 )
                 if satellite.id not in sats:
                     sats.append(satellite.id)
-        record.transponders = transponders
-        record.satellite_ids = sats
+        hidden = self._not_visible(record, sats)
+        record.transponders = [t for t in transponders if t.sat_id not in hidden]
+        record.satellite_ids = [s for s in sats if s not in hidden]
+        record.not_visible_satellite_ids = hidden
         self._decide(record, now)
         self._book.touch(record, "numeric")
+
+    def _not_visible(self, record: EventRecord, sats: Sequence[str]) -> list[str]:
+        """Satellites of the frequency plan that cannot see the transmitter: below
+        ``solver.min_elevation_deg`` (and the horizon) over the whole ellipse of a
+        consistent solution and its ambiguities (``events.visible_satellites``). Empty
+        without such a solution; never every satellite. Cached per solution."""
+        solution = record.solution_out
+        if solution is None or not solution.fit_consistent or not sats or not self._orbits:
+            return []
+        key = (record.solution_t_ns, tuple(sats))
+        cached = self._visibility.get(record.id)
+        if cached is None or cached[0] != key:
+            t_s = (record.solution_t_ns if record.solution_t_ns is not None else self._clock()) / 1e9
+            try:
+                visible = set(visible_satellites(solution, self._orbits, sats, t_s, self._min_elevation_deg))
+            except ValueError as exc:
+                logger.warning("visibility of %s not judged: %s", record.id, exc, extra={"event_id": record.id})
+                visible = set(sats)
+            cached = (key, [s for s in sats if s not in visible])
+            self._visibility[record.id] = cached
+            if cached[1]:
+                logger.info(
+                    "event %s: %s cannot see the transmitter's position; left out of the relaying satellites",
+                    record.id,
+                    ", ".join(cached[1]),
+                    extra={"event_id": record.id},
+                )
+        hidden = cached[1]
+        return [] if len(hidden) >= len(sats) else list(hidden)
 
     def _margin(self, ctx: _RowContext, strongest: Unit | None, width_hz: float, threshold_db: float) -> float | None:
         if strongest is None:

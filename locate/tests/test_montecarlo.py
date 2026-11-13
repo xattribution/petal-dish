@@ -335,3 +335,96 @@ def test_calibration_reduces_the_miss_when_ephemeris_errors_are_drawn(ephemeris_
         assert a["dominant_error"] != "ephemeris_position" and b["dominant_error"] == "ephemeris_position"
     assert cal["summary"]["median_miss_m"] < 0.5 * raw["summary"]["median_miss_m"]
     assert cal["summary"]["cep50_predicted_m"] < 0.3 * raw["summary"]["cep50_predicted_m"]
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+def test_draws_include_the_propagation_media(cfg: SystemConfig) -> None:
+    """One VTEC and one zenith delay per draw, magnitudes of normals with the configured
+    sigmas (their RMS is the sigma), enabled when non-zero; a valid TruthErrors mapping."""
+    unc = cfg.resolved_uncertainty()
+    rng = np.random.Generator(np.random.Philox(key=key128("test-media-draws")))
+    draws = [draw_truth_errors(cfg, unc, rng, DEFAULT_T_NS) for _ in range(1500)]
+    vtec = np.array([d["iono"]["vtec_tecu"] for d in draws])
+    zenith = np.array([d["tropo"]["zenith_m"] for d in draws])
+    tol = 4.0 / math.sqrt(2 * 1500)
+    assert np.all(vtec >= 0.0) and np.all(zenith >= 0.0)
+    assert math.sqrt(np.mean(vtec**2)) / unc.iono_vtec_tecu == pytest.approx(1.0, abs=2 * tol)
+    assert math.sqrt(np.mean(zenith**2)) / unc.tropo_zenith_m == pytest.approx(1.0, abs=2 * tol)
+    assert all(d["iono"]["enabled"] and d["tropo"]["enabled"] for d in draws[:5])
+    Scenario.model_validate({"name": "x", "errors": draws[0]}).validate_against(cfg)
+    off = mc.Uncertainty(**{**unc.__dict__, "iono_vtec_tecu": 0.0, "tropo_zenith_m": 0.0})
+    d = draw_truth_errors(cfg, off, rng, DEFAULT_T_NS)
+    assert not d["iono"]["enabled"] and not d["tropo"]["enabled"]
+
+
+def test_scenario_media_kept_and_rows_share_the_primary_capture(bare: SystemConfig, clean: Scenario,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """With drawn errors a scenario that sets its own ionosphere keeps it (a study at that
+    level); every row names its two captures, all pairs share the primary's, and carries the
+    estimator's noise shares (MATH-2)."""
+    seen: list[Any] = []
+    real = mc.solve
+
+    def spy(rows: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(list(rows))
+        return real(rows, *args, **kwargs)
+
+    monkeypatch.setattr(mc, "solve", spy)
+    data = clean.model_dump(mode="json")
+    data["errors"]["iono"] = {"enabled": True, "vtec_tecu": 10.0}
+    out = run_trials(bare, Scenario.model_validate(data), "j1", 1, seed=5, draw_errors=True, use_calibration=False,
+                     capture_s=0.25)
+    assert out["trials"][0]["errors"]["iono"] == {"enabled": True, "vtec_tecu": 10.0}
+    assert out["trials"][0]["errors"]["tropo"]["enabled"]  # drawn (the scenario has none)
+    rows = seen[0]
+    assert len(rows) >= 4
+    assert len({r.capture_a for r in rows}) == 1 and rows[0].capture_a.startswith(out["primary_channel"] + "|")
+    assert len({r.capture_b for r in rows}) == len(out["pairs"])
+    assert all(0.0 < r.noise_share_a < 1.0 and 0.0 < r.noise_share_b < 1.0 for r in rows)
+
+
+def test_explicit_pairs_resolve_multi_satellite_channels(cfg: SystemConfig, demo: Scenario) -> None:
+    """A fixed wide beam watching two satellites that relay the carrier: an explicit pair
+    takes the satellite the other end does not use, or the one named 'channel@sat'
+    (ADAPT-4); a channel paired with itself is refused."""
+    data = cfg.export_dict()
+    hilo = next(s for s in data["sites"] if s["id"] == "hilo")
+    hilo["channels"] = [{
+        "id": "hilo-fix", "antenna": {"type": "beam", "gain_dbi": 6.0, "hpbw_deg": 90.0, "front_to_back_db": 15.0},
+        "pointing": {"az_deg": 250.0, "el_deg": 60.0, "satellite_ids": ["muos-pac", "uhf-172e"]},
+    }]
+    fixed = SystemConfig.model_validate(data)
+    world = SimWorld(fixed, demo)
+    emitter = demo.emitters[0].id
+    t = DEFAULT_T_NS + 3 * 3600 * 10**9
+    plan = plan_event(fixed, world, emitter, t, pairs=[("hilo-fix", "honolulu-pac")], use_calibration=False)
+    assert (plan.pairs[0].a.sat_id, plan.pairs[0].b.sat_id) == ("uhf-172e", "muos-pac")
+    assert plan.pairs[0].a_channel == "hilo-fix"
+    plan = plan_event(fixed, world, emitter, t, pairs=[("hilo-fix@muos-pac", "honolulu-172e")], use_calibration=False)
+    assert (plan.pairs[0].a.sat_id, plan.pairs[0].b.sat_id) == ("muos-pac", "uhf-172e")
+    with pytest.raises(ValueError, match="paired with itself"):
+        plan_event(fixed, world, emitter, t, pairs=[("hilo-fix@muos-pac", "hilo-fix@uhf-172e")])
+
+
+@pytest.mark.slow
+def test_calibrated_fixes_contain_a_30_tecu_ionosphere(cfg: SystemConfig) -> None:
+    """MATH-1 through the full chain: South China Sea, calibrated against Guam, the
+    simulator's ionosphere at 30 TECU and drawn errors. Before the ionospheric consider
+    term no fix was inside its own 95 % ellipse (mean NEES 21 to 29); with the default
+    term the mean NEES is near 2. 16 trials: mean NEES within 3 x 2 / sqrt(16) of 2."""
+    scenario = Scenario.model_validate({
+        "name": "iono-30", "seed": 1003, "description": "Simulated test scenario (not real data).",
+        "emitters": [{"id": "j", "name": "test jammer (simulated)", "kind": "jammer", "lat_deg": 15.0,
+                      "lon_deg": 115.0, "freq_hz": 301.005e6, "eirp_dbw": 20.0,
+                      "waveform": {"type": "noise", "bandwidth_hz": 10e3}}],
+        "errors": {"iono": {"enabled": True, "vtec_tecu": 30.0}},
+    })
+    n = 16
+    out = run_trials(cfg, scenario, "j", n, seed=1003, draw_errors=True, use_calibration=True,
+                     t_ns=ns_from_iso("2026-01-01T03:00:00Z"))
+    s = out["summary"]
+    assert s["n_solved"] == n, s["failures"]
+    assert abs(s["mean_nees_total"] - 2.0) <= 3.0 * 2.0 / math.sqrt(n)
+    assert s["containment_95_total"] >= 0.8

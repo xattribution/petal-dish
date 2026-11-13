@@ -6,7 +6,7 @@ the nodes, and use the console, calibration, the demo and the planning tools. Re
 `soapy` driver is untested on hardware, and no disciplined-clock implementation is
 shipped. Every command below was run as shown (on Linux, Python 3.13) while this
 document was written; the outputs quoted are from those runs. Example values (tokens,
-ports, file names, the two-site network) are illustrative.
+ports, file names, the two-site network, the recordings) are illustrative.
 
 ## 1. What a deployment is
 
@@ -30,7 +30,7 @@ check flags it as electrically small. What the antennas of the example give (fro
 
 | antenna | size in wavelengths | gain | weakest 10 kHz jammer detected (EIRP toward the satellite) |
 |---|---|---|---|
-| 0.72 m PETAL dish | 0.63 | 3.3 to 3.5 dBi, beam about 120 degrees | 10.7 to 11.4 dBW |
+| 0.72 m PETAL dish | 0.63 | 3.3 to 3.5 dBi, beam about 110 degrees | 10.7 to 11.4 dBW |
 | 1.2 m dish | 1.05 | 7.7 to 7.9 dBi | 7.2 to 7.8 dBW |
 | 10 dBi beam (helix, Yagi), linear, 3 dB polarisation loss | n/a | 10 dBi less 3 dB | 7.7 to 8.5 dBW |
 
@@ -43,29 +43,32 @@ satellites above the horizon; when two satellites share a downlink frequency (MU
 Pacific and MUOS Indo-Asia in the example), the correlator excludes the predicted
 cross-copies. Location accuracy does not depend on antenna gain once the signal is
 detected (RESULTS.md section 4.6): any one site with channels on all three satellites
-predicts within about 25 % of the seven-site network.
+predicts within about 20 % of the seven-site network.
 
 **Radio (SDR).** One receive stream per channel (the `soapy` driver opens one stream per
-channel, and `petal-locate node` gives every channel the same driver options, so a site
-with several radios needs its own launcher, ARCHITECTURE.md section 6). Requirements:
+channel; a site with one radio per channel gives each channel its own device arguments
+with `--channel-option` or a node file, section 6). Requirements:
 tuning over the downlink band; a complex sample rate of at least the largest monitor
 span plus margin (the example's monitors are 31.25 kHz, captures 20 kHz, and
 `max_sample_rate_hz` defaults to 2 MHz); continuous streaming without overflow;
 **hardware timestamps** latched to UTC on a PPS edge; an external 10 MHz reference input;
 SoapySDR support. The `soapy` driver keeps a 4 s lookback ring (`buffer_s`) and needs the
-SoapySDR Python bindings (`python3-soapysdr`, or the `sdr` extra).
+SoapySDR Python bindings (the system package `python3-soapysdr`, or SoapySDR built from
+source; they are not on PyPI).
 
 **Time: a GPS-disciplined oscillator with PPS.** Required for TDOA between sites. A
 site-clock error enters every cross-site TDOA one for one (1 us is 300 m of range
 difference); the configuration's `clock.sigma_ns` is 30 ns. In the simulator a 10 us
-error at one site moved the uncalibrated fix 14 to 34 km, outside its own error ellipse,
-with no warning from the fit (scenario `clock-fault`). NTP is not enough: it disciplines
+error at one site moved the uncalibrated fix about 31 km (median), mostly outside its
+own error ellipse, with no warning from the fit (scenario `clock-fault`, RESULTS.md
+section 5). NTP is not enough: it disciplines
 the host's clock, not the radio's sample counter, and the samples are timed by the radio.
 The radio must take its sample clock from the GPSDO's 10 MHz (FDOA needs the site
 oscillator to about 1e-11, which is 2.6 mHz at 260 MHz against FDOA sigmas of about
 1 mHz) and set its time on the GPSDO's PPS (`--driver-option time_sync=pps`). The node
 must report the reference's lock state honestly: the shipped `SystemClock` reports
-`ntp`, locked, without checking anything, and `--clock gpsdo` only relabels it. A real
+`ntp`, locked, without checking anything (simulated nodes report `sim`), and
+`--clock gpsdo` only relabels it. A real
 site needs a `DisciplinedClock` subclass (`node/clock.py`) reading the GPSDO's lock and
 offset, or the soapy driver's `lock_sensor` option; neither has been tested on
 hardware. Captures from an unlocked clock give no cross-site TDOA (their FDOA is used).
@@ -80,7 +83,8 @@ site with three channels and three windows each about 620 kbit/s. A 1 s capture 
 example's 20 kHz is 160 kB; a channel used in every round with a reference slot sends
 about 320 kB per 5 s round (about 0.5 Mbit/s) while an event is being located. The node
 also needs at least about 44 kbit/s to carry one 32 KiB capture chunk within three
-heartbeat periods, or the server takes it for silent.
+heartbeat periods, or the server takes it for silent; on a slower uplink lower
+`--chunk-payload-bytes` (and set `--send-buffer-bytes`, section 6).
 
 ## 3. Installing
 
@@ -97,11 +101,17 @@ python3 -m venv .venv
 petal-locate 0.1.0
 ```
 
-The wheel carries the console build and a copy of `config/` (example configurations and
-scenarios), so `petal-locate demo` works from an installed package. For development use
-the editable install of `CONTRIBUTING.md`. The SoapySDR bindings are not on PyPI for
-every platform; install them from the system package manager. Building the console
-(Node.js) is not needed: the build is committed under `src/petal_locate/server/static/`.
+pip installs the dependencies named in `pyproject.toml` (numpy, scipy, sgp4, contourpy,
+pydantic, PyYAML, FastAPI, uvicorn, websockets 15 or later, which the node needs for its
+proxy support, and httpx); only the versions of the development environment were tested
+(LIMITATIONS.md section 1). The wheel carries the console build, a copy of `config/`
+(example configurations and scenarios, under `petal_locate/data/config/`) and
+`THIRD_PARTY.md` (the licenses of the console's bundled fonts and libraries, in the
+wheel's `dist-info/licenses/`), so `petal-locate demo` works from an installed package.
+For development use the editable install of `CONTRIBUTING.md`. The SoapySDR bindings are
+not on PyPI; install them from the system package manager (`python3-soapysdr`) or build
+SoapySDR from source. Building the console (Node.js) is not needed: the build is
+committed under `src/petal_locate/server/static/`.
 
 ## 4. Writing a configuration
 
@@ -137,7 +147,7 @@ satellites:
 
 sites:
   - id: tokyo
-    name: Tokyo (city centre)
+    name: Tokyo (city center)
     lat_deg: 35.690
     lon_deg: 139.692
     antenna_height_m: 10.0
@@ -155,7 +165,7 @@ sites:
         antenna: {type: parabolic, diameter_m: 1.2, efficiency: 0.55}
         pointing: {satellite_id: sat-b}
   - id: manila
-    name: Manila (city centre)
+    name: Manila (city center)
     lat_deg: 14.599
     lon_deg: 120.984
     time_zone: Asia/Manila
@@ -171,7 +181,7 @@ sites:
 
 carriers:
   - id: ref-guam
-    name: Reference carrier, Guam city centre (illustrative)
+    name: Reference carrier, Guam city center (illustrative)
     satellite_id: sat-a
     transponder_id: ch-1
     uplink_center_hz: 300.9925e+6
@@ -188,7 +198,9 @@ processing:
   (`type: tle`; checksums and catalogue numbers are checked), Kepler elements, or an
   operator's ECEF ephemeris table (`type: table`, the best choice when you have one).
   TLE orbits get the TLE-grade ephemeris sigmas by default (RIC 2 / 20 / 10 km), the
-  others operator-grade (0.1 / 1 / 1 km); `ephemeris_sigma` overrides either. Set
+  others operator-grade (0.1 / 1 / 1 km); `ephemeris_sigma` overrides either. Those TLE
+  sigmas assume fresh elements: `check` warns when a TLE epoch is more than 14 days
+  from the time checked (3 days for an orbit faster than 2 revolutions a day). Set
   `dut1_s` from the IERS bulletin when it matters (polar motion is ignored).
 - **Transponders.** Uplink centre, bandwidth, signed translation (downlink = uplink +
   translation), G/T, SFD, saturated EIRP, optional group delay. A signal is relayed when
@@ -201,14 +213,25 @@ processing:
   `system_noise_temp_k`, `polarization_loss_db` and `max_sample_rate_hz` (the radio's
   usable rate).
 - **Monitors.** Leave `monitors` empty to derive one window per transponder of each
-  watched satellite (1.25 times the transponder width, 1024 bins, 8 averages, 2 frames
-  per second; `check` marks them `derived`), or list them explicitly (downlink
-  frequencies; `navg` of at least 8 keeps the detection threshold calibrated).
+  watched satellite (1.25 times the transponder width, at most `max_sample_rate_hz`,
+  1024 bins, 8 averages, 2 frames per second; `check` marks them `derived`), or list
+  them explicitly (downlink frequencies; `navg` of at least 8 keeps the detection
+  threshold calibrated). `check` warns when a channel's windows cover less than 90 % of
+  a watched transponder's downlink (it names the blind bands; a transponder wider than
+  `max_sample_rate_hz` needs explicit windows that tile it) and when a channel's windows
+  spread wider than one tuning of `max_sample_rate_hz` can sample.
 - **Carriers.** Every authorised carrier of the frequency plan (so it is not raised as
   interference); a carrier with `location`, `emitter` and `use_as_reference: true` is a
   reference transmitter (section 8).
 - **Processing.** Defaults suit the example (ARCHITECTURE.md section 3); set `region`
-  to where emitters can be (it resolves mirror ambiguities and bounds searches).
+  to where emitters can be (it resolves mirror ambiguities and bounds searches). The
+  solver carries the ionosphere and the troposphere as uncertainty of a stated size,
+  `processing.uncertainty.iono_vtec_tecu` (30 TECU) and `tropo_zenith_m` (2.4 m), with
+  their correlations between ground ends (`iono_correlation` 0.5, `tropo_correlation`
+  0.9); no delay is predicted, so set the ionosphere to the level of the region and
+  season (a low-latitude day near solar maximum can exceed 60 TECU; RESULTS.md section
+  2.4), and 0 turns a medium off. `processing.solver.max_reduced_chi2` (5) is the fit
+  consistency limit of section 7.
 
 Check it before use. `check` validates, prints the satellites' sub-points, look angles
 of every channel to every satellite (with gain, the electrically-small flag and
@@ -232,8 +255,25 @@ Warnings (1)
 
 A first draft of this file put satellite B 36 degrees below both sites' horizons;
 `check` said so in its warnings (`satellite 'sat-b' is 36.0 degrees below the horizon of
-site 'tokyo'`). Add `--scenario FILE` to check a simulation scenario against the
-configuration too.
+site 'tokyo'`). Checked at a later time, the same file is warned about its TLE, and a
+channel whose radio is limited to 20 kHz (`max_sample_rate_hz: 20.0e+3` added to
+`manila-b`) about the part of its 25 kHz transponder its derived window misses:
+
+```bash
+petal-locate check --config my-network.yaml --time 2026-11-13T03:00:00Z
+```
+
+```
+Warnings (2)
+  satellites.1.orbit: satellite 'sat-b': its TLE epoch (2026-01-01T00:00:00Z) is 316 days before the time evaluated; elements of a high orbit (1.00 rev/day) more than 14 days old can be far off, while the configured TLE ephemeris sigmas assume fresh elements; load current elements
+  ...
+  sites.1.channels.1.monitors: channel 'manila-b': its monitor windows cover 80 % of the downlink of transponder 'ch-1' of satellite 'sat-b' (derived windows are at most max_sample_rate_hz = 0.02 MHz wide); nothing in 259.988 to 259.990 MHz, 260.010 to 260.012 MHz can be detected through this channel, and a wider signal is measured over the window only; add monitors that tile the passband
+```
+
+(the last line from the 20 kHz variant). A satellite whose orbit cannot be evaluated at
+`--time` (an ephemeris table that has ended) is reported (`satellite X: orbit not
+available at this time; its paths are left out`) and does not stop the check. Add
+`--scenario FILE` to check a simulation scenario against the configuration too.
 
 ## 5. Running the server
 
@@ -256,19 +296,39 @@ PETAL_API_TOKEN="$(cat api-token.txt)" petal-locate serve --config my-network.ya
 ```
 
 ```
-... INFO    petal_locate.cli: serving 'my-network' on http://127.0.0.1:18731/ (not simulating) api_token=True marking=True
-... INFO    uvicorn.error: Uvicorn running on http://127.0.0.1:18731 (Press CTRL+C to quit)
+... INFO    petal_locate.cli: serving 'my-network' on http://127.0.0.1:18731/ (not simulating) api_token=True marking=True port=18731
+... INFO    petal_locate.server.store: store opened at data/petal-locate.sqlite3 (run ..., previous run None) ...
+... INFO    petal_locate.server.app: server started version=0.1.0 runtime=True
 ```
 
-- **Settings.** `--host` (default 127.0.0.1) and `--port` (default 8080); `--data-dir`
-  (default `./data`); `--node-tokens`; a node token can also come from the server's
-  environment as `PETAL_NODE_TOKEN_<SITE_ID>` (site id upper-cased, other characters as
-  `_`), and a site with no token cannot connect (the server warns at start-up); the API
-  token from `--api-token` or, better (it stays out of the process list),
-  `PETAL_API_TOKEN`. Without `--scenario` the server does not simulate. `--log-format
+- **Settings.** `--host` (default 127.0.0.1) and `--port` (default 8080; `--port 0`
+  takes a free port, and the `serving` line names the port really bound; a port in use
+  exits 2); `--data-dir` (default `./data`); `--node-tokens`; a node token can also come
+  from the server's environment as `PETAL_NODE_TOKEN_<SITE_ID>` (site id upper-cased,
+  other characters as `_`). A site with no token cannot connect: the server warns at
+  start-up (`no node token for site(s) ...: their nodes cannot connect`), and the
+  Configure screen, `GET /api/v1/config` and `POST /api/v1/config/validate` warn about
+  every site without one. The tokens file is read again whenever it changes (`node
+  tokens file reloaded: 3 site(s)` in the log), so a site added through the console
+  gets its token by editing the file, without a restart; a file that no longer loads is
+  logged and its last good content kept. The API token comes from `--api-token` or,
+  better (it stays out of the process list), `PETAL_API_TOKEN`; without one the server
+  logs a warning (`no API token ...: the console interface is open to anything that can
+  reach 127.0.0.1`). Without `--scenario` the server does not simulate. `--log-format
   json` writes one JSON object per line; `--access-log` logs every HTTP request. Exit
   code 2 means the configuration or a flag is wrong, 1 that the server did not start.
   SIGINT or SIGTERM stops it cleanly (exit 0; nodes see close code 1001).
+- **Browser access.** The console routes answer only requests whose `Host` names the
+  bound address, `localhost`, `127.0.0.1` or `::1` (plus this machine's names and
+  addresses when bound to `0.0.0.0` or `::`); any other name gets 400 (`the host name
+  'x' is not one this server answers to; start it with --allowed-host NAME to allow
+  it`), which stops a web page from re-pointing its own name at the server. Give every
+  other name operators use (the proxy's public name) with `--allowed-host NAME`
+  (repeatable; `*` allows any). The console socket refuses a browser page of another
+  origin; `--allowed-origin https://name` admits one. A state-changing API request
+  (POST, PUT, DELETE) must carry `Content-Type: application/json` or
+  `application/yaml`, an `Authorization` header, or `X-Petal-Client` (403 otherwise),
+  and every API body is limited to 4 MiB (413).
 - **Marking banner.** `--marking-level` (for example `UNCLASSIFIED` or `CUI`) and
   `--marking-line` (the full banner text) are shown at the top and bottom of every
   console screen. They are deployment settings, never inferred; with neither there is
@@ -283,27 +343,41 @@ curl -s http://127.0.0.1:18731/healthz
 ```
 
 ```
-{"version":"0.1.0","marking":{"level":"UNCLASSIFIED","line":"UNCLASSIFIED // TEST"},"simulation":false,"server_t_ns":"1794583261086754925","config_name":"my-network","api_token_required":true}
-{"server_t_ns":"1794583261115582971","config_version":1,"nodes":[{"site_id":"tokyo","node_id":"e6fde880-...","online":true,"latency_ms":2.38,"clock":{"source":"ntp","locked":true,"est_offset_ns":0.0,"holdover_s":0.0}, ...
-{"status":"ok","version":"0.1.0","nodes_online":1}
+{"version":"0.1.0","marking":{"level":"UNCLASSIFIED","line":"UNCLASSIFIED // TEST"},"simulation":false,"server_t_ns":"1794608306304280131","config_name":"my-network","api_token_required":true}
+{"server_t_ns":"1794608306314802127","config_version":1,"nodes":[{"site_id":"tokyo","node_id":"b26c4fd3-...","online":true,"latency_ms":3.78,"clock":{"source":"ntp","locked":true,"est_offset_ns":0.0,"holdover_s":0.0},"driver":"noise", ...
+{"status":"ok","version":"0.1.0","nodes_online":2}
 ```
 
+  A configuration document sent with curl needs its type, since curl's default
+  (`application/x-www-form-urlencoded`) is refused: `curl -X POST -H "Authorization:
+  Bearer $(cat api-token.txt)" -H "Content-Type: application/yaml" --data-binary
+  @my-network.yaml http://127.0.0.1:18731/api/v1/config/validate`.
 - **TLS.** The server speaks plain HTTP and WebSocket. In production bind it to
   127.0.0.1 and put a TLS-terminating reverse proxy in front of it. The proxy must pass
   WebSocket upgrades on `/ws/node` and `/ws/ui`, allow messages of 1 MiB, not buffer
   responses (spectrum and event streams), keep idle WebSockets open longer than the 20 s
   keepalive, cap connections per client (the server cannot abort a half-open
-  connection), and serve `/`, `/api/`, `/node/v1/sim` and `/healthz`. Without TLS the
-  node tokens and the API token travel in clear text. No proxy configuration was tested
-  for this document.
+  connection), and serve `/`, `/api/`, `/node/v1/sim` and `/healthz`. It should pass the
+  `Host` header and `X-Forwarded-Proto` (uvicorn trusts forwarded headers from
+  127.0.0.1), and the server needs `--allowed-host <public name>`; without
+  `X-Forwarded-Proto` the console socket also needs `--allowed-origin
+  https://<public name>`. Without TLS the node tokens and the API token travel in clear
+  text. No proxy configuration was tested for this document.
 - **Data directory and retention.** `--data-dir` holds `petal-locate.sqlite3` (WAL
   mode; configurations, scenarios, events with their whole history, measurements,
-  solutions, calibrations, node sessions; append-only, never pruned) and `captures/`
-  (every completed IQ capture as a SigMF pair; the oldest are deleted beyond 512 MiB;
-  there is no flag to change that). Restarting on the same directory resumes it: the
-  newest configuration saved through the console wins over the `--config` file (the log
-  says so), and earlier events appear as inactive history. Back up or rotate the
-  directory with the server stopped.
+  solutions, calibrations, node sessions) and `captures/` (every completed IQ capture as
+  a SigMF pair). Captures are kept up to `--capture-limit-bytes` in total (default
+  536870912, 512 MiB); the oldest are deleted beyond it. Event history is kept for ever
+  unless `--history-max-age-s S` (delete events not updated for S seconds, with their
+  transitions, evidence, measurements and solutions; calibrations and closed node
+  sessions older than S go too) or `--history-max-events N` (keep the N most recently
+  updated events) is given; the store applies them when it opens and then at most once a
+  minute while events are written. For example, a server started on the store of an
+  earlier run with `--history-max-age-s 3600 --history-max-events 100` logged `history
+  retention: deleted 1 event(s), 8 calibration(s), 7 node session(s)` as it opened.
+  Restarting on the same directory resumes it: the newest configuration saved through
+  the console wins over the `--config` file (the log says so), and earlier events
+  appear as inactive history. Back up or rotate the directory with the server stopped.
 - **Configuration changes** made in the console are validated, saved with a new version
   and pushed to the nodes at once; an editor holding an older version gets a conflict
   instead of overwriting.
@@ -339,7 +413,13 @@ petal-locate node --server ws://127.0.0.1:18731 --site tokyo --driver noise --st
   it is refused (`duplicate_node`) while the first is connected. Run exactly one node per
   site.
 - **Drivers.** `--driver soapy|sigmf|noise|sim`, options as `--driver-option KEY=VALUE`
-  (YAML scalars; unknown options exit 2).
+  (YAML scalars) for every channel, and `--channel-option CHANNEL:KEY=VALUE` (repeatable)
+  for one channel on top of those, for example one radio per channel. Every channel's
+  options are checked before the node dials out (unknown options exit 2, naming the
+  channel: `petal-locate node: --driver sigmf (channel manila-a): options: driver
+  'sigmf' refused its options (... unexpected keyword argument 'bogus')`). The options
+  every channel gets must be complete on their own (a `path` or `device` the driver
+  requires cannot be given per channel only).
   - `soapy` (real radios; untested on hardware): `--soapy-device ARGS` (SoapySDR device
     string, for example `driver=rtlsdr` or `driver=uhd,serial=...`), and options
     `rf_channel`, `center_hz`, `sample_rate_hz` (default: chosen to cover the monitors),
@@ -347,72 +427,129 @@ petal-locate node --server ws://127.0.0.1:18731 --site tokyo --driver noise --st
     `antenna`, `clock_source` and `time_source` (for example `external` or `gpsdo`),
     `time_sync` (`pps`, `host` or `device`; use `pps` with a GPSDO), `lock_sensor` (the
     device sensor that says the reference is locked, for example `ref_locked`),
-    `buffer_s` (4). Without the bindings every channel fails when it opens:
+    `buffer_s` (4). With one radio per channel, give each its device string. Without the
+    bindings every channel fails when it opens:
 
     ```bash
-    petal-locate node --server ws://127.0.0.1:18731 --site manila --driver soapy --soapy-device driver=rtlsdr --driver-option time_sync=pps
+    petal-locate node --server ws://127.0.0.1:18731 --site manila --driver soapy --driver-option time_sync=pps --channel-option manila-a:device=driver=rtlsdr,serial=00000001 --channel-option manila-b:device=driver=rtlsdr,serial=00000002
     ```
 
     ```
-    ... ERROR   petal_locate.node.agent: driver failed to open: driver: the SoapySDR Python bindings are not installed (system package python3-soapysdr, or the 'sdr' extra of petal-locate); the soapy driver cannot open (No module named 'SoapySDR') ... channel_id=manila-a
+    ... ERROR   petal_locate.node.agent: driver failed to open: driver: the SoapySDR Python bindings are not installed (system package python3-soapysdr, or SoapySDR built from source; they are not on PyPI); the soapy driver cannot open (No module named 'SoapySDR') ... channel_id=manila-b
+    ... ERROR   petal_locate.node.agent: driver failed to open: driver: the SoapySDR Python bindings are not installed ... channel_id=manila-a
+    ... INFO    petal_locate.node.agent: assignment applied ... channels_ok=[] channels_failed="['manila-a', 'manila-b']"
     ```
   - `sigmf` (replay a recording as a radio, with its timestamps): `--sigmf-path` names
     the `.sigmf-meta` (or `.sigmf-data`) file; `cf32_le` only; options `loop`, `t0_ns`,
-    `realtime`, `clock_locked`. One recording serves every channel of the node, so a
-    channel outside its band fails every frame:
+    `realtime`, `clock_locked`. One recording serves every channel that has no `path`
+    of its own, and a channel outside its recording's band fails every frame
+    (`monitor frame failed: out_of_range: requested band ... is outside the available
+    band ...`). A node file gives each channel its own recording:
+
+    ```yaml
+    # manila-node.yaml: one recording per channel.
+    driver_options: {path: ./rec-267.sigmf-meta, loop: true}   # every channel
+    channels:
+      manila-b: {path: ./rec-260.sigmf-meta}                   # this channel's own recording
+    ```
 
     ```bash
-    petal-locate node --server ws://127.0.0.1:18731 --site manila --driver sigmf --sigmf-path ./rec-267.sigmf-meta --driver-option loop=true --clock free --clock-unlocked --state-path ./manila-node.json
+    petal-locate node --server ws://127.0.0.1:18731 --site manila --driver sigmf --node-config manila-node.yaml --clock free --clock-unlocked --state-path ./manila-node.json
     ```
 
     ```
-    ... INFO    petal_locate.node.drivers.sigmf: sigmf recording open channel_id=manila-a ... sample_rate_hz=62500.0 center_hz=267400000.0 ... loop=True
-    ... WARNING petal_locate.node.monitor: monitor frame failed: out_of_range: requested band 259984375.000..260015625.000 Hz (31250 Hz at 260000000.000 Hz) is outside the available band 267368750.000..267431250.000 Hz channel_id=manila-b ...
+    ... INFO    petal_locate.node.drivers.sigmf: sigmf recording open channel_id=manila-b meta_path=rec-260.sigmf-meta sample_rate_hz=62500.0 center_hz=260000000.0 ... loop=True
+    ... INFO    petal_locate.node.drivers.sigmf: sigmf recording open channel_id=manila-a meta_path=rec-267.sigmf-meta sample_rate_hz=62500.0 center_hz=267400000.0 ... loop=True
+    ... INFO    petal_locate.node.agent: assignment applied ... channels_ok="['manila-a', 'manila-b']" channels_failed=[]
     ```
   - `noise` (unit noise, for checking the plumbing) and `sim` (simulated radios; only
     against a server started with `--scenario`, as the demo does).
+- **Node file.** `--node-config FILE` is YAML with the keys `driver_options` (every
+  channel), `channels` (channel id to that channel's options), `chunk_payload_bytes`
+  and `send_buffer_bytes`; any other key exits 2. Flags win over the file.
+- **Slow uplinks.** `--chunk-payload-bytes N` (8 to 262144, default 32768) is the sample
+  payload of one capture chunk: lower it so that a chunk crosses the uplink well within
+  three heartbeat periods (6 s). `--send-buffer-bytes N` sets the socket send buffer
+  (for example 262144), which bounds how long control messages wait behind samples
+  already handed to the kernel.
 - **Clock flags.** `--clock ntp|gpsdo|free|sim` and `--clock-unlocked` set what the node
-  reports; they do not discipline anything (section 2).
+  reports; they do not discipline anything (section 2). The default is `sim` for
+  `--driver sim` and `ntp` otherwise. `--sim-time-offset-ns` (only with `--driver sim`)
+  moves a simulated node's clock as `petal-locate demo --start` does (section 9).
 - Run the node under a service manager that restarts it; it reconnects by itself after
   network loss or a server restart, with backoff from 1 s to 30 s.
 
 ## 7. Using the console
 
 Open the server's URL (`http://127.0.0.1:18731/` above, or the proxy's). When the server
-has an API token the console asks for it. Screens:
+has an API token the console asks for it once per browser tab; an address that carries
+it (`/?token=<token>`, as the demo prints) hands it to the console and removes it from
+the address bar. The header roll-up shows the worst state of nodes, satellites and
+events: `No data` until the first status arrives, and `not current: status N old` with
+the last level while the link is down (the queue and dossier then say `as of HH:MM:SSZ`
+instead of `now`). A screen that cannot load shows why with a Retry button and is
+retried when the link comes back. Screens:
 
 - **Watch**: the active events (verdict, frequencies, satellites, position and 95 %
-  ellipse) and the map (sites, sub-satellite points, fixes, footprints). Selecting an
-  event opens its dossier: the advisory (what to do, in plain words), the evidence
-  matrix (each site's channel to each satellite: seen, would see but does not, could not
-  see, stale), the position with its ellipse, CEP50, dominant error source, fit and any
-  second candidate, the lines of position, the measurements (value, sigma, calibration
-  correction and its reference, SNR, residual, and why a row is not used), the
-  correlation surface and its cuts, the transitions, and what capture tasking is doing.
+  semi-axes) and the map (sites, sub-satellite points, fixes, footprints). A local
+  event shows the frequency it is received at and the sites that see it. Satellites
+  whose ephemeris the server cannot evaluate are listed as Serious with the server's
+  message. Selecting an event opens its dossier: the start time to report (the onset of
+  the current transmission), `Detected again ... after a break of N` after a loss,
+  satellites not affected (they cannot see the estimated position), the advisory (what
+  to do, in plain words), the evidence matrix (each site's channel to each satellite:
+  seen, would see but does not, could not see, stale), the position with its ellipse,
+  CEP50, dominant error source (`I` ionosphere and `T` troposphere among them), fit and
+  any second candidate, the lines of position, the measurements (value, sigma,
+  calibration correction and its reference, SNR, residual, and why a row is not used),
+  the correlation surface and its cuts, the transitions, what capture tasking is doing,
+  and the ellipse against time (rows set aside after a break or another transmitter are
+  grayed, and a dashed rule marks where the current transmission starts). Cautions:
+  `Not a fix` for a fit whose measurements do not agree (its ellipse is drawn dotted and
+  enlarged, and it is never reported as located), `One of N positions` with every
+  candidate when the system cannot choose between them, `Re-check` while a position
+  from before a break or a change of signal is checked against new measurements, and
+  `Cannot be located` with the reason when no position can be computed.
 - **Spectrum**: live spectrum and waterfall of any monitor window, with the learned
-  baseline and detections (authorised carriers flagged).
-- **Network**: every site's node, its clock (source, lock, offset), latency and channels.
+  baseline and detections (authorized carriers flagged); the header marks a window whose
+  detection is blind or whose noise floor is raised.
+- **Network**: every site's node, its clock (source, lock, offset), its clock offset
+  estimated from the reference calibrations (`By calibration`, with a Caution when a
+  site is 1 us or more off the sites it is compared with, more when the configured clock
+  or ephemeris sigmas are large), latency and channels (a channel names a
+  window that receives frames but accepts none, `detection blind on <window>`, or whose
+  noise floor is raised), and a Satellites table (ephemeris available, or since when
+  not).
 - **Plan**: accuracy maps for chosen channel pairs and an assumed emitter (with a
   what-if uncertainty that does not change the configuration), and the elevation of
-  every satellite from each site.
-- **Configure**: the configuration with field-level validation, warnings, save with
-  version check, YAML export and import.
+  every satellite from each site. The form starts from the loaded configuration (the
+  uplink band most satellites share, pairs at the site that watches most of them).
+- **Configure**: the configuration with field-level validation, warnings (including
+  sites with no node token on the server), save with version check, YAML export and
+  import.
 - **Simulation** (only when the server simulates): presets, the scenario, emitters
-  placed on the map with their link budgets, and truth, labelled simulated.
+  placed on the map with their link budgets, truth errors (ionosphere and troposphere
+  under Propagation media), and truth, labelled simulated. The clock strip says
+  `simulated time, N behind this computer` when the demo runs from a fixed start.
 
 The verdict means: **uplink** — the interference enters on the satellite uplink and
 reaches everyone using that transponder (change channel, transponder or satellite;
 moving the terminal will not help); **local** — it is at one site only (relocate,
 shield or filter there); **undetermined** — the evidence is not enough yet, and the
-dossier says what is missing.
+dossier says what is missing. An event is **located** only when its measurements fit
+one stationary transmitter (reduced chi-square at most
+`processing.solver.max_reduced_chi2`, 5, or a tail probability above 0.001); otherwise
+it stays `locating` with the `Not a fix` caution.
 
 ## 8. Calibration and reference transmitters
 
 Calibration is what makes fixes accurate: it measures, through the same two channels, a
 transmitter at a known position, and subtracts what that measurement shows of satellite
-ephemeris, oscillator and site-clock errors. In the simulator it took the demo jammer's
-median miss from 1.33 km to 0.08 km, and with satellites 6 to 8 km off from 25.2 km to
-0.10 km (RESULTS.md section 5).
+ephemeris, oscillator and site-clock errors, and of the ionosphere and troposphere on
+the downlinks (the part of the uplinks the jammer and the reference do not share
+remains). In the simulator it took the demo jammer's median miss from 1.33 km to
+0.13 km, and with satellites 6 to 8 km off from 25.2 km to 0.13 km (RESULTS.md
+section 5).
 
 - A reference calibrates only pairs whose two transponders both relay it, so put one in
   every channel you want to locate in, and make sure every satellite relays it at full
@@ -425,16 +562,28 @@ median miss from 1.33 km to 0.08 km, and with satellites 6 to 8 km off from 25.2
   every calibrated fix.
 - Calibration cancels what the target and the reference have in common, so it helps
   less with distance (with TLE-grade ephemeris, a predicted 95 % semi-major of 1.2 km
-  near the reference and 4 to 24 km about 3,000 km away). A reference within about
-  1,300 km of every area of interest kept it to 1 to 6.5 km (RESULTS.md section 2.2).
-  Tasking picks the eligible reference nearest in frequency, not nearest in distance.
+  near the reference and 4.4 to 24 km about 3,000 km away) and depends on direction. A
+  reference 650 km from an area of interest, in any direction from which it still sees
+  every satellite the pairs use, kept the TLE-grade semi-major to 1.2 to 4.9 km; at
+  1,300 km it was 2.3 to 3.3 km due east or west but 6.8 to 10 km due north or south
+  (RESULTS.md section 2.5). A reference that cannot see one of the satellites (MUOS
+  Indo-Asia is below the horizon east of about 160 E) leaves that satellite's pairs
+  uncalibrated. With several eligible references, tasking uses the one nearest the
+  event's current fix (nearest in frequency before there is a fix).
 - A reference whose band overlaps the interference is not used for that event, so a
   jammer covering the reference gets no calibration.
-- Transmitting a reference carrier needs the satellite operator's authorisation like
+- Transmitting a reference carrier needs the satellite operator's authorization like
   any other carrier; list it in `carriers` so it is never raised as interference.
 - Settings (`processing.calibration`): `enabled` (true), `interval_s` (30: a pair is
   re-calibrated this often, only while an event uses it), `max_age_s` (300). A
   measurement row shows the correction and the reference it came from.
+- The calibrations also give each site's clock offset (`/status` `site_clocks`, the
+  Network screen's `By calibration` column). With the `clock-fault` scenario's
+  calibrations the fit put Naha at -10.05 us and flagged it; in a live run where every
+  calibration involved Naha's 172 E channel, the offset went to that satellite instead
+  and nothing was flagged. A site joined through one satellite combination only cannot
+  be told apart from those satellites (LIMITATIONS.md section 7), so a clean column is
+  no proof of good clocks.
 
 ## 9. The demo
 
@@ -448,31 +597,59 @@ petal-locate demo --port 0
 
 ```
 PETAL Locate demonstration (SIMULATED data)
-  Console:   http://127.0.0.1:44309/
-  Marking:   UNCLASSIFIED // DEMONSTRATION // SIMULATED DATA
-  Config:    /home/user/petal-dish/locate/config/pacific-uhf.yaml
-  Scenario:  /home/user/petal-dish/locate/config/scenarios/pacific-demo.yaml (simulated)
-  Data:      /tmp/petal-locate-demo-_74duye_ (removed on exit)
-  Nodes:     7 (sim driver): honolulu, hilo, tokyo, naha, seoul, busan, manila
+  Console:    http://127.0.0.1:41403/?token=QIgXBCytF0N6RFmn0yjXficoCAi10HRQ
+  API token:  QIgXBCytF0N6RFmn0yjXficoCAi10HRQ (the address above carries it; enter it if the console asks)
+  Marking:    UNCLASSIFIED
+  Config:     /home/user/petal-dish/locate/config/pacific-uhf.yaml
+  Scenario:   /home/user/petal-dish/locate/config/scenarios/pacific-demo.yaml (simulated)
+  Data:       /tmp/petal-locate-demo-cwvwwbcj (removed on exit)
+  Nodes:      7 (sim driver): honolulu, hilo, tokyo, naha, seoul, busan, manila
 Press Ctrl-C to stop.
 All 7 nodes are online.
 ```
 
-In that run (server log) the nodes were online 1.3 s after the server started, the
-event was raised 2.8 s later, judged uplink 5.0 s after that and located 7.3 s after it
-was raised; the console API then showed `EV-000001 located uplink`, fix 19.9995 N
-131.9998 E, 95 % semi-major 423 m, 104 m from the simulated truth, inside the ellipse.
-Presets are loaded from the Simulation screen or the API:
+Each run makes a random API token (and random node tokens). Open the printed console
+address: it carries the token, which the console keeps for that browser tab and takes
+out of the address bar. The API needs it as a bearer token. In that run (server log) the
+nodes were online 0.6 s after the server started, the event was raised 3.4 s after the
+start, judged uplink 5.0 s after that and located 7.5 s after it was raised; 15 s later
+the console API showed `EV-000001 located uplink`, fix 20.0007 N 132.0000 E, 95 %
+semi-axes 452 by 244 m, 74 m from the simulated truth, inside the ellipse (the preset
+has no ionosphere, but the solver allows for one, so the ellipse is cautious). Presets
+are loaded from the Simulation screen or the API:
 
 ```bash
-curl -s -X POST http://127.0.0.1:44309/api/v1/sim/presets/local-interferer/load
+curl -s -X POST -H "Authorization: Bearer QIgXBCytF0N6RFmn0yjXficoCAi10HRQ" http://127.0.0.1:41403/api/v1/sim/presets/local-interferer/load
 ```
 
 after which the same event turned `local` (`Simulation: Local interference at Busan
-(city centre)`). The presets are listed in `locate/README.md`. `--port 0` picks a free
+(city center)`). The presets are listed in `locate/README.md`. `--port 0` picks a free
 port; `--data-dir` keeps the store; `--driver noise` checks the plumbing without the
-simulator. Ctrl-C (SIGINT) stops the server and every node; the log ends with the
-event-loop lag statistics (`worst 66 ms, 1 of 865 probes over 50 ms` in that run).
+simulator; `--no-api-token` runs without a token (anything that can reach the port can
+then drive the demo; the demo warns). Ctrl-C (SIGINT) stops the server and every node;
+the log ends with the event-loop lag statistics (`worst 21 ms, 0 of 969 probes over
+50 ms` in that run).
+
+The simulated world follows the host clock, so what the satellites do (and when the
+uncalibrated fix has two candidates) depends on the time of day. `--start` runs it from
+a fixed UTC time instead, so that runs can be repeated:
+
+```bash
+petal-locate demo --port 0 --start 2026-11-13T03:00:00Z
+```
+
+```
+  ...
+  Start:      simulated time starts at 2026-11-13T03:00:01Z
+Press Ctrl-C to stop.
+All 7 nodes are online.
+```
+
+The server and every node then run on the host clock plus one fixed offset: the event
+in that run was first seen at 03:00:03Z simulated time and located with 95 % semi-axes
+482 by 241 m. Log lines keep the host time; times in the API and the console are
+simulated. `--start` needs `--driver sim` and a time between 1970 and 2230. The live
+end-to-end tests use it.
 
 ## 10. Accuracy maps and Monte Carlo
 
@@ -484,9 +661,14 @@ IQ. The Plan screen draws it; the command line writes JSON:
 petal-locate accuracy --config my-network.yaml --pair tokyo-a,tokyo-b --f-e-hz 301.005e6 --eirp-dbw 20 --bandwidth-hz 10e3 --step-deg 2 --time 2026-01-01T03:00:00Z --reference-carrier ref-guam --out acc.json
 ```
 
-It took 1.9 s for 2116 cells and gave a value in 2041 of them, the best 1.55 km (one
-pair, one TDOA and one FDOA, satellite B with TLE-grade sigmas). `--request FILE` takes
-the API's request document instead of flags (an `uncertainty` block there is a what-if).
+It took 2.1 s for 2116 cells and gave a value in 2041 of them, the best 1.55 km (one
+pair, one TDOA and one FDOA, satellite B with TLE-grade sigmas; the dominant error is
+that satellite's velocity everywhere). `--request FILE` takes the API's request
+document instead of flags (an `uncertainty` block there is a what-if; it may set the
+ionosphere and troposphere sizes too). The planning code takes a pair end
+`channel@satellite` for a fixed-pointing channel that watches several satellites
+relaying the frequency, but this command and the API do not accept that form yet
+(LIMITATIONS.md section 8).
 
 **Monte Carlo** (simulated): the full chain, simulated IQ through the correlator and the
 solver, many times with independent noise, against a configuration and a scenario:
@@ -496,12 +678,14 @@ petal-locate montecarlo --config config/pacific-uhf.yaml --scenario config/scena
 petal-locate montecarlo --config config/pacific-uhf.yaml --scenario config/scenarios/pacific-demo.yaml --trials 2 --seed 1 --draw-errors --param use_calibration=false
 ```
 
-The first (calibrated, the scenario's own truth errors) took 3.5 s: 4 of 4 solved,
-median miss 109 m, mean NEES 1.90 with the total covariance (2 expected). The second
-(errors drawn from the configured uncertainties, no calibration) gave a median miss of
-1.8 km. `--param` passes any other `run_trials` argument (`capture_s`, `fs`, `t_ns`,
-`pairs`, `reference_carrier_id`); `--out` keeps every trial. Use a few hundred trials
-for statistics; each takes about 1 s.
+The first (calibrated, the scenario's own truth errors) took 4.5 s: 4 of 4 solved,
+median miss 114 m, mean NEES 0.81 with the total covariance (2 expected; the scenario
+has no ionosphere or troposphere while the solver allows for both, so its ellipses are
+cautious). The second (errors drawn from the configured uncertainties, an ionosphere
+and a troposphere drawn for every trial, no calibration) gave a median miss of 1.8 km.
+`--param` passes any other `run_trials` argument (`capture_s`, `fs`, `t_ns`, `pairs`,
+`reference_carrier_id`); `--out` keeps every trial. Use a few hundred trials for
+statistics; each takes about 1 s.
 
 ## 11. Troubleshooting
 
@@ -511,27 +695,54 @@ for statistics; each takes about 1 s.
   configuration), `duplicate_node` (another node holds the site), `protocol_mismatch`
   (version skew; the node stops). The server logs every rejected hello with its reason.
   A node silent for three heartbeat periods (6 s) is closed with 4002: check the uplink
-  (section 2); on a very slow link lower the capture chunk size (a `NodeAgent` option,
-  `chunk_payload_bytes`, not a command-line flag).
+  (section 2); on a very slow link lower `--chunk-payload-bytes` (section 6).
+- **Site has no node token** (warning in the Configure screen, `GET /api/v1/config` or
+  the server's start-up log): add the site to the tokens file; the server reads it
+  again when it changes.
 - **Channel failed in the ack** (`channels_failed` in the node log, `ok: false` on the
   Network screen): the driver did not open (missing SoapySDR, device busy, out of
   range). A channel whose monitors fall outside its radio's range fails each frame with
   `out_of_range`.
+- **Detection blind** (`detection blind on <window>` on the Network screen, `ok:
+  false`; server log `window X/Y: detection is blind, no frame accepted for 10 frame
+  periods while frames arrive (...)`): frames reach the server but none is accepted,
+  for example frames whose span or rate differs from the assignment. Frames stamped
+  more than 60 s ahead of the server clock are dropped (`site 'x' sends spectrum frames
+  stamped N s ahead of the server clock ...`, once per session): fix the node's clock.
+  A node clock that steps back by more than three frame periods is taken as a clock
+  step (`the node's clock stepped back, its frames are accepted from this one on`);
+  check its time reference.
 - **Clock unlocked.** Rows read `clock_unlocked` and pairs across sites give FDOA only.
   Check the GPSDO's antenna and lock; captures within one site still give TDOA.
 - **No detections.** Run `petal-locate check` at the time in question: is the satellite
   above the site's horizon, does a monitor window cover the downlink (`Monitor
-  windows`), is the signal detectable there (the `detectable` column, or
-  `POST /api/v1/analysis/link-budget` for an assumed emitter)? The
-  tracker learns its baseline over `baseline_tau_s` (600 s) and uses a start-up prior for
-  the first tenth of it; a signal that was already on when the tracker started, rose
-  slowly, or sits within a few hundred hertz of an authorised carrier may not be raised
-  (LIMITATIONS.md section 6). A configuration change rebuilds the trackers it touches.
+  windows`, and the coverage warnings), is the signal detectable there (the
+  `detectable` column, or `POST /api/v1/analysis/link-budget` for an assumed emitter)?
+  The tracker learns its baseline over `baseline_tau_s` (600 s) and uses a start-up
+  floor for the first tenth of it; a signal already on at start-up is found against
+  that floor unless it fills the whole window. A window-filling signal is learned as
+  that window's noise; the server then logs `window X/Y: its noise floor is N dB above
+  the channel's other windows; a signal filling the window may be taken for its noise`
+  and the Network and Spectrum screens show the raised floor (only for a channel with
+  other windows of the same span). A signal that rose slowly, or sits within a few
+  hundred hertz of an authorized carrier, may not be raised (LIMITATIONS.md section 6).
+  A configuration change rebuilds the trackers it touches.
 - **No position.** The dossier's tasking status says why: `fewer than two accepted
   measurements` (pairs still `unconfirmed`: the first detection of each pair waits for a
   repeat, one round of 5 s), `unobservable` (for example a CW, FDOA only, without
   calibration), `ambiguous` correlations (a periodically swept jammer), `narrowband`
   (no TDOA), or no second satellite with a usable channel relays the frequency (`idle`).
+  When the signal itself cannot be located (it repeats itself, its delay and Doppler
+  are coupled, or fewer than two visible satellites relay it) the dossier says so
+  under `Cannot be located`, and the advisory says no position can be computed.
+  `Satellite X: orbit not available (...); its pairs are not tasked` means that
+  satellite's ephemeris does not cover the present (an ephemeris table that ended;
+  also on the Watch and Network screens): load a current ephemeris.
+- **Not a fix** (Caution in the dossier, `Measurements inconsistent: no fix` in the
+  queue). The measurements do not fit one stationary transmitter: two transmitters on
+  the frequency, a moving one, or a fault larger than the configured uncertainties.
+  The position is shown with its ellipse enlarged by the square root of the reduced
+  chi-square and must not be reported.
 - **Ambiguous fixes** (two candidates drawn, "unresolved"). Uncalibrated two-pair
   geometry crosses twice at some times of day; calibration removed it in every simulated
   case. Otherwise more pairs or rows over time, or a tighter `processing.region`, decide
@@ -542,10 +753,27 @@ for statistics; each takes about 1 s.
   really blind (antenna pointing, a wrong antenna model or noise temperature makes its
   predicted margin optimistic), correct the configuration. An uplink event whose signal
   stops while a local one takes its frequency turns local after 15 s and its old
-  position is set aside; an event detected again after more than 30 s starts afresh.
+  position is set aside.
+- **Event detected again, or the signal changed** (`Re-check` in the dossier). An
+  event back within 30 s keeps its position under re-check, and so does one whose
+  waveform class, level (6 dB) or width (twice) changes: the next detection that
+  agrees keeps it, one that disagrees sets it aside. After a longer break the earlier
+  position and measurements are set aside at once. When another transmitter takes the
+  frequency without a break, the pairs' measurements jump further than the satellites'
+  motion allows and the earlier rows are set aside (`another transmission: ...` in the
+  transitions). Report the dossier's start time: it is the onset of the current
+  transmission.
 - **Event stays undetermined.** No sighting at two sites more than 200 km apart, no
   confirmed cross-satellite correlation yet, and no capable distant site to call it
   local: add sites or channels, or wait for tasking.
 - **Fix outside its ellipse while the fit looks good** (simulation truth, or a known
   test transmitter): suspect a site clock or a satellite position error larger than
-  configured; enable calibration, check the GPSDO, raise the ephemeris sigmas.
+  configured, or an ionosphere above `iono_vtec_tecu`; enable calibration, look at the
+  Network screen's `By calibration` column, check the GPSDO, raise the ephemeris sigmas
+  or the ionosphere level.
+- **Console refused** (`the host name 'x' is not one this server answers to` from a
+  browser or the proxy): start the server with `--allowed-host x`. A console page of
+  another origin whose live view stays empty is refused by the console socket (server
+  log `console socket refused: origin ... is not allowed`): `--allowed-origin`. A
+  script's POST or PUT answered 403 needs `Content-Type: application/json` or
+  `application/yaml`, or the `Authorization` header (section 5).

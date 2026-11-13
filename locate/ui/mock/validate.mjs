@@ -257,7 +257,7 @@ export function configWarnings(cfg) {
       }
       if (ch.antenna?.type !== 'parabolic') return;
       const watched = ch.pointing?.satellite_id ? [ch.pointing.satellite_id] : ch.pointing?.satellite_ids ?? [];
-      // the lowest frequency the channel works at: watched downlinks and its monitor centres
+      // the lowest frequency the channel works at: watched downlinks and its monitor centers
       const working = [
         ...watched.flatMap((id) => (sats.get(id)?.transponders ?? []).map((t) => t.uplink_center_hz + t.translation_hz)),
         ...(ch.monitors ?? []).map((m) => m.center_hz),

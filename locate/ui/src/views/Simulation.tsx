@@ -52,7 +52,7 @@ function EmitterForm({ i, e, cfg }: { i: number; e: EmitterSpec; cfg: SystemConf
           <div className="fieldrow">
             <TextF path={[...base, 'id']} label="Id" mono />
             <TextF path={[...base, 'name']} label="Name" optional />
-            <SelectF path={[...base, 'kind']} label="Kind" options={[['jammer', 'Jammer (via satellites)'], ['local', 'Local interferer'], ['carrier', 'Authorised carrier']]} />
+            <SelectF path={[...base, 'kind']} label="Kind" options={[['jammer', 'Jammer (via satellites)'], ['local', 'Local interferer'], ['carrier', 'Authorized carrier']]} />
             <BoolF path={[...base, 'enabled']} label="Radiating" />
           </div>
           <div className="fieldrow">
@@ -276,10 +276,12 @@ function TruthErrors({ s, cfg }: { s: Scenario; cfg: SystemConfig }) {
         </div>
       </fieldset>
       <fieldset>
-        <legend>Ionosphere</legend>
+        <legend>Propagation media</legend>
         <div className="fieldrow">
-          <BoolF path={['errors', 'iono', 'enabled']} label="Apply ionospheric delay (not modeled by the solver)" />
+          <BoolF path={['errors', 'iono', 'enabled']} label="Apply ionospheric delay" />
           <NumF path={['errors', 'iono', 'vtec_tecu']} label="Vertical TEC" unit="TECU" optional />
+          <BoolF path={['errors', 'tropo', 'enabled']} label="Apply tropospheric delay" />
+          <NumF path={['errors', 'tropo', 'zenith_m']} label="Zenith delay" unit="m" optional />
         </div>
       </fieldset>
     </div>
@@ -303,6 +305,7 @@ export function SimulationView() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmPreset, setConfirmPreset] = useState(false);
   const [preset, setPreset] = useState('');
   const [layers, setLayers] = useLayers('sim', { sites: true, satellites: true, footprints: false, truth: true });
   const cfg = cfgRes.data?.envelope.config ?? null;
@@ -347,6 +350,23 @@ export function SimulationView() {
         setErrors(e.errors.map((p) => ({ loc: p.loc.replace(/^scenario\./, ''), msg: p.msg })));
         setMessage({ kind: 'error', text: `Not applied: ${e.errors.length} problem${e.errors.length === 1 ? '' : 's'}` });
       } else setMessage({ kind: 'error', text: `Not applied: ${(e as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadPreset = async () => {
+    setConfirmPreset(false);
+    setBusy(true);
+    try {
+      const env = await api.loadPreset(preset);
+      setBase(env);
+      setDraft(structuredClone(env.scenario));
+      setSelected(null);
+      setMessage({ kind: 'ok', text: `Loaded preset ${preset} as version ${env.version}` });
+      void truthResource.load();
+    } catch (e) {
+      setMessage({ kind: 'error', text: (e as Error).message });
     } finally {
       setBusy(false);
     }
@@ -453,28 +473,22 @@ export function SimulationView() {
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            className="btn"
-            disabled={!preset || busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const env = await api.loadPreset(preset);
-                setBase(env);
-                setDraft(structuredClone(env.scenario));
-                setSelected(null);
-                setMessage({ kind: 'ok', text: `Loaded preset ${preset} as version ${env.version}` });
-                void truthResource.load();
-              } catch (e) {
-                setMessage({ kind: 'error', text: (e as Error).message });
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            Load preset
-          </button>
+          {confirmPreset ? (
+            // UX-12: loading a preset over unapplied edits asks first, as Reset does
+            <>
+              <span>Load {preset}? Unapplied changes are lost.</span>
+              <button type="button" className="btn primary" disabled={busy} onClick={() => void loadPreset()}>
+                Load {preset}
+              </button>
+              <button type="button" className="btn" onClick={() => setConfirmPreset(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn" disabled={!preset || busy} onClick={() => (dirty ? setConfirmPreset(true) : void loadPreset())}>
+              Load preset
+            </button>
+          )}
           {confirmReset ? (
             <>
               <span>Reset to the scenario the server started with? Unapplied changes are lost.</span>

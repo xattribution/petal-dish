@@ -27,13 +27,34 @@ is detected again within ``REACQUIRE_KEEP_S`` returns to where it was. Every cha
 state or verdict is a ``Transition`` with a reason; transitions are stored and pushed.
 
 Setting aside (``set_aside``). A position is only shown while it belongs to the signal
-on the air. When an event is detected again after a longer loss (``reopen``), or the
+on the air. When an event is detected again after a longer loss (``reopen``), the
 correlator judges an uplink event local after all (the uplink signal stopped and a
-local one took its frequency), the solution and every accepted measurement are set
-aside: the rows stay listed with ``used = false`` and a ``set aside: ...`` reason, the
-solution, class and correlation surface are withdrawn (the ellipses stay in the
-history), progress returns to ``characterizing`` and the next solve uses new
-measurements only.
+local one took its frequency), or tasking finds that another transmitter has taken the
+frequency (``transmission_changed``: a pair's TDOA/FDOA track jumped, or a detection
+disagreed with it while the event was being re-checked), the solution and every
+accepted measurement are set aside: the rows stay listed with ``used = false`` and a
+``set aside: ...`` reason, the solution, class and correlation surface are withdrawn
+(the ellipses stay in the history, marked ``set_aside``), progress returns to
+``characterizing`` and the next solve uses new measurements only. ``set_aside_count``
+counts them, so tasking can restart its confirmation tracks.
+
+Re-check (``mark_recheck``). An event detected again within ``REACQUIRE_KEEP_S`` keeps
+its position, but it may be another transmitter that took the frequency during the
+break; tasking likewise flags a change of waveform class, power or width. While
+``recheck`` is set, the next detection of a pair with a confirmed track decides: one
+that agrees clears it (``clear_recheck``), one that disagrees sets everything aside.
+
+Onset. ``onset_ns`` is when the current transmission began: the first detection after
+the latest break (``reopen``), or the first detection that showed another transmitter
+(``transmission_changed``). The advisory tells the operator to report it as the start
+time; ``first_seen_ns`` stays the first detection of the event.
+
+Fit consistency (``assess_fit``). A converged solution whose reduced chi-square exceeds
+``solver.max_reduced_chi2`` (and is significant, tail probability below
+``FIT_MAX_P_VALUE``) does not fit one stationary transmitter. ``set_solution`` publishes
+it flagged ``fit_consistent = false`` with its ellipse enlarged by
+``sqrt(reduced_chi2)``; the event is then ``locating``, never ``located`` (a located
+event whose new fit is inconsistent goes back to ``locating``).
 
 Publication. Mutations mark a record dirty; ``EventBook.flush`` builds the console
 document once and hands it to the publisher (console and store). A *material* change
@@ -56,13 +77,15 @@ from typing import Any, Final, Literal
 import numpy as np
 from pydantic import ValidationError
 
-from petal_locate.core.geodesy import geodesic_distance_m, radii_of_curvature
+from petal_locate.core.geodesy import destination, geodesic_distance_m, lla_to_ecef, radii_of_curvature
+from petal_locate.core.geometry import elevation_deg
 from petal_locate.core.types import Measurement
 from petal_locate.server.api import schemas
 
 __all__ = [
     "ACTIVE_STATES",
     "DEFAULT_REFRESH_S",
+    "FIT_MAX_P_VALUE",
     "MAX_HISTORY_ROWS",
     "MAX_INACTIVE_RECORDS",
     "MAX_MEASUREMENT_ROWS",
@@ -72,15 +95,18 @@ __all__ = [
     "EventBook",
     "EventNotFound",
     "EventRecord",
+    "FitAssessment",
     "MeasurementEntry",
     "Publication",
     "Space",
     "TruthEmitter",
     "Unit",
     "UnitKey",
+    "assess_fit",
     "caf_display",
     "classification_out",
     "event_truth",
+    "visible_satellites",
 ]
 
 logger = logging.getLogger(__name__)
@@ -91,7 +117,7 @@ ACTIVE_STATES: Final[tuple[str, ...]] = ("detected", "characterizing", "locating
 _PROGRESS: Final[dict[str, int]] = {"detected": 0, "characterizing": 1, "locating": 2, "located": 3}
 
 _MATERIAL_CHANGES: Final[frozenset[str]] = frozenset(
-    {"created", "state", "verdict", "members", "classification", "measurement", "caf", "solution"}
+    {"created", "state", "verdict", "members", "classification", "measurement", "caf", "solution", "recheck"}
 )
 """Change kinds that are published at the next flush whatever the signature says;
 ``evidence`` and ``numeric`` are published at once only when the signature changed."""
@@ -121,6 +147,10 @@ longer loss they are set aside and the event is characterised and located afresh
 
 SET_ASIDE_REASON: Final[str] = "set aside"
 """Prefix of the ``MeasurementRow.reason`` of rows withdrawn by ``set_aside``."""
+
+FIT_MAX_P_VALUE: Final[float] = 1e-3
+"""A fit is inconsistent only when its chi-square is also this improbable (so a small
+number of degrees of freedom needs a larger reduced chi-square to be flagged)."""
 
 Space = Literal["up", "down"]
 """Frequency space of an event: ``up`` for uplink ranges (mapped through a
@@ -255,6 +285,13 @@ class EventRecord:
     historic: bool = False
     downlink_lo_hz: float | None = None
     downlink_hi_hz: float | None = None
+    onset_ns: int | None = None  # start of the current transmission (labelled); None: first_seen_ns
+    resumed_ns: int | None = None  # server time of the latest re-detection after a loss
+    break_s: float | None = None  # length of that loss, s
+    recheck: str | None = None  # why the position is being checked against new detections
+    recheck_since_ns: int | None = None
+    set_aside_count: int = 0  # times set_aside withdrew something (tasking restarts its tracks)
+    not_visible_satellite_ids: list[str] = field(default_factory=list)  # correlator (ADAPT-1)
     # publication bookkeeping (EventBook)
     measurement_seq: int = 0
     published_signature: tuple[Any, ...] | None = None
@@ -306,6 +343,25 @@ class EventRecord:
             if row.state == "seen" and row.site_id not in out:
                 out.append(row.site_id)
         return out
+
+    def received_range(self) -> tuple[float, float] | None:
+        """Union of the downlink ranges of the ``seen`` evidence rows, Hz (what is on the
+        air where it is seen), or None when nothing is seen."""
+        ranges = [
+            (r.downlink_lo_hz, r.downlink_hi_hz)
+            for r in self.evidence
+            if r.state == "seen" and r.downlink_lo_hz is not None and r.downlink_hi_hz is not None
+        ]
+        if not ranges:
+            if self.space == "down" and self.members:
+                return float(self.lo_hz), float(self.hi_hz)
+            return None
+        return float(min(lo for lo, _ in ranges)), float(max(hi for _, hi in ranges))  # type: ignore[type-var]
+
+    @property
+    def onset(self) -> int:
+        """Start of the current transmission (``onset_ns``, else ``first_seen_ns``)."""
+        return self.onset_ns if self.onset_ns is not None else self.first_seen_ns
 
 
 @dataclass(frozen=True)
@@ -583,6 +639,12 @@ class EventBook:
         record.lost_ns = None
         record.settle_from_ns = now
         gap_s = (now - lost_ns) / 1e9 if lost_ns is not None else 0.0
+        # a break ends one transmission: the current one starts with the detections now held
+        record.resumed_ns = now
+        record.break_s = gap_s
+        onsets = [int(u.first_seen_ns) for u in record.members.values()]
+        record.onset_ns = min(onsets) if onsets else now
+        reason = f"{reason} after a break of {_duration_text(gap_s)}"
         if gap_s > REACQUIRE_KEEP_S:
             record.verdict = "undetermined"
             record.verdict_basis = "settling"
@@ -591,30 +653,51 @@ class EventBook:
             record.caf_uplink, record.caf_uplink_pair, record.caf_uplink_ns = False, None, None
             record.local_since_ns = None
             lost_at = _clock_text(lost_ns) if lost_ns is not None else "earlier"
-            reason = f"{reason} after a break of {_duration_text(gap_s)}"
             if record.solution_out is not None:
                 reason += "; the earlier position and measurements are set aside until it is located again"
             elif any(e.row.used for e in record.measurements):
                 reason += "; the earlier measurements are set aside"
             self.set_aside(record, f"measured before the signal was lost at {lost_at}", transition=reason, now=now)
             return
+        if record.solution_out is not None or any(e.row.used for e in record.measurements):
+            # Possibly another transmitter took the frequency during the break: keep the
+            # position, but let the next detections decide (tasking, MATH.md section 8).
+            what = "position" if record.solution_out is not None else "measurements"
+            reason += f"; the earlier {what} is checked against new measurements before it is kept"
+            record.recheck = (
+                f"Detected again after a break of {_duration_text(gap_s)}: the {what} from before the break "
+                "is being checked against new measurements (another transmitter may have taken the frequency)."
+            )
+            record.recheck_since_ns = now
         self.note_transition(record, now, reason)
-        self.touch(record, "state")
+        self.touch(record, "state", "recheck")
 
-    def set_aside(self, record: EventRecord, why: str, *, transition: str | None = None, now: int | None = None) -> bool:
+    def set_aside(
+        self,
+        record: EventRecord,
+        why: str,
+        *,
+        transition: str | None = None,
+        now: int | None = None,
+        keep: Iterable[int] = (),
+    ) -> bool:
         """Withdraw the event's solution and every accepted measurement (see the module
         docstring): rows keep their values with ``used = false`` and the reason
         ``set aside: <why>``; the solution, the classification and the correlation
         surface leave the document (the history keeps the ellipses); progress returns to
-        ``characterizing`` when it was further. A transition is noted with
-        ``transition`` (or a sentence built from ``why``). Returns whether anything
-        changed."""
+        ``characterizing`` when it was further. ``keep``: entry ``seq`` numbers that stay
+        used (rows already known to belong to the current transmission). A transition is
+        noted with ``transition`` (or a sentence built from ``why``). Returns whether
+        anything changed."""
         if record.closed or record.historic:
             return False
         now = self._clock() if now is None else int(now)
         changed = False
         text = f"{SET_ASIDE_REASON}: {why}"
+        kept = {int(k) for k in keep}
         for i, entry in enumerate(record.measurements):
+            if entry.row.used and entry.seq in kept:
+                continue
             if entry.row.used:
                 record.measurements[i] = MeasurementEntry(
                     entry.seq,
@@ -636,10 +719,18 @@ class EventBook:
         record.solution_t_ns = None
         record.solution_used = ()
         record.last_solve_reason = None
-        if _PROGRESS[record.progress] > _PROGRESS["characterizing"]:
-            record.progress = "characterizing"
+        record.recheck = None
+        record.recheck_since_ns = None
+        record.not_visible_satellite_ids = []
+        for i, row in enumerate(record.solution_history):
+            if not row.set_aside:
+                record.solution_history[i] = row.model_copy(update={"set_aside": True})
+        target = "locating" if any(e.row.used for e in record.measurements) else "characterizing"
+        if _PROGRESS[record.progress] > _PROGRESS[target]:
+            record.progress = target
             changed = True
         if changed or transition is not None:
+            record.set_aside_count += 1
             self.note_transition(record, now, transition or f"position set aside: {why}", force=True)
             self.touch(record, "solution", "measurement", "state")
             logger.info(
@@ -796,6 +887,8 @@ class EventBook:
         t_ns: int,
         used: Sequence[int] = (),
         reason: str | None = None,
+        *,
+        max_reduced_chi2: float | None = None,
     ) -> bool:
         """Attach the result of a solve.
 
@@ -805,9 +898,13 @@ class EventBook:
         used: the ``seq`` of the measurement entries given to the solver, in the order
             given (``Solution.residuals`` is in that order); their rows get the
             residuals, every other row gets null.
-        A converged solution moves the event to ``located`` and adds a row to the
-        solution history. Returns False for a closed event or a solution that is not
-        finite. Raises ValueError when ``used`` does not match the residuals.
+        max_reduced_chi2: ``solver.max_reduced_chi2``; the fit is assessed against it
+            (``assess_fit``). None: not assessed (consistent).
+        A converged, consistent solution moves the event to ``located`` and adds a row
+        to the solution history; an inconsistent one is published flagged, with its
+        ellipse enlarged, and keeps (or returns) the event at ``locating``. Returns
+        False for a closed event or a solution that is not finite. Raises ValueError
+        when ``used`` does not match the residuals.
         """
         record = self._target(event_id, "set_solution")
         if record is None:
@@ -827,13 +924,14 @@ class EventBook:
             logger.info("event %s: solution from set-aside rows discarded", record.id, extra={"event_id": record.id})
             return False
         try:
-            data = solution.as_dict()
+            data = _assessed(solution.as_dict(), max_reduced_chi2)
             out = schemas.SolutionOut.model_validate(data)
             text = json.dumps(data, allow_nan=False)
-        except (ValidationError, ValueError) as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             self.counters["rejected"] += 1
             logger.error("event %s: solution rejected: %s", record.id, exc, extra={"event_id": record.id})
             return False
+        was_consistent = record.solution_out.fit_consistent if record.solution_out is not None else None
         by_seq = dict(zip(used_seqs, residuals))
         for i, entry in enumerate(record.measurements):
             residual = _finite_or_none(by_seq.get(entry.seq))
@@ -854,10 +952,28 @@ class EventBook:
                     semi_major_m=out.ellipse.semi_major_m,
                     semi_minor_m=out.ellipse.semi_minor_m,
                     n_measurements=out.n_measurements,
+                    fit_consistent=out.fit_consistent,
                 )
             )
             _cap_keep_first(record.solution_history, MAX_HISTORY_ROWS)
-            self._advance(record, "located", "position estimated")
+            if out.fit_consistent:
+                if was_consistent is False and record.progress == "locating" and not record.lost:
+                    self.note_transition(record, self._clock(), "the measurements agree again", force=True)
+                self._advance(record, "located", "position estimated")
+            else:
+                note = (
+                    f"measurements inconsistent (reduced chi-square {_number(out.reduced_chi2)}): more than one "
+                    "transmitter, a moving one, or a clock or ephemeris fault; the position is not a fix"
+                )
+                if record.progress == "located":
+                    record.progress = "locating"
+                    if not record.lost:
+                        self.note_transition(record, self._clock(), f"position withdrawn: {note}")
+                elif was_consistent is not False and not record.lost:
+                    self.note_transition(record, self._clock(), note, force=True)
+                logger.warning(
+                    "event %s: %s", record.id, note, extra={"event_id": record.id, "reduced_chi2": out.reduced_chi2}
+                )
         self.touch(record, "solution")
         return True
 
@@ -874,6 +990,58 @@ class EventBook:
         if record.tasking != status:
             record.tasking = status
             self.touch(record, "tasking")
+        return True
+
+    def mark_recheck(self, event_id: str, reason: str) -> bool:
+        """Tasking saw the signal change (waveform class, power or width): check the
+        event's position against the next detections (see the module docstring). Only
+        an event with a position or accepted measurements is re-checked; one already
+        being re-checked keeps its first reason. Returns whether the flag was set."""
+        record = self._target(event_id, "mark_recheck")
+        if record is None or record.recheck is not None:
+            return False
+        if record.solution_out is None and not any(e.row.used for e in record.measurements):
+            return False
+        now = self._clock()
+        record.recheck = reason
+        record.recheck_since_ns = now
+        self.note_transition(record, now, f"re-check: {reason}", force=True)
+        self.touch(record, "recheck")
+        return True
+
+    def clear_recheck(self, event_id: str, reason: str) -> bool:
+        """New detections agree with the event's earlier ones: the position is kept.
+        Returns whether a re-check was pending."""
+        record = self._target(event_id, "clear_recheck")
+        if record is None or record.recheck is None:
+            return False
+        now = self._clock()
+        record.recheck = None
+        record.recheck_since_ns = None
+        self.note_transition(record, now, f"re-check passed: {reason}", force=True)
+        self.touch(record, "recheck")
+        return True
+
+    def transmission_changed(
+        self, event_id: str, why: str, onset_ns: int | None = None, keep: Iterable[int] = ()
+    ) -> bool:
+        """Tasking found that another transmitter (or the same one, moved) now holds the
+        event's frequency: everything measured before is set aside (``set_aside``; the
+        entries in ``keep`` belong to the current transmission and stay used) and the
+        current transmission starts at ``onset_ns`` (labelled time of the first
+        detection that showed it; now when None). Returns False for a closed event."""
+        record = self._target(event_id, "transmission_changed")
+        if record is None:
+            return False
+        now = self._clock()
+        record.onset_ns = int(onset_ns) if onset_ns is not None else now
+        record.recheck = None
+        record.recheck_since_ns = None
+        self.set_aside(
+            record, why, transition=f"another transmission: {why}; earlier position and measurements set aside",
+            now=now, keep=keep,
+        )
+        logger.info("event %s: another transmission (%s)", record.id, why, extra={"event_id": record.id})
         return True
 
     def report_cross_satellite_detection(
@@ -942,6 +1110,8 @@ class EventBook:
             None if record.caf is None else record.caf.t_ns,
             record.merged_into,
             len(record.transitions),
+            record.recheck,
+            record.set_aside_count,
         )
 
     def flush(self, *, force: bool = False) -> list[EventRecord]:
@@ -1061,6 +1231,7 @@ class EventBook:
                 truth = self._truth(record)
             except Exception:  # truth is a display aid; never let it stop publication
                 logger.exception("simulation truth failed", extra={"event_id": record.id})
+        received = record.received_range()
         return schemas.Event(
             id=record.id,
             state=record.state,  # type: ignore[arg-type]
@@ -1087,6 +1258,14 @@ class EventBook:
             merged_into=record.merged_into,
             simulated=bool(self._simulated()),
             tasking=record.tasking,
+            not_visible_satellite_ids=list(record.not_visible_satellite_ids),
+            onset_ns=record.onset,
+            resumed_ns=record.resumed_ns,
+            break_s=_finite_or_none(record.break_s),
+            recheck=record.recheck,
+            received_lo_hz=received[0] if received is not None else None,
+            received_hi_hz=received[1] if received is not None else None,
+            seen_site_ids=record.seen_sites(),
         )
 
     def summary(self, record: EventRecord) -> schemas.EventSummary:
@@ -1102,6 +1281,7 @@ class EventBook:
                 semi_minor_m=solution.ellipse.semi_minor_m,
                 azimuth_deg=solution.ellipse.azimuth_deg,
                 cep50_m=solution.cep50_m,
+                fit_consistent=solution.fit_consistent,
                 ambiguous=bool(solution.ambiguities),
                 ambiguities=[
                     schemas.AmbiguitySummary(
@@ -1114,6 +1294,7 @@ class EventBook:
                     for a in solution.ambiguities
                 ],
             )
+        received = record.received_range()
         if doc is not None:
             return schemas.EventSummary(
                 id=doc.id,
@@ -1128,6 +1309,10 @@ class EventBook:
                 headline=doc.advisory.headline,
                 solution=summary_solution,
                 simulated=doc.simulated,
+                onset_ns=doc.onset_ns,
+                received_lo_hz=doc.received_lo_hz,
+                received_hi_hz=doc.received_hi_hz,
+                seen_site_ids=list(doc.seen_site_ids),
             )
         return schemas.EventSummary(
             id=record.id,
@@ -1142,6 +1327,10 @@ class EventBook:
             headline=self._advisor(record).headline,
             solution=summary_solution,
             simulated=bool(self._simulated()),
+            onset_ns=record.onset,
+            received_lo_hz=received[0] if received is not None else None,
+            received_hi_hz=received[1] if received is not None else None,
+            seen_site_ids=record.seen_sites(),
         )
 
     # ----------------------------------------------------------------- history
@@ -1195,6 +1384,10 @@ class EventBook:
                 historic=True,
                 downlink_lo_hz=doc.downlink_lo_hz,
                 downlink_hi_hz=doc.downlink_hi_hz,
+                onset_ns=doc.onset_ns,
+                resumed_ns=doc.resumed_ns,
+                break_s=doc.break_s,
+                not_visible_satellite_ids=list(doc.not_visible_satellite_ids),
                 stored_doc=doc,
             )
             record.progress = _last_progress(doc.transitions)
@@ -1220,6 +1413,125 @@ def _last_progress(transitions: Sequence[schemas.Transition]) -> str:
         if transition.state in _PROGRESS and _PROGRESS[transition.state] > _PROGRESS[best]:
             best = transition.state
     return best
+
+
+# ------------------------------------------------------------------ fit consistency
+
+
+@dataclass(frozen=True)
+class FitAssessment:
+    """Whether a solve fits one stationary transmitter (``assess_fit``).
+
+    consistent: False when the reduced chi-square exceeds the limit and the chi-square
+    is significant. p_value: ``P(chi2_dof >= chi2)`` (None when ``dof < 1``).
+    scale: factor for the ellipse axes (``sqrt(reduced_chi2)`` when inconsistent, else 1).
+    """
+
+    consistent: bool
+    p_value: float | None
+    scale: float
+
+
+def assess_fit(chi2: float, dof: int, reduced_chi2: float | None, max_reduced_chi2: float | None) -> FitAssessment:
+    """Assess a solve's fit (module docstring, *Fit consistency*).
+
+    chi2, dof, reduced_chi2: ``Solution.chi2``, ``.dof``, ``.reduced_chi2``.
+    max_reduced_chi2: the limit (``solver.max_reduced_chi2``); None assesses nothing
+    (always consistent, the p-value is still given).
+    """
+    p_value: float | None = None
+    if dof >= 1 and math.isfinite(float(chi2)):
+        from scipy.special import gammaincc  # deferred: only solves need it
+
+        p_value = float(gammaincc(0.5 * dof, 0.5 * max(float(chi2), 0.0)))
+        if not math.isfinite(p_value):
+            p_value = None
+    if max_reduced_chi2 is None or reduced_chi2 is None or not math.isfinite(float(reduced_chi2)):
+        return FitAssessment(True, p_value, 1.0)
+    inconsistent = float(reduced_chi2) > float(max_reduced_chi2) and p_value is not None and p_value < FIT_MAX_P_VALUE
+    if not inconsistent:
+        return FitAssessment(True, p_value, 1.0)
+    return FitAssessment(False, p_value, math.sqrt(float(reduced_chi2)))
+
+
+def _assessed(data: dict[str, Any], max_reduced_chi2: float | None) -> dict[str, Any]:
+    """``Solution.as_dict()`` with the fit assessment applied (``fit_consistent``,
+    ``fit_p_value``, ``ellipse_scale``; covariances, ellipse axes and CEP enlarged when
+    inconsistent), its ambiguities each on their own chi-square."""
+    fit = assess_fit(float(data["chi2"]), int(data["dof"]), data.get("reduced_chi2"), max_reduced_chi2)
+    out = dict(data)
+    out["fit_consistent"] = fit.consistent
+    out["fit_p_value"] = fit.p_value
+    out["ellipse_scale"] = fit.scale
+    if fit.scale != 1.0:
+        k2 = fit.scale * fit.scale
+        for name in ("cov_en_m2", "cov_noise_en_m2", "cov_consider_en_m2"):
+            out[name] = [[float(v) * k2 for v in row] for row in data[name]]
+        ellipse = dict(data["ellipse"])
+        ellipse["semi_major_m"] = float(ellipse["semi_major_m"]) * fit.scale
+        ellipse["semi_minor_m"] = float(ellipse["semi_minor_m"]) * fit.scale
+        out["ellipse"] = ellipse
+        out["cep50_m"] = float(data["cep50_m"]) * fit.scale
+    out["ambiguities"] = [_assessed(dict(a), max_reduced_chi2) for a in data.get("ambiguities", [])]
+    return out
+
+
+def _number(value: float | None) -> str:
+    """A reduced chi-square for text: ``4.2``, ``57``, ``2.0e+08``."""
+    if value is None or not math.isfinite(value):
+        return "unknown"
+    if value >= 1e4:
+        return f"{value:.1e}"
+    return f"{value:.2g}" if value < 10 else f"{value:,.0f}"
+
+
+def visible_satellites(
+    solution: schemas.SolutionOut,
+    orbits: Mapping[str, Any],
+    sat_ids: Sequence[str],
+    t_s: float,
+    min_elevation_deg: float,
+) -> list[str]:
+    """The satellites of ``sat_ids`` that can see the transmitter: above
+    ``max(min_elevation_deg, 0)`` at the solution, at an end of one of its 95 % ellipse
+    axes, or at any ambiguity likewise. A satellite whose orbit is unknown or cannot be
+    evaluated at ``t_s`` is kept (it cannot be ruled out). Order of ``sat_ids``."""
+    lats: list[float] = []
+    lons: list[float] = []
+    for candidate in [solution, *solution.ambiguities]:
+        lats.append(candidate.lat_deg)
+        lons.append(candidate.lon_deg)
+        e = candidate.ellipse
+        for bearing, dist in (
+            (e.azimuth_deg, e.semi_major_m),
+            (e.azimuth_deg + 180.0, e.semi_major_m),
+            (e.azimuth_deg + 90.0, e.semi_minor_m),
+            (e.azimuth_deg + 270.0, e.semi_minor_m),
+        ):
+            if not (math.isfinite(dist) and 0.0 < dist < 2.0e7):
+                continue
+            try:
+                lat, lon = destination(candidate.lat_deg, candidate.lon_deg, bearing, dist)
+            except ValueError:
+                continue
+            lats.append(float(lat))
+            lons.append(float(lon))
+    points = lla_to_ecef(np.asarray(lats), np.asarray(lons), solution.height_m)
+    floor = max(float(min_elevation_deg), 0.0)
+    out: list[str] = []
+    for sat_id in sat_ids:
+        orbit = orbits.get(sat_id)
+        if orbit is None:
+            out.append(sat_id)
+            continue
+        try:
+            el = np.asarray(elevation_deg(points, orbit, float(t_s)), dtype=np.float64)
+        except ValueError:
+            out.append(sat_id)
+            continue
+        if el.size == 0 or float(np.nanmax(el)) >= floor:
+            out.append(sat_id)
+    return out
 
 
 # ------------------------------------------------------------------ conversions

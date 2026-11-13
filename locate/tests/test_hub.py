@@ -224,13 +224,14 @@ def psd_frame(
     values: np.ndarray,
     *,
     center_hz: float = 2.5e8,
+    t_ns: int | None = None,
 ) -> bytes:
     """A spectrum frame: header of PROTOCOL.md plus float32[nfft] little-endian."""
     header = {
         "type": "psd",
         "channel_id": channel_id,
         "monitor_id": monitor_id,
-        "t_ns": time.time_ns(),
+        "t_ns": time.time_ns() if t_ns is None else t_ns,
         "center_hz": center_hz,
         "span_hz": 25000.0,
         "nfft": int(values.shape[0]),
@@ -746,9 +747,24 @@ async def test_good_handshake(served: Served) -> None:
         assert status["online"] is True
         assert status["clock"] == CLOCK
         assert (status["driver"], status["software"]) == ("noise", "fake-node 0.1")
+        no_health = {  # what a window shows without a detection pipeline behind the hub
+            "last_frame_age_s": None,
+            "detection_frame_age_s": None,
+            "blind": False,
+            "blind_reason": None,
+            "learning": None,
+            "floor_raised_db": None,
+            "note": None,
+        }
         assert status["channels"] == [
-            {"channel_id": "a1", "ok": True, "last_frame_age_s": None},
-            {"channel_id": "a2", "ok": True, "last_frame_age_s": None},
+            {
+                "channel_id": channel_id,
+                "ok": True,
+                "last_frame_age_s": None,
+                "windows": [{"monitor_id": "m0", **no_health}, {"monitor_id": "m1", **no_health}],
+                "detection_problem": None,
+            }
+            for channel_id in ("a1", "a2")
         ]
         # ISO 8601 UTC, as PROTOCOL.md section B wants for times that are not *_ns.
         assert status["connected_since"].endswith("Z") and "T" in status["connected_since"]
@@ -1830,6 +1846,125 @@ async def test_sim_update_reaches_every_node(served: Served) -> None:
             await hub.announce_sim_update(5, 1.5e18)  # type: ignore[arg-type]
         with pytest.raises(ValueError):
             await hub.announce_sim_update(-1, effective_ns)
+
+
+async def test_a_sim_update_that_meets_unopened_channels_is_sent_again_after_the_ack(served: Served) -> None:
+    """K1: a node hands `sim_update` only to channels that are open. One announced while
+    the node was still opening them (between welcome and assign_ack, as happens when a
+    scenario is loaded in the first seconds of a session) was lost, and the node's radios
+    stayed on the old world for good. The hub sends the newest update again after the
+    ack; a node that had acknowledged already gets it once."""
+    hub = served.hub
+    async with FakeNode.connect(served) as a, FakeNode.connect(served) as b:
+        welcome = await a.join("site-a", "node-a", ack=False)
+        await b.join("site-b", "node-b")
+        await hub.announce_sim_update(4, time.time_ns() + 10**9)
+        await hub.announce_sim_update(5, time.time_ns() + 2 * 10**9)
+        assert (await a.expect("sim_update"))["version"] == 4
+        assert (await a.expect("sim_update"))["version"] == 5
+        assert [(await b.expect("sim_update"))["version"] for _ in range(2)] == [4, 5]
+        await a.ack(welcome)
+        again = await a.expect("sim_update")  # the newest, after the ack
+        assert again["version"] == 5 and type(again["effective_ns"]) is int
+        await a.heartbeat()  # nothing else follows: the next message is the heartbeat's ack
+        await b.heartbeat()  # site-b had its channels open: no second copy
+        assert hub.counters()["sim_update_resent"] == 1
+        # A reassignment closes and reopens channels: the same holds until its ack.
+        served.world.version = 8
+        await hub.reassign(["site-a"])
+        assign = await a.expect("assign")
+        await hub.announce_sim_update(6, time.time_ns() + 10**9)
+        assert (await a.expect("sim_update"))["version"] == 6
+        await a.ack(assign)
+        assert (await a.expect("sim_update"))["version"] == 6
+        await a.heartbeat()
+        assert hub.counters()["sim_update_resent"] == 2
+
+
+async def test_spectrum_frames_stamped_far_in_the_future_are_dropped_and_warned_once(served: Served) -> None:
+    """SRV-1: one frame stamped minutes ahead became the window's newest time, and the
+    detection pipeline then refused every correct frame; status still showed a fresh
+    frame. The hub now drops such frames before they count."""
+    hub = served.hub
+    got: list[PsdFrame] = []
+    hub.subscribe_psd(got.append)
+    values = np.full(64, -90.0, dtype=np.float32)
+    with logged("petal_locate.server.hub", logging.WARNING) as messages:
+        async with FakeNode.connect(served) as node:
+            await node.join()
+            ahead = time.time_ns() + 300 * 10**9
+            await node.send(psd_frame("a1", "m0", 0, values, t_ns=ahead))
+            await node.send(psd_frame("a1", "m1", 1, values, t_ns=ahead + 10**9))
+            await node.sync()
+            assert hub.last_frame_age_s("a1", "m0") is None  # not counted as the newest frame
+            await node.send(psd_frame("a1", "m0", 2, values, t_ns=time.time_ns() + 30 * 10**9))  # within a minute
+            await node.send(psd_frame("a1", "m0", 3, values))
+            await node.sync()
+            await eventually(lambda: len(got) == 2)
+    assert [f.header.seq for f in got] == [2, 3]
+    assert hub.counters()["psd_dropped_future"] == 2
+    future = [m for m in messages if "ahead of the server clock" in m]
+    assert len(future) == 1 and "site-a" in future[0]
+
+
+async def test_the_hub_stamps_and_judges_times_on_the_clock_it_is_given() -> None:
+    """K8 with SRV-1: with a simulated start the server clock is shifted; the hub takes it
+    (no patching of its module) for welcome, heartbeat acks, frame receipt and the check
+    of frames from the future, so a simulated node's frames are not refused."""
+    offset_ns = 3 * 86_400 * 10**9
+    async with serving(make_settings(sim_time_offset_ns=offset_ns)) as running:
+        hub = running.hub
+        assert hub_module.time is time  # the module is not patched for a hub that takes a clock
+        got: list[PsdFrame] = []
+        hub.subscribe_psd(got.append)
+        async with FakeNode.connect(running) as node:
+            welcome = await node.join()
+            assert abs(welcome["server_t_ns"] - (time.time_ns() + offset_ns)) < 5 * 10**9
+            ack = await node.heartbeat()
+            assert abs(ack["server_t_ns"] - (time.time_ns() + offset_ns)) < 5 * 10**9
+            values = np.zeros(64, dtype=np.float32)
+            await node.send(psd_frame("a1", "m0", 0, values, t_ns=time.time_ns() + offset_ns))
+            await node.sync()
+            await eventually(lambda: len(got) == 1)
+            assert abs(got[0].received_ns - (time.time_ns() + offset_ns)) < 5 * 10**9
+            (status,) = hub.node_status()
+            assert status["connected_since"][:10] == time.strftime("%Y-%m-%d", time.gmtime(time.time() + offset_ns / 1e9))
+    assert hub.counters().get("psd_dropped_future", 0) == 0
+
+
+async def test_window_health_reaches_node_status_and_a_blind_window_makes_its_channel_not_ok(served: Served) -> None:
+    hub = served.hub
+
+    def health(channel_id: str, monitor_id: str) -> dict[str, Any] | None:
+        if channel_id == "a2":
+            raise RuntimeError("provider bug")
+        if monitor_id == "m0":
+            return {"detection_frame_age_s": 12.5, "blind": True, "blind_reason": "out_of_order",
+                    "learning": False, "floor_raised_db": None, "note": "its frames are stamped before ones already accepted"}
+        return {"detection_frame_age_s": 0.4, "blind": False, "blind_reason": None, "learning": True,
+                "floor_raised_db": 9.5, "note": "its noise floor is 9.5 dB above the channel's other windows"}
+
+    with pytest.raises(TypeError):
+        hub.set_window_health("not callable")  # type: ignore[arg-type]
+    hub.set_window_health(health)
+    async with FakeNode.connect(served) as node:
+        await node.join()
+        (status,) = hub.node_status()
+        a1, a2 = status["channels"]
+        assert a1["ok"] is False and a2["ok"] is True  # a1 has a blind window
+        m0, m1 = a1["windows"]
+        assert (m0["monitor_id"], m0["blind"], m0["blind_reason"], m0["detection_frame_age_s"]) == ("m0", True, "out_of_order", 12.5)
+        assert (m1["blind"], m1["learning"], m1["floor_raised_db"]) == (False, True, 9.5)
+        assert "blind on m0" in a1["detection_problem"] and "m1 (+9.5 dB)" in a1["detection_problem"]
+        assert a2["detection_problem"] is None and all(w["detection_frame_age_s"] is None for w in a2["windows"])
+        assert hub.counters()["window_health_errors"] >= 2
+        from petal_locate.server.api.schemas import NodeStatus
+
+        NodeStatus.model_validate(status)  # the console contract takes it
+    (status,) = hub.node_status()
+    assert status["online"] is False and all(not c["ok"] for c in status["channels"])
+    assert "blind" not in (status["channels"][0]["detection_problem"] or "")  # offline is not blind
+    hub.set_window_health(None)
 
 
 # ============================================================================= shutdown

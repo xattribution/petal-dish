@@ -50,7 +50,16 @@ every ``capture.interval_s``:
    cross-satellite detection is reported to the verdict) only once a detection is
    repeated at a consistent TDOA/FDOA: within ``CONFIRM_SIGMAS`` combined sigmas plus
    the largest change the satellites' motion allows over the interval. Until then
-   the rows carry ``REASON_UNCONFIRMED``.
+   the rows carry ``REASON_UNCONFIRMED``. **Another transmitter** (K2): the round's
+   confirmations are decided together (``Tasking._track_decisions``). A pair whose new
+   detections repeat at a TDOA/FDOA its confirmed track cannot reach has *jumped*; with
+   no pair of the round agreeing with its own track, another transmitter (or the same
+   one, moved) holds the frequency and ``EventBook.transmission_changed`` sets the old
+   rows and position aside (the jumped pairs' new tracks are used at once). While an
+   event is re-checked (``EventRecord.recheck``: back after a short break, or its
+   waveform class, level by ``POWER_STEP_DB`` or width by ``WIDTH_STEP_RATIO`` changed),
+   one agreeing pair clears the re-check and one disagreeing detection with none
+   agreeing sets everything aside.
 7. **Classify** the primary capture (``core.detect.classify`` in a worker thread)
    over the event's own band (``CLASSIFY_BAND_FACTOR`` times its width, so that a
    neighbouring carrier inside a minimum-rate capture is not classified in its place);
@@ -59,10 +68,26 @@ every ``capture.interval_s``:
    the global search on the first solve, every ``GLOBAL_SEARCH_EVERY``-th solve and
    whenever a warm-started solve fails or has ``reduced_chi2 > WARM_RCHI2_LIMIT``;
    warm starts from the previous solution and its ambiguities. The result goes to
-   ``EventBook.set_solution`` (solution history, residuals, ``located``); the
-   strongest correlation surface of the round to ``set_caf``; the class to
-   ``set_classification``. The event moves ``characterizing`` (first capture
+   ``EventBook.set_solution`` with ``solver.max_reduced_chi2`` (solution history,
+   residuals, ``located`` only for a consistent fit: an inconsistent one is published
+   flagged, its ellipse enlarged by sqrt(reduced chi-square), and the status message
+   says so); the strongest correlation surface of the round to ``set_caf``; the class
+   to ``set_classification``. When rows added to a consistent fit break it (no
+   solution, or an inconsistent one) and the rows added since (at least
+   ``SPLIT_MIN_ROWS``) fit one transmitter by themselves, the earlier rows are set
+   aside as another transmission's and the new rows' fix is attached
+   (``Tasking._split_test``). The event moves ``characterizing`` (first capture
    requested) -> ``locating`` (first row used) -> ``located``.
+
+Satellites. A round's geometry evaluates only the satellites it uses (the picks and
+every satellite relaying the event's range or a planned reference), each on its own:
+one whose orbit cannot be evaluated (an ephemeris table that ended) only fails the pairs
+through it, and the status message names it. Once the event has a consistent fix, a
+satellite that cannot see any point of its ellipse (``EventRecord.
+not_visible_satellite_ids``, worked out by the correlator) is not paired, and the
+reference carrier nearest the fix is calibrated against (nearest in frequency before a
+fix). ``site_clock_estimates`` turns the calibrations held into per-site clock offsets
+for ``/status``.
 
 Everything runs on the event loop except the numerical jobs, which go through the
 server's ``WorkPool`` (at most 3 at once). Rounds are cancelled when their event is
@@ -73,17 +98,20 @@ integer UTC nanoseconds throughout; float seconds only for geometry.
 Deviations from the documents:
 
 - Search windows of a kind without a valid calibration are also widened by a
-  3-sigma ephemeris allowance (``2 |sigma_pos| / c`` per satellite in delay,
-  ``2 f |sigma_vel| / c`` in Doppler): MATH.md section 6 lists only clocks, bias and
-  oscillators, so a reference carrier (a single point) would otherwise be searched in
-  a window narrower than the ephemeris error.
+  3-sigma ephemeris allowance on both legs (``6 |sigma_pos| / c`` per satellite in
+  delay, ``6 f |sigma_vel| / c`` in Doppler, ``Tasking._eph_pads``): MATH.md section 6
+  lists only clocks, bias and oscillators, so a reference carrier (a single point)
+  would otherwise be searched in a window narrower than the ephemeris error.
 - The sample rate also covers the Doppler window (``fs >= 2.2 max |doppler|``,
   required by ``caf_estimate``; matters in low orbit); the base duration is
   shortened when bounded dynamics would break the CAF's drift assumption, and the
   capture is lengthened when a delay window (plus the estimator's guard) needs it.
 - "Consistent within a few sigma" for the repeat detection adds the largest change
-  of TDOA/FDOA the satellites' speed and acceleration allow over the interval (a GEO
-  pair's TDOA moves by microseconds in 5 s, against sigmas of a fraction of one).
+  of TDOA/FDOA the satellites' motion allows over the interval (a GEO pair's TDOA
+  moves by microseconds in 5 s, against sigmas of a fraction of one). Each leg's range
+  rate is bounded by the satellite's speed and its range acceleration by
+  ``|a| + |v|^2 / r_min`` (the geometric term dominates in low orbit; ``_Kinematics``),
+  the downlink legs weighted by their own frequency (``Tasking._rate_bounds``).
 - A reference carrier whose band overlaps the event's uplink range is not used.
 - A partner channel with no admissible emitter position for the pair is not captured.
 - Partner diversity: from the third round on, every other round replaces a partner by
@@ -93,7 +121,9 @@ Deviations from the documents:
   fault at an unused site (a late clock) was invisible and nothing averaged over sites.
 - The status message explains a round whose pairs all failed for one reason of the
   signal itself (``round_explanation``: no TDOA on a narrowband signal, ambiguous
-  correlations of a periodic waveform, coupling, no copy found); an event judged
+  correlations of a periodic waveform, coupling, no copy found); a waveform that cannot
+  be located at all (ambiguous or coupled correlations with no row accepted, or one
+  relaying satellite) also sets ``TaskingStatus.unlocatable_reason``; an event judged
   ``local`` gets an ``idle`` status saying there is nothing to locate by satellite.
 
 Known limits (measured against ``SimWorld``): a CW has no delay to separate copies by,
@@ -127,8 +157,10 @@ from petal_locate.core.caf import (
     caf_estimate,
 )
 from petal_locate.core.constants import C
+from petal_locate.core.geodesy import geodesic_distance_m
 from petal_locate.core.detect import MIN_CLASSIFY_SAMPLES, classify
 from petal_locate.core.geometry import elevation_deg, measurement_windows, predict_pair, search_windows, self_peak
+from petal_locate.core.orbits import orbit_position
 from petal_locate.core.solver import Solution, calibration_correction, solve
 from petal_locate.core.types import CalRef, Measurement, PathSpec, Uncertainty
 from petal_locate.server.api import schemas
@@ -140,10 +172,12 @@ from petal_locate.server.pipeline.events import (
     EventRecord,
     TruthEmitter,
     Unit,
+    assess_fit,
     caf_display,
 )
 
 __all__ = [
+    "CLOCK_CAUTION_NS",
     "CONFIRM_SIGMAS",
     "GLOBAL_SEARCH_EVERY",
     "MAX_LEAD_S",
@@ -166,9 +200,11 @@ __all__ = [
     "WARM_RCHI2_LIMIT",
     "Calibration",
     "CaptureHub",
+    "ClockEdge",
     "PairOutcome",
     "RoundReport",
     "Tasking",
+    "site_clock_offsets",
     "truth_emitters",
 ]
 
@@ -226,6 +262,24 @@ RECLASSIFY_S: Final[float] = 60.0
 
 RECLASSIFY_UNKNOWN_S: Final[float] = 15.0
 """An event classified ``unknown`` is tried again after this long, s."""
+
+POWER_STEP_DB: Final[float] = 6.0
+"""A change of the primary sighting's SNR on the same channel by at least this much
+between rounds makes the event re-checked (another transmitter may have taken the
+frequency), dB."""
+
+WIDTH_STEP_RATIO: Final[float] = 2.0
+WIDTH_STEP_MIN_HZ: Final[float] = 1000.0
+"""A change of the primary sighting's width by at least this factor and this many Hz
+between rounds makes the event re-checked."""
+
+SPLIT_MIN_ROWS: Final[int] = 4
+"""Rows added since the last consistent solve needed before an inconsistent fit is split
+into 'earlier' and 'newest' (``Tasking._split_test``)."""
+
+CLASS_CHANGE_CONFIDENCE: Final[float] = 0.5
+"""A change between two definite waveform classes (not ``unknown``), each at least this
+confident, makes the event re-checked."""
 
 QUALITY_REFRESH_S: Final[float] = 30.0
 """Age at which the downlink-quality table used for channel choice is rebuilt, s."""
@@ -449,6 +503,35 @@ class _PairTrack:
     candidates: deque[_Detection] = field(default_factory=lambda: deque(maxlen=_CANDIDATES_KEPT))
 
 
+@dataclass(frozen=True)
+class _TrackCheck:
+    """How one detection relates to its pair's track (``Tasking._track_check``).
+
+    agrees: consistent with the confirmed track. disagrees: a confirmed track exists and
+    the detection is not consistent with it. jumped: it disagrees and repeats an earlier
+    unconfirmed detection (a new track, confirmed). onset_ns: time of the first detection
+    of that new track (the detection's own when none)."""
+
+    agrees: bool
+    disagrees: bool
+    jumped: bool
+    onset_ns: int
+
+
+@dataclass(frozen=True)
+class _PairEval:
+    """One correlated pair's values and per-kind reasons before confirmation
+    (``_evaluate_pair``); ``detection`` is set when at least one kind is usable."""
+
+    tdoa: float | None
+    fdoa: float | None
+    sig_t: float | None
+    sig_f: float | None
+    reason_t: str | None
+    reason_f: str | None
+    detection: _Detection | None
+
+
 @dataclass(eq=False)
 class _EventState:
     """Tasking's bookkeeping for one event."""
@@ -469,14 +552,30 @@ class _EventState:
     channels: tuple[str, ...] = ()
     solve_reason: str | None = None
     primary_channel_id: str | None = None
+    unlocatable_reason: str | None = None
+    fit_note: str | None = None  # why the last solution is flagged inconsistent
+    unavailable: dict[str, str] = field(default_factory=dict)  # satellites whose orbit failed last round
+    aside_seen: int = 0  # EventRecord.set_aside_count the tracks belong to
+    level: tuple[str, float, float] | None = None  # primary (channel, SNR dB, width Hz) of the last round
 
 
 @dataclass(frozen=True)
 class _Kinematics:
-    """Bounds on a satellite's ECEF speed (m/s) and acceleration (m/s^2)."""
+    """Bounds on a satellite's ECEF speed (m/s) and acceleration (m/s^2), and the
+    shortest range from any ground point of the problem to it, m (its geocentric
+    distance less the equatorial radius and the highest site or emitter height)."""
 
     speed_mps: float
     accel_mps2: float
+    min_range_m: float = math.inf
+
+    def range_accel_bound(self) -> float:
+        """Largest |d^2 range / dt^2| from a fixed ground point, m/s^2:
+        ``(|v|^2 - rdot^2) / r + a.u <= |v|^2 / r_min + |a|`` (MATH.md section 6). The
+        first term is the geometric one: negligible in GEO (the ECEF speed is metres per
+        second), dominant in low orbit (about 60 m/s^2 at 800 km)."""
+        geometric = self.speed_mps**2 / self.min_range_m if self.min_range_m > 0 else math.inf
+        return self.accel_mps2 + geometric
 
 
 @dataclass(frozen=True)
@@ -532,6 +631,7 @@ class _GeometryJob:
     height_m: float
     sat_ids: tuple[str, ...]
     site_ids: tuple[str, ...]
+    ground_height_m: float = 0.0  # highest site or emitter height (kinematic range bound)
 
 
 @dataclass(frozen=True)
@@ -540,6 +640,7 @@ class _GeometryResult:
     refs: tuple[_GeoOut, ...]
     kinematics: Mapping[str, _Kinematics]
     elevation: Mapping[tuple[str, str], float]
+    unavailable: Mapping[str, str] = field(default_factory=dict)  # sat_id -> why its orbit failed
 
 
 @dataclass(frozen=True, eq=False)
@@ -562,6 +663,8 @@ class _CafJob:
     max_tdoa_sigma_s: float
     orbits: Mapping[str, Any]
     sites_xyz: Mapping[str, np.ndarray]
+    capture_a: str = ""  # identities of the two captures (rows of one capture share its noise)
+    capture_b: str = ""
 
 
 @dataclass(eq=False)
@@ -578,6 +681,8 @@ class _PairCtx:
     tdoa_blocked: bool
     rates: tuple[float, float]
     outcome: PairOutcome
+    capture_a: str = ""  # identities of the two captures (``_capture_id``)
+    capture_b: str = ""
 
 
 @dataclass(frozen=True, eq=False)
@@ -739,26 +844,54 @@ def _cross_paths(
     )
 
 
+_EQUATORIAL_RADIUS_M: Final[float] = 6_378_137.0
+_MIN_RANGE_FLOOR_M: Final[float] = 100e3  # kinematic range bound never below this
+
+
 def _geometry(job: _GeometryJob) -> _GeometryResult:
     """Elevations, satellite kinematics, and the windows of every pair and reference
-    pair (blocking: about 20 ms per ``measurement_windows``)."""
+    pair (blocking: about 20 ms per ``measurement_windows``).
+
+    Each satellite is evaluated on its own: one whose orbit cannot be evaluated (an
+    ephemeris table that has ended, a TLE that fails to propagate) is listed in
+    ``unavailable`` with the reason, counts as below every horizon and has no
+    kinematics, and only the pairs and references through it fail."""
     elevation: dict[tuple[str, str], float] = {}
-    for site_id in job.site_ids:
-        for sat_id in job.sat_ids:
-            el = elevation_deg(job.sites_xyz[site_id], job.orbits[sat_id], job.t_mid_s)
-            elevation[(site_id, sat_id)] = float(np.asarray(el).reshape(-1)[0])
+    unavailable: dict[str, str] = {}
     kinematics: dict[str, _Kinematics] = {}
     for sat_id in job.sat_ids:
-        orbit = job.orbits[sat_id]
-        velocities = [
-            np.asarray(orbit.state_ecef(job.t_mid_s + dt)[1], dtype=np.float64).reshape(3) for dt in (-1.0, 0.0, 1.0)
-        ]
+        orbit = job.orbits.get(sat_id)
+        if orbit is None:
+            unavailable[sat_id] = "not in the configuration"
+            continue
+        try:
+            row = {
+                (site_id, sat_id): float(np.asarray(elevation_deg(job.sites_xyz[site_id], orbit, job.t_mid_s)).reshape(-1)[0])
+                for site_id in job.site_ids
+            }
+            states = [orbit.state_ecef(job.t_mid_s + dt) for dt in (-1.0, 0.0, 1.0)]
+        except ValueError as exc:
+            unavailable[sat_id] = str(exc)
+            continue
+        elevation.update(row)
+        velocities = [np.asarray(state[1], dtype=np.float64).reshape(3) for state in states]
         speed = max(float(np.linalg.norm(v)) for v in velocities)
         accel = float(np.linalg.norm(velocities[2] - velocities[0])) / 2.0
-        kinematics[sat_id] = _Kinematics(speed, accel)
+        radius = float(np.linalg.norm(np.asarray(states[1][0], dtype=np.float64).reshape(3)))
+        min_range = max(radius - _EQUATORIAL_RADIUS_M - max(job.ground_height_m, 0.0), _MIN_RANGE_FLOOR_M)
+        kinematics[sat_id] = _Kinematics(speed, accel, min_range)
+
+    def lost(spec: _GeoIn) -> str | None:
+        for sat_id in (spec.a.sat_id, spec.b.sat_id):
+            if sat_id in unavailable:
+                return f"satellite {sat_id}: orbit not available ({unavailable[sat_id]})"
+        return None
 
     def target(spec: _GeoIn) -> _GeoOut:
         a_nom, b_nom = _path(spec.a, spec.f_hz), _path(spec.b, spec.f_hz)
+        why = lost(spec)
+        if why is not None:
+            return _GeoOut(a_nom, b_nom, None, error=why)
         try:
             windows = measurement_windows(
                 a_nom, b_nom, job.t_mid_s, job.orbits, job.sites_xyz, job.region, job.min_elevation_deg, job.height_m
@@ -784,8 +917,14 @@ def _geometry(job: _GeometryJob) -> _GeometryResult:
     def reference(spec: _GeoIn) -> _GeoOut:
         a_nom, b_nom = _path(spec.a, spec.f_hz), _path(spec.b, spec.f_hz)
         assert spec.x_ref is not None
+        why = lost(spec)
+        if why is not None:
+            return _GeoOut(a_nom, b_nom, None, error=why)
         for sat_id in {spec.a.sat_id, spec.b.sat_id}:
-            el = float(np.asarray(elevation_deg(spec.x_ref, job.orbits[sat_id], job.t_ref_s)).reshape(-1)[0])
+            try:
+                el = float(np.asarray(elevation_deg(spec.x_ref, job.orbits[sat_id], job.t_ref_s)).reshape(-1)[0])
+            except ValueError as exc:
+                return _GeoOut(a_nom, b_nom, None, error=f"satellite {sat_id}: orbit not available ({exc})")
             if el < job.min_elevation_deg or el <= 0.0:
                 return _GeoOut(a_nom, b_nom, None, error=f"the reference does not see {sat_id}")
         try:
@@ -806,7 +945,14 @@ def _geometry(job: _GeometryJob) -> _GeometryResult:
         refs=tuple(reference(s) for s in job.refs),
         kinematics=kinematics,
         elevation=elevation,
+        unavailable=unavailable,
     )
+
+
+def _capture_id(channel_id: str, capture: Any) -> str:
+    """Identity of one capture: channel, labelled first-sample time, centre and rate."""
+    return (f"{channel_id}|{int(capture.t_first_ns)}|{round(float(capture.center_hz))}"
+            f"|{round(float(capture.sample_rate_hz))}")
 
 
 def _correlate(job: _CafJob) -> CafResult:
@@ -861,6 +1007,7 @@ def _calibrate(job: _RefJob, orbits: Mapping[str, Any], sites_xyz: Mapping[str, 
         if value is None or sigma is None or not sigma > 0:
             problems.append(f"{kind}: not measured ({REASONS.get(result.reason or '', result.reason)})")
             continue
+        share = result.noise_share_tdoa if kind == "tdoa" else result.noise_share_fdoa
         ref_row = Measurement(
             kind=kind,  # type: ignore[arg-type]
             value=value,
@@ -868,6 +1015,10 @@ def _calibrate(job: _RefJob, orbits: Mapping[str, Any], sites_xyz: Mapping[str, 
             t_ns=job.t_mid_ns,
             a=job.caf.path_a,
             b=job.caf.path_b,
+            capture_a=job.caf.capture_a,  # references of one capture share its noise (MATH.md section 9)
+            capture_b=job.caf.capture_b,
+            noise_share_a=float(share[0]),
+            noise_share_b=float(share[1]),
         )
         try:
             c, cal = calibration_correction(ref_row, job.x_ref, orbits, sites_xyz, cal_id)
@@ -918,6 +1069,46 @@ def _consistent(prev: _Detection, new: _Detection, rates: tuple[float, float]) -
     return common > 0
 
 
+def _chi2_text(value: float | None) -> str:
+    if value is None or not math.isfinite(value):
+        return "unknown"
+    return f"{value:.1e}" if value >= 1e4 else f"{value:.3g}"
+
+
+def _evaluate_pair(ctx: _PairCtx, result: CafResult) -> _PairEval:
+    """The measured values of a pair (FDOA with the centre correction) and why each kind
+    cannot be used, before the repeat confirmation."""
+    tdoa = _finite(result.tdoa_s)
+    fdoa = None if _finite(result.fdoa_hz) is None else float(result.fdoa_hz) + ctx.shift_hz  # type: ignore[arg-type]
+    sig_t, sig_f = _finite(result.sigma_tdoa_s), _finite(result.sigma_fdoa_hz)
+    common: str | None = None
+    if not result.detected:
+        common = REASONS.get(result.reason or "", REASON_NOT_DETECTED)
+    elif result.reason in (REASON_AMBIGUOUS, REASON_COUPLED, REASON_OUTSIDE):
+        common = REASONS[result.reason]
+    elif result.mirror_ambiguous:
+        common = REASON_MIRROR
+    reason_t = reason_f = common
+    if common is None:
+        if tdoa is None or sig_t is None or not sig_t > 0:
+            reason_t = REASONS.get(result.reason or "", REASON_NARROWBAND_CAF)
+        elif ctx.tdoa_blocked:
+            reason_t = REASON_CLOCK_UNLOCKED
+        if fdoa is None or sig_f is None or not sig_f > 0:
+            reason_f = REASONS.get(result.reason or "", REASON_NOT_DETECTED)
+    usable_t, usable_f = reason_t is None, reason_f is None
+    detection = None
+    if usable_t or usable_f:
+        detection = _Detection(
+            ctx.t_mid_ns,
+            tdoa if usable_t else None,
+            sig_t if usable_t else None,
+            fdoa if usable_f else None,
+            sig_f if usable_f else None,
+        )
+    return _PairEval(tdoa, fdoa, sig_t, sig_f, reason_t, reason_f, detection)
+
+
 EXPLAIN_NARROWBAND: Final[str] = (
     "No TDOA: the signal is too narrow for a time difference of arrival to be measured "
     "(an unmodulated carrier has no bandwidth to time), so each satellite pair gives a "
@@ -935,6 +1126,19 @@ EXPLAIN_COUPLED: Final[str] = (
 EXPLAIN_NOT_DETECTED: Final[str] = (
     "The copy relayed by the other satellite was not found in the correlation (below the "
     "detection threshold), so the pair gives no measurement."
+)
+UNLOCATABLE_AMBIGUOUS: Final[str] = (
+    "It cannot be located by comparing satellite copies: the waveform repeats itself (for example "
+    "a periodic sweep), so every correlation has several peaks of almost equal height and gives no "
+    "single time or frequency difference."
+)
+UNLOCATABLE_COUPLED: Final[str] = (
+    "It cannot be located by comparing satellite copies: delay and Doppler cannot be told apart in "
+    "the correlation of this waveform (a single sweep across the capture)."
+)
+UNLOCATABLE_ONE_SATELLITE: Final[str] = (
+    "Only one satellite relays this frequency (or can see the transmitter), so it cannot be located "
+    "from the differences between satellite copies."
 )
 
 
@@ -957,6 +1161,173 @@ def round_explanation(pairs: Sequence[PairOutcome]) -> str | None:
         REASON_COUPLED: EXPLAIN_COUPLED,
         REASON_BELOW_THRESHOLD: EXPLAIN_NOT_DETECTED,
     }.get(reason)  # type: ignore[arg-type]
+
+
+CLOCK_CAUTION_NS: Final[float] = 1000.0
+"""Smallest calibration-estimated clock offset that raises a caution, ns (calibration
+corrections of healthy sites stay well under a microsecond: they also carry the
+satellites' ephemeris errors)."""
+
+
+def _duration_ns_text(ns: float) -> str:
+    """``9.7 µs`` or ``850 ns``."""
+    return f"{abs(ns) / 1e3:.1f} µs" if abs(ns) >= 1000.0 else f"{abs(ns):.0f} ns"
+
+
+@dataclass(frozen=True)
+class ClockEdge:
+    """One cross-site TDOA calibration as clock evidence (``site_clock_offsets``).
+
+    The correction holds ``c ~ (o_a + e_a) - (o_b + e_b)``: the two sites' clock offsets
+    ``o`` and a term ``e`` per satellite (its ephemeris and transponder errors, common to
+    every site that hears it). eph_s: one-sigma of what that model leaves out, the
+    site-dependent part of the satellites' ephemeris errors (configured position sigma
+    times the angle between the two sites seen from the satellite, over c), s.
+    sat_sigma_a_s, sat_sigma_b_s: prior one-sigma of each satellite's common term
+    (configured position sigma over c), s: what the data cannot tell apart from a site's
+    clock is given to the satellites, whose errors are expected to be far larger."""
+
+    sat_a: str
+    site_a: str
+    sat_b: str
+    site_b: str
+    c_s: float
+    eph_s: float = 0.0
+    sat_sigma_a_s: float = 1e-6
+    sat_sigma_b_s: float = 1e-6
+
+
+def site_clock_offsets(
+    edges: Sequence[ClockEdge], config: Any, site_name: Callable[[str], str] | None = None
+) -> list[schemas.SiteClockEstimate]:
+    """Per-site clock offsets from cross-site TDOA calibration corrections
+    (``Tasking.site_clock_estimates``).
+
+    For each connected group of sites, the least-squares solution of
+    ``c = o_a - o_b + e_sat_a - e_sat_b`` over every edge with the smallest weighted
+    norm (clocks weighted by their configured sigma, satellites by ``sat_sigma``: a
+    combination the edges cannot resolve goes to the satellites), the offsets shifted so
+    the group's median is zero (most sites are assumed right). A site is flagged when
+    ``|o|`` reaches the largest of ``CLOCK_CAUTION_NS``, ten times its configured clock
+    sigma and three times the RMS ``eph_s`` of its edges; with only two sites in the group
+    both are flagged on their difference (which one is off cannot be told).
+
+    config: the ``SystemConfig`` (clock allowances; site names unless ``site_name`` is
+    given). Returns one estimate per site that appears, sorted by site id.
+    """
+    if not edges:
+        return []
+    if site_name is None:
+
+        def site_name(site_id: str) -> str:
+            try:
+                return str(config.site(site_id).name)
+            except (ValueError, AttributeError):
+                return site_id
+
+    neighbours: dict[str, set[str]] = {}
+    for edge in edges:
+        if edge.site_a != edge.site_b:  # a same-site edge only ties its two satellites' terms
+            neighbours.setdefault(edge.site_a, set()).add(edge.site_b)
+            neighbours.setdefault(edge.site_b, set()).add(edge.site_a)
+    out: list[schemas.SiteClockEstimate] = []
+    seen: set[str] = set()
+    for start in sorted(neighbours):
+        if start in seen:
+            continue
+        group, todo = [], [start]
+        while todo:
+            site = todo.pop()
+            if site in seen:
+                continue
+            seen.add(site)
+            group.append(site)
+            todo.extend(neighbours[site] - seen)
+        group.sort()
+        rows = [e for e in edges if e.site_a in group and e.site_b in group]
+        sats = sorted({e.sat_a for e in rows} | {e.sat_b for e in rows})
+        site_index = {s: i for i, s in enumerate(group)}
+        sat_index = {s: len(group) + i for i, s in enumerate(sats)}
+        design = np.zeros((len(rows), len(group) + len(sats)))
+        target = np.zeros(len(rows))
+        for k, e in enumerate(rows):
+            design[k, site_index[e.site_a]] += 1.0
+            design[k, site_index[e.site_b]] -= 1.0
+            design[k, sat_index[e.sat_a]] += 1.0
+            design[k, sat_index[e.sat_b]] -= 1.0
+            target[k] = e.c_s * 1e9
+        scale = np.ones(len(group) + len(sats))
+        for site, i in site_index.items():
+            try:
+                scale[i] = max(float(config.site(site).clock.sigma_ns), 1.0)
+            except (ValueError, AttributeError):
+                scale[i] = 30.0
+        for e in rows:
+            scale[sat_index[e.sat_a]] = max(scale[sat_index[e.sat_a]], e.sat_sigma_a_s * 1e9)
+            scale[sat_index[e.sat_b]] = max(scale[sat_index[e.sat_b]], e.sat_sigma_b_s * 1e9)
+        scaled, *_ = np.linalg.lstsq(design * scale, target, rcond=None)  # weighted minimum norm
+        solution = scaled * scale
+        offsets = solution[: len(group)] - float(np.median(solution[: len(group)]))
+        fitted = design @ solution
+        residuals: dict[str, list[float]] = {s: [] for s in group}
+        eph: dict[str, list[float]] = {s: [] for s in group}
+        for k, e in enumerate(rows):
+            if e.site_a == e.site_b:
+                continue
+            for site in (e.site_a, e.site_b):
+                residuals[site].append(float(target[k] - fitted[k]))
+                eph[site].append(e.eph_s * 1e9)
+        for site in group:
+            o = float(offsets[site_index[site]])
+            others = sorted(neighbours[site])
+            n = len(residuals[site])
+            sigma = float(np.sqrt(np.mean(np.square(residuals[site])))) if n >= 2 else None
+            try:
+                allowance = float(config.site(site).clock.sigma_ns)
+            except (ValueError, AttributeError):
+                allowance = 0.0
+            eph_rms = float(np.sqrt(np.mean(np.square(eph[site])))) if eph[site] else 0.0
+            limit = max(CLOCK_CAUTION_NS, 10.0 * allowance, 3.0 * eph_rms)
+            cross = [e for e in rows if e.site_a != e.site_b]
+            through = sorted({e.sat_a for e in cross if e.site_a == site} | {e.sat_b for e in cross if e.site_b == site})
+            or_sat = (
+                f"; an error in the position of {', '.join(through)} beyond its configured uncertainty, seen from "
+                "this site, would look the same"
+                if through
+                else ""
+            )
+            message = None
+            caution = False
+            if len(group) == 2:
+                difference = 2.0 * o
+                caution = abs(difference) >= limit
+                if caution:
+                    message = (
+                        f"Reference calibrations show the timing of {site_name(group[0])} and {site_name(group[1])} "
+                        f"differs by about {_duration_ns_text(difference)}: one of the two clocks is probably off; "
+                        "check both sites' timing receivers (GPS, PPS and 10 MHz reference)."
+                    )
+            elif abs(o) >= limit:
+                caution = True
+                where = "ahead of" if o > 0 else "behind"
+                message = (
+                    f"Reference calibrations against {', '.join(site_name(s) for s in others)} put the timing of "
+                    f"{site_name(site)} about {_duration_ns_text(o)} {where} the other sites: its clock is probably "
+                    f"off; check its timing receiver (GPS, PPS and 10 MHz reference){or_sat}."
+                )
+            out.append(
+                schemas.SiteClockEstimate(
+                    site_id=site,
+                    offset_us=o / 1e3,
+                    sigma_us=None if sigma is None else sigma / 1e3,
+                    n_calibrations=n,
+                    compared_with=others,
+                    caution=caution,
+                    message=message,
+                )
+            )
+    out.sort(key=lambda e: e.site_id)
+    return out
 
 
 def truth_emitters(world: Any) -> list[TruthEmitter]:
@@ -1061,6 +1432,11 @@ class Tasking:
             for channel in site.channels:
                 self._channel_site[channel.id] = site.id
                 self._channels[channel.id] = channel
+        # highest ground point of the problem: sites (with their masts) and the emitter height
+        self._ground_height_m = max(
+            [float(config.processing.solver.height_m)]
+            + [float(site.alt_m) + float(site.antenna_height_m) for site in config.sites]
+        )
 
     @property
     def config(self) -> Any:
@@ -1152,6 +1528,42 @@ class Tasking:
     def calibrations(self) -> list[Calibration]:
         """The newest calibration of every pair and kind."""
         return list(self._calibrations.values())
+
+    def site_clock_estimates(self) -> list[schemas.SiteClockEstimate]:
+        """Each site's clock offset as the reference calibrations see it (UX-10).
+
+        A TDOA calibration of a cross-site pair measures ``c = z_ref - h_ref``, which
+        holds the two sites' clock offsets as ``o_a - o_b``, plus a term per satellite
+        (ephemeris, transponder) and the site-dependent remainder of the ephemeris error
+        (``ClockEdge``); same-site pairs (no clock term) tie the satellites' terms. Only calibrations within ``calibration.max_age_s`` count; see
+        ``site_clock_offsets`` for the fit and the caution rule."""
+        now = self._clock()
+        max_age_ns = int(float(self._config.processing.calibration.max_age_s) * _NS)
+        zero = np.zeros(3)
+        edges: list[ClockEdge] = []
+        for (key, _carrier), entry in self._calibrations.items():
+            sat_a, site_a, sat_b, site_b, kind = key
+            if kind != "tdoa" or abs(now - entry.t_ns) > max_age_ns:
+                continue
+            if _finite(entry.correction) is None:
+                continue
+            eph = 0.0
+            sat_sigma: list[float] = []
+            for sat, here, there in ((sat_a, site_a, site_b), (sat_b, site_b, site_a)):
+                sigma_m = float(np.linalg.norm(self._uncertainty.sat_pos_ric_m.get(sat, zero)))
+                sat_sigma.append(max(sigma_m, 1.0) / C)
+                try:
+                    r_sat = np.asarray(orbit_position(self._orbits[sat], entry.t_ns / _NS), dtype=np.float64).reshape(3)
+                    u, v = self._sites_xyz[here] - r_sat, self._sites_xyz[there] - r_sat
+                    cos = float(np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v)))
+                    angle = math.acos(max(-1.0, min(1.0, cos)))
+                except (KeyError, ValueError):
+                    angle = 0.0
+                eph += (sigma_m * angle / C) ** 2
+            edges.append(
+                ClockEdge(sat_a, site_a, sat_b, site_b, float(entry.correction), math.sqrt(eph), sat_sigma[0], sat_sigma[1])
+            )
+        return site_clock_offsets(edges, self._config)
 
     @property
     def captures_in_flight(self) -> int:
@@ -1311,6 +1723,7 @@ class Tasking:
                 channels=list(state.channels),
                 message=state.message,
                 solve_reason=state.solve_reason,
+                unlocatable_reason=state.unlocatable_reason,
             )
         except ValidationError as exc:
             logger.warning("tasking status of %s not published: %s", state.event_id, exc)
@@ -1416,6 +1829,11 @@ class Tasking:
             overlap = min(hi, transponder.uplink_hi_hz) - max(lo, transponder.uplink_lo_hz)
             if satellite.id not in best_tp or overlap > best_tp[satellite.id][0]:
                 best_tp[satellite.id] = (overlap, transponder)
+        # Once a consistent position exists, a satellite below the horizon of all of its
+        # ellipse cannot relay the signal (the correlator works this out, ADAPT-1).
+        for sat_id in record.not_visible_satellite_ids:
+            if best_tp.pop(sat_id, None) is not None:
+                notes.append(f"{sat_id} cannot see the transmitter's position, so it is not paired")
         partners: list[_Pick] = []
         for sat_id, (_, transponder) in best_tp.items():
             candidates: list[_Pick] = []
@@ -1477,13 +1895,43 @@ class Tasking:
             return choice
         return others[(round_index // 2 - 1) % len(others)]
 
+    def _check_level(self, record: EventRecord, state: _EventState, primary: _Pick) -> None:
+        """Power or width step of the primary sighting on the same channel between rounds:
+        another transmitter may have taken the frequency, so the event is re-checked
+        (``EventBook.mark_recheck``; the next pair detections decide)."""
+        unit = next((u for u in self._sightings(record.id) if u.channel_id == primary.channel_id), None)
+        if unit is None:
+            return
+        snr, width = float(unit.snr_db), max(float(unit.down_hi_hz) - float(unit.down_lo_hz), 0.0)
+        if not (math.isfinite(snr) and math.isfinite(width)):
+            return
+        previous, state.level = state.level, (primary.channel_id, snr, width)
+        if previous is None or previous[0] != primary.channel_id:
+            return
+        step = snr - previous[1]
+        narrow, wide = sorted((previous[2], width))
+        if abs(step) >= POWER_STEP_DB:
+            self._book.mark_recheck(
+                record.id, f"its level at {primary.channel_id} {'rose' if step > 0 else 'fell'} by {abs(step):.0f} dB between rounds"
+            )
+        elif wide - narrow >= WIDTH_STEP_MIN_HZ and wide >= WIDTH_STEP_RATIO * max(narrow, 1e-9):
+            self._book.mark_recheck(
+                record.id,
+                f"its width at {primary.channel_id} changed from {previous[2] / 1e3:.1f} kHz to {width / 1e3:.1f} kHz",
+            )
+
     def _needs_classification(self, record: EventRecord, state: _EventState) -> bool:
         """Whether this round should classify the primary capture: when the event has
         no class, ``RECLASSIFY_UNKNOWN_S`` after an ``unknown``, ``RECLASSIFY_S`` after
-        any other class (a class set elsewhere counts from when tasking first saw it)."""
+        any other class (a class set elsewhere counts from when tasking first saw it),
+        and once while the event is re-checked (a class change is evidence)."""
         if record.classification is None:
             return True
         now = self._clock()
+        if record.recheck is not None and record.recheck_since_ns is not None and (
+            state.classified_ns is None or state.classified_ns < record.recheck_since_ns
+        ):
+            return True
         if state.classified_ns is None:
             state.classified_ns = now
         wait_s = RECLASSIFY_UNKNOWN_S if record.classification.label == "unknown" else RECLASSIFY_S
@@ -1499,6 +1947,19 @@ class Tasking:
                 worst = rtt
         return max(lead, min(3.0 * worst / 1000.0, MAX_LEAD_S))
 
+    def _satellites_needed(
+        self, primary: _Pick, partners: Sequence[_Pick], plans: Sequence[_RefPlan], lo_hz: float, hi_hz: float
+    ) -> tuple[str, ...]:
+        """The satellites a round's geometry must place: the picks', every satellite
+        relaying the event's range or a planned reference (their copies may reach a
+        channel), in configuration order. Satellites nothing of the round uses are not
+        evaluated, so one whose ephemeris has ended cannot stop other events' rounds."""
+        wanted = {primary.sat_id, *(p.sat_id for p in partners)}
+        wanted.update(sat.id for sat, _ in self._config.transponders_covering(lo_hz, hi_hz))
+        for plan in plans:
+            wanted.update(sat.id for sat, _ in self._config.transponders_covering(plan.f_ref_hz, plan.f_ref_hz))
+        return tuple(sat.id for sat in self._config.satellites if sat.id in wanted)
+
     # ------------------------------------------------------------------ calibration
 
     @staticmethod
@@ -1506,9 +1967,13 @@ class Tasking:
         first, second = (a.sat_id, a.site_id), (b.sat_id, b.site_id)
         return (first, second) if first <= second else (second, first)
 
-    def _references_for(self, a: _Pick, b: _Pick, lo_hz: float, hi_hz: float, f_e_hz: float) -> list[Any]:
-        """Reference carriers relayed by both transponders of a pair, nearest in
-        frequency first, none overlapping the event's band."""
+    def _references_for(
+        self, a: _Pick, b: _Pick, lo_hz: float, hi_hz: float, f_e_hz: float, near: tuple[float, float] | None = None
+    ) -> list[Any]:
+        """Reference carriers relayed by both transponders of a pair, none overlapping
+        the event's band: nearest to ``near`` (the event's current fix, latitude and
+        longitude) first when given, then nearest in frequency. A reference near the
+        emitter shares more of its ephemeris and propagation errors (MATH.md section 9)."""
         tp_a = self._config.satellite(a.sat_id).transponder(a.transponder_id)
         tp_b = self._config.satellite(b.sat_id).transponder(b.transponder_id)
         out = []
@@ -1522,20 +1987,32 @@ class Tasking:
             if _overlaps(f_ref - half, f_ref + half, lo_hz, hi_hz):
                 continue
             out.append(carrier)
-        out.sort(key=lambda c: abs(float(c.uplink_center_hz) - f_e_hz))
+        def distance(carrier: Any) -> float:
+            if near is None or carrier.location is None:
+                return 0.0
+            d = _finite(geodesic_distance_m(near[0], near[1], carrier.location.lat_deg, carrier.location.lon_deg))
+            return d if d is not None else math.inf
+
+        out.sort(key=lambda c: (distance(c), abs(float(c.uplink_center_hz) - f_e_hz)))
         return out
 
     def _plan_references(
-        self, primary: _Pick, partners: Sequence[_Pick], lo: float, hi: float, f_e: float
+        self,
+        primary: _Pick,
+        partners: Sequence[_Pick],
+        lo: float,
+        hi: float,
+        f_e: float,
+        near: tuple[float, float] | None = None,
     ) -> list[_RefPlan]:
-        """Reference calibrations due this round, one per pair at most; all channels of
-        one carrier share its rate."""
+        """Reference calibrations due this round, one per pair at most (the first
+        carrier of ``_references_for``); all channels of one carrier share its rate."""
         cfg = self._config
         interval_ns = int(float(cfg.processing.calibration.interval_s) * _NS)
         now = self._clock()
         plans: list[_RefPlan] = []
         for b in partners:
-            carriers = self._references_for(primary, b, lo, hi, f_e)
+            carriers = self._references_for(primary, b, lo, hi, f_e, near)
             if not carriers:
                 continue
             carrier = carriers[0]
@@ -1592,7 +2069,8 @@ class Tasking:
     # ------------------------------------------------------------------ windows
 
     def _eph_pads(self, sat_a: str, sat_b: str, f_hz: float) -> tuple[float, float]:
-        """3-sigma ephemeris allowance of a pair's TDOA (s) and FDOA (Hz)."""
+        """3-sigma ephemeris allowance of a pair's TDOA (s) and FDOA (Hz), both legs:
+        ``6 sum |sigma_pos| / c`` and ``6 f sum |sigma_vel| / c`` over the pair's satellites."""
         unc = self._uncertainty
         zero = np.zeros(3)
         pos = sum(float(np.linalg.norm(unc.sat_pos_ric_m.get(s, zero))) for s in {sat_a, sat_b})
@@ -1614,15 +2092,27 @@ class Tasking:
         )
 
     @staticmethod
-    def _rate_bounds(kin: Mapping[str, _Kinematics], sat_a: str, sat_b: str, f_hz: float) -> tuple[float, float]:
+    def _rate_bounds(
+        kin: Mapping[str, _Kinematics],
+        sat_a: str,
+        sat_b: str,
+        f_hz: float,
+        translation_a_hz: float = 0.0,
+        translation_b_hz: float = 0.0,
+    ) -> tuple[float, float]:
         """Largest |d TDOA / dt| (s/s) and |d FDOA / dt| (Hz/s) the satellites' motion
-        allows (uplink and downlink leg each bounded by the satellite's speed and
-        acceleration)."""
+        allows, times ``RATE_SAFETY``. Each leg's range rate is bounded by the
+        satellite's speed; its range acceleration by ``|a| + |v|^2 / r_min``
+        (``_Kinematics.range_accel_bound``), which holds for every orbit. The FDOA
+        bound weights the uplink legs by ``|f|`` and each downlink leg by its own
+        downlink frequency ``|f + T|`` (a downlink above the uplink, as on MUOS, moves
+        more)."""
         ka, kb = kin.get(sat_a), kin.get(sat_b)
         if ka is None or kb is None:
             return math.inf, math.inf
         tdoa_rate = 2.0 * (ka.speed_mps + kb.speed_mps) / C
-        fdoa_rate = 2.0 * abs(f_hz) * (ka.accel_mps2 + kb.accel_mps2) / C
+        ra, rb = ka.range_accel_bound(), kb.range_accel_bound()
+        fdoa_rate = (abs(f_hz) * (ra + rb) + abs(f_hz + translation_a_hz) * ra + abs(f_hz + translation_b_hz) * rb) / C
         return RATE_SAFETY * tdoa_rate, RATE_SAFETY * fdoa_rate
 
     def _heard(
@@ -1785,6 +2275,8 @@ class Tasking:
             max_tdoa_sigma_s=float(self._config.processing.caf.max_tdoa_sigma_s),
             orbits=self._orbits,
             sites_xyz=self._sites_xyz,
+            capture_a=_capture_id(a.channel_id, cap_a),
+            capture_b=_capture_id(b.channel_id, cap_b),
         )
         return job, path_a, path_b, t_mid_ns, shift, tdoa_blocked
 
@@ -1818,6 +2310,9 @@ class Tasking:
             state.state, state.message = "idle", "No channel that sees the event can be tasked now."
             self._publish_status(state)
             return report
+        self._check_level(record, state, primary)
+        if partners and state.unlocatable_reason == UNLOCATABLE_ONE_SATELLITE:
+            state.unlocatable_reason = None
         need_class = self._needs_classification(record, state)
         if not partners and not need_class:
             report.skipped = "no second satellite relays the event" + (f" ({'; '.join(notes)})" if notes else "")
@@ -1825,6 +2320,9 @@ class Tasking:
             state.message = (
                 "No second satellite with a usable channel relays this frequency, so the emitter cannot be located."
             )
+            relaying = {sat.id for sat, _ in cfg.transponders_covering(lo, hi)} - set(record.not_visible_satellite_ids)
+            if len(relaying) < 2:  # the frequency plan itself, not a channel that is down
+                state.unlocatable_reason = UNLOCATABLE_ONE_SATELLITE
             self._publish_status(state)
             return report
 
@@ -1832,8 +2330,10 @@ class Tasking:
         duration = float(state.duration_s) if state.duration_s else base_duration
         max_rate = min([primary.max_rate_hz] + [p.max_rate_hz for p in partners])
         fs_guess = float(min(max(float(capture_cfg.min_sample_rate_hz), float(capture_cfg.oversample) * width), max_rate))
+        fix = record.solution_out
+        near = (fix.lat_deg, fix.lon_deg) if fix is not None and fix.fit_consistent else None
         ref_plans = (
-            self._plan_references(primary, partners, lo, hi, f_e) if cfg.processing.calibration.enabled else []
+            self._plan_references(primary, partners, lo, hi, f_e, near) if cfg.processing.calibration.enabled else []
         )
         lead_s = self._lead_s([primary, *partners])
         t_mid_est_s = (self._clock() + int((lead_s + 0.5 * duration) * _NS)) / 1e9
@@ -1849,11 +2349,15 @@ class Tasking:
                 region=cfg.processing.region,
                 min_elevation_deg=float(solver_cfg.min_elevation_deg),
                 height_m=float(solver_cfg.height_m),
-                sat_ids=tuple(s.id for s in cfg.satellites),
+                sat_ids=self._satellites_needed(primary, partners, ref_plans, lo, hi),
                 site_ids=tuple(sorted({p.site_id for p in [primary, *partners]})),
+                ground_height_m=self._ground_height_m,
             ),
         )
         self._abort_if_stale(generation)
+        for sat_id, why in geo.unavailable.items():
+            report.notes.append(f"satellite {sat_id}: orbit not available ({why})")
+        state.unavailable = dict(geo.unavailable)
         for plan, rg in zip(ref_plans, geo.refs):
             plan.geo = rg
         ref_plans = [p for p in ref_plans if p.geo is not None and p.geo.windows is not None]
@@ -1874,7 +2378,9 @@ class Tasking:
             mirror = None
             if pg.mirror is not None and pg.mirror_a is not None and pg.mirror_b is not None:
                 mirror = self._search(pg.mirror, pg.mirror_a, pg.mirror_b, (None, None))
-            rates = self._rate_bounds(geo.kinematics, primary.sat_id, b.sat_id, f_e)
+            rates = self._rate_bounds(
+                geo.kinematics, primary.sat_id, b.sat_id, f_e, primary.translation_hz, b.translation_hz
+            )
             kept.append((b, pg, windows, mirror, rates))
             max_doppler = max(max_doppler, abs(windows[1][0]), abs(windows[1][1]))
             if mirror is not None:
@@ -1908,7 +2414,8 @@ class Tasking:
                 if math.isfinite(rt) and rt > 0:
                     duration = min(duration, 0.5 / (noise_bw * rt))
                 if math.isfinite(rf) and rf > 0:
-                    duration = min(duration, 1.0 / math.sqrt(rf))
+                    # the FDOA-rate bound is already a worst case: no safety factor here
+                    duration = min(duration, 1.0 / math.sqrt(rf / RATE_SAFETY))
             if duration < base_duration:
                 report.notes.append(f"capture shortened to {duration:.3f} s by the predicted dynamics")
         n = int(min(round(duration * fs), int(capture_cfg.max_samples)))
@@ -2033,13 +2540,15 @@ class Tasking:
                 (pg.mirror_a, pg.mirror_b), geo.elevation, signal_bw,
             )
             outcome.t_mid_ns = t_mid_ns
-            contexts.append(_PairCtx(primary, b, pair_ref, path_a, path_b, t_mid_ns, shift, blocked, rates, outcome))
+            contexts.append(_PairCtx(primary, b, pair_ref, path_a, path_b, t_mid_ns, shift, blocked, rates, outcome,
+                                     job.capture_a, job.capture_b))
             pair_jobs.append(self._pool.run(_correlate, job))
         pair_results = list(await asyncio.gather(*pair_jobs, return_exceptions=True)) if pair_jobs else []
         self._abort_if_stale(generation)
 
         new_used = False
         display: tuple[float, CafResult, schemas.PairRef, int] | None = None
+        assessed: list[tuple[_PairCtx, CafResult, _PairEval]] = []
         for ctx, result in zip(contexts, pair_results):
             if isinstance(result, BaseException):
                 if isinstance(result, ValueError):
@@ -2058,11 +2567,16 @@ class Tasking:
                     )
                 continue
             ctx.outcome.result = result
-            new_used |= self._add_rows(event_id, record, state, ctx, result)
+            assessed.append((ctx, result, _evaluate_pair(ctx, result)))
             snr = _finite(result.snr_db)
             rank = snr if (snr is not None and result.detected) else -math.inf
             if display is None or rank > display[0]:
                 display = (rank, result, ctx.pair_ref, ctx.t_mid_ns)
+        # Track decisions first (has another transmitter taken the frequency?), so that a
+        # set-aside happens before this round's rows are added (MATH.md section 8).
+        decisions = self._track_decisions(event_id, record, state, assessed)
+        for (ctx, result, evaluation), (confirmed, why) in zip(assessed, decisions):
+            new_used |= self._add_rows(event_id, record, state, ctx, result, evaluation, confirmed, why)
         if display is not None:
             try:
                 self._book.set_caf(event_id, caf_display(display[1], display[2], display[3]))
@@ -2092,8 +2606,18 @@ class Tasking:
         explanation = round_explanation(report.pairs)
         if explanation:
             parts.append(explanation)
+        if new_used:
+            state.unlocatable_reason = None
+        elif explanation in (EXPLAIN_AMBIGUOUS, EXPLAIN_COUPLED):
+            state.unlocatable_reason = (
+                UNLOCATABLE_AMBIGUOUS if explanation == EXPLAIN_AMBIGUOUS else UNLOCATABLE_COUPLED
+            )
         if not failed_keys and any(p.reason in (REASON_UNCONFIRMED, REASON_INCONSISTENT) for p in report.pairs):
             parts.append("Waiting for a repeat detection before the new measurements are used.")
+        for sat_id, why in state.unavailable.items():
+            parts.append(f"Satellite {sat_id}: orbit not available ({why}); its pairs are not tasked.")
+        if state.fit_note:
+            parts.append(state.fit_note)
         state.message = " ".join(parts) or None
         state.state = "waiting"
         self._publish_status(state)
@@ -2110,9 +2634,19 @@ class Tasking:
             logger.warning("classification of %s failed: %s", event_id, result, extra={"event_id": event_id})
             report.notes.append(f"classification failed: {result}")
             return
+        record = self._book.resolve(event_id)
+        previous = record.classification if record is not None else None
         if self._book.set_classification(event_id, result):
             state.classified_ns = self._clock()
             report.classification = str(result.label)
+            label, confidence = str(result.label), _finite(getattr(result, "confidence", None)) or 0.0
+            if (
+                previous is not None
+                and previous.label != label
+                and "unknown" not in (previous.label, label)
+                and min(previous.confidence, confidence) >= CLASS_CHANGE_CONFIDENCE
+            ):
+                self._book.mark_recheck(event_id, f"its waveform changed from {previous.label} to {label}")
         if str(result.label) != "swept":
             return
         features = dict(getattr(result, "features", {}) or {})
@@ -2304,6 +2838,113 @@ class Tasking:
             else:
                 outcome.fdoa_seq = seq
 
+    @staticmethod
+    def _track_check(
+        state: _EventState, key: tuple[str, str], detection: _Detection, rates: tuple[float, float]
+    ) -> _TrackCheck:
+        """How a detection relates to its pair's track, without changing it."""
+        track = state.tracks.get(key)
+        if track is None or track.confirmed is None:
+            return _TrackCheck(False, False, False, detection.t_ns)
+        if _consistent(track.confirmed, detection, rates):
+            return _TrackCheck(True, False, False, detection.t_ns)
+        matches = [c.t_ns for c in track.candidates if _consistent(c, detection, rates)]
+        return _TrackCheck(False, True, bool(matches), min(matches, default=detection.t_ns))
+
+    def _track_decisions(
+        self,
+        event_id: str,
+        record: EventRecord,
+        state: _EventState,
+        assessed: Sequence[tuple[_PairCtx, CafResult, _PairEval]],
+    ) -> list[tuple[bool, str | None]]:
+        """Confirmation of each pair's detection, with the event-level check for another
+        transmitter on the frequency (K2). Returns ``(confirmed, reason)`` per pair.
+
+        - A pair whose new detections repeat at a TDOA/FDOA its confirmed track cannot
+          reach under the satellites' motion has *jumped*. If no pair of the round agrees
+          with its own track, another transmitter (or the same one, moved) holds the
+          frequency: ``EventBook.transmission_changed`` sets everything aside, the jumped
+          pairs keep their new track and are used, every other track starts again.
+        - A jump while another pair agrees is a conflict: the jumped pair is not used and
+          the event is re-checked.
+        - While the event is re-checked (``EventRecord.recheck``: back after a short
+          break, or its waveform, power or width changed), one agreeing pair keeps the
+          position; a disagreeing detection with none agreeing sets it aside.
+        """
+        if record.set_aside_count != state.aside_seen:
+            # set aside elsewhere (a long break, a local signal): the tracks describe the
+            # signal measured before
+            state.tracks.clear()
+            state.aside_seen = record.set_aside_count
+        checks: list[_TrackCheck | None] = []
+        for ctx, _, evaluation in assessed:
+            if evaluation.detection is None:
+                checks.append(None)
+                continue
+            checks.append(self._track_check(state, (ctx.a.channel_id, ctx.b.channel_id), evaluation.detection, ctx.rates))
+        agree = [i for i, c in enumerate(checks) if c is not None and c.agrees]
+        jumped = [i for i, c in enumerate(checks) if c is not None and c.jumped]
+        disagree = [i for i, c in enumerate(checks) if c is not None and c.disagrees]
+
+        def name(i: int) -> str:
+            ctx = assessed[i][0]
+            return f"{ctx.a.channel_id}/{ctx.b.channel_id}"
+
+        mode = "normal"
+        if jumped and agree:
+            mode = "conflict"
+        elif record.recheck is not None and agree:
+            self._book.clear_recheck(
+                event_id, f"pair {name(agree[0])} measures the same time and frequency differences as before"
+            )
+        elif record.recheck is not None and disagree:
+            mode = "change"
+        elif jumped:
+            mode = "change"
+
+        out: list[tuple[bool, str | None]] = []
+        if mode == "change":
+            first = min(c.onset_ns for i, c in enumerate(checks) if c is not None and i in disagree)
+            why = (
+                f"the time and frequency differences of pair {name(disagree[0])} moved further than the "
+                "satellites' motion allows"
+            )
+            if record.recheck is not None:
+                why += " while the event was being re-checked"
+            self._count("transmission_changes")
+            self._book.transmission_changed(event_id, why, onset_ns=first)
+            state.tracks.clear()
+            state.aside_seen = record.set_aside_count
+            state.solves = 0
+            for i, ((ctx, _, evaluation), check) in enumerate(zip(assessed, checks)):
+                if check is None or evaluation.detection is None:
+                    out.append((False, None))
+                    continue
+                track = state.tracks.setdefault((ctx.a.channel_id, ctx.b.channel_id), _PairTrack())
+                if i in jumped:
+                    track.confirmed = evaluation.detection  # the new transmitter's track, already repeated
+                    out.append((True, None))
+                else:
+                    track.candidates.append(evaluation.detection)
+                    out.append((False, REASON_UNCONFIRMED))
+            return out
+        if mode == "conflict":
+            self._book.mark_recheck(
+                event_id,
+                f"pair {name(jumped[0])} measures new time and frequency differences while pair {name(agree[0])} "
+                "agrees with the earlier ones",
+            )
+        for i, ((ctx, _, evaluation), check) in enumerate(zip(assessed, checks)):
+            if check is None or evaluation.detection is None:
+                out.append((False, None))
+            elif mode == "conflict" and i in jumped:
+                state.tracks[(ctx.a.channel_id, ctx.b.channel_id)].candidates.append(evaluation.detection)
+                out.append((False, REASON_INCONSISTENT))
+            else:
+                out.append(self._confirm(state, (ctx.a.channel_id, ctx.b.channel_id), evaluation.detection, ctx.rates))
+        return out
+
     def _confirm(
         self, state: _EventState, key: tuple[str, str], detection: _Detection, rates: tuple[float, float]
     ) -> tuple[bool, str | None]:
@@ -2322,38 +2963,23 @@ class Tasking:
         return False, REASON_INCONSISTENT if track.confirmed is not None else REASON_UNCONFIRMED
 
     def _add_rows(
-        self, event_id: str, record: EventRecord, state: _EventState, ctx: _PairCtx, result: CafResult
+        self,
+        event_id: str,
+        record: EventRecord,
+        state: _EventState,
+        ctx: _PairCtx,
+        result: CafResult,
+        evaluation: _PairEval,
+        confirmed: bool,
+        why: str | None,
     ) -> bool:
-        """The TDOA and FDOA rows of one correlated pair; True when one is used."""
+        """The TDOA and FDOA rows of one correlated pair (``_evaluate_pair``, then the
+        confirmation ``_track_decisions`` gave); True when one is used."""
         outcome = ctx.outcome
-        tdoa = _finite(result.tdoa_s)
-        fdoa = None if _finite(result.fdoa_hz) is None else float(result.fdoa_hz) + ctx.shift_hz  # type: ignore[arg-type]
-        sig_t, sig_f = _finite(result.sigma_tdoa_s), _finite(result.sigma_fdoa_hz)
-        common: str | None = None
-        if not result.detected:
-            common = REASONS.get(result.reason or "", REASON_NOT_DETECTED)
-        elif result.reason in (REASON_AMBIGUOUS, REASON_COUPLED, REASON_OUTSIDE):
-            common = REASONS[result.reason]
-        elif result.mirror_ambiguous:
-            common = REASON_MIRROR
-        reason_t = reason_f = common
-        if common is None:
-            if tdoa is None or sig_t is None or not sig_t > 0:
-                reason_t = REASONS.get(result.reason or "", REASON_NARROWBAND_CAF)
-            elif ctx.tdoa_blocked:
-                reason_t = REASON_CLOCK_UNLOCKED
-            if fdoa is None or sig_f is None or not sig_f > 0:
-                reason_f = REASONS.get(result.reason or "", REASON_NOT_DETECTED)
+        tdoa, fdoa, sig_t, sig_f = evaluation.tdoa, evaluation.fdoa, evaluation.sig_t, evaluation.sig_f
+        reason_t, reason_f = evaluation.reason_t, evaluation.reason_f
         usable_t, usable_f = reason_t is None, reason_f is None
-        if usable_t or usable_f:
-            detection = _Detection(
-                ctx.t_mid_ns,
-                tdoa if usable_t else None,
-                sig_t if usable_t else None,
-                fdoa if usable_f else None,
-                sig_f if usable_f else None,
-            )
-            confirmed, why = self._confirm(state, (ctx.a.channel_id, ctx.b.channel_id), detection, ctx.rates)
+        if evaluation.detection is not None:
             outcome.confirmed = confirmed
             if not confirmed:
                 reason_t = why if usable_t else reason_t
@@ -2374,6 +3000,7 @@ class Tasking:
                 calibrated.append(kind)
             measurement = None
             if usable and value is not None and sigma is not None:
+                share = result.noise_share_tdoa if kind == "tdoa" else result.noise_share_fdoa
                 measurement = Measurement(
                     kind=kind,  # type: ignore[arg-type]
                     value=value,
@@ -2384,6 +3011,11 @@ class Tasking:
                     correction=cal[0] if cal is not None else 0.0,
                     cal=cal[1] if cal is not None else None,
                     tag=f"{event_id}:{ctx.a.channel_id}/{ctx.b.channel_id}",
+                    # every pair of a round shares the primary capture: its noise is common to their rows
+                    capture_a=ctx.capture_a,
+                    capture_b=ctx.capture_b,
+                    noise_share_a=float(share[0]),
+                    noise_share_b=float(share[1]),
                 )
             row = self._row(
                 kind,
@@ -2439,6 +3071,60 @@ class Tasking:
         limit = int(self._config.processing.solver.max_measurements)
         return entries[-limit:] if limit > 0 else []
 
+    async def _split_test(
+        self,
+        event_id: str,
+        record: EventRecord,
+        state: _EventState,
+        entries: Sequence[Any],
+        cut_seq: int,
+        limit: float,
+        generation: int,
+    ) -> Solution | None:
+        """The fit broke: the rows up to ``cut_seq`` fitted one transmitter, all rows now
+        do not. When the rows added since (at least ``SPLIT_MIN_ROWS``) fit a transmitter
+        of their own, they belong to another transmitter (or the same one, moved): the
+        earlier rows are set aside (``EventBook.transmission_changed``, keeping the new
+        ones) and the new rows' solution is attached. Returns it, or None (the new rows
+        are not consistent by themselves: the inconsistent fit stays published)."""
+        new = [e for e in entries if e.seq > cut_seq]
+        old = [e for e in entries if e.seq <= cut_seq]
+        if len(new) < SPLIT_MIN_ROWS or len(old) < 2:
+            return None
+        cfg = self._config.processing
+        job = _SolveJob(
+            tuple(e.measurement for e in new), self._orbits, self._sites_xyz, cfg.solver, cfg.region,
+            self._uncertainty, None,
+        )
+        solution, _ = await self._pool.run(_solve, job)
+        self._abort_if_stale(generation)
+        if solution is None or not assess_fit(solution.chi2, solution.dof, solution.reduced_chi2, limit).consistent:
+            return None
+        onset = min(int(e.row.t_ns) for e in new)
+        self._count("transmission_changes")
+        self._book.transmission_changed(
+            event_id,
+            "the newest measurements fit one transmitter of their own but not together with the earlier ones",
+            onset_ns=onset,
+            keep=[e.seq for e in new],
+        )
+        # tracks confirmed on the new transmission stay; the others start again
+        state.tracks = {
+            key: track
+            for key, track in state.tracks.items()
+            if track.confirmed is not None and track.confirmed.t_ns >= onset
+        }
+        state.aside_seen = record.set_aside_count
+        state.solves = 1
+        new_seqs = tuple(e.seq for e in new)
+        try:
+            self._book.set_solution(event_id, solution, self._clock(), used=new_seqs, max_reduced_chi2=limit)
+        except ValueError as exc:
+            logger.error("solution of %s not attached: %s", event_id, exc, extra={"event_id": event_id})
+            return None
+        state.last_solved_seq = max(state.last_solved_seq, max(new_seqs))
+        return solution
+
     def _has_unsolved_rows(self, record: EventRecord, state: _EventState) -> bool:
         return any(e.seq > state.last_solved_seq for e in record.used_measurements())
 
@@ -2481,8 +3167,13 @@ class Tasking:
                 solution, reason = global_solution, global_reason
         self._count("solves")
         t_ns = self._clock()
+        limit = float(cfg.solver.max_reduced_chi2)
+        before, before_used = record.solution_out, record.solution_used
         try:
-            self._book.set_solution(event_id, solution, t_ns, used=seqs if solution is not None else (), reason=reason)
+            self._book.set_solution(
+                event_id, solution, t_ns, used=seqs if solution is not None else (), reason=reason,
+                max_reduced_chi2=limit,
+            )
         except ValueError as exc:
             self._count("solve_errors")
             logger.error("solution of %s not attached: %s", event_id, exc, extra={"event_id": event_id})
@@ -2491,6 +3182,26 @@ class Tasking:
         state.last_solved_seq = max(seqs)
         state.solve_reason = None if solution is not None else reason
         report.solution, report.solve_reason = solution, reason
+        broke = solution is None or (record.solution_out is not None and not record.solution_out.fit_consistent)
+        if before is not None and before.fit_consistent and before_used and broke:
+            # The fit broke (no solution, or an inconsistent one) when rows were added to
+            # rows that fitted one transmitter: test the newest rows on their own (K2).
+            split = await self._split_test(event_id, record, state, entries, max(before_used), limit, generation)
+            if split is not None:
+                solution, reason = split, None
+                state.solve_reason = None
+                report.solution, report.solve_reason = solution, None
+        current = record.solution_out
+        if solution is not None and current is not None and not current.fit_consistent:
+            self._count("solves_inconsistent")
+            state.fit_note = (
+                f"The measurements do not fit one stationary transmitter (reduced chi-square "
+                f"{_chi2_text(current.reduced_chi2)}, limit {limit:g}): more than one transmitter may share the "
+                "frequency, the transmitter may be moving, or a site clock or satellite position may be wrong. The "
+                "position is shown with its ellipse enlarged and is not a fix."
+            )
+        elif solution is not None:
+            state.fit_note = None
         if solution is None:
             self._count("solves_failed")
             logger.info("event %s: no position (%s)", event_id, reason, extra={"event_id": event_id, "reason": reason})

@@ -34,6 +34,9 @@ UI = ROOT / "ui"
 STATIC = ROOT / "src" / "petal_locate" / "server" / "static"
 API = "/api/v1"
 STARTUP_S = 90.0
+START_EPOCH = "2026-11-13T03:00:00Z"
+"""Simulated time the demo starts from (`petal-locate demo --start`), so the walk sees
+the same geometry whatever the time of day."""
 LOCATE_S = 120.0
 """Longest the default scenario's jammer may take to be located after start-up."""
 WALK_S = 600.0
@@ -88,8 +91,10 @@ def _children_of(pid: int) -> list[int]:
 
 
 @pytest.fixture(scope="module")
-def demo_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
-    """The demo on its default scenario (pacific-demo), on a free loopback port."""
+def demo_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[str, str]]:
+    """The demo on its default scenario (pacific-demo), on a free loopback port, from a
+    fixed simulated epoch, with its per-run API token: its console base URL and the token
+    its address carries."""
     problem = _browser_problem(_node_env())
     if problem:
         pytest.skip(problem)
@@ -97,24 +102,27 @@ def demo_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     log_path = work / "demo.log"
     env = dict(os.environ, OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", PYTHONUNBUFFERED="1")
     argv = [sys.executable, "-m", "petal_locate.cli", "demo", "--port", "0", "--host", "127.0.0.1",
-            "--data-dir", str(work / "data"), "--log-level", "info", "--node-log-level", "warning"]
+            "--data-dir", str(work / "data"), "--log-level", "info", "--node-log-level", "warning",
+            # the demo's random API token protects it as an operator runs it; every walk of
+            # ui/e2e/smoke.spec.ts enters it from PETAL_TOKEN
+            "--start", START_EPOCH]
     with open(log_path, "w", encoding="utf-8") as log:
         process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=log, text=True, env=env, cwd=str(ROOT),
                                    start_new_session=True)
     try:
         assert process.stdout is not None
-        base_url = None
+        base_url = token = None
         deadline = time.monotonic() + STARTUP_S
         while time.monotonic() < deadline and base_url is None:
             line = process.stdout.readline()
             if not line:
                 raise AssertionError(f"the demo exited before serving:\n{log_path.read_text()[-4000:]}")
-            match = re.search(r"Console:\s+(http://\S+?)/?\s*$", line)
+            match = re.search(r"Console:\s+(http://[^/\s]+)/(?:\?token=(\S+))?\s*$", line)
             if match:
-                base_url = match.group(1)
+                base_url, token = match.group(1), match.group(2) or ""
         assert base_url is not None, "the demo printed no console address"
-        _wait_located(base_url)
-        yield base_url
+        _wait_located(base_url, token)
+        yield base_url, token
     finally:
         pid = process.pid
         if process.poll() is None:
@@ -139,12 +147,13 @@ def demo_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     assert "Traceback" not in text, "the server logged a traceback:\n" + text[max(0, text.find("Traceback") - 2000):][:5000]
 
 
-def _wait_located(base_url: str) -> None:
+def _wait_located(base_url: str, token: str) -> None:
     """Every node online and the default scenario's jammer located, so the walk sees a
     populated queue, a dossier with a fix, lines of position and a correlation surface."""
     deadline = time.monotonic() + STARTUP_S + LOCATE_S
     last: object = None
-    with httpx.Client(base_url=base_url, timeout=10.0) as client:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    with httpx.Client(base_url=base_url, timeout=10.0, headers=headers) as client:
         while time.monotonic() < deadline:
             status = client.get(f"{API}/status").json()
             events = client.get(f"{API}/events", params={"state": "located"}).json()
@@ -155,9 +164,13 @@ def _wait_located(base_url: str) -> None:
     raise AssertionError(f"no located event in time (nodes online, located events): {last}")
 
 
-def test_console_smoke_walk_against_the_live_server(demo_url: str, tmp_path: Path) -> None:
+def test_console_smoke_walk_against_the_live_server(demo_url: tuple[str, str], tmp_path: Path) -> None:
+    base_url, token = demo_url
     env = _node_env()
-    env.update(PETAL_URL=demo_url, PETAL_SHOTS=str(tmp_path / "screens"), CI="1")
+    # the walk enters the demo's API token as an operator does in the token dialog
+    env.update(PETAL_URL=base_url, PETAL_SHOTS=str(tmp_path / "screens"), CI="1")
+    if token:
+        env["PETAL_TOKEN"] = token
     node = shutil.which("node")
     assert node is not None
     started = time.monotonic()
@@ -170,6 +183,8 @@ def test_console_smoke_walk_against_the_live_server(demo_url: str, tmp_path: Pat
     output = (run.stdout + run.stderr)[-6000:]
     print(f"\n[console] Playwright smoke walk: exit {run.returncode} in {elapsed:.0f} s")
     assert run.returncode == 0, f"the console smoke test failed against the live server:\n{output}"
+    # the four walks of smoke.spec.ts; fixes.spec.ts needs the mock and is skipped here
     assert re.search(r"\b4 passed\b", run.stdout), output
+    assert token, "the demo printed no API token: the walk must run against a token-protected server"
     shots = sorted(p.name for p in (tmp_path / "screens").glob("*.png"))
     assert {"watch-dark.png", "event-dark.png", "plan-accuracy-dark.png", "config-conflict-dark.png"} <= set(shots), shots

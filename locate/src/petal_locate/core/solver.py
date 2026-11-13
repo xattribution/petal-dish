@@ -5,7 +5,7 @@ above the WGS84 ellipsoid. Rows are TDOA (seconds) or FDOA (hertz) measurements,
 of satellite pairs, sites and epochs, each with its CAF noise ``sigma`` and an optional
 reference-emitter calibration.
 
-    R = diag(sigma_k^2)                    CAF noise only
+    R = diag(sigma_k^2) + G_n G_n^T        CAF noise (G_n: noise shared by rows of one capture)
     S = R + H_c S_c H_c^T                  total measurement covariance
     minimise  r^T S^-1 r,   r_k = z_k - c_k - h_k(lat, lon)
 
@@ -46,6 +46,7 @@ from .geodesy import (
     wrap_lon_deg,
 )
 from .geometry import elevation_deg, predict_fdoa, predict_pair, predict_tdoa
+from .media import MEDIA, row_media_partials
 from .orbits import Orbit, PerturbedOrbit, orbit_position
 from .timebase import sec
 from .types import CalRef, Measurement, PathSpec, Uncertainty
@@ -72,6 +73,8 @@ ERROR_SOURCES: tuple[str, ...] = (
     "oscillator",
     "tdoa_bias",
     "reference",
+    "ionosphere",
+    "troposphere",
 )
 """Values of ``Solution.dominant_error``, in tie-breaking order."""
 
@@ -88,6 +91,7 @@ _LM_FLAT_EVALUATIONS = 5  # consecutive unobservable iterates after which a refi
 _ESCAPE_M = 10_000.0  # restart distance either side of an unobservable converged point, metres
 _CEP_NODES = 512
 _ZERO3 = np.zeros(3)
+_MIN_OWN_FRACTION = 0.01  # a row's own (unshared) variance never falls below this fraction of sigma^2
 
 
 # --------------------------------------------------------------------------- results
@@ -100,7 +104,8 @@ class Solution:
     lat_deg, lon_deg: geodetic position, degrees (longitude in ``[-180, 180)``).
     height_m: the fixed height above the WGS84 ellipsoid the fit was made at, m.
     cov_en_m2: total 2x2 covariance ``P_total = (J^T S^-1 J)^-1``, m^2, ``[east, north]``.
-    cov_noise_en_m2: the part due to CAF noise, ``K R K^T``.
+    cov_noise_en_m2: the part due to CAF noise, ``K R K^T`` (``R`` includes the noise
+    rows share through a common capture, ``Measurement.capture_a``).
     cov_consider_en_m2: the part due to the consider parameters, ``K H_c S_c H_c^T K^T``
     (the two parts sum to ``cov_en_m2``).
     ellipse: ``{semi_major_m, semi_minor_m, azimuth_deg, confidence}`` of ``cov_en_m2``
@@ -285,6 +290,10 @@ def calibration_correction(
         b=ref_measurement.b,
         t_ns=int(ref_measurement.t_ns),
         sigma=float(ref_measurement.sigma),
+        capture_a=ref_measurement.capture_a,
+        capture_b=ref_measurement.capture_b,
+        noise_share_a=float(ref_measurement.noise_share_a),
+        noise_share_b=float(ref_measurement.noise_share_b),
     )
     return float(ref_measurement.value) - predicted, cal
 
@@ -527,6 +536,7 @@ class _Rows:
                 raise ValueError(f"{name}.sigma must be positive, got {row.sigma!r}")
             for end in ("a", "b"):
                 _check_path(getattr(row, end), f"{name}.{end}", orbits, sites_xyz)
+            _check_capture(row, name)
             self.kinds.append(row.kind)
             self.z[k] = value - correction
             self.sigma[k] = sigma
@@ -561,7 +571,7 @@ class _Rows:
     # ---- consider parameters
 
     def _build_consider(self, unc: Uncertainty | None, label: str) -> None:
-        """Columns of ``H_c S_c^(1/2)``: analytic ones now, satellite RIC ones per position.
+        """Columns of ``H_c S_c^(1/2)``: analytic ones now, position-dependent ones per position.
 
         Analytic partials (MATH.md section 9): site clock (TDOA, -1 for site a, +1 for
         site b), site oscillator (FDOA, ``-f_tune,A`` / ``+f_tune,B``), satellite
@@ -570,6 +580,22 @@ class _Rows:
         measurement. A calibrated row carries ``H_c(x) - s H_c,ref(x_ref)`` with ``s``
         the orientation of the reference pair relative to the row (+1 same, -1
         reversed) and ``s`` on its reference column.
+
+        Shared captures: a capture named by two or more rows of one kind (on either
+        side) gets one column carrying ``side * sigma_k * sqrt(noise_share)`` of each
+        such row (``side`` +1 for channel A, -1 for channel B) and those rows' own
+        sigma keeps the rest, ``sigma_k * sqrt(1 - sum of shared shares)``
+        (``self.sigma``; ``self.sigma_total`` holds the given sigmas). These columns are
+        CAF noise (category ``"noise"``). Reference measurements correlated from one
+        capture are split the same way (category ``"reference"``).
+
+        Position-dependent columns: satellite RIC ephemeris (``_ephemeris_partials``;
+        a calibrated row's velocity partials of the reference are referred to the row's
+        own epoch, ``d h_ref / d vel - (t_k - t_ref) d h_ref / d pos``), and the
+        propagation media (``core.media``): one VTEC and one zenith-delay parameter per
+        ground end (the emitter, every site, every reference position), each scaled by
+        ``sigma sqrt(1 - rho)``, plus one common column (their sum) scaled by
+        ``sigma sqrt(rho)``; a calibrated row subtracts its reference's own partials.
         """
         m = self.m
         columns: dict[tuple[Any, ...], np.ndarray] = {}
@@ -605,10 +631,48 @@ class _Rows:
                     raise ValueError(
                         f"{name}.cal: cal_id {cal.cal_id!r} names two different reference measurements"
                     )
-            add(("ref", cal.cal_id, row.kind), k, sign)
-            sigmas[("ref", cal.cal_id, row.kind)] = float(cal.sigma)
             self._row_ref[k] = ref_index[ref_key]
             self._row_sign[k] = sign
+
+        # captures shared by rows (CAF noise) and by reference measurements
+        self.sigma_total = self.sigma.copy()
+        users: dict[tuple[str, str], int] = {}
+        for k, row in enumerate(self.measurements):
+            for capture in (row.capture_a, row.capture_b):
+                if capture:
+                    users[(capture, row.kind)] = users.get((capture, row.kind), 0) + 1
+        shared_fraction = np.zeros(m)
+        for k, row in enumerate(self.measurements):
+            for capture, share, side in ((row.capture_a, row.noise_share_a, 1.0), (row.capture_b, row.noise_share_b, -1.0)):
+                if capture and share > 0.0 and users[(capture, row.kind)] >= 2:
+                    key = ("cap", capture, row.kind)
+                    add(key, k, side * self.sigma_total[k] * float(np.sqrt(share)))
+                    sigmas[key] = 1.0
+                    shared_fraction[k] += share
+        self.sigma = self.sigma_total * np.sqrt(np.maximum(1.0 - shared_fraction, _MIN_OWN_FRACTION))
+        ref_users: dict[tuple[str, str], int] = {}
+        for kind, cal in refs:
+            for capture in (cal.capture_a, cal.capture_b):
+                if capture:
+                    ref_users[(capture, kind)] = ref_users.get((capture, kind), 0) + 1
+        ref_own = np.ones(len(refs))
+        for j, (kind, cal) in enumerate(refs):
+            for capture, share in ((cal.capture_a, cal.noise_share_a), (cal.capture_b, cal.noise_share_b)):
+                if capture and share > 0.0 and ref_users[(capture, kind)] >= 2:
+                    ref_own[j] -= share
+        for k in range(m):
+            j = int(self._row_ref[k])
+            if j < 0:
+                continue
+            kind, cal = refs[j]
+            sign = float(self._row_sign[k])
+            add(("ref", cal.cal_id, kind), k, sign)
+            sigmas[("ref", cal.cal_id, kind)] = float(cal.sigma) * float(np.sqrt(max(ref_own[j], _MIN_OWN_FRACTION)))
+            for capture, share, side in ((cal.capture_a, cal.noise_share_a, 1.0), (cal.capture_b, cal.noise_share_b, -1.0)):
+                if capture and share > 0.0 and ref_users[(capture, kind)] >= 2:
+                    key = ("refcap", capture, kind)
+                    add(key, k, sign * side * float(cal.sigma) * float(np.sqrt(share)))
+                    sigmas[key] = 1.0
 
         if unc is not None:
             for key in columns:
@@ -620,7 +684,10 @@ class _Rows:
                     sigmas[key] = float(unc.sat_osc_frac.get(key[1], 0.0))
                 elif key[0] == "bias":
                     sigmas[key] = float(unc.tdoa_bias_s)
-        category = {"clock": "clock", "site_osc": "oscillator", "sat_osc": "oscillator", "bias": "tdoa_bias", "ref": "reference"}
+        category = {
+            "clock": "clock", "site_osc": "oscillator", "sat_osc": "oscillator", "bias": "tdoa_bias",
+            "ref": "reference", "cap": "noise", "refcap": "reference",
+        }
         const: list[np.ndarray] = []
         self._categories: list[str] = []
         for key, column in columns.items():
@@ -651,27 +718,140 @@ class _Rows:
         self._eph_sigma = np.array(eph_sigma)
         self._eph_ref = np.zeros((m, len(self._eph)))
         if self._eph and refs:
-            # H_c,ref at each reference position, at the reference's own f_e and epoch
-            by_position: dict[bytes, list[int]] = {}
-            for j, (_, cal) in enumerate(refs):
-                by_position.setdefault(np.asarray(cal.x_ref, dtype=np.float64).tobytes(), []).append(j)
-            ref_partials = np.zeros((len(refs), len(self._eph)))
-            for members in by_position.values():
-                kinds = [refs[j][0] for j in members]
-                cals = [refs[j][1] for j in members]
-                t_s = np.array([sec(int(c.t_ns)) for c in cals])
-                groups = _make_groups(kinds, [c.a for c in cals], [c.b for c in cals], t_s)
-                x_ref = np.asarray(cals[0].x_ref, dtype=np.float64)[None, :]
-                partials = _ephemeris_partials(
-                    x_ref, groups, len(members), t_s, self._eph, self.orbits, self.sites_xyz, None
-                )
-                ref_partials[members] = partials[0]
-            used = self._row_ref >= 0
-            self._eph_ref[used] = (
-                -self._row_sign[used, None] * ref_partials[self._row_ref[used]] * self._eph_sigma
+            self._eph_ref = self._reference_ephemeris(refs)
+
+        # propagation media: per ground end and common (MATH.md section 9, core.media)
+        self._media: list[tuple[str, float, float]] = []
+        if unc is not None:
+            for medium, sigma, rho in (
+                ("ionosphere", unc.iono_vtec_tecu, unc.iono_correlation),
+                ("troposphere", unc.tropo_zenith_m, unc.tropo_correlation),
+            ):
+                if float(sigma) > 0.0:
+                    self._media.append((medium, float(sigma), float(rho)))
+        self._media_const: dict[str, dict[Any, np.ndarray]] = {}
+        self._media_ends: dict[str, list[Any]] = {}
+        if self._media:
+            self._media_const = self._constant_media_partials(refs)
+            for medium, _, rho in self._media:
+                ends = ["emitter"] + list(self._media_const[medium])
+                self._media_ends[medium] = ends
+                if rho < 1.0:
+                    self._categories.extend([medium] * len(ends))
+                if rho > 0.0:
+                    self._categories.append(medium)
+        self.n_media = sum(
+            (len(self._media_ends[medium]) if rho < 1.0 else 0) + (1 if rho > 0.0 else 0) for medium, _, rho in self._media
+        )
+        self.n_consider = self._const.shape[1] + len(self._eph) + self.n_media
+        self.position_dependent = bool(self._eph) or bool(self._media)
+
+    def _reference_ephemeris(self, refs: Sequence[tuple[str, CalRef]]) -> np.ndarray:
+        """``-s H_c,ref`` of the ephemeris parameters on every calibrated row, ``[m, n_eph]``
+        (scaled by the sigmas).
+
+        ``H_c,ref`` is evaluated at each reference position, at the reference's own f_e
+        and epoch. A velocity parameter is defined with ``t_ref`` = the target row's own
+        epoch (as on the target's own partials), so the reference's velocity partial is
+        ``d h_ref / d vel |t_ref - (t_k - t_ref) d h_ref / d pos`` (the satellite moved by
+        ``vel (t_ref - t_k)`` between the two measurements); the position partial is
+        taken for that even when its own sigma is zero.
+        """
+        params = list(self._eph)
+        position_of: dict[tuple[str, int], int] = {}
+        for sat, is_vel, comp in self._eph:
+            if not is_vel and (sat, comp) not in position_of:
+                position_of[(sat, comp)] = params.index((sat, False, comp))
+        for sat, is_vel, comp in self._eph:
+            if is_vel and (sat, comp) not in position_of:
+                position_of[(sat, comp)] = len(params)
+                params.append((sat, False, comp))
+        by_position: dict[bytes, list[int]] = {}
+        for j, (_, cal) in enumerate(refs):
+            by_position.setdefault(np.asarray(cal.x_ref, dtype=np.float64).tobytes(), []).append(j)
+        ref_partials = np.zeros((len(refs), len(params)))
+        for members in by_position.values():
+            kinds = [refs[j][0] for j in members]
+            cals = [refs[j][1] for j in members]
+            t_s = np.array([sec(int(c.t_ns)) for c in cals])
+            groups = _make_groups(kinds, [c.a for c in cals], [c.b for c in cals], t_s)
+            x_ref = np.asarray(cals[0].x_ref, dtype=np.float64)[None, :]
+            partials = _ephemeris_partials(x_ref, groups, len(members), t_s, params, self.orbits, self.sites_xyz, None)
+            ref_partials[members] = partials[0]
+        ref_t = np.array([sec(int(cal.t_ns)) for _, cal in refs])
+        out = np.zeros((self.m, len(self._eph)))
+        for k in np.flatnonzero(self._row_ref >= 0):
+            j = int(self._row_ref[k])
+            values = ref_partials[j, : len(self._eph)].copy()
+            age = float(self.t_s[k] - ref_t[j])
+            if age != 0.0:
+                for col, (sat, is_vel, comp) in enumerate(self._eph):
+                    if is_vel:
+                        values[col] -= age * ref_partials[j, position_of[(sat, comp)]]
+            out[k] = -self._row_sign[k] * values * self._eph_sigma
+        return out
+
+    def _constant_media_partials(self, refs: Sequence[tuple[str, CalRef]]) -> dict[str, dict[Any, np.ndarray]]:
+        """Media partials of the ends that do not depend on the emitter position, per row.
+
+        The downlinks of every row (site ends) and, on calibrated rows, ``-s`` times the
+        reference measurement's own partials (its uplinks at the reference position,
+        key ``("ref", x_ref bytes)``, and its downlinks). Returns
+        ``{medium: {end: column [m]}}`` in row units per TECU or per metre.
+        """
+        out: dict[str, dict[Any, np.ndarray]] = {medium: {} for medium, _, _ in self._media}
+
+        def put(medium: str, key: Any, rows: np.ndarray, values: np.ndarray) -> None:
+            if medium not in out:
+                return
+            column = out[medium].setdefault(key, np.zeros(self.m))
+            column[rows] += values
+
+        for g in self.groups:
+            for kind, rows, cols in (("tdoa", g.rows_t, g.cols_t), ("fdoa", g.rows_f, g.cols_f)):
+                if rows.size == 0:
+                    continue
+                parts = row_media_partials(kind, g.a, g.b, g.t_s, None, self.orbits, self.sites_xyz, uplinks=False)
+                for medium in MEDIA:
+                    for key, values in parts[medium].items():
+                        put(medium, key, rows, values[cols])
+        ref_parts = []
+        for kind, cal in refs:
+            x_ref = np.asarray(cal.x_ref, dtype=np.float64)
+            ref_parts.append(
+                row_media_partials(kind, cal.a, cal.b, np.array([sec(int(cal.t_ns))]), x_ref, self.orbits,
+                                   self.sites_xyz, ("ref", x_ref.tobytes()))
             )
-        self.n_consider = self._const.shape[1] + len(self._eph)
-        self.position_dependent = bool(self._eph)
+        for k in np.flatnonzero(self._row_ref >= 0):
+            parts = ref_parts[int(self._row_ref[k])]
+            for medium in MEDIA:
+                for key, values in parts[medium].items():
+                    put(medium, key, np.array([k]), -self._row_sign[k] * values)
+        return out
+
+    def _media_gain(self, x: np.ndarray) -> np.ndarray:
+        """The media columns at emitter positions ``x`` (``[P, 3]``): ``[P, m, n_media]``."""
+        out = np.zeros((x.shape[0], self.m, self.n_media))
+        col = 0
+        emitter: dict[str, np.ndarray] = {medium: np.zeros((x.shape[0], self.m)) for medium, _, _ in self._media}
+        for g in self.groups:
+            for kind, rows, cols in (("tdoa", g.rows_t, g.cols_t), ("fdoa", g.rows_f, g.cols_f)):
+                if rows.size == 0:
+                    continue
+                parts = row_media_partials(kind, g.a, g.b, g.t_s, x, self.orbits, self.sites_xyz, downlinks=False)
+                for medium in emitter:
+                    emitter[medium][:, rows] += parts[medium]["emitter"][:, cols]
+        for medium, sigma, rho in self._media:
+            ends = [emitter[medium]] + [np.broadcast_to(c, (x.shape[0], self.m)) for c in self._media_const[medium].values()]
+            if rho < 1.0:
+                scale = sigma * float(np.sqrt(1.0 - rho))
+                for column in ends:
+                    out[:, :, col] = column * scale
+                    col += 1
+            if rho > 0.0:
+                out[:, :, col] = np.sum(ends, axis=0) * (sigma * float(np.sqrt(rho)))
+                col += 1
+        return out
 
     @property
     def constant_gain(self) -> np.ndarray | None:
@@ -691,17 +871,21 @@ class _Rows:
         Each column is one consider parameter scaled by its one-sigma, in the units of
         the rows (s or Hz), so ``H_c S_c H_c^T = G G^T``. ``None`` when there are no
         consider parameters. h_base: ``predict(x)`` if the caller already has it.
+        Columns: the constant ones, the ephemeris ones, the media ones.
         """
         if self.n_consider == 0:
             return None
         n_const = self._const.shape[1]
+        n_eph = len(self._eph)
         gain = np.empty((x.shape[0], self.m, self.n_consider))
         gain[:, :, :n_const] = self._const
         if self._eph:
             partials = _ephemeris_partials(
                 x, self.groups, self.m, self.t_s, self._eph, self.orbits, self.sites_xyz, h_base
             )
-            gain[:, :, n_const:] = partials * self._eph_sigma + self._eph_ref
+            gain[:, :, n_const : n_const + n_eph] = partials * self._eph_sigma + self._eph_ref
+        if self._media:
+            gain[:, :, n_const + n_eph :] = self._media_gain(x)
         return gain
 
 
@@ -1356,18 +1540,19 @@ def _covariance_at(
     if not lam[0] > 0.0 or 1.0 / np.sqrt(lam[0]) > _MAX_SEMI_MAJOR_M:
         return None
     k_n = ((vec / lam) @ vec.T) @ solved  # K D with K = P_total J^T S^-1, [2, m]
-    noise = k_n @ k_n.T  # K R K^T
-    noise = 0.5 * (noise + noise.T)
+    noise = k_n @ k_n.T  # K D^2 K^T, the rows' own noise
     budget = dict.fromkeys(ERROR_SOURCES, 0.0)
-    if whitener.gain_n is None:
-        consider = np.zeros((2, 2))
-    else:
+    budget["noise"] = float(np.trace(noise))
+    consider = np.zeros((2, 2))
+    if whitener.gain_n is not None:
         projected = k_n @ whitener.gain_n  # K H_c S_c^(1/2), [2, n]
-        consider = projected @ projected.T
-        consider = 0.5 * (consider + consider.T)
+        is_noise = np.array([name == "noise" for name in rows.categories], dtype=bool)
+        noise = noise + projected[:, is_noise] @ projected[:, is_noise].T  # noise shared through captures
+        consider = projected[:, ~is_noise] @ projected[:, ~is_noise].T
         for name, column in zip(rows.categories, projected.T):
             budget[name] += float(column @ column)
-    budget["noise"] = float(np.trace(noise))
+    noise = 0.5 * (noise + noise.T)
+    consider = 0.5 * (consider + consider.T)
     dominant = max(ERROR_SOURCES, key=lambda name: budget[name])
     residual = rows.z - h[0]
     symmetric = whitener(residual)  # chi2 from the well-conditioned form; |L^-1 r|^2 equals it
@@ -1520,6 +1705,23 @@ def _check_cal(cal: Any, name: str, orbits: Mapping[str, Any], sites_xyz: Mappin
     _integer(cal.t_ns, f"{name}.t_ns")
     if _finite(cal.sigma, f"{name}.sigma") < 0.0:
         raise ValueError(f"{name}.sigma must not be negative, got {cal.sigma!r}")
+    _check_capture(cal, name)
+
+
+def _check_capture(row: Measurement | CalRef, name: str) -> None:
+    for field_name in ("capture_a", "capture_b"):
+        if not isinstance(getattr(row, field_name), str):
+            raise ValueError(f"{name}.{field_name} must be a string")
+    if row.capture_a and row.capture_a == row.capture_b:
+        raise ValueError(f"{name}: capture_a and capture_b name the same capture {row.capture_a!r}")
+    total = 0.0
+    for field_name in ("noise_share_a", "noise_share_b"):
+        share = _finite(getattr(row, field_name), f"{name}.{field_name}")
+        if share < 0.0:
+            raise ValueError(f"{name}.{field_name} must not be negative, got {share!r}")
+        total += share
+    if total >= 1.0:
+        raise ValueError(f"{name}: noise_share_a + noise_share_b must be below 1, got {total!r}")
 
 
 def _check_uncertainty(unc: Any) -> Uncertainty | None:
@@ -1546,6 +1748,12 @@ def _check_uncertainty(unc: Any) -> Uncertainty | None:
                 raise ValueError(f"uncertainty.{field_name}[{key!r}] must not be negative")
     if _finite(unc.tdoa_bias_s, "uncertainty.tdoa_bias_s") < 0.0:
         raise ValueError("uncertainty.tdoa_bias_s must not be negative")
+    for field_name in ("iono_vtec_tecu", "tropo_zenith_m"):
+        if _finite(getattr(unc, field_name), f"uncertainty.{field_name}") < 0.0:
+            raise ValueError(f"uncertainty.{field_name} must not be negative")
+    for field_name in ("iono_correlation", "tropo_correlation"):
+        if not 0.0 <= _finite(getattr(unc, field_name), f"uncertainty.{field_name}") <= 1.0:
+            raise ValueError(f"uncertainty.{field_name} must be within [0, 1]")
     return unc
 
 

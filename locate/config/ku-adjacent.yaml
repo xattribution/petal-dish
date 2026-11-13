@@ -4,17 +4,17 @@
 # inclinations and phases are invented, and the frequency plan and link numbers (G/T,
 # SFD, saturated EIRP, noise temperatures, antennas, EIRPs) are round placeholders, not
 # data for any real spacecraft or earth station. Sites and the reference location are
-# city-centre coordinates with neutral names; nothing here is a real facility.
+# city-center coordinates with neutral names; nothing here is a real facility.
 #
 # Regime exercised: satellites only 2.5 degrees apart, 36 MHz transponders. An uplink
-# dish aimed at one satellite reaches its neighbours through side lobes about 20 dB
+# dish aimed at one satellite reaches its neighbors through side lobes about 20 dB
 # down, and all three satellites share one frequency plan (co-channel downlinks).
 version: 1
 name: ku-adjacent
 description: >-
   Illustrative Ku-band scenario: three generic geostationary satellites 2.5 degrees
   apart with identical 36 MHz transponders (14 GHz up, about 12 GHz down), two
-  city-centre monitoring sites with 1.2 m and 2.4 m dishes and one reference carrier.
+  city-center monitoring sites with 1.2 m and 2.4 m dishes and one reference carrier.
   All slots, inclinations, frequencies, link parameters, antennas and powers are
   illustrative placeholders, not data for any real system; no site or reference
   location is a real facility.
@@ -28,8 +28,6 @@ satellites:
     transponders:
       - {id: k1, uplink_center_hz: 14.250e+9, bandwidth_hz: 36.0e+6, translation_hz: -2.300e+9,
          g_over_t_dbk: 3.0, sfd_dbw_m2: -85.0, eirp_sat_dbw: 50.0}
-      - {id: k2, uplink_center_hz: 14.290e+9, bandwidth_hz: 36.0e+6, translation_hz: -2.300e+9,
-         g_over_t_dbk: 3.0, sfd_dbw_m2: -85.0, eirp_sat_dbw: 50.0}
 
   - id: ku-b
     name: Generic Ku GEO B (illustrative slot 130.5 E)
@@ -37,8 +35,6 @@ satellites:
     orbit: {type: geo, lon_deg: 130.5, inclination_deg: 0.08, phase_deg: 140.0, epoch: "2026-01-01T00:00:00Z"}
     transponders:
       - {id: k1, uplink_center_hz: 14.250e+9, bandwidth_hz: 36.0e+6, translation_hz: -2.300e+9,
-         g_over_t_dbk: 3.0, sfd_dbw_m2: -85.0, eirp_sat_dbw: 50.0}
-      - {id: k2, uplink_center_hz: 14.290e+9, bandwidth_hz: 36.0e+6, translation_hz: -2.300e+9,
          g_over_t_dbk: 3.0, sfd_dbw_m2: -85.0, eirp_sat_dbw: 50.0}
 
   - id: ku-c
@@ -48,15 +44,19 @@ satellites:
     transponders:
       - {id: k1, uplink_center_hz: 14.250e+9, bandwidth_hz: 36.0e+6, translation_hz: -2.300e+9,
          g_over_t_dbk: 3.0, sfd_dbw_m2: -85.0, eirp_sat_dbw: 50.0}
-      - {id: k2, uplink_center_hz: 14.290e+9, bandwidth_hz: 36.0e+6, translation_hz: -2.300e+9,
-         g_over_t_dbk: 3.0, sfd_dbw_m2: -85.0, eirp_sat_dbw: 50.0}
 
-# Each site has one channel per satellite. A 36 MHz transponder is wider than a channel
-# can sample (5 MHz here), so the derived monitors cover the central 5 MHz of each
-# transponder; add explicit monitors to tile a transponder.
+# Each site has one channel per satellite, each on a radio that samples up to 45 MS/s
+# (wideband SDRs reach 56 to 61 MS/s), so the derived monitor of each channel is one
+# 45 MHz window over the whole 36 MHz transponder, inside one tuning of the radio. A
+# channel whose radio samples less than 1.25 times the transponder width gets a derived
+# window over the central max_sample_rate_hz only, and 'petal-locate check' then warns
+# how much of the transponder is blind; a satellite with several transponders needs one
+# channel per transponder (with explicit monitors) when its transponders do not fit one
+# tuning, and check warns about that too.
 sites:
   - id: tokyo
-    name: Tokyo (city centre)
+    name: Tokyo (city center)
+    time_zone: Asia/Tokyo
     lat_deg: 35.681
     lon_deg: 139.767
     alt_m: 0.0
@@ -68,22 +68,23 @@ sites:
         antenna: {type: parabolic, diameter_m: 2.4, efficiency: 0.6}
         pointing: {satellite_id: ku-a}
         system_noise_temp_k: 150.0
-        max_sample_rate_hz: 5.0e+6
+        max_sample_rate_hz: 45.0e+6
       - id: tokyo-ku-b
         name: Tokyo 1.2 m on Ku B
         antenna: {type: parabolic, diameter_m: 1.2, efficiency: 0.6}
         pointing: {satellite_id: ku-b}
         system_noise_temp_k: 150.0
-        max_sample_rate_hz: 5.0e+6
+        max_sample_rate_hz: 45.0e+6
       - id: tokyo-ku-c
         name: Tokyo 1.2 m on Ku C
         antenna: {type: parabolic, diameter_m: 1.2, efficiency: 0.6}
         pointing: {satellite_id: ku-c}
         system_noise_temp_k: 150.0
-        max_sample_rate_hz: 5.0e+6
+        max_sample_rate_hz: 45.0e+6
 
   - id: manila
-    name: Manila (city centre)
+    name: Manila (city center)
+    time_zone: Asia/Manila
     lat_deg: 14.599
     lon_deg: 120.984
     alt_m: 0.0
@@ -95,25 +96,25 @@ sites:
         antenna: {type: parabolic, diameter_m: 1.2, efficiency: 0.6}
         pointing: {satellite_id: ku-a}
         system_noise_temp_k: 150.0
-        max_sample_rate_hz: 5.0e+6
+        max_sample_rate_hz: 45.0e+6
       - id: manila-ku-b
         name: Manila 2.4 m on Ku B
         antenna: {type: parabolic, diameter_m: 2.4, efficiency: 0.6}
         pointing: {satellite_id: ku-b}
         system_noise_temp_k: 150.0
-        max_sample_rate_hz: 5.0e+6
+        max_sample_rate_hz: 45.0e+6
       - id: manila-ku-c
         name: Manila 2.4 m on Ku C
         antenna: {type: parabolic, diameter_m: 2.4, efficiency: 0.6}
         pointing: {satellite_id: ku-c}
         system_noise_temp_k: 150.0
-        max_sample_rate_hz: 5.0e+6
+        max_sample_rate_hz: 45.0e+6
 
 # One reference carrier: a 1 MHz carrier low in transponder k1, uplinked from a 1.2 m
 # dish aimed at ku-b; ku-a and ku-c receive it through the dish's side lobes.
 carriers:
   - id: ref-seoul
-    name: Reference carrier, Seoul city centre (illustrative)
+    name: Reference carrier, Seoul city center (illustrative)
     satellite_id: ku-b
     transponder_id: k1
     uplink_center_hz: 14.236e+9

@@ -561,3 +561,168 @@ def test_demo_scenario_frames_from_the_simulator_give_an_uplink_event() -> None:
     seen = {r.site_id for r in record.evidence if r.state == "seen"}
     assert {"honolulu", "tokyo", "manila"} <= seen
     assert pipeline.counters().get("accepted") == 14 * len(shared)
+
+
+# ------------------------------------------------------------------ clock steps and health (SRV-1, K1)
+
+
+class FakeMonotonic:
+    """Stands in for ``time`` in the detection module: a monotonic clock under test control."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def perf_counter(self) -> float:
+        return time.perf_counter()
+
+
+def test_one_frame_stamped_far_ahead_does_not_blind_the_window(caplog: pytest.LogCaptureFixture) -> None:
+    """SRV-1: one frame 300 s ahead made every later, correctly stamped frame
+    ``out_of_order`` until the server restarted. A frame that far behind the newest is a
+    clock step: it is taken as the new time base, with one warning."""
+    cfg = make_config()
+    sink = Sink()
+    pipeline, specs = _pipeline(cfg, sink)
+    maker = FrameMaker(specs[KEY])
+
+    async def run() -> None:
+        for k in range(10):
+            await pipeline.on_psd(maker.frame(k))
+        await pipeline.on_psd(maker.frame(10, t_ns=T0 + 10 * FRAME_NS + 300 * 10**9))
+        for k in range(11, 40):
+            await pipeline.on_psd(maker.frame(k, [SIGNAL] if k >= 20 else []))
+
+    with caplog.at_level("WARNING", logger="petal_locate.server.pipeline.detection"):
+        asyncio.run(run())
+    counters = pipeline.counters()
+    assert counters["accepted"] == 40 and counters.get("out_of_order", 0) == 0
+    assert counters["clock_steps"] == 1
+    steps = [r for r in caplog.records if "clock stepped back" in r.getMessage()]
+    assert len(steps) == 1
+    # Detection goes on across the step: the signal from frame 20 is confirmed as usual.
+    assert [len(r.detections) for r in sink.reports][22:25] == [1, 1, 1]
+    # A frame a little late (within CLOCK_STEP_FRAMES periods) is still refused, not a step.
+    asyncio.run(pipeline.on_psd(maker.frame(38)))
+    assert pipeline.counters()["out_of_order"] == 1 and pipeline.counters()["clock_steps"] == 1
+
+
+def test_a_new_session_of_a_node_resets_the_frame_times_of_its_windows() -> None:
+    """SRV-1: a node restarted with its clock corrected back by a second sends frames
+    older than the newest one accepted; after ``reset_site`` (a new session) they are
+    accepted, while the windows of other sites keep their order check."""
+    cfg = make_config()
+    sink = Sink()
+    pipeline, specs = _pipeline(cfg, sink)
+    alpha = FrameMaker(specs[KEY])
+    far = FrameMaker(specs[("far-a", "sat-a:t1")])
+
+    async def run() -> None:
+        for k in range(10):
+            await pipeline.on_psd(alpha.frame(k))
+            await pipeline.on_psd(far.frame(k))
+        await pipeline.on_psd(alpha.frame(8))  # one second back: refused
+        assert pipeline.reset_site("alpha") == 1
+        await pipeline.on_psd(alpha.frame(8))  # the new session's first frame
+        await pipeline.on_psd(alpha.frame(9))
+        await pipeline.on_psd(far.frame(8))  # far kept its session: still out of order
+
+    asyncio.run(run())
+    counters = pipeline.counters()
+    assert counters["out_of_order"] == 2 and counters["site_resets"] == 1
+    assert counters["accepted"] == 22 and counters.get("clock_steps", 0) == 0
+    tracker = pipeline.tracker(KEY)
+    assert tracker is not None and not math.isnan(tracker.floor_db)
+
+
+def test_a_window_whose_frames_are_all_refused_is_reported_blind(monkeypatch: pytest.MonkeyPatch,
+                                                                caplog: pytest.LogCaptureFixture) -> None:
+    """SRV-1: frames keep arriving but detection refuses them; the hub showed the window
+    healthy. ``window_health`` reports it blind after BLIND_FRAMES frame periods, with the
+    reason, and fine again once a frame is accepted."""
+    from petal_locate.server.pipeline import detection as detection_module
+
+    clock = FakeMonotonic()
+    monkeypatch.setattr(detection_module, "time", clock)
+    cfg = make_config()
+    sink = Sink()
+    pipeline, specs = _pipeline(cfg, sink)
+    maker = FrameMaker(specs[KEY])
+    assert pipeline.window_health("nope", "nope") is None
+    retuned = specs[KEY].center_hz + 2000.0
+
+    async def frame(k: int, **kw: Any) -> None:
+        clock.now += 0.5
+        await pipeline.on_psd(maker.frame(k, **kw))
+
+    async def run() -> list[dict[str, Any]]:
+        seen = []
+        for k in range(5):
+            await frame(k)
+        seen.append(pipeline.window_health(*KEY))
+        for k in range(5, 16):  # the node now sends at another tuning: 11 frames refused
+            await frame(k, center_hz=retuned)
+            seen.append(pipeline.window_health(*KEY))
+        clock.now += 10.0  # and then nothing at all: the node is away, not blind
+        seen.append(pipeline.window_health(*KEY))
+        await frame(16)
+        seen.append(pipeline.window_health(*KEY))
+        return seen
+
+    with caplog.at_level("WARNING", logger="petal_locate.server.pipeline.detection"):
+        seen = asyncio.run(run())
+    first = seen[0]
+    assert first is not None and first["blind"] is False and first["detection_frame_age_s"] == 0.0
+    assert first["learning"] is True and first["floor_raised_db"] is None and first["note"] is None
+    blind = [h["blind"] for h in seen[1:12]]
+    assert blind == [False] * 10 + [True]  # 10 frame periods after the first refused frame
+    worst = seen[11]
+    assert worst["blind_reason"] == "retuned" and "another tuning" in worst["note"]
+    assert worst["detection_frame_age_s"] == pytest.approx(5.5)
+    assert seen[12]["blind"] is False  # nothing arrives: not blind
+    assert seen[13]["blind"] is False and seen[13]["blind_reason"] is None and seen[13]["detection_frame_age_s"] == 0.0
+    assert sum("detection is blind" in r.getMessage() for r in caplog.records) == 1
+
+
+def _two_window_config() -> SystemConfig:
+    """make_config with a second transponder: every channel has two windows of one span."""
+    data = make_config().model_dump(mode="json")
+    t2 = {**data["satellites"][0]["transponders"][0], "id": "t2", "uplink_center_hz": 300.1e6}
+    data["satellites"][0]["transponders"].append(t2)
+    for site in data["sites"]:
+        for channel in site["channels"]:
+            channel["monitors"] = []  # derived again: one window per transponder
+    return SystemConfig.model_validate(data)
+
+
+def test_a_signal_filling_one_window_from_the_start_is_flagged_floor_raised(caplog: pytest.LogCaptureFixture) -> None:
+    """K1: a signal that fills a whole window from the first frame cannot be told from
+    noise inside the window and is learned. The channel's other window of the same span
+    shows the receiver's floor, so the window is flagged instead of silently learning."""
+    cfg = _two_window_config()
+    sink = Sink()
+    pipeline, specs = _pipeline(cfg, sink)
+    k1, k2 = ("alpha-a", "sat-a:t1"), ("alpha-a", "sat-a:t2")
+    assert specs[k1].span_hz == specs[k2].span_hz
+    quiet, filled = FrameMaker(specs[k1], seed=4), FrameMaker(specs[k2], seed=5)
+    everywhere = (specs[k2].lo_hz - 1e3, specs[k2].hi_hz + 1e3, 12.0)
+
+    async def run(frames: range, fill: bool) -> None:
+        for k in frames:
+            await pipeline.on_psd(quiet.frame(k))
+            await pipeline.on_psd(filled.frame(k, [everywhere] if fill else []))
+
+    with caplog.at_level("INFO", logger="petal_locate.server.pipeline.detection"):
+        asyncio.run(run(range(20), True))
+        assert all(r.detections == () for r in sink.reports)  # nothing to see inside the window
+        raised = pipeline.window_health(*k2)
+        assert raised is not None and raised["floor_raised_db"] == pytest.approx(11.6, abs=1.0)
+        assert "noise floor" in raised["note"] and raised["blind"] is False
+        assert pipeline.window_health(*k1)["floor_raised_db"] is None
+        asyncio.run(run(range(20, 40), False))  # the signal goes away
+    assert pipeline.window_health(*k2)["floor_raised_db"] is None
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("above the channel's other windows" in m for m in messages) == 1
+    assert sum("back in line" in m for m in messages) == 1

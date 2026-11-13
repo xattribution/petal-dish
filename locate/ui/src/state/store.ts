@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { ApiClient, AuthError, type ApiError } from '../api/client';
 import type { PsdFrame } from '../api/plb1';
-import type { Event, EventSummary, Meta, NodeStatus, QueueStatus } from '../api/types.gen';
+import type { Event, EventSummary, Meta, NodeStatus, QueueStatus, SatelliteStatus, SiteClockEstimate } from '../api/types.gen';
 import { UiSocket, socketUrl, type LinkState, type WsMessage } from '../api/ws';
 import { nsCompare, nsToMs } from '../time/ns';
 
@@ -13,6 +13,10 @@ export interface StatusSnapshot {
   nodes: NodeStatus[];
   events_active: number;
   queue: QueueStatus;
+  /** whether the server can place each satellite now (Status.satellites) */
+  satellites: SatelliteStatus[];
+  /** site clock offsets estimated from reference calibrations (Status.site_clocks) */
+  site_clocks: SiteClockEstimate[];
   /** client clock (ms) when it arrived */
   receivedAt: number;
 }
@@ -126,9 +130,15 @@ export function summaryOf(e: Event): EventSummary {
           azimuth_deg: s.ellipse.azimuth_deg,
           cep50_m: s.cep50_m,
           ambiguous: s.ambiguities.length > 0,
+          ambiguities: s.ambiguities.map((a) => ({ lat_deg: a.lat_deg, lon_deg: a.lon_deg, semi_major_m: a.ellipse.semi_major_m, semi_minor_m: a.ellipse.semi_minor_m, azimuth_deg: a.ellipse.azimuth_deg })),
+          fit_consistent: s.fit_consistent ?? true,
         }
       : null,
     simulated: e.simulated ?? false,
+    onset_ns: e.onset_ns ?? null,
+    received_lo_hz: e.received_lo_hz ?? null,
+    received_hi_hz: e.received_hi_hz ?? null,
+    seen_site_ids: e.seen_site_ids ?? [],
   };
 }
 
@@ -168,7 +178,16 @@ function onMessage(msg: WsMessage): void {
     case 'status': {
       const receivedAt = Date.now();
       set({
-        status: { server_t_ns: msg.server_t_ns, config_version: msg.config_version, nodes: msg.nodes, events_active: msg.events_active, queue: msg.queue, receivedAt },
+        status: {
+          server_t_ns: msg.server_t_ns,
+          config_version: msg.config_version,
+          nodes: msg.nodes,
+          events_active: msg.events_active,
+          queue: msg.queue,
+          satellites: msg.satellites ?? [],
+          site_clocks: msg.site_clocks ?? [],
+          receivedAt,
+        },
         serverOffsetMs: nsToMs(msg.server_t_ns) - receivedAt,
         configVersion: msg.config_version,
         meta: state.meta ? { ...state.meta, marking: msg.marking, simulation: msg.simulation } : state.meta,
@@ -230,7 +249,7 @@ export async function boot(): Promise<void> {
     const st = await api.status();
     if (!state.status) {
       const receivedAt = Date.now();
-      set({ status: { ...st, receivedAt }, serverOffsetMs: nsToMs(st.server_t_ns) - receivedAt, configVersion: st.config_version });
+      set({ status: { ...st, satellites: st.satellites ?? [], site_clocks: st.site_clocks ?? [], receivedAt }, serverOffsetMs: nsToMs(st.server_t_ns) - receivedAt, configVersion: st.config_version });
     }
   } catch (e) {
     handleError(e as ApiError);
@@ -253,4 +272,18 @@ export function serverNowMs(): number {
 /** Seconds since the newest status message, or Infinity. */
 export function statusAge(s: LiveState, nowMs: number): number {
   return s.status ? (nowMs - s.status.receivedAt) / 1000 : Infinity;
+}
+
+/** A status report older than this (s) no longer describes the present. */
+export const STATUS_STALE_S = 5;
+
+/**
+ * Whether what the console shows is current: the socket is live and the newest status
+ * is recent. While it is not, live wording ("now", "capturing IQ now") gives way to
+ * "as of" wording, and asOfMs (client clock of the newest status, or null) dates it.
+ */
+export function freshness(s: Pick<LiveState, 'link' | 'status'>, nowMs: number): { live: boolean; asOfMs: number | null } {
+  const asOfMs = s.status ? s.status.receivedAt : null;
+  const live = s.link.kind === 'live' && asOfMs !== null && (nowMs - asOfMs) / 1000 <= STATUS_STALE_S;
+  return { live, asOfMs };
 }

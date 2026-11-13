@@ -2156,3 +2156,70 @@ async def test_a_burst_of_assigns_is_applied_newest_only_and_cannot_queue_up(
             assert agent.stats.sessions == 1 and agent.stats.bad_messages == 0
             await session.expect("psd", 2)
             assert {h.channel_id for h, _ in session.of("psd")} <= {"ch-a", "ch-e"}
+
+
+# ------------------------------------------------- driver text and per-channel options (review)
+
+
+def test_driver_text_that_utf8_cannot_carry_is_escaped_before_it_is_sent() -> None:
+    """A driver error naming a non-UTF-8 file name (`os.fsdecode` makes lone surrogates of
+    it) used to make `dump_control` raise inside `_fail_capture`: the capture_error was
+    never sent and the server waited for the deadline (review SRV-2)."""
+    import os
+
+    from petal_locate.node.agent import _clip
+
+    bad = f"cannot open {os.fsdecode(b'/dev/sdr' + bytes([0xE9]))}"
+    with pytest.raises(ValueError):  # what used to happen
+        dump_control(CaptureErrorMessage(capture_id="c1", channel_id="a", code="driver", message=bad))
+    safe = _clip(bad)
+    assert safe == "cannot open /dev/sdr\\udce9"
+    text = dump_control(CaptureErrorMessage(capture_id="c1", channel_id="a", code="driver", message=safe))
+    assert parse_control(text).message == safe  # and the server accepts it
+    assert _clip("x" * 1000).endswith("...") and len(_clip("x" * 1000)) == 400
+    agent = NodeAgent("ws://127.0.0.1:9", SITE, TOKEN, node_id="n1", software=f"build {bad}")
+    assert agent._software == "build cannot open /dev/sdr\\udce9"
+
+
+def test_channel_driver_options_reach_only_their_channel() -> None:
+    """One radio per channel: each channel's driver gets the common options plus its own
+    (review K12)."""
+    built: list[dict[str, Any]] = []
+
+    def fake_get_driver(name: str, **options: Any) -> Any:
+        built.append({"name": name, **options})
+        return object()
+
+    import petal_locate.node.agent as agent_module
+
+    original = agent_module.get_driver
+    agent_module.get_driver = fake_get_driver  # type: ignore[assignment]
+    try:
+        agent = NodeAgent("ws://127.0.0.1:9", SITE, TOKEN, node_id="n1", driver="soapy",
+                          driver_options={"device": "driver=uhd", "lookback_s": 5},
+                          channel_driver_options={"c2": {"device": "driver=uhd,serial=B2"}})
+        agent.driver_factory(channel("c1"))
+        agent.driver_factory(channel("c2"))
+    finally:
+        agent_module.get_driver = original  # type: ignore[assignment]
+    assert built == [
+        {"name": "soapy", "device": "driver=uhd", "lookback_s": 5},
+        {"name": "soapy", "device": "driver=uhd,serial=B2", "lookback_s": 5},
+    ]
+    with pytest.raises(ValueError, match="channel_driver_options"):
+        NodeAgent("ws://127.0.0.1:9", SITE, TOKEN, node_id="n1", channel_driver_options={"c1": 3})  # type: ignore[dict-item]
+
+
+def test_system_clock_offset_shifts_labelled_time_only_when_asked() -> None:
+    """The fixed simulated epoch of `petal-locate demo --start` (review K8): a node clock
+    with an offset labels time host clock + offset; the default is the host clock."""
+    plain = SystemClock()
+    assert plain.offset_ns == 0 and abs(plain.now_ns() - time.time_ns()) < 50_000_000
+    shifted = SystemClock(source="sim", offset_ns=-86_400 * NS)
+    assert shifted.offset_ns == -86_400 * NS
+    assert abs(shifted.now_ns() - (time.time_ns() - 86_400 * NS)) < 50_000_000
+    assert shifted.status().source == "sim"
+    with pytest.raises(ValueError, match="offset_ns"):
+        SystemClock(offset_ns=1.5)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        SystemClock(offset_ns=-time.time_ns() - NS)  # before 1970

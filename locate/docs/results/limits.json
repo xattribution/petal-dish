@@ -3,8 +3,14 @@
  "simulated": true,
  "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
  "config": "config/pacific-uhf.yaml",
- "config_sha256_16": "8e6a50618265b5ab",
+ "config_sha256_16": "c1dffdc7253968bf",
  "script": "scripts/capability_study.py",
+ "media_assumed_by_solver": {
+  "iono_vtec_tecu": 30.0,
+  "iono_correlation": 0.5,
+  "tropo_zenith_m": 2.4,
+  "tropo_correlation": 0.9
+ },
  "mirror": {
   "point": [
    20.0,
@@ -27,10 +33,10 @@
      ],
      "candidates": [
       {
-       "lat_deg": 19.99995436544134,
-       "lon_deg": 132.0000086856429,
-       "chi2": 2.1324311639469916e-12,
-       "miss_m": 5.133055615864884
+       "lat_deg": 19.999954365451472,
+       "lon_deg": 132.00000868564393,
+       "chi2": 2.1308698567113898e-12,
+       "miss_m": 5.13305453093776
       }
      ],
      "ambiguity_resolved_by": "region"
@@ -50,13 +56,13 @@
       {
        "lat_deg": 19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 2.4726191573795987e-21,
+       "chi2": 1.6718150774436099e-21,
        "miss_m": 26.79860074379114
       },
       {
        "lat_deg": -19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 3.1297126611062223e-21,
+       "chi2": 1.9487979538694903e-21,
        "miss_m": 4424705.709745781
       }
      ],
@@ -78,16 +84,16 @@
      ],
      "candidates": [
       {
-       "lat_deg": 19.99987410790945,
-       "lon_deg": 131.9999946794071,
-       "chi2": 1.4361449986656253e-11,
-       "miss_m": 13.947911700966865
+       "lat_deg": 19.999874107969816,
+       "lon_deg": 131.99999467941268,
+       "chi2": 1.436430418031186e-11,
+       "miss_m": 13.947905000204582
       },
       {
-       "lat_deg": -49.8625262198674,
-       "lon_deg": 128.68975216426946,
-       "chi2": 2.4269227131152453,
-       "miss_m": 7744828.366614002
+       "lat_deg": -49.86251537447076,
+       "lon_deg": 128.68975235038295,
+       "chi2": 2.426922474675446,
+       "miss_m": 7744827.1615742175
       }
      ],
      "ambiguity_resolved_by": "unresolved"
@@ -107,13 +113,13 @@
       {
        "lat_deg": 19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 2.4726191573795987e-21,
+       "chi2": 1.6718150774436099e-21,
        "miss_m": 26.79860074379114
       },
       {
        "lat_deg": -19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 3.1297126611062223e-21,
+       "chi2": 1.9487979538694903e-21,
        "miss_m": 4424705.709745781
       }
      ],
@@ -135,10 +141,10 @@
      ],
      "candidates": [
       {
-       "lat_deg": 20.00023286875401,
-       "lon_deg": 132.00002089384873,
-       "chi2": 1.2400094839165327e-11,
-       "miss_m": 25.8721262602913
+       "lat_deg": 20.00023286867126,
+       "lon_deg": 132.0000208938432,
+       "chi2": 1.239763807253811e-11,
+       "miss_m": 25.872117084228268
       }
      ],
      "ambiguity_resolved_by": "region"
@@ -158,13 +164,13 @@
       {
        "lat_deg": 19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 2.4726191573795987e-21,
+       "chi2": 1.6718150774436099e-21,
        "miss_m": 26.79860074379114
       },
       {
        "lat_deg": -19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 3.1297126611062223e-21,
+       "chi2": 1.9487979538694903e-21,
        "miss_m": 4424705.709745781
       }
      ],
@@ -186,16 +192,16 @@
      ],
      "candidates": [
       {
-       "lat_deg": 19.99912771790933,
-       "lon_deg": 132.00003062090605,
-       "chi2": 4.516289765460498e-10,
-       "miss_m": 96.61851540041997
+       "lat_deg": 19.999127724938532,
+       "lon_deg": 132.00003062073273,
+       "chi2": 4.516391790637595e-10,
+       "miss_m": 96.61773706441913
       },
       {
-       "lat_deg": 8.463747159245727,
-       "lon_deg": 132.38200647297526,
-       "chi2": 0.07890877794976223,
-       "miss_m": 1277088.4504918242
+       "lat_deg": 8.46384499381115,
+       "lon_deg": 132.38200240984315,
+       "chi2": 0.07890808810937407,
+       "miss_m": 1277077.6214265625
       }
      ],
      "ambiguity_resolved_by": "unresolved"
@@ -215,13 +221,13 @@
       {
        "lat_deg": 19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 2.4726191573795987e-21,
+       "chi2": 1.6718150774436099e-21,
        "miss_m": 26.79860074379114
       },
       {
        "lat_deg": -19.99975792625952,
        "lon_deg": 132.0000000020309,
-       "chi2": 3.1297126611062223e-21,
+       "chi2": 1.9487979538694903e-21,
        "miss_m": 4424705.709745781
       }
      ],
@@ -402,9 +408,9 @@
      ]
     },
     "calibrated-sapporo": {
-     "semi_major_95_m": 40840.0925204143,
-     "semi_minor_95_m": 3027.8616899646922,
-     "cep50_m": 11322.09541299124,
+     "semi_major_95_m": 44172.46562991055,
+     "semi_minor_95_m": 2974.893165715085,
+     "cep50_m": 12232.931827548764,
      "dominant": "noise",
      "n_rows": 2,
      "reason": null,
@@ -416,7 +422,7 @@
         "fdoa"
        ],
        "reference_snr_db": 39.08235127813327,
-       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_sigma_tdoa_ns": 116.34675713946001,
        "reference_reason": null,
        "reason": null
       },
@@ -426,8 +432,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.00950683779509,
-       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_snr_db": 38.86171972388611,
+       "reference_sigma_tdoa_ns": 159.4056314957057,
        "reference_reason": null,
        "reason": null
       }
@@ -474,9 +480,9 @@
      ]
     },
     "calibrated-sapporo": {
-     "semi_major_95_m": 85276.94579491553,
-     "semi_minor_95_m": 2134.329664199751,
-     "cep50_m": 23514.707660293858,
+     "semi_major_95_m": 73865.88119095653,
+     "semi_minor_95_m": 2693.63561157503,
+     "cep50_m": 20383.929311696153,
      "dominant": "noise",
      "n_rows": 2,
      "reason": null,
@@ -487,8 +493,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.08355565156239,
-       "reference_sigma_tdoa_ns": 127.39556855105283,
+       "reference_snr_db": 38.897840746717335,
+       "reference_sigma_tdoa_ns": 198.26935248185836,
        "reference_reason": null,
        "reason": null
       },
@@ -498,8 +504,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.10367319263719,
-       "reference_sigma_tdoa_ns": 123.75164657615882,
+       "reference_snr_db": 38.95589147060812,
+       "reference_sigma_tdoa_ns": 160.04026263818423,
        "reference_reason": null,
        "reason": null
       }
@@ -546,9 +552,9 @@
      ]
     },
     "calibrated-sapporo": {
-     "semi_major_95_m": 24833.124721673077,
-     "semi_minor_95_m": 3734.959180500213,
-     "cep50_m": 7017.71453069875,
+     "semi_major_95_m": 27381.29284782862,
+     "semi_minor_95_m": 3670.983551410096,
+     "cep50_m": 7697.255737551571,
      "dominant": "noise",
      "n_rows": 2,
      "reason": null,
@@ -560,7 +566,7 @@
         "fdoa"
        ],
        "reference_snr_db": 39.08235127813327,
-       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_sigma_tdoa_ns": 116.34675713946001,
        "reference_reason": null,
        "reason": null
       },
@@ -570,8 +576,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.00950683779509,
-       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_snr_db": 38.86171972388611,
+       "reference_sigma_tdoa_ns": 159.4056314957057,
        "reference_reason": null,
        "reason": null
       }
@@ -618,9 +624,9 @@
      ]
     },
     "calibrated-sapporo": {
-     "semi_major_95_m": 48267.911405503335,
-     "semi_minor_95_m": 3138.1304579039956,
-     "cep50_m": 13362.551019053877,
+     "semi_major_95_m": 52935.06115910437,
+     "semi_minor_95_m": 3146.328929553706,
+     "cep50_m": 14643.389700760918,
      "dominant": "noise",
      "n_rows": 2,
      "reason": null,
@@ -632,7 +638,7 @@
         "fdoa"
        ],
        "reference_snr_db": 39.08235127813327,
-       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_sigma_tdoa_ns": 116.34675713946001,
        "reference_reason": null,
        "reason": null
       },
@@ -642,8 +648,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.00950683779509,
-       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_snr_db": 38.86171972388611,
+       "reference_sigma_tdoa_ns": 159.4056314957057,
        "reference_reason": null,
        "reason": null
       }
@@ -704,7 +710,7 @@
         "fdoa"
        ],
        "reference_snr_db": 39.08235127813327,
-       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_sigma_tdoa_ns": 116.34675713946001,
        "reference_reason": null,
        "reason": null
       },
@@ -714,8 +720,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.00950683779509,
-       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_snr_db": 38.86171972388611,
+       "reference_sigma_tdoa_ns": 159.4056314957057,
        "reference_reason": null,
        "reason": null
       }
@@ -762,9 +768,9 @@
      ]
     },
     "calibrated-sapporo": {
-     "semi_major_95_m": 26441.800790289457,
-     "semi_minor_95_m": 3545.998777944263,
-     "cep50_m": 7433.234178120967,
+     "semi_major_95_m": 28862.70870133212,
+     "semi_minor_95_m": 3420.7773760279515,
+     "cep50_m": 8078.0237824652795,
      "dominant": "noise",
      "n_rows": 2,
      "reason": null,
@@ -776,7 +782,7 @@
         "fdoa"
        ],
        "reference_snr_db": 39.08235127813327,
-       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_sigma_tdoa_ns": 116.34675713946001,
        "reference_reason": null,
        "reason": null
       },
@@ -786,8 +792,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.00950683779509,
-       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_snr_db": 38.86171972388611,
+       "reference_sigma_tdoa_ns": 159.4056314957057,
        "reference_reason": null,
        "reason": null
       }
@@ -834,9 +840,9 @@
      ]
     },
     "calibrated-sapporo": {
-     "semi_major_95_m": 27448.596733750477,
-     "semi_minor_95_m": 3545.519208599934,
-     "cep50_m": 7704.992455166208,
+     "semi_major_95_m": 31032.950892990913,
+     "semi_minor_95_m": 3517.1324952671857,
+     "cep50_m": 8673.770334862973,
      "dominant": "noise",
      "n_rows": 2,
      "reason": null,
@@ -848,7 +854,7 @@
         "fdoa"
        ],
        "reference_snr_db": 39.08235127813327,
-       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_sigma_tdoa_ns": 116.34675713946001,
        "reference_reason": null,
        "reason": null
       },
@@ -858,8 +864,8 @@
         "tdoa",
         "fdoa"
        ],
-       "reference_snr_db": 39.00950683779509,
-       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_snr_db": 38.86171972388611,
+       "reference_sigma_tdoa_ns": 159.4056314957057,
        "reference_reason": null,
        "reason": null
       }
@@ -868,11 +874,49 @@
    }
   ]
  },
+ "caf_sigma_check": {
+  "point": [
+   20.0,
+   132.0
+  ],
+  "pairs": [
+   {
+    "pair": "seoul-pac/seoul-io",
+    "co_channel": true,
+    "same_site": true,
+    "n": 100,
+    "n_estimated": 100,
+    "failures": {},
+    "tdoa_scatter_over_sigma": 1.017895044535538,
+    "fdoa_scatter_over_sigma": 1.0201871685106638,
+    "tdoa_mean_over_sigma": -0.09162794174678313,
+    "fdoa_mean_over_sigma": 0.038287623502192586,
+    "standard_error_of_scatter": 0.07106690545187015,
+    "mean_sigma_tdoa_ns": 143.6966878261328,
+    "mean_leak_excess": 0.028381606346740317
+   },
+   {
+    "pair": "honolulu-pac/naha-172e",
+    "co_channel": false,
+    "same_site": false,
+    "n": 100,
+    "n_estimated": 100,
+    "failures": {},
+    "tdoa_scatter_over_sigma": 0.9024034671211428,
+    "fdoa_scatter_over_sigma": 0.9991192019079974,
+    "tdoa_mean_over_sigma": 0.04327634992469928,
+    "fdoa_mean_over_sigma": -0.194123561731645,
+    "standard_error_of_scatter": 0.07106690545187015,
+    "mean_sigma_tdoa_ns": 91.67677147672828,
+    "mean_leak_excess": 0.0
+   }
+  ]
+ },
  "uplink-cw/uncalibrated": {
-  "n_trials": 10,
+  "n_trials": 40,
   "n_solved": 0,
   "failures": {
-   "unobservable": 10
+   "unobservable": 40
   },
   "median_miss_m": null,
   "p95_miss_m": null,
@@ -880,7 +924,7 @@
   "containment_95_total": null,
   "cep50_predicted_m": null,
   "pair_reasons": {
-   "narrowband": 20
+   "narrowband": 80
   },
   "pairs": [
    "honolulu-pac/naha-172e",
@@ -888,16 +932,16 @@
   ]
  },
  "uplink-cw/calibrated": {
-  "n_trials": 10,
-  "n_solved": 10,
+  "n_trials": 40,
+  "n_solved": 40,
   "failures": {},
-  "median_miss_m": 18595.604691651286,
-  "p95_miss_m": 30007.641197881087,
-  "mean_nees_total": 1.6615422885753168,
-  "containment_95_total": 1.0,
-  "cep50_predicted_m": 13587.327701191796,
+  "median_miss_m": 15549.896393722966,
+  "p95_miss_m": 49558.46468862989,
+  "mean_nees_total": 2.095641858773374,
+  "containment_95_total": 0.875,
+  "cep50_predicted_m": 15012.120012008003,
   "pair_reasons": {
-   "narrowband": 20
+   "narrowband": 80
   },
   "pairs": [
    "honolulu-pac/naha-172e",
@@ -905,10 +949,10 @@
   ]
  },
  "uplink-swept/uncalibrated": {
-  "n_trials": 10,
+  "n_trials": 40,
   "n_solved": 0,
   "failures": {
-   "fewer than 2 measurements (0)": 10
+   "fewer than 2 measurements (0)": 40
   },
   "median_miss_m": null,
   "p95_miss_m": null,
@@ -916,7 +960,7 @@
   "containment_95_total": null,
   "cep50_predicted_m": null,
   "pair_reasons": {
-   "ambiguous": 20
+   "ambiguous": 80
   },
   "pairs": [
    "honolulu-pac/naha-172e",
@@ -924,10 +968,10 @@
   ]
  },
  "uplink-swept/calibrated": {
-  "n_trials": 10,
+  "n_trials": 40,
   "n_solved": 0,
   "failures": {
-   "fewer than 2 measurements (0)": 10
+   "fewer than 2 measurements (0)": 40
   },
   "median_miss_m": null,
   "p95_miss_m": null,
@@ -935,12 +979,12 @@
   "containment_95_total": null,
   "cep50_predicted_m": null,
   "pair_reasons": {
-   "ambiguous": 20
+   "ambiguous": 80
   },
   "pairs": [
    "honolulu-pac/naha-172e",
    "honolulu-pac/seoul-io"
   ]
  },
- "elapsed_s": 43.940579652786255
+ "elapsed_s": 201.00664806365967
 }

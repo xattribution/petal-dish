@@ -16,8 +16,10 @@ after ``SEND_TIMEOUT_S``.
 
 Authentication: when ``Settings.api_token`` is set the handshake must carry
 ``?token=``; otherwise the socket is accepted and closed at once with 1008 (the
-console tells the operator the token was refused). Shutdown: ``UiSockets.close_all``
-closes every console socket with 1001 before the server stops.
+console tells the operator the token was refused). Whatever the token, a handshake
+whose ``Origin`` is neither the server's own nor in ``Settings.allowed_origins`` is
+closed the same way (another web page must not read the live stream). Shutdown:
+``UiSockets.close_all`` closes every console socket with 1001 before the server stops.
 """
 from __future__ import annotations
 
@@ -32,7 +34,8 @@ from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from petal_locate.server.api import schemas
-from petal_locate.server.api.deps import ws_token_ok
+from petal_locate.protocol.messages import unencodable_path
+from petal_locate.server.api.deps import ws_origin_ok, ws_token_ok
 
 if TYPE_CHECKING:
     from petal_locate.server.runtime import ConsoleSubscription, ServerRuntime
@@ -186,6 +189,8 @@ async def _receive_loop(websocket: WebSocket, subscription: ConsoleSubscription,
             continue  # binary frames from a browser carry nothing we understand
         try:
             data = json.loads(text)
+            if unencodable_path(data) is not None:
+                raise ValueError("text that is not valid Unicode (an unpaired surrogate)")
             kind = data.get("type") if isinstance(data, dict) else None
             if kind != "subscribe":
                 if bad < _MAX_BAD_MESSAGES_LOGGED:
@@ -195,7 +200,7 @@ async def _receive_loop(websocket: WebSocket, subscription: ConsoleSubscription,
             request = schemas.WsSubscribe.model_validate(data)
             subscription.set_psd(request.psd)
             logger.debug("console %s streams %d spectrum window(s)", peer, len(request.psd), extra={"peer": peer})
-        except (ValueError, ValidationError) as exc:
+        except (ValueError, ValidationError, RecursionError) as exc:
             if bad < _MAX_BAD_MESSAGES_LOGGED:
                 logger.warning("malformed console message ignored: %s", str(exc).splitlines()[0][:200],
                                extra={"peer": peer})
@@ -209,6 +214,13 @@ async def ui_socket(websocket: WebSocket) -> None:
     peer = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "?"
     if registry.closing:
         await _refuse(websocket, CLOSE_GOING_AWAY, "server shutting down")
+        return
+    if not ws_origin_ok(websocket):
+        registry.refused += 1
+        origin = websocket.headers.get("origin", "")
+        logger.warning("console socket refused: origin %r is not allowed", origin[:100],
+                       extra={"peer": peer, "origin": origin[:100]})
+        await _refuse(websocket, CLOSE_POLICY, "this origin may not open the console socket")
         return
     if not ws_token_ok(websocket):
         registry.refused += 1

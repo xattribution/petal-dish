@@ -202,7 +202,7 @@ def test_defaults_match_the_architecture_document(cfg: SystemConfig) -> None:
     assert p.caf.model_dump() == dict(min_snr_db=13.0, max_tdoa_sigma_s=5e-4, doppler_margin_hz=20.0, delay_margin_s=20e-6)
     assert p.solver.model_dump() == dict(
         height_m=0.0, min_elevation_deg=0.0, confidence=0.95, grid_step_deg=1.0, n_starts=16,
-        chi2_ambiguity=9.0, max_measurements=400,
+        chi2_ambiguity=9.0, max_measurements=400, max_reduced_chi2=5.0,
     )  # fmt: skip
     assert p.uncertainty.model_dump() == dict(
         ephemeris=dict(
@@ -210,6 +210,7 @@ def test_defaults_match_the_architecture_document(cfg: SystemConfig) -> None:
             tle=dict(pos_m=[2000.0, 20000.0, 10000.0], vel_mps=[0.3, 0.3, 0.7]),
         ),
         sat_osc_frac=1e-6, site_osc_frac=1e-11, tdoa_bias_ns=50.0,
+        iono_vtec_tecu=30.0, iono_correlation=0.5, tropo_zenith_m=2.4, tropo_correlation=0.9,
     )  # fmt: skip
     assert p.calibration.model_dump() == dict(enabled=True, interval_s=30.0, max_age_s=300.0)
     assert p.region.model_dump() == dict(lat_min=-70.0, lat_max=70.0, lon_min=-180.0, lon_max=180.0)
@@ -1166,8 +1167,12 @@ def test_emitter_model_is_independent_of_any_system() -> None:
 
 def test_warnings(cfg: SystemConfig, pacific: SystemConfig, ku: SystemConfig) -> None:
     notes = {note["loc"]: note["msg"] for note in cfg.warnings()}
-    assert set(notes) == {"sites.0.channels.0.antenna"}  # the 1.2 m dish at 260 MHz
+    # the 1.2 m dish at 260 MHz, and north-wide's windows at 260 and 267.4 MHz, which no
+    # single 2 MHz tuning of its radio can serve
+    assert set(notes) == {"sites.0.channels.0.antenna", "sites.0.channels.1.monitors"}
     assert "under 3 wavelengths" in notes["sites.0.channels.0.antenna"]
+    assert "span 7.431 MHz" in notes["sites.0.channels.1.monitors"]
+    assert "sat-a:x1, sat-a:x2, sat-b:x1" in notes["sites.0.channels.1.monitors"]
     assert ku.warnings(T0) == []  # Ku dishes focus, and every satellite is up
     small = [note["loc"] for note in pacific.warnings(T0)]
     parabolic = [c for s in pacific.sites for c in s.channels if c.antenna.type == "parabolic"]
@@ -1236,8 +1241,9 @@ def test_shipped_configs_load_and_say_they_are_illustrative(name: str) -> None:
         assert "illustrative" in satellite.notes.lower(), satellite.id
     for carrier in model.carriers:
         assert "illustrative" in carrier.name.lower(), carrier.id
-    for site in model.sites:  # neutral city-centre names and exactly the city-centre coordinates
-        assert site.name == f"{site.id.capitalize()} (city centre)"
+    for site in model.sites:  # neutral city-center names and exactly the city-center coordinates
+        assert site.name == f"{site.id.capitalize()} (city center)"
+        assert site.time_zone is not None  # the console shows each site's local time
         assert (site.lat_deg, site.lon_deg) == CITIES[site.id]
     raw = (CONFIG_DIR / f"{name}.yaml").read_text(encoding="utf-8")
     assert "EVERYTHING NUMERIC HERE IS ILLUSTRATIVE" in raw
@@ -1434,13 +1440,18 @@ def test_ku_adjacent_matches_its_description(ku: SystemConfig) -> None:
             assert 11.7e9 <= transponder.downlink_lo_hz and transponder.downlink_hi_hz <= 12.2e9
             assert (transponder.g_over_t_dbk, transponder.sfd_dbw_m2, transponder.eirp_sat_dbw) == (3.0, -85.0, 50.0)
         plans.append([(t.id, t.uplink_center_hz, t.translation_hz) for t in satellite.transponders])
-    assert plans[0] == plans[1] == plans[2] and len(plans[0]) == 2  # co-channel neighbours
+    assert plans[0] == plans[1] == plans[2] and len(plans[0]) == 1  # co-channel neighbors
     for site in ku.sites:
         assert sorted({c.antenna.diameter_m for c in site.channels}) == [1.2, 2.4]
         assert sorted(c.pointing.satellite_id for c in site.channels) == ["ku-a", "ku-b", "ku-c"]
         for channel in site.channels:
             assert not electrically_small(channel.antenna, 11.95e9)
-            assert all(m.span_hz == channel.max_sample_rate_hz for m in channel.monitors)  # central slice of 36 MHz
+            # one window over the whole 36 MHz transponder, inside one tuning of a 45 MS/s radio
+            (window,) = channel.monitors
+            assert window.span_hz == channel.max_sample_rate_hz == 45e6
+            (tp,) = ku.satellite(channel.pointing.satellite_id).transponders
+            assert window.center_hz - 0.5 * window.span_hz <= tp.downlink_lo_hz
+            assert tp.downlink_hi_hz <= window.center_hz + 0.5 * window.span_hz
     reference = ku.carriers[0]
     assert (reference.location.lat_deg, reference.location.lon_deg) == CITIES["seoul"]
     assert reference.emitter.antenna.type == "parabolic" and reference.emitter.pointing.satellite_id == reference.satellite_id
@@ -1515,3 +1526,89 @@ def test_site_time_zone_is_optional_checked_and_round_trips() -> None:
         assert fragment in problems[0]["msg"], problems
     schema = config_json_schema()
     assert "time_zone" in json.dumps(schema["$defs"]["Site"])
+
+
+# ------------------------------------------------- hostile documents (review SRV-2, M5, SRV-5, SRV-6)
+
+
+def test_text_that_is_not_valid_unicode_is_refused_on_every_path() -> None:
+    """A lone surrogate (a JSON or YAML escape) used to pass validation, be applied, and
+    then break GET /config for good (review M5)."""
+    from petal_locate.config.loader import ConfigError
+
+    data = base()
+    data["description"] = "x\ud800"
+    with pytest.raises(ConfigError) as info:  # JSON text with the escape
+        loads_config(json.dumps(data), fmt="json")
+    assert info.value.errors == [{"loc": "description", "msg": "text that is not valid Unicode (an unpaired surrogate)"}]
+    with pytest.raises(ConfigError) as info:  # YAML double-quoted escape
+        loads_config(yaml.safe_dump(base()) + 'description: "y\\udce9"\n', fmt="yaml")
+    assert info.value.errors[0]["loc"] == "description"
+    with pytest.raises(ValidationError, match="sites.0.name: text that is not valid Unicode"):
+        bad = base()
+        bad["sites"][0]["name"] = "s\udfff"
+        SystemConfig.model_validate(bad)  # a decoded JSON body handed straight to the model
+    fine = base()
+    fine["description"] = "emoji \U0001F600 and accents é"
+    assert SystemConfig.model_validate(fine).description == fine["description"]
+
+
+def test_yaml_aliases_are_budgeted_and_nesting_is_bounded() -> None:
+    """A few kilobytes of aliases stood for millions of validated nodes (review SRV-6);
+    deep nesting raised RecursionError, a 500 at the API (review SRV-5)."""
+    import time as clock
+
+    from petal_locate.config.loader import MAX_YAML_NODES, ConfigError, YamlLimitError, safe_yaml_load
+
+    tp = ("{id: t, uplink_center_hz: 301.0e+6, bandwidth_hz: 25.0e+3, translation_hz: -41.0e+6, "
+          "g_over_t_dbk: -14.0, sfd_dbw_m2: -136.0, eirp_sat_dbw: 26.0}")
+    n = 2500
+    bomb = "\n".join(
+        ["version: 1", "name: bomb", "satellites:",
+         f"  - &S {{id: s, orbit: {{type: geo, lon_deg: -177.0}}, transponders: [&T {tp}" + ",*T" * (n - 1) + "]}"]
+        + ["  - *S"] * (n - 1) + ["sites: []"]
+    )
+    started = clock.perf_counter()
+    with pytest.raises(ConfigError, match=f"more than {MAX_YAML_NODES} nodes") as info:
+        loads_config(bomb)
+    assert clock.perf_counter() - started < 2.0  # was 17 s of worker time
+    assert info.value.errors[0]["loc"] == "(root)"
+    # aliases of a sensible size are fine (a shared antenna, a merge key)
+    shared = safe_yaml_load("a: &dish {type: parabolic, diameter_m: 1.2}\nb: *dish\nc: {<<: *dish, diameter_m: 2.4}\n")
+    assert shared["b"] == {"type": "parabolic", "diameter_m": 1.2} and shared["c"]["diameter_m"] == 2.4
+    with pytest.raises(YamlLimitError, match="recursive alias"):
+        safe_yaml_load("a: &x [1, *x]\n")
+    with pytest.raises(yaml.YAMLError, match="duplicate key"):
+        safe_yaml_load("a: 1\na: 2\n")
+    deep_yaml = "a: " + "[" * 20000 + "]" * 20000
+    with pytest.raises(ConfigError, match="nested too deeply"):
+        loads_config(deep_yaml)
+    deep_json = '{"a": ' + "[" * 100000 + "]" * 100000 + "}"
+    with pytest.raises(ConfigError, match="nested too deeply"):
+        loads_config(deep_json, fmt="json")
+
+
+def test_stale_tle_elements_are_warned_about() -> None:
+    """A TLE far from its epoch got the same sigmas and no word (review ADAPT-8)."""
+    from petal_locate.config.models import tle_epoch_s
+
+    line1 = "1 99999U 26001A   26001.50000000  .00016717  00000-0  10270-3 0  9000"  # fictional elements
+    line2 = "2 99999  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391    00"
+    from petal_locate.core.orbits import tle_checksum
+
+    line1 = line1[:68] + str(tle_checksum(line1))
+    line2 = line2[:68] + str(tle_checksum(line2))
+    epoch = tle_epoch_s(line1)
+    assert epoch == dt.datetime(2026, 1, 1, 12, tzinfo=dt.timezone.utc).timestamp()
+    data = base()
+    data["satellites"][0]["orbit"] = {"type": "tle", "line1": line1, "line2": line2}
+    cfg = SystemConfig.model_validate(data)
+
+    def tle_notes(t: float) -> list[str]:
+        return [n["msg"] for n in cfg.warnings(t) if n["loc"] == "satellites.0.orbit" and "TLE epoch" in n["msg"]]
+
+    assert tle_notes(epoch + 2 * 86400) == []  # a low orbit, 2 days: fresh enough
+    (note,) = tle_notes(epoch + 10 * 86400)  # 10 days > 3 days for a 15.7 rev/day orbit
+    assert "10 days before the time evaluated" in note and "low or medium" in note and "load current elements" in note
+    assert tle_notes(epoch - 5 * 86400)  # before the epoch counts too
+    assert all("TLE epoch" not in n["msg"] for n in cfg.warnings())  # no time, no age check

@@ -16,6 +16,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from petal_locate.config.loader import YamlLimitError, safe_yaml_load, unicode_problem
 from petal_locate.config.models import (
     Antenna,
     EmitterPointing,
@@ -33,6 +34,7 @@ __all__ = [
     "EmitterSpec",
     "EphemerisError",
     "IonoError",
+    "TropoError",
     "Scenario",
     "ScenarioError",
     "TruthErrors",
@@ -150,10 +152,21 @@ class EphemerisError(_Model):
 
 
 class IonoError(_Model):
-    """Ionospheric group delay applied to every path (not modelled by the solver)."""
+    """Ionospheric group delay applied to every path, one VTEC (TECU) at every ground end
+    (the solver carries it as a consider parameter, ``processing.uncertainty.iono_vtec_tecu``)."""
 
     enabled: bool = False
     vtec_tecu: NonNegativeFloat = 30.0
+
+
+class TropoError(_Model):
+    """Tropospheric delay applied to every leg of every path (envelope and carrier phase
+    alike), ``zenith_m * m(el) / C`` with the mapping of ``core.media.tropo_mapping``, one
+    zenith delay (m) at every ground end (the solver carries it as a consider parameter,
+    ``processing.uncertainty.tropo_zenith_m``). The direct terrestrial path gets none."""
+
+    enabled: bool = False
+    zenith_m: NonNegativeFloat = 2.3
 
 
 class TruthErrors(_Model):
@@ -162,7 +175,7 @@ class TruthErrors(_Model):
     ephemeris: per satellite id. sat_osc_frac: fractional error of each satellite's
     translation oscillator. site_clock_offset_ns: ``delta_g`` per site, true time
     minus labelled time, ns. site_osc_frac: fractional error of each site's reference
-    oscillator (``eps_g``). iono: ionospheric delay.
+    oscillator (``eps_g``). iono: ionospheric delay. tropo: tropospheric delay.
     """
 
     ephemeris: dict[str, EphemerisError] = Field(default_factory=dict)
@@ -170,6 +183,7 @@ class TruthErrors(_Model):
     site_clock_offset_ns: dict[str, float] = Field(default_factory=dict)
     site_osc_frac: dict[str, float] = Field(default_factory=dict)
     iono: IonoError = Field(default_factory=IonoError)
+    tropo: TropoError = Field(default_factory=TropoError)
 
 
 class Scenario(_Model):
@@ -180,6 +194,16 @@ class Scenario(_Model):
     description: str = ""
     emitters: list[EmitterSpec] = Field(default_factory=list)
     errors: TruthErrors = Field(default_factory=TruthErrors)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _text_is_unicode(cls, data: Any) -> Any:
+        """Refuse text no reply could write out again (an unpaired surrogate)."""
+        if isinstance(data, dict):
+            problem = unicode_problem(data)
+            if problem is not None:
+                raise ValueError(f"{problem['loc']}: {problem['msg']}")
+        return data
 
     @model_validator(mode="after")
     def _check(self) -> Scenario:
@@ -251,13 +275,20 @@ class Scenario(_Model):
 
 
 def loads_scenario(text: str) -> Scenario:
-    """Parse a scenario from YAML or JSON text. Raises ``ScenarioError``."""
+    """Parse a scenario from YAML or JSON text. Raises ``ScenarioError`` (also for a
+    document nested too deeply, one whose aliases expand beyond
+    ``config.loader.MAX_YAML_NODES``, and text that is not valid Unicode)."""
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+        data = safe_yaml_load(text)
+    except YamlLimitError as exc:
+        raise ScenarioError(f"(root): {exc}") from None
+    except (yaml.YAMLError, ValueError) as exc:  # ValueError: e.g. an impossible unquoted date
         raise ScenarioError(f"not valid YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ScenarioError("a scenario must be a mapping")
+    problem = unicode_problem(data)
+    if problem is not None:
+        raise ScenarioError(f"{problem['loc']}: {problem['msg']}")
     try:
         return Scenario.model_validate(data)
     except ValidationError as exc:

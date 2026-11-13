@@ -1,16 +1,17 @@
 // Watch: the first screen. Left rail: network roll-up and the event queue, most urgent
 // first. Right: the world map, or the selected event's dossier (#/event/<id>).
 import { useEffect, useMemo, useState } from 'react';
-import type { EventSummary } from '../api/types.gen';
+import type { EventSummary, SystemConfig } from '../api/types.gen';
 import { Empty, ErrorNote, Loading, SimTag, Status, StatusSymbol, useTick } from '../components/common';
-import { compareEvents, eventLevel, isActive, nodeLevel, STATE_WORD, VERDICT_WORD, worst } from '../domain/status';
+import { isInconsistent, semiAxes, summaryCandidatesText, summaryReceivedText } from '../domain/event';
+import { compareEvents, eventLevel, isActive, nodeLevel, satelliteProblems, STATE_WORD, VERDICT_WORD, worst } from '../domain/status';
 import { formatLat, formatLon } from '../format/geo';
-import { km, mhz, plural } from '../format/units';
+import { mhz, plural } from '../format/units';
 import { MapView, type LayerId, type MapData, type MapSolution } from '../map/MapView';
 import { href, navigate } from '../router';
 import { configResource, footprintsResource, subpointsResource, truthResource } from '../state/resources';
-import { refreshEvents, serverNowMs, useLive } from '../state/store';
-import { dtgNs, formatAge } from '../time/dtg';
+import { freshness, refreshEvents, serverNowMs, useLive } from '../state/store';
+import { dtgNs, formatAge, zuluClock } from '../time/dtg';
 import { nsToMs } from '../time/ns';
 import { EventDossier } from './EventDossier';
 
@@ -44,10 +45,12 @@ function Rollup() {
   const status = useLive((s) => s.status);
   const now = useTick(1000);
   if (!status) return <div className="rollup ink2">Waiting for the first status report.</div>;
-  const assessed = status.nodes.map((n) => ({ n, a: nodeLevel(n) }));
+  const clocks = new Map((status.site_clocks ?? []).map((c) => [c.site_id, c]));
+  const assessed = status.nodes.map((n) => ({ n, a: nodeLevel(n, { siteClock: clocks.get(n.site_id) }) }));
   const online = status.nodes.filter((n) => n.online).length;
   const bad = assessed.filter((x) => x.a.level !== 'normal').sort((a, b) => (a.a.level === 'serious' ? -1 : 1) - (b.a.level === 'serious' ? -1 : 1));
-  const level = worst(assessed.map((x) => x.a.level));
+  const satsDown = satelliteProblems(status.satellites);
+  const level = worst([...assessed.map((x) => x.a.level), ...(satsDown.length ? (['serious'] as const) : [])]);
   const age = (now - status.receivedAt) / 1000;
   return (
     <div className="rollup" aria-label="Network roll-up">
@@ -58,6 +61,13 @@ function Rollup() {
         </a>
         {age > 3 ? <span className="err-text">status {formatAge(age)} old</span> : null}
       </div>
+      {satsDown.map((s) => (
+        // ADAPT-7: a satellite the server cannot place is named here, not only in the log
+        <div className="line ink2 satdown" key={s.sat_id}>
+          <StatusSymbol level="serious" />
+          <span className="wrap">{s.message ?? `satellite ${s.sat_id}: ephemeris not available`}</span>
+        </div>
+      ))}
       {bad.map(({ n, a }) => (
         <div className="line ink2" key={n.site_id}>
           <StatusSymbol level={a.level} />
@@ -75,11 +85,15 @@ function Rollup() {
 /** Waveform class words (ClassificationOut.label). */
 const CLASS_WORD: Record<string, string> = { cw: 'CW carrier', swept: 'swept', noise: 'noise', modulated: 'modulated', pulsed: 'pulsed', unknown: 'unknown waveform' };
 
-function QueueRow({ e, current }: { e: EventSummary; current: boolean }) {
+function QueueRow({ e, current, nowMs, live, cfg }: { e: EventSummary; current: boolean; nowMs: number; live: boolean; cfg: SystemConfig | null }) {
   const level = eventLevel(e);
-  const nowMs = serverNowMs();
   const age = (nowMs - nsToMs(e.last_seen_ns)) / 1000;
   const sol = e.solution;
+  // UX-8: "now" only while the console is live; otherwise how long ago the last update saw it
+  const ageText = isActive(e) ? (live && age < 15 ? 'now' : `${formatAge(age)} ago`) : dtgNs(e.last_seen_ns);
+  // UX-3: a local signal is described by what is received at the site, not an uplink equivalent
+  const local = e.verdict === 'local' ? summaryReceivedText(e, cfg) : null;
+  const amb = sol ? summaryCandidatesText(sol) : null;
   return (
     <a className="qrow" href={href('event', e.id)} aria-current={current ? 'true' : undefined} data-event={e.id}>
       <span className="sym">
@@ -93,23 +107,35 @@ function QueueRow({ e, current }: { e: EventSummary; current: boolean }) {
         <span className="ink2">{STATE_WORD[e.state]}</span>
         {e.simulated ? <SimTag text="SIM" /> : null}
       </span>
-      <span className="age mono">{isActive(e) ? (age < 15 ? 'now' : `${formatAge(age)} ago`) : dtgNs(e.last_seen_ns)}</span>
+      <span className="age mono">{ageText}</span>
       <span className="l2">
-        <span className="mono">{e.uplink_lo_hz !== null && e.uplink_hi_hz !== null ? `${mhz(e.uplink_lo_hz, 4)}–${mhz(e.uplink_hi_hz, 4)} MHz up` : 'outside every transponder'}</span>
+        {local ? (
+          <span className="mono">{local}</span>
+        ) : (
+          <span className="mono">{e.uplink_lo_hz !== null && e.uplink_hi_hz !== null ? `${mhz(e.uplink_lo_hz, 4)}–${mhz(e.uplink_hi_hz, 4)} MHz up` : 'outside every transponder'}</span>
+        )}
         {e.label ? `, ${CLASS_WORD[e.label] ?? e.label}` : ''}
-        <br />
-        <span className="mono">{e.satellite_ids.join('  ')}</span>
+        {local ? null : (
+          <>
+            <br />
+            <span className="mono">{e.satellite_ids.join('  ')}</span>
+          </>
+        )}
       </span>
       <span className="l3">
-        {sol ? (
+        {sol && isInconsistent(sol) ? (
+          // UX-1: an inconsistent fit is a caution, never a confident position
+          <span className="status amb">
+            <StatusSymbol level="caution" /> Measurements inconsistent: no fix
+          </span>
+        ) : sol && amb ? (
+          <span className="amb">Ambiguous, {amb}</span>
+        ) : sol ? (
           <>
-            <span className="mono">
+            <span className="mono nowrap">
               {formatLat(sol.lat_deg, 2)} {formatLon(sol.lon_deg, 2)}
             </span>{' '}
-            95 % {km(sol.semi_major_m)} {'×'} {km(sol.semi_minor_m)} km
-            {sol.ambiguous ? (
-              <span className="amb">, ambiguous: {(sol.ambiguities?.length ?? 1) > 1 ? `${sol.ambiguities?.length} other positions fit` : 'a mirror position fits'} as well</span>
-            ) : null}
+            <span className="nowrap">95 % semi-axes {semiAxes(sol.semi_major_m, sol.semi_minor_m)}</span>
           </>
         ) : (
           e.headline
@@ -123,6 +149,13 @@ function Queue({ selected }: { selected: string | null }) {
   const summaries = useLive((s) => s.summaries);
   const loaded = useLive((s) => s.eventsLoaded);
   const error = useLive((s) => s.eventsError);
+  const link = useLive((s) => s.link);
+  const status = useLive((s) => s.status);
+  const cfg = configResource.use().data?.envelope.config ?? null;
+  // ages advance every second, and the rows know whether the console is live
+  useTick(1000);
+  const { live, asOfMs } = freshness({ link, status }, Date.now());
+  const nowMs = serverNowMs();
   const [showInactive, setShowInactive] = useState(false);
   const sorted = useMemo(() => [...summaries.values()].sort(compareEvents), [summaries]);
   const active = sorted.filter(isActive);
@@ -159,13 +192,13 @@ function Queue({ selected }: { selected: string | null }) {
       <h2>
         <span>Events: {active.length} active</span>
         <span className="muted" style={{ fontWeight: 400 }}>
-          j / k to move
+          {live ? 'j / k to move' : `as of ${asOfMs === null ? 'no update' : zuluClock(new Date(asOfMs + (nowMs - Date.now())))}`}
         </span>
       </h2>
       {active.length === 0 ? (
         <Empty title="No active interference">Every monitored window is clear. New detections appear here, most urgent first.</Empty>
       ) : (
-        active.map((e) => <QueueRow key={e.id} e={e} current={e.id === selected} />)
+        active.map((e) => <QueueRow key={e.id} e={e} current={e.id === selected} nowMs={nowMs} live={live} cfg={cfg} />)
       )}
       {inactive.length ? (
         <>
@@ -174,7 +207,7 @@ function Queue({ selected }: { selected: string | null }) {
               {showInactive ? 'Hide' : 'Show'} {inactive.length} lost or closed
             </button>
           </h2>
-          {showInactive ? inactive.map((e) => <QueueRow key={e.id} e={e} current={e.id === selected} />) : null}
+          {showInactive ? inactive.map((e) => <QueueRow key={e.id} e={e} current={e.id === selected} nowMs={nowMs} live={live} cfg={cfg} />) : null}
         </>
       ) : null}
     </nav>
@@ -194,10 +227,22 @@ function OverviewMap() {
     for (const e of summaries.values()) {
       if (!isActive(e) || !e.solution) continue;
       const s = e.solution;
-      solutions.push({ id: e.id, eventId: e.id, lat: s.lat_deg, lon: s.lon_deg, semiMajorM: s.semi_major_m, semiMinorM: s.semi_minor_m, azimuthDeg: s.azimuth_deg, role: 'fix', selected: false, label: `${e.id}${s.ambiguous ? ' (ambiguous)' : ''}` });
+      const bad = isInconsistent(s);
+      solutions.push({
+        id: e.id,
+        eventId: e.id,
+        lat: s.lat_deg,
+        lon: s.lon_deg,
+        semiMajorM: s.semi_major_m,
+        semiMinorM: s.semi_minor_m,
+        azimuthDeg: s.azimuth_deg,
+        role: bad ? 'unreliable' : 'fix',
+        selected: false,
+        label: `${e.id}${bad ? ' (not a fix)' : s.ambiguous ? ' (ambiguous)' : ''}`,
+      });
       // an unresolved ambiguity: every other position that fits as well, dashed
       (s.ambiguities ?? []).forEach((a, i) =>
-        solutions.push({ id: `${e.id}-mirror-${i}`, eventId: e.id, lat: a.lat_deg, lon: a.lon_deg, semiMajorM: a.semi_major_m, semiMinorM: a.semi_minor_m, azimuthDeg: a.azimuth_deg, role: 'mirror', selected: false, label: `${e.id} mirror ${i + 1}` }),
+        solutions.push({ id: `${e.id}-mirror-${i}`, eventId: e.id, lat: a.lat_deg, lon: a.lon_deg, semiMajorM: a.semi_major_m, semiMinorM: a.semi_minor_m, azimuthDeg: a.azimuth_deg, role: 'mirror', selected: false, label: `${e.id} position ${i + 2}` }),
       );
     }
     return {

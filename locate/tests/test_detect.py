@@ -323,6 +323,65 @@ def test_emitter_over_the_whole_window_during_startup_does_not_lift_its_own_prio
     assert np.max(np.abs(tracker.baseline_db - truth)) < 0.35
 
 
+@pytest.mark.parametrize(
+    ("passbands", "first", "width"),
+    [([PASSBAND], 26, 972), ([WIDE_PASSBAND], 15, 994)],
+    ids=["guard bins: three quarters of them covered", "no guard bins: 97 % covered"],
+)
+def test_signal_on_from_the_first_frame_over_most_of_the_window_is_detected_at_once(passbands, first, width):
+    """K1: a signal already on when the tracker starts, covering the guard bins' median
+    (or nine tenths of a window without guard bins), lifted the floor with it and was
+    learned as noise for good. The floor now steps down to a lower quantile."""
+    tracker = make_tracker(passbands)
+    bench = Bench(tracker, seed=31)
+    lin = floor_lin(passbands)
+    sig = with_block(lin, first, width, 10.0)
+    history = bench.run(sig, 30)
+    assert [len(d) for d in history] == [0, 0] + [1] * 28
+    lo, hi = bins_of(history[-1][0])
+    assert abs(lo - first) <= 1 and abs(hi - (first + width - 1)) <= 1
+    assert abs(history[-1][0].snr_db - 10.0) < 0.6
+    free = np.r_[0 : first - 2, first + width + 2 : NFFT]
+    truth = 10.0 * np.log10(lin[free]) + MEDIAN_DB
+    assert abs(float(np.mean(tracker.baseline_db[free] - truth))) < 0.3
+    assert abs(tracker.floor_db - MEDIAN_DB) < 0.3
+
+
+def test_signal_filling_the_whole_window_from_the_first_frame_shows_in_floor_db():
+    """Nothing inside the window tells such a signal from noise; floor_db carries it, so
+    the caller can compare the window with the receiver's other windows."""
+    for passbands in ([PASSBAND], [WIDE_PASSBAND]):
+        tracker = make_tracker(passbands)
+        assert np.isnan(tracker.floor_db) and tracker.floor_from_guard == (passbands == [PASSBAND])
+        bench = Bench(tracker, seed=32)
+        history = bench.run(floor_lin(passbands) * 10.0 ** 1.2, 20)
+        assert all(d == [] for d in history)
+        assert abs(tracker.floor_db - (12.0 + MEDIAN_DB)) < 0.4
+
+
+def test_learning_lasts_a_tenth_of_baseline_tau_and_reset_time_accepts_a_clock_step():
+    tracker = make_tracker()
+    bench = Bench(tracker, seed=33)
+    lin = floor_lin([PASSBAND])
+    sig = with_block(lin, 400, 40, 10.0)
+    bench.run(lin, 60)
+    assert tracker.learning  # 30 s of 600 s
+    bench.run(lin, 70)
+    assert not tracker.learning  # the history spans 60 s
+    assert [len(d) for d in bench.run(sig, 5)][-1] == 1
+    baseline = tracker.baseline_db.copy()
+    psd = bench.frames[-1]
+    step_back = bench.t_ns - 3_600 * 10**9  # the frame clock is corrected an hour back
+    with pytest.raises(ValueError, match="increase"):
+        tracker.update(psd, step_back)
+    tracker.reset_time()
+    dets = tracker.update(psd, step_back)
+    assert [d.track_id for d in dets] == [1]  # the track and the baseline go on
+    np.testing.assert_allclose(tracker.baseline_db, baseline, atol=1e-6)
+    with pytest.raises(ValueError, match="increase"):
+        tracker.update(psd, step_back)
+
+
 def test_track_under_a_passing_full_window_emitter_keeps_its_id():
     bench = Bench(make_tracker(), seed=13)
     lin = floor_lin([PASSBAND])

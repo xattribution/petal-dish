@@ -39,6 +39,7 @@ __all__ = [
     "CafDisplay",
     "ChannelRef",
     "ChannelStatus",
+    "WindowStatus",
     "ClassificationOut",
     "ConfigEnvelope",
     "ConflictResponse",
@@ -68,10 +69,12 @@ __all__ = [
     "PairRef",
     "Preset",
     "QueueStatus",
+    "SatelliteStatus",
     "ScenarioEnvelope",
     "SimTruth",
     "SimTruthEmitter",
     "SimTruthEvent",
+    "SiteClockEstimate",
     "SolutionHistoryRow",
     "SolutionOut",
     "SolutionSummary",
@@ -189,10 +192,46 @@ class ConfigEnvelope(_Out):
     derived_monitors: list[str] = Field(default_factory=list)
 
 
+class WindowStatus(_Out):
+    """Detection health of one monitor window of a channel.
+
+    last_frame_age_s: seconds since the newest spectrum frame of the window reached the
+    server (null before any). detection_frame_age_s: seconds since the detection
+    pipeline last accepted one (null before any): it grows while frames arrive but are
+    refused. blind: frames arrive but none has been accepted for ``BLIND_FRAMES`` frame
+    periods; the channel is then not ``ok``. blind_reason: the drop reason of the
+    latest refused frame (``out_of_order``, ``retuned``, ``nfft_mismatch``,
+    ``non_finite``, ``tracker_error``, ``no_tracker``, ...), null when not blind.
+    learning: the window's tracker still judges most bins against its start-up prior
+    (the noise floor plus the relayed-noise rise) rather than their own history.
+    floor_raised_db: how far the window's noise floor estimate lies above the lowest
+    one among the channel's other windows of the same span, dB, when that exceeds the
+    detection threshold: a signal filling the window may have been taken for its noise
+    (null otherwise, or when the channel has no comparable window). note: one sentence
+    for the operator when blind or floor_raised_db is set, else null.
+    """
+
+    monitor_id: str
+    last_frame_age_s: float | None = None
+    detection_frame_age_s: float | None = None
+    blind: bool = False
+    blind_reason: str | None = None
+    learning: bool | None = None
+    floor_raised_db: float | None = None
+    note: str | None = None
+
+
 class ChannelStatus(_Out):
+    """channel_id, ok (ready, and no window blind to detection), last_frame_age_s (the
+    newest frame over its windows). windows: one ``WindowStatus`` per assigned monitor
+    window. detection_problem: a sentence naming blind or floor-raised windows, null
+    when there are none."""
+
     channel_id: str
     ok: bool
     last_frame_age_s: float | None
+    windows: list[WindowStatus] = Field(default_factory=list)
+    detection_problem: str | None = None
 
 
 class NodeStatus(_Out):
@@ -217,14 +256,61 @@ class QueueStatus(_Out):
     jobs_waiting: int
 
 
+class SatelliteStatus(_Out):
+    """Whether the server can place one configured satellite now (its orbit can be
+    evaluated at the server's time; checked every ``ORBIT_CHECK_S``).
+
+    ephemeris_ok: the orbit evaluates now. unavailable_since_ns: when it stopped (the
+    end of an ephemeris table when the orbit says so, otherwise the first check that
+    failed); null while it is available. message: one sentence for the operator, for
+    example "satellite MUOS Pacific (muos-pac): ephemeris not available since
+    2026-11-13 03:12:00Z (t_s outside the ephemeris table span ...); its pairs are not
+    tasked"; null while available.
+    """
+
+    sat_id: str
+    ephemeris_ok: bool
+    unavailable_since_ns: ConsoleTimeNs | None = None
+    message: str | None = None
+
+
+class SiteClockEstimate(_Out):
+    """A site's clock offset estimated from reference-carrier calibrations (the TDOA
+    corrections of cross-site pairs; MATH.md section 9).
+
+    offset_us: estimated offset of the site's sample timestamps, labelled time minus true
+    time, microseconds (positive: its clock runs ahead; negative: behind, "late"), relative to the
+    median of its group of compared sites (the least-squares fit of the cross-site TDOA
+    corrections ``c ~ o_a - o_b``). sigma_us: RMS residual of the corrections it rests
+    on, microseconds (null with a single correction). n_calibrations: TDOA calibrations used.
+    compared_with: the other sites of those calibrations. caution: ``|offset_us|``
+    reaches ``max(tasking.CLOCK_CAUTION_NS = 1000 ns, 10 x sites[].clock.sigma_ns)``; in a
+    group of only two sites both are flagged when their difference reaches it (which one
+    is off cannot be told). message: plain sentence when caution, else null.
+    """
+
+    site_id: str
+    offset_us: float
+    sigma_us: float | None
+    n_calibrations: int
+    compared_with: list[str]
+    caution: bool
+    message: str | None = None
+
+
 class Status(_Out):
-    """``GET /status``."""
+    """``GET /status``. satellites: one row per configured satellite (empty before the
+    first orbit check). site_clocks: clock offsets estimated from calibrations, one row
+    per site that took part in a cross-site TDOA calibration still valid (empty without
+    calibrations)."""
 
     server_t_ns: ConsoleTimeNs
     config_version: int
     nodes: list[NodeStatus]
     events_active: int
     queue: QueueStatus
+    satellites: list[SatelliteStatus] = Field(default_factory=list)
+    site_clocks: list[SiteClockEstimate] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- events
@@ -263,7 +349,19 @@ class SolutionOut(_Out):
     solutions (for example the mirror image across the equator); they carry no
     ambiguities of their own. ``dominant_error`` is one of ``noise``,
     ``ephemeris_position``, ``ephemeris_velocity``, ``clock``, ``oscillator``,
-    ``tdoa_bias``, ``reference`` (``core.solver.ERROR_SOURCES``).
+    ``tdoa_bias``, ``reference``, ``ionosphere``, ``troposphere``
+    (``core.solver.ERROR_SOURCES``).
+
+    Fit consistency (set by the server when it publishes a solve; the defaults describe
+    a solution the server did not assess). fit_p_value: probability that a chi-square
+    with ``dof`` degrees of freedom reaches ``chi2`` (null when ``dof < 1``).
+    fit_consistent: false when ``reduced_chi2`` exceeds ``processing.solver.
+    max_reduced_chi2`` and ``fit_p_value`` is below 0.001: the measurements do not fit
+    one stationary transmitter (rows of two transmitters, a moving one, a clock or
+    ephemeris fault), so the position must not be reported as a fix; the event is then
+    never ``located``. ellipse_scale: factor already applied to ``ellipse`` axes and
+    ``cep50_m`` (and its square to the three covariances): ``sqrt(reduced_chi2)`` for an
+    inconsistent fit, else 1. An ambiguity is assessed on its own chi-square.
     """
 
     lat_deg: float
@@ -283,6 +381,9 @@ class SolutionOut(_Out):
     converged: bool
     dominant_error: str
     n_measurements: int
+    fit_consistent: bool = True
+    fit_p_value: float | None = None
+    ellipse_scale: float = 1.0
 
 
 class AmbiguitySummary(_Out):
@@ -299,7 +400,9 @@ class AmbiguitySummary(_Out):
 class SolutionSummary(_Out):
     """Enough of a solution to draw it on the map and list it. ``ambiguous``: the
     ambiguity is unresolved; ``ambiguities`` then lists every other position that fits
-    as well (``SolutionOut.ambiguities``), so a map can draw all of them."""
+    as well (``SolutionOut.ambiguities``), so a map can draw all of them.
+    fit_consistent: ``SolutionOut.fit_consistent`` (false: the measurements are
+    inconsistent, the ellipse is enlarged and the position is not a fix)."""
 
     lat_deg: float
     lon_deg: float
@@ -309,15 +412,22 @@ class SolutionSummary(_Out):
     cep50_m: float
     ambiguous: bool
     ambiguities: list[AmbiguitySummary] = Field(default_factory=list)
+    fit_consistent: bool = True
 
 
 class SolutionHistoryRow(_Out):
-    """How the ellipse shrank as measurements accumulated."""
+    """How the ellipse shrank as measurements accumulated: the 95 % semi-axes of each
+    converged solve. fit_consistent: false for an inconsistent fit (its semi-axes are
+    the enlarged ones, ``SolutionOut.ellipse_scale``). set_aside: the solve belongs to
+    measurements set aside later (``EventBook.set_aside``: a break, another
+    transmitter, a local signal), so later rows start afresh."""
 
     t_ns: ConsoleTimeNs
     semi_major_m: float
     semi_minor_m: float
     n_measurements: int
+    fit_consistent: bool = True
+    set_aside: bool = False
 
 
 class ClassificationOut(_Out):
@@ -482,6 +592,12 @@ class TaskingStatus(_Out):
     ambiguous ..." for a repeating sweep); null when all went well.
     solve_reason: why the last solve gave no position (for example ``unobservable``
     or ``fewer than two accepted measurements``); null after a successful solve.
+    unlocatable_reason: set when the signal itself cannot be located by satellite
+    correlation, whatever more rounds do: every pair of the last round failed for a
+    reason of the waveform (a periodic waveform whose correlation is ambiguous, delay
+    and Doppler coupled) with no row accepted since, or no second satellite with a usable
+    channel relays the frequency. One plain sentence; null otherwise (and as soon as a
+    row is accepted).
     """
 
     state: Literal["waiting", "capturing", "processing", "idle"]
@@ -491,6 +607,7 @@ class TaskingStatus(_Out):
     channels: list[str]
     message: str | None
     solve_reason: str | None
+    unlocatable_reason: str | None = None
 
 
 class EventTruth(_Out):
@@ -507,7 +624,9 @@ class EventTruth(_Out):
 class EventSummary(_Out):
     """Row of ``GET /events``. ``uplink_lo_hz`` / ``uplink_hi_hz`` are null for an event
     outside every transponder passband (see ``Event``). ``simulated``: the event comes
-    from the simulator."""
+    from the simulator. ``onset_ns``, ``received_lo_hz``, ``received_hi_hz``,
+    ``seen_site_ids``: as in ``Event`` (for a ``local`` event the queue shows the
+    received range and the sites, not the uplink range)."""
 
     id: str
     state: EventState
@@ -521,6 +640,10 @@ class EventSummary(_Out):
     headline: str
     solution: SolutionSummary | None
     simulated: bool = False
+    onset_ns: ConsoleTimeNs | None = None
+    received_lo_hz: float | None = None
+    received_hi_hz: float | None = None
+    seen_site_ids: list[str] = Field(default_factory=list)
 
 
 class Event(_Out):
@@ -534,6 +657,25 @@ class Event(_Out):
     is missing. merged_into: set when this event was folded into another one (it is
     then ``closed``). simulated: the event comes from the simulator. tasking: what
     capture tasking is doing for it (null until tasking has looked at it).
+
+    satellite_ids / transponders: the satellites (and transponders) that relay the
+    interference. Before a consistent position exists this is the frequency plan
+    (every transponder covering the uplink range: some may not see the transmitter);
+    once one exists, only satellites above ``solver.min_elevation_deg`` (and the
+    horizon) at the fix, at an end of one of its 95 % ellipse axes or at an ambiguity
+    (never none). not_visible_satellite_ids: satellites of the plan left out because
+    they cannot see the transmitter's position (empty before a consistent fix).
+    onset_ns: start of the current transmission, labelled time: the first detection
+    after the latest break, or the first detection that showed another transmitter
+    took the frequency; equal to ``first_seen_ns`` while neither happened. Report this
+    as the start time. resumed_ns: server time the event was detected again after its
+    latest loss (null if it was never lost); break_s: the length of that break, s.
+    recheck: why the position and measurements shown are being checked against new
+    measurements (the event came back after a short break, or its waveform, power or
+    width changed); a disagreeing detection sets them aside. Null otherwise.
+    received_lo_hz / received_hi_hz: union of the downlink ranges of the ``seen``
+    evidence rows (what is on the air at the sites that see it; null while nothing is
+    seen). seen_site_ids: sites with a ``seen`` row, in row order.
     """
 
     id: str
@@ -561,6 +703,14 @@ class Event(_Out):
     merged_into: str | None = None
     simulated: bool = False
     tasking: TaskingStatus | None = None
+    not_visible_satellite_ids: list[str] = Field(default_factory=list)
+    onset_ns: ConsoleTimeNs | None = None
+    resumed_ns: ConsoleTimeNs | None = None
+    break_s: float | None = None
+    recheck: str | None = None
+    received_lo_hz: float | None = None
+    received_hi_hz: float | None = None
+    seen_site_ids: list[str] = Field(default_factory=list)
 
 
 class LopProperties(_Out):
@@ -806,7 +956,7 @@ class SimTruth(_Out):
 
 
 class WsStatusMessage(_Out):
-    """About once a second."""
+    """About once a second. ``satellites`` and ``site_clocks`` as in ``Status``."""
 
     type: Literal["status"] = "status"
     server_t_ns: ConsoleTimeNs
@@ -816,6 +966,8 @@ class WsStatusMessage(_Out):
     nodes: list[NodeStatus]
     events_active: int
     queue: QueueStatus
+    satellites: list[SatelliteStatus] = Field(default_factory=list)
+    site_clocks: list[SiteClockEstimate] = Field(default_factory=list)
 
 
 class WsEventMessage(_Out):

@@ -3,8 +3,8 @@
 // subscribe); drawing happens in SpectrumEngine, not in React.
 import { memo, useEffect, useMemo, useRef } from 'react';
 import type { SystemConfig } from '../api/types.gen';
-import { Empty, ErrorNote, Loading } from '../components/common';
-import { allWindows, downlinkCenter, type WindowInfo } from '../domain/config';
+import { Empty, ErrorNote, Loading, StatusSymbol } from '../components/common';
+import { allWindows, downlinkCenter, windowKey, type WindowInfo } from '../domain/config';
 import { setParams, useRoute } from '../router';
 import { configResource } from '../state/resources';
 import { onFrame, socket, useLive } from '../state/store';
@@ -46,7 +46,14 @@ function metaFor(cfg: SystemConfig, w: WindowInfo): WindowMeta {
   };
 }
 
-const Panel = memo(function Panel(props: { w: WindowInfo; engine: SpectrumEngine; offline: boolean; observe: (el: Element | null, key: string) => void }) {
+/** "shared-1" for window "muos-pac:shared-1" of a channel watching only muos-pac (the satellite is implied). */
+function shortMonitorId(w: WindowInfo): string {
+  const sats = 'satellite_id' in w.channel.pointing ? [w.channel.pointing.satellite_id] : w.channel.pointing.satellite_ids;
+  const [sat, rest] = w.monitor.id.split(':');
+  return sats.length === 1 && sat === sats[0] && rest ? rest : w.monitor.id;
+}
+
+const Panel = memo(function Panel(props: { w: WindowInfo; engine: SpectrumEngine; offline: boolean; problem: string | null; observe: (el: Element | null, key: string) => void }) {
   const { w, engine } = props;
   const root = useRef<HTMLElement>(null);
   const trace = useRef<HTMLCanvasElement>(null);
@@ -67,7 +74,15 @@ const Panel = memo(function Panel(props: { w: WindowInfo; engine: SpectrumEngine
     <section className="specpanel" ref={root} data-key={w.key} aria-label={`Spectrum ${w.channel.id} ${w.monitor.id}`}>
       <header>
         <span className="ch mono">{w.channel.id}</span>
-        <span className="meta mono">{w.monitor.id}</span>
+        {/* the window id gives way (ellipsis, full text on hover) before the frame age does */}
+        <span className="meta mono" title={w.monitor.id}>
+          {shortMonitorId(w)}
+        </span>
+        {props.problem ? (
+          <span className="detprob" title={props.problem}>
+            <StatusSymbol level="caution" title="Caution" /> {props.problem}
+          </span>
+        ) : null}
         <span className="age" ref={age}>
           {props.offline ? 'node offline' : 'no frames yet'}
         </span>
@@ -101,6 +116,19 @@ export function SpectrumView() {
     [windows, site, sat, tp],
   );
   const offline = useMemo(() => new Set((nodes ?? []).filter((n) => !n.online).map((n) => n.site_id)), [nodes]);
+  // windows detection cannot use (SRV-1 blind, a start-up floor raised by a signal filling the window)
+  const problems = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const n of nodes ?? []) {
+      if (!n.online) continue;
+      for (const c of n.channels)
+        for (const w of c.windows ?? []) {
+          if (w.blind) m.set(windowKey(c.channel_id, w.monitor_id), 'detection blind');
+          else if (w.floor_raised_db !== null && w.floor_raised_db !== undefined) m.set(windowKey(c.channel_id, w.monitor_id), `floor +${w.floor_raised_db.toFixed(1)} dB`);
+        }
+    }
+    return m;
+  }, [nodes]);
 
   const engineRef = useRef<SpectrumEngine | null>(null);
   if (!engineRef.current) engineRef.current = new SpectrumEngine();
@@ -230,7 +258,7 @@ export function SpectrumView() {
       ) : (
         <div className={`specgrid${dense ? ' dense' : ''}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {shown.map((w) => (
-            <Panel key={w.key} w={w} engine={engine} offline={offline.has(w.site.id)} observe={observe} />
+            <Panel key={w.key} w={w} engine={engine} offline={offline.has(w.site.id)} problem={problems.get(w.key) ?? null} observe={observe} />
           ))}
         </div>
       )}

@@ -79,7 +79,8 @@ describe('DTG and the clock strip', () => {
     expect(dtg(d)).toBe('131805Z NOV 26');
     const ns = msToNs(Date.parse('2026-11-13T18:05:42Z'));
     expect(dtgNs(ns)).toBe('131805Z NOV 26');
-    expect(dtgSecondsNs(ns)).toBe('131805:42Z NOV 26');
+    // UX-14: a standard DTG, then the Zulu time to the second (no seconds inside the DTG)
+    expect(dtgSecondsNs(ns)).toBe('131805Z NOV 26 18:05:42Z');
   });
   it('formats local DTGs with the zone letter and falls back to Zulu without one', () => {
     expect(dtg(d, 'Pacific/Honolulu')).toBe('130805W NOV 26');

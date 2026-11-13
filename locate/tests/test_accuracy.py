@@ -101,13 +101,36 @@ def pfd_of(cfg: SystemConfig, carrier_id: str, sat_id: str, t_s: float) -> float
     return float(up.pfd_dbw_m2)
 
 
+def channel_snr(cfg: SystemConfig, em: EmitterModel, f: float, x: Any, ch: str, sat: str, heard: list[str],
+                bw: float, t_s: float, robbing: list[float]) -> tuple[float, dict[str, float]]:
+    """Input SNR in ``bw`` of the carrier through ``sat`` into ``ch``, and each co-channel copy's
+    power over that of the main copy: the channel's noise is its thermal noise plus the relayed
+    noise of every satellite in ``heard`` plus the copies relayed by the others (MATH.md section 4)."""
+    lin = lambda db: 10.0 ** (float(np.asarray(db).reshape(-1)[0]) / 10.0)  # -inf (no path) gives 0
+    xb = np.asarray(x, dtype=np.float64)[None, :]  # a batch of one: a copy the emitter cannot send is -inf
+    main = path_budget(cfg, em, f, xb, sat, "shared-1", ch, t_s, robbing)
+    signal = lin(main.downlink.c_rx_dbw)
+    density = lin(main.downlink.site_n0_dbw_hz) + lin(main.downlink.relayed_n0_dbw_hz)
+    copies = {}
+    for other in heard:
+        if other == sat:
+            continue
+        pb = path_budget(cfg, em, f, xb, other, "shared-1", ch, t_s, robbing)
+        copies[other] = lin(pb.downlink.c_rx_dbw)
+        density += lin(pb.downlink.relayed_n0_dbw_hz)
+    return signal / (density * bw + sum(copies.values())), {k: v / signal for k, v in copies.items()}
+
+
 def hand_rows(cfg: SystemConfig, em: EmitterModel, lat: float, lon: float, ref_id: str | None = None,
               pairs: list[tuple[str, str]] = PAIRS) -> list[Measurement]:
     """The rows the map should use at one cell, built from the documents with other modules.
 
     Valid for pacific-uhf with the jammer in shared-1, the Manila channels and (optionally)
     ref-guam: the only configured carrier in shared-1. Every listed pair must pass the
-    detection threshold at the cell (asserted).
+    detection threshold at the cell (asserted). Each channel's noise includes the copies
+    relayed by the other co-channel satellites it hears; a pair at one site hearing both
+    satellites in both channels adds the coherent co-channel term of the estimator; rows
+    of pairs sharing a channel carry that capture and the channel's noise share.
     """
     t_s = sec(T0)
     orbits, sites = cfg.orbits(), cfg.sites_xyz()
@@ -116,8 +139,19 @@ def hand_rows(cfg: SystemConfig, em: EmitterModel, lat: float, lon: float, ref_i
     region = cfg.processing.region
     x = lla_to_ecef(lat, lon, cfg.processing.solver.height_m)
     fs, n = 20e3, 20000  # tasking rule: max(20 kHz, 1.25 x 10 kHz), 1 s; both carriers
-    rms = waveform_from_spec({"type": "noise", "bandwidth_hz": 10e3}, "x").rms_bandwidth_hz
+    rms = model_rms_bandwidth_hz(em)
     assert rms == pytest.approx(0.9934 * 10e3 / math.sqrt(12.0), rel=1e-3)
+    used = [ch for pair in pairs for ch in pair]
+    shared = {ch for ch in used if used.count(ch) > 1}
+
+    def heard(site: str, tr: float) -> list[str]:  # co-channel satellites above the site's horizon
+        return [s.id for s in cfg.satellites if s.transponder("shared-1").translation_hz == tr
+                and float(elevation_deg(sites[site], orbits[s.id], t_s)) > 0]
+
+    def shares(g1: float, g2: float, q: float, excess: float) -> tuple[float, float]:
+        total = 1 / g1 + 1 / g2 + q / (g1 * g2) + excess
+        return (1 / g1) / total, (1 / g2) / total
+
     rows: list[Measurement] = []
     for k, (ch_a, ch_b) in enumerate(pairs):
         sat_a = cfg.channel(ch_a)[1].pointing.satellite_id
@@ -126,8 +160,10 @@ def hand_rows(cfg: SystemConfig, em: EmitterModel, lat: float, lon: float, ref_i
         tr_a = cfg.satellite(sat_a).transponder("shared-1").translation_hz
         tr_b = cfg.satellite(sat_b).transponder("shared-1").translation_hz
         a, b = PathSpec(sat_a, site_a, F_J, tr_a), PathSpec(sat_b, site_b, F_J, tr_b)
+        heard_a, heard_b = heard(site_a, tr_a), heard(site_b, tr_b)
         co_channel = tr_a == tr_b and all(
             float(elevation_deg(sites[s], orbits[q], t_s)) > 0 for s in (site_a, site_b) for q in (sat_a, sat_b))
+        same_site = co_channel and site_a == site_b
         cal = None
         if ref_id is not None:
             carrier = cfg.carrier(ref_id)
@@ -143,14 +179,22 @@ def hand_rows(cfg: SystemConfig, em: EmitterModel, lat: float, lon: float, ref_i
                 ref_mirror = search_windows(((float(mt), float(mt)), (float(mf), float(mf))), ma, mb, caf_cfg, unc)
             w_ref = float(carrier.emitter.bandwidth_hz)  # 8 kHz; the reference capture rule still gives 20 kHz, 1 s
             b_ref, t_ref = caf_band_and_time(fs, n, w_ref, float(pt), (*ref_win, ref_mirror))
-            cn0 = [float(path_budget(cfg, carrier.emitter, f_ref, x_ref, s, "shared-1", ch, t_s).cn0_total_dbhz)
-                   for s, ch in ((sat_a, ch_a), (sat_b, ch_b))]
-            g1, g2 = (10 ** ((c - 10 * math.log10(b_ref)) / 10) for c in cn0)
+            (g1, leak_a), (g2, leak_b) = (channel_snr(cfg, carrier.emitter, f_ref, x_ref, ch, s, hd, b_ref, t_s, [])
+                                          for s, ch, hd in ((sat_a, ch_a, heard_a), (sat_b, ch_b, heard_b)))
             assert 10 * math.log10(post_correlation_snr(b_ref, t_ref, g1, g2)) >= caf_cfg.min_snr_db
             rms_ref = waveform_from_spec({"type": "noise", "bandwidth_hz": w_ref}, "x").rms_bandwidth_hz
             s_t, s_f = stein_sigmas(b_ref, rms_ref, t_ref, g1, g2)
-            cal = {kind: CalRef(f"{ref_id}|{k}|{kind}", x_ref, ra, rb, T0, sig)
-                   for kind, sig in (("tdoa", s_t), ("fdoa", s_f))}
+            excess = 2 * math.sqrt(leak_a.get(sat_b, 0.0) * leak_b.get(sat_a, 0.0)) if same_site else 0.0
+            s_t = math.sqrt(s_t**2 + excess / (2 * b_ref * t_ref * (2 * math.pi * rms_ref) ** 2))
+            s_f = math.sqrt(s_f**2 + excess / (2 * b_ref * t_ref * (math.pi * t_ref) ** 2 / 3))
+            q_ref = max(1.0, b_ref**2 / (12 * rms_ref**2))
+            cal = {}
+            for kind, sig, q_kind in (("tdoa", s_t, q_ref), ("fdoa", s_f, 1.0)):
+                sh_a, sh_b = shares(g1, g2, q_kind, excess)
+                cal[kind] = CalRef(f"{ref_id}|{k}|{kind}", x_ref, ra, rb, T0, sig,
+                                   capture_a=f"ref|{ch_a}" if ch_a in shared else "",
+                                   capture_b=f"ref|{ch_b}" if ch_b in shared else "",
+                                   noise_share_a=sh_a, noise_share_b=sh_b)
         geo = measurement_windows(a, b, t_s, orbits, sites, region)
         correction = (0.0, 0.0) if cal is not None else None
         win = search_windows(geo, a, b, caf_cfg, unc, correction)
@@ -161,15 +205,21 @@ def hand_rows(cfg: SystemConfig, em: EmitterModel, lat: float, lon: float, ref_i
         tdoa, _ = predict_pair(x, a, b, t_s, orbits, sites)
         bw, t_int = caf_band_and_time(fs, n, 10e3, float(tdoa), (*win, mirror))
         others = ["ref-guam"]  # configured carriers sharing shared-1 rob power (none below saturation)
-        cn0 = [float(path_budget(cfg, em, F_J, x, s, "shared-1", ch, t_s,
-                                 [pfd_of(cfg, c, s, t_s) for c in others]).cn0_total_dbhz)
-               for s, ch in ((sat_a, ch_a), (sat_b, ch_b))]
-        g1, g2 = (10 ** ((c - 10 * math.log10(bw)) / 10) for c in cn0)
+        (g1, leak_a), (g2, leak_b) = (
+            channel_snr(cfg, em, F_J, x, ch, s, hd, bw, t_s, [pfd_of(cfg, c, s, t_s) for c in others])
+            for s, ch, hd in ((sat_a, ch_a, heard_a), (sat_b, ch_b, heard_b)))
         assert 10 * math.log10(post_correlation_snr(bw, t_int, g1, g2)) >= caf_cfg.min_snr_db
         s_t, s_f = stein_sigmas(bw, rms, t_int, g1, g2)
+        excess = 2 * math.sqrt(leak_a.get(sat_b, 0.0) * leak_b.get(sat_a, 0.0)) if same_site else 0.0
+        s_t = math.sqrt(s_t**2 + excess / (2 * bw * t_int * (2 * math.pi * rms) ** 2))
+        s_f = math.sqrt(s_f**2 + excess / (2 * bw * t_int * (math.pi * t_int) ** 2 / 3))
         assert s_t <= caf_cfg.max_tdoa_sigma_s
-        for kind, sig in (("tdoa", s_t), ("fdoa", s_f)):
-            rows.append(Measurement(kind, 0.0, float(sig), T0, a, b, cal=None if cal is None else cal[kind]))
+        q = max(1.0, bw**2 / (12 * rms**2))
+        for kind, sig, q_kind in (("tdoa", s_t, q), ("fdoa", s_f, 1.0)):
+            sh_a, sh_b = shares(g1, g2, q_kind, excess)
+            rows.append(Measurement(kind, 0.0, float(sig), T0, a, b, cal=None if cal is None else cal[kind],
+                                    capture_a=ch_a if ch_a in shared else "", capture_b=ch_b if ch_b in shared else "",
+                                    noise_share_a=sh_a, noise_share_b=sh_b))
     return rows
 
 
@@ -289,7 +339,8 @@ def ephemeris_dominated(cfg: SystemConfig, reference_eirp_dbw: float) -> SystemC
         sat["ephemeris_sigma"] = {"pos_m": [500.0, 5000.0, 5000.0], "vel_mps": [0.001, 0.001, 0.001]}
     for site in data["sites"]:
         site["clock"] = {"sigma_ns": 1.0}
-    data.setdefault("processing", {})["uncertainty"] = {"sat_osc_frac": 1e-10, "site_osc_frac": 1e-12, "tdoa_bias_ns": 1.0}
+    data.setdefault("processing", {})["uncertainty"] = {"sat_osc_frac": 1e-10, "site_osc_frac": 1e-12, "tdoa_bias_ns": 1.0,
+                                                       "iono_vtec_tecu": 0.0, "tropo_zenith_m": 0.0}  # ephemeris only
     guam = next(c for c in data["carriers"] if c["id"] == "ref-guam")
     guam["emitter"]["eirp_dbw"] = reference_eirp_dbw
     return SystemConfig.model_validate(data)
@@ -301,9 +352,9 @@ def ephemeris_cfg(cfg: SystemConfig) -> SystemConfig:
 
 
 @pytest.mark.parametrize("reference_eirp_dbw, ratio, dominant", [
-    (13.0, 0.3, {"reference"}),  # a weaker omni: its own noise is what is left
-    (20.0, 0.2, {"reference", "noise", "ephemeris_position"}),  # as configured: a mix of what is left
-    (30.0, 0.2, {"noise"}),  # 10 dB stronger: the target's own noise is what is left
+    (13.0, 0.35, {"reference"}),  # a weaker omni: its own noise is what is left
+    (20.0, 0.27, {"reference", "noise", "ephemeris_position"}),  # as configured: a mix of what is left
+    (30.0, 0.27, {"noise"}),  # 10 dB stronger: the target's own noise is what is left
 ])
 def test_reference_shrinks_the_ellipse_when_ephemeris_dominates(cfg: SystemConfig, jammer: EmitterModel,
                                                                reference_eirp_dbw: float, ratio: float,
@@ -312,7 +363,9 @@ def test_reference_shrinks_the_ellipse_when_ephemeris_dominates(cfg: SystemConfi
     ellipse shrinks and the dominant source moves from the ephemeris to what is left: the
     reference measurement's own noise (a 13 dBW omni), the target's noise (30 dBW), or a
     mix of those and the uncancelled ephemeris residual far from Guam (the configured
-    20 dBW). Measured ratios of calibrated to plain semi-major: at most 0.23, 0.15, 0.15."""
+    20 dBW). Measured ratios of calibrated to plain semi-major: at most 0.29, 0.21, 0.22 (each
+    channel's noise includes the co-channel copies of the omni reference relayed by the other
+    MUOS satellite, and the Manila pairs share the manila-pac capture)."""
     config = ephemeris_dominated(cfg, reference_eirp_dbw)
     region = Region(lat_min=8.0, lat_max=20.0, lon_min=138.0, lon_max=150.0)
     plain = accuracy_map(config, PAIRS, jammer, F_J, T0, region, 3.0)
@@ -462,3 +515,86 @@ def test_prediction_agrees_with_a_monte_carlo_of_the_solver(cfg: SystemConfig, j
     cov = np.cov(np.array(errors).T)
     empirical = SCALE_95 * math.sqrt(float(np.linalg.eigvalsh(cov)[-1]))
     assert empirical == pytest.approx(predicted, rel=0.2)
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+def with_fixed_channel(cfg: SystemConfig) -> SystemConfig:
+    """pacific-uhf plus a fixed wide beam at Hilo watching MUOS Pacific and UHF 172E, which
+    both relay the jammer's frequency (a pointing the configuration model supports)."""
+    data = cfg.export_dict()
+    hilo = next(s for s in data["sites"] if s["id"] == "hilo")
+    hilo["channels"] = [{
+        "id": "hilo-fix", "name": "Hilo fixed wide beam on both",
+        "antenna": {"type": "beam", "gain_dbi": 6.0, "hpbw_deg": 90.0, "front_to_back_db": 15.0},
+        "pointing": {"az_deg": 250.0, "el_deg": 60.0, "satellite_ids": ["muos-pac", "uhf-172e"]},
+        "polarization_loss_db": 3.0,
+    }]
+    return SystemConfig.model_validate(data)
+
+
+def test_multi_satellite_channel_resolved_by_the_other_end(cfg: SystemConfig, jammer: EmitterModel) -> None:
+    """A channel watching two satellites that relay the carrier is no longer refused: the
+    other end of the pair decides (ADAPT-4), or the pair names the satellite as
+    'channel@sat'; truly ambiguous pairs still raise with that hint."""
+    from petal_locate.core.accuracy import channel_satellite, pair_satellites, split_channel_ref
+    fixed = with_fixed_channel(cfg)
+    assert split_channel_ref("hilo-fix@uhf-172e") == ("hilo-fix", "uhf-172e")
+    assert split_channel_ref("honolulu-pac") == ("honolulu-pac", None)
+    for bad in ("@x", "a@", "a@b@c"):
+        with pytest.raises(ValueError):
+            split_channel_ref(bad)
+    with pytest.raises(ValueError, match="ambiguous"):
+        channel_satellite(fixed, "hilo-fix", F_J)
+    assert channel_satellite(fixed, "hilo-fix", F_J, exclude="muos-pac")[0] == "uhf-172e"
+    assert channel_satellite(fixed, "hilo-fix@muos-pac", F_J)[0] == "muos-pac"
+    with pytest.raises(ValueError, match="does not watch"):
+        channel_satellite(fixed, "hilo-fix@muos-io", F_J)
+    found_a, found_b = pair_satellites(fixed, "hilo-fix", "honolulu-pac", F_J)
+    assert (found_a[0], found_b[0]) == ("uhf-172e", "muos-pac")
+    found_a, found_b = pair_satellites(fixed, "honolulu-172e", "hilo-fix", F_J)
+    assert (found_a[0], found_b[0]) == ("uhf-172e", "muos-pac")
+    region = Region(lat_min=10.0, lat_max=20.0, lon_min=140.0, lon_max=150.0)  # near Guam: all three visible
+    out = accuracy_map(fixed, [("hilo-fix", "honolulu-pac"), ("honolulu-pac", "seoul-io")], jammer, F_J, T0, region, 5.0)
+    assert [(p["a_sat_id"], p["b_sat_id"]) for p in out["pairs"]] == [("uhf-172e", "muos-pac"), ("muos-pac", "muos-io")]
+    assert np.all(np.isfinite(grid(out, "semi_major_95_m")))
+    named = accuracy_map(fixed, [("hilo-fix@uhf-172e", "honolulu-pac"), ("honolulu-pac", "seoul-io")], jammer, F_J, T0,
+                         region, 5.0)
+    assert named["pairs"][0]["a_channel"] == "hilo-fix@uhf-172e"
+    assert grid(named, "semi_major_95_m") == pytest.approx(grid(out, "semi_major_95_m"), rel=1e-12)
+    with pytest.raises(ValueError, match="paired with itself"):
+        accuracy_map(fixed, [("hilo-fix@muos-pac", "hilo-fix@uhf-172e")], jammer, F_J, T0, region, 3.0)
+
+
+def test_cw_band_filter_as_tasking(cfg: SystemConfig) -> None:
+    """A CW is correlated through the estimator's minimum band filter (``max(width, 10 Hz)``
+    plus the Doppler reach, as tasking and the Monte Carlo driver pass it), not over the
+    whole capture rate: the map's B matches the estimator's (K4)."""
+    from petal_locate.core.accuracy import MIN_SIGNAL_BW_HZ
+    cw = EmitterModel(eirp_dbw=20.0, bandwidth_hz=0.0, waveform="cw")
+    region = Region(lat_min=18.0, lat_max=22.0, lon_min=130.0, lon_max=134.0)
+    out = accuracy_map(cfg, PAIRS, cw, F_J, T0, region, 2.0, kinds=("fdoa",))
+    for pair in out["pairs"]:
+        assert pair["noise_bandwidth_hz"] < 0.1 * pair["sample_rate_hz"]
+        assert pair["noise_bandwidth_hz"] >= MIN_SIGNAL_BW_HZ
+    # the estimator's own band for the same capture and windows
+    r = caf_estimate(np.ones(20000, complex), np.ones(20000, complex) * 1j, 20e3, delay_window=(-1e-3, 1e-3),
+                     doppler_window=(-50.0, 50.0), signal_bw_hz=MIN_SIGNAL_BW_HZ)
+    assert r.noise_bandwidth_hz == pytest.approx(correlation_bandwidth_hz(20e3, MIN_SIGNAL_BW_HZ, 50.0, 20000)[0])
+
+
+def test_ionosphere_limits_calibrated_uhf_map(cfg: SystemConfig, jammer: EmitterModel) -> None:
+    """At UHF with the default ionosphere (30 TECU one-sigma per ground end) the calibrated
+    map far from the reference is larger than without it and the ionosphere appears among
+    the dominant sources; at 12 GHz the same term is negligible (1 / f^2)."""
+    region = Region(lat_min=10.0, lat_max=20.0, lon_min=112.0, lon_max=122.0)
+    data = cfg.export_dict()
+    data["processing"]["uncertainty"]["iono_vtec_tecu"] = 0.0
+    no_iono = SystemConfig.model_validate(data)
+    with_iono = accuracy_map(cfg, PAIRS, jammer, F_J, T0, region, 5.0, reference_carrier_id="ref-guam")
+    without = accuracy_map(no_iono, PAIRS, jammer, F_J, T0, region, 5.0, reference_carrier_id="ref-guam")
+    a, b = grid(with_iono, "semi_major_95_m"), grid(without, "semi_major_95_m")
+    ok = np.isfinite(a) & np.isfinite(b)
+    assert ok.any() and np.all(a[ok] >= b[ok] * (1 - 1e-9)) and np.any(a[ok] > 1.05 * b[ok])
+    assert "ionosphere" in set(np.array(with_iono["dominant"], dtype=object).ravel().tolist())

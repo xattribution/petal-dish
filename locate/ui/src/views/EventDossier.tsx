@@ -3,15 +3,16 @@
 // ellipse, ambiguity, lines of position, measurements, correlation surface, history).
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { Event, EvidenceRow, LopCollection, MeasurementRow, NodeStatus, SolutionOut, SystemConfig, TaskingStatus } from '../api/types.gen';
-import { ErrorNote, Info, Loading, SimTag, Status, useTick } from '../components/common';
+import { ErrorNote, Info, Loading, SimTag, Status, StatusSymbol, useTick } from '../components/common';
 import { Heatmap, LinePlot } from '../components/plots';
+import { candidates, isInconsistent, received, semiAxes, splitHistory } from '../domain/event';
 import { eventLevel, isActive, STATE_WORD, VERDICT_WORD } from '../domain/status';
 import { DATUM, distanceM, formatLat, formatLatLon, formatLon, formatMgrs } from '../format/geo';
 import { DASH, db, deg, fixed, hz3, km, mhz, micros, millihertz, percent, plural } from '../format/units';
 import { DOMINANT_WORD, MapView, type MapData, type MapFocus, type MapSolution } from '../map/MapView';
 import { href, navigate } from '../router';
 import { configResource, subpointsResource } from '../state/resources';
-import { api, loadEvent, serverNowMs, useLive } from '../state/store';
+import { api, freshness, loadEvent, serverNowMs, useLive } from '../state/store';
 import { dtgNs, dtgSecondsNs, formatAge, zuluClock } from '../time/dtg';
 import { nsDiffSeconds, nsToDate, nsToIso, nsToMs } from '../time/ns';
 import { useLayers } from './Watch';
@@ -32,7 +33,8 @@ function EvGlyph({ state }: { state: EvidenceRow['state'] }) {
   );
 }
 
-function evidenceNumbers(r: EvidenceRow, nowMs: number, node: NodeStatus | undefined): string {
+/** node: its newest status; sinceStatusS: seconds since that status arrived (frame ages grow by it). */
+function evidenceNumbers(r: EvidenceRow, nowMs: number, node: NodeStatus | undefined, sinceStatusS = 0): string {
   switch (r.state) {
     case 'seen':
       return `SNR ${db(r.snr_db)} dB, C/N0 ${db(r.cn0_dbhz)} dBHz`;
@@ -47,7 +49,9 @@ function evidenceNumbers(r: EvidenceRow, nowMs: number, node: NodeStatus | undef
     case 'stale': {
       // how old the evidence is: the channel's newest spectrum frame (status), and when it last saw the signal
       const parts: string[] = [];
-      const age = node?.channels.find((c) => c.channel_id === r.channel_id)?.last_frame_age_s;
+      const reported = node?.channels.find((c) => c.channel_id === r.channel_id)?.last_frame_age_s;
+      // the frame age was true when the status arrived; it has grown since (UX-8)
+      const age = reported === null || reported === undefined ? reported : reported + Math.max(0, sinceStatusS);
       if (node && !node.online) parts.push('node offline');
       if (age !== null && age !== undefined) parts.push(`no frame for ${formatAge(age)}`);
       else if (!node || node.online) parts.push('no recent frames');
@@ -60,8 +64,11 @@ function evidenceNumbers(r: EvidenceRow, nowMs: number, node: NodeStatus | undef
 
 /** Signature element: sites x satellites, one cell per receive channel. */
 function EvidenceMatrix({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
+  useTick(1000);
   const nowMs = serverNowMs();
   const nodes = useLive((s) => s.status?.nodes ?? null);
+  const statusAt = useLive((s) => s.status?.receivedAt ?? null);
+  const sinceStatusS = statusAt === null ? 0 : (Date.now() - statusAt) / 1000;
   const nodeOf = (site: string) => nodes?.find((n) => n.site_id === site);
   const sats = useMemo(() => {
     const s = new Set<string>(ev.satellite_ids);
@@ -110,7 +117,7 @@ function EvidenceMatrix({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
                         <div className="ev" key={r.channel_id} title={r.channel_id}>
                           <EvGlyph state={r.state} />
                           <span className="w">{EV_WORD[r.state]}</span>
-                          <span className="n">{evidenceNumbers(r, nowMs, nodeOf(r.site_id))}</span>
+                          <span className="n">{evidenceNumbers(r, nowMs, nodeOf(r.site_id), sinceStatusS)}</span>
                         </div>
                       ))}
                     </td>
@@ -126,7 +133,7 @@ function EvidenceMatrix({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
                         <div className="ev" key={r.channel_id}>
                           <EvGlyph state={r.state} />
                           <span className="w">{EV_WORD[r.state]}</span>
-                          <span className="n">{evidenceNumbers(r, nowMs, nodeOf(r.site_id))}</span>
+                          <span className="n">{evidenceNumbers(r, nowMs, nodeOf(r.site_id), sinceStatusS)}</span>
                         </div>
                       ))}
                   </td>
@@ -325,7 +332,7 @@ const RESOLVED_TEXT: Record<SolutionOut['ambiguity_resolved_by'], string> = {
   none: 'No second position fits the measurements.',
   region: 'A second position (the mirror) fits as well, but lies outside the region of interest or below the elevation mask, so it was ruled out.',
   measurements: 'A second position was found but fits the measurements clearly worse.',
-  unresolved: 'Another position fits the measurements as well as this one. Do not act on this position alone.',
+  unresolved: 'These positions fit the measurements equally well; the system cannot choose between them yet. Do not act on any one of them alone.',
 };
 
 function shareOf(sol: SolutionOut): { noise: number; consider: number } {
@@ -334,29 +341,35 @@ function shareOf(sol: SolutionOut): { noise: number; consider: number } {
   return { noise: tr(sol.cov_noise_en_m2) / total, consider: tr(sol.cov_consider_en_m2) / total };
 }
 
+/** Chance that a consistent fit scatters this much: "0.0 %", "3.2 %". */
+function pText(p: number | null | undefined): string {
+  if (p === null || p === undefined || !Number.isFinite(p)) return '—';
+  return p < 0.001 ? 'under 0.1 %' : `${fixed(p * 100, 1)} %`;
+}
+
+/** Why no position: the most specific reason first (UX-4: a signal that cannot be located says so). */
+function noPositionReason(ev: Event): { title: string; why: string } {
+  const t = ev.tasking;
+  const setAside = ev.measurements.some((m) => m.reason?.startsWith('set aside')) && !ev.measurements.some((m) => m.used);
+  if (ev.verdict === 'local') return { title: 'No position', why: 'Local interference enters at one site, not through the satellites, so it is not located by time and frequency differences.' };
+  if (t?.unlocatable_reason) return { title: 'Cannot be located', why: t.unlocatable_reason };
+  if (setAside) return { title: 'No position', why: 'The earlier position and its measurements were set aside (see Transitions): the signal was lost for a while or changed, so it is located again from new measurements only.' };
+  if (t?.solve_reason) return { title: 'No position', why: `The last solve gave no position: ${t.solve_reason}.` };
+  if (t?.state === 'idle' && t.message) return { title: 'No position', why: t.message };
+  if (ev.satellite_ids.length < 2) return { title: 'No position', why: 'Only one satellite relays this range, so there is no satellite pair to correlate.' };
+  if (ev.measurements.length === 0) return { title: 'No position', why: 'No correlation result yet.' };
+  return { title: 'No position', why: `Not enough usable measurements yet (${ev.measurements.filter((m) => m.used).length} usable; two are needed).` };
+}
+
 function Location({ ev }: { ev: Event }) {
   const sol = ev.solution;
   if (!sol) {
-    const t = ev.tasking;
-    const setAside = ev.measurements.some((m) => m.reason?.startsWith('set aside')) && !ev.measurements.some((m) => m.used);
-    const why =
-      ev.verdict === 'local'
-        ? 'Local interference enters at one site, not through the satellites, so it is not located by time and frequency differences.'
-        : setAside
-          ? 'The earlier position and its measurements were set aside (see Transitions): the signal was lost for a while or changed, so it is located again from new measurements only.'
-          : t?.solve_reason
-          ? `The last solve gave no position: ${t.solve_reason}.`
-          : t?.state === 'idle' && t.message
-            ? t.message
-            : ev.satellite_ids.length < 2
-              ? 'Only one satellite relays this range, so there is no satellite pair to correlate.'
-              : ev.measurements.length === 0
-                ? 'No correlation result yet.'
-                : `Not enough usable measurements yet (${ev.measurements.filter((m) => m.used).length} usable; two are needed).`;
+    const r = noPositionReason(ev);
     return (
       <div>
-        <h2>No position</h2>
-        <p className="ink2">{why}</p>
+        {recheckNote(ev)}
+        <h2>{r.title}</h2>
+        <p className="ink2">{r.why}</p>
       </div>
     );
   }
@@ -364,29 +377,76 @@ function Location({ ev }: { ev: Event }) {
   const mgrs = formatMgrs(sol.lat_deg, sol.lon_deg);
   const share = shareOf(sol);
   const truth = ev.truth;
+  const bad = isInconsistent(sol);
+  const all = candidates(sol);
   return (
     <div>
-      <div className="fixline mono">
-        {formatLatLon(sol.lat_deg, sol.lon_deg, 4)} <span className="ink2" style={{ fontSize: 12 }}>{DATUM}</span>
-      </div>
-      <div className="mono" style={{ marginBottom: 8 }}>
-        MGRS {mgrs ?? 'not defined at this latitude (UPS zone)'}
-      </div>
+      {bad ? (
+        // UX-1: the measurements do not fit one stationary transmitter; the position is not a fix
+        <div className="notice caution" role="note" style={{ marginTop: 0 }}>
+          <span className="status">
+            <StatusSymbol level="caution" />
+            <span className="word">Not a fix</span>
+          </span>{' '}
+          The measurements do not fit one stationary transmitter (reduced {'χ²'} {fixed(sol.reduced_chi2, 1)}, chance of this scatter {pText(sol.fit_p_value)}): rows of two
+          transmitters, a moving one, or a clock or ephemeris fault. The computed position is shown with its ellipse enlarged {fixed(sol.ellipse_scale ?? 1, 1)} times; do not report it.
+        </div>
+      ) : null}
+      {recheckNote(ev)}
+      {all.length ? (
+        // UX-6: an unresolved ambiguity lists every position that fits, none of them as "the" fix
+        <>
+          <h2>One of {all.length} positions</h2>
+          <table className="grid compact candidates" style={{ marginBottom: 8 }}>
+            <thead>
+              <tr>
+                <th className="num">#</th>
+                <th>Position ({DATUM})</th>
+                <th className="num">
+                  95 % semi-axes <span className="unit">km</span>
+                </th>
+                <th className="num">{'Δχ²'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {all.map((c, i) => (
+                <tr key={i}>
+                  <td className="num">{i + 1}</td>
+                  <td className="mono">{formatLatLon(c.lat, c.lon, 4)}</td>
+                  <td className="num">
+                    {km(c.semiMajorM)} {'×'} {km(c.semiMinorM)}
+                  </td>
+                  <td className="num">{fixed(c.dChi2, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <>
+          <div className={`fixline mono${bad ? ' ink2' : ''}`}>
+            {bad ? <span style={{ fontSize: 12 }}>Computed, not a fix: </span> : null}
+            {formatLatLon(sol.lat_deg, sol.lon_deg, 4)} <span className="ink2" style={{ fontSize: 12 }}>{DATUM}</span>
+          </div>
+          <div className="mono" style={{ marginBottom: 8 }}>
+            MGRS {mgrs ?? 'not defined at this latitude (UPS zone)'}
+          </div>
+        </>
+      )}
       <dl className="facts">
         <dt>95 % ellipse</dt>
         <dd>
-          <span className="mono">
-            {km(e.semi_major_m)} {'×'} {km(e.semi_minor_m)} km
-          </span>{' '}
-          semi-axes, major axis {deg(e.azimuth_deg, 0)}{'°'} true
+          <span className="mono">{semiAxes(e.semi_major_m, e.semi_minor_m)}</span> semi-axes, major axis {deg(e.azimuth_deg, 0)}
+          {'°'} true{bad ? `, enlarged ${fixed(sol.ellipse_scale ?? 1, 1)} times` : ''}
+          {all.length ? ' (position 1)' : ''}
         </dd>
         <dt>CEP50</dt>
         <dd className="mono">{km(sol.cep50_m)} km</dd>
         <dt>
           Dominant error{' '}
           <Info label="dominant error">
-            The largest contributor to the position variance. Systematic terms (ephemeris, clocks, oscillators, TDOA bias, reference) do not shrink with more
-            captures; noise does. A reference emitter on the same pair removes most of the ephemeris term.
+            The largest contributor to the position variance. Systematic terms (ephemeris, clocks, oscillators, TDOA bias, reference, ionosphere, troposphere) do not shrink
+            with more captures; noise does. A reference emitter on the same pair removes most of the ephemeris term.
           </Info>
         </dt>
         <dd>
@@ -396,18 +456,22 @@ function Location({ ev }: { ev: Event }) {
         <dd>
           {sol.n_measurements} measurements, {'χ²'} {fixed(sol.chi2, 1)} on {sol.dof} degrees of freedom
           {sol.reduced_chi2 !== null ? ` (reduced ${fixed(sol.reduced_chi2, 2)})` : ''}
+          {bad ? ': inconsistent' : ''}
         </dd>
         <dt>Solved</dt>
         <dd className="mono">{ev.solution_t_ns ? dtgSecondsNs(ev.solution_t_ns) : '—'}</dd>
         <dt>Ambiguity</dt>
         <dd>
           {RESOLVED_TEXT[sol.ambiguity_resolved_by]}
-          {sol.ambiguities.map((a, i) => (
-            <div key={i} className="mono" style={{ marginTop: 2 }}>
-              Mirror {i + 1}: {formatLatLon(a.lat_deg, a.lon_deg, 3)}, {km(distanceM(sol.lat_deg, sol.lon_deg, a.lat_deg, a.lon_deg))} km away, {'Δχ²'} {fixed(a.chi2 - sol.chi2, 2)}
-              , 95 % {km(a.ellipse.semi_major_m)} {'×'} {km(a.ellipse.semi_minor_m)} km (dashed on the map)
-            </div>
-          ))}
+          {all.length
+            ? null
+            : sol.ambiguities.map((a, i) => (
+                <div key={i} className="mono" style={{ marginTop: 2 }}>
+                  Mirror {i + 1}: {formatLatLon(a.lat_deg, a.lon_deg, 3)}, {km(distanceM(sol.lat_deg, sol.lon_deg, a.lat_deg, a.lon_deg))} km away, {'Δχ²'} {fixed(a.chi2 - sol.chi2, 2)}
+                  , 95 % semi-axes {semiAxes(a.ellipse.semi_major_m, a.ellipse.semi_minor_m)} (dashed on the map)
+                </div>
+              ))}
+          {all.length ? <div style={{ marginTop: 2 }}>Position 1 is drawn solid on the map, the others dashed.</div> : null}
         </dd>
       </dl>
       {truth ? (
@@ -420,6 +484,20 @@ function Location({ ev }: { ev: Event }) {
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** UX-5: the position shown is being checked against new measurements (Event.recheck). */
+function recheckNote(ev: Event) {
+  if (!ev.recheck) return null;
+  return (
+    <div className="notice caution" role="note" style={{ marginTop: 0 }}>
+      <span className="status">
+        <StatusSymbol level="caution" />
+        <span className="word">Re-check</span>
+      </span>{' '}
+      {ev.recheck}
     </div>
   );
 }
@@ -446,9 +524,22 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
   const data: MapData = useMemo(() => {
     const solutions: MapSolution[] = [];
     if (sol) {
-      solutions.push({ id: 'fix', eventId: ev.id, lat: sol.lat_deg, lon: sol.lon_deg, semiMajorM: sol.ellipse.semi_major_m, semiMinorM: sol.ellipse.semi_minor_m, azimuthDeg: sol.ellipse.azimuth_deg, role: 'fix', selected: true, label: ev.id });
+      const bad = isInconsistent(sol);
+      const unresolved = sol.ambiguity_resolved_by === 'unresolved' && sol.ambiguities.length > 0;
+      solutions.push({
+        id: 'fix',
+        eventId: ev.id,
+        lat: sol.lat_deg,
+        lon: sol.lon_deg,
+        semiMajorM: sol.ellipse.semi_major_m,
+        semiMinorM: sol.ellipse.semi_minor_m,
+        azimuthDeg: sol.ellipse.azimuth_deg,
+        role: bad ? 'unreliable' : 'fix',
+        selected: true,
+        label: bad ? `${ev.id} (not a fix)` : unresolved ? `${ev.id} position 1` : ev.id,
+      });
       sol.ambiguities.forEach((a, i) =>
-        solutions.push({ id: `mirror-${i}`, eventId: ev.id, lat: a.lat_deg, lon: a.lon_deg, semiMajorM: a.ellipse.semi_major_m, semiMinorM: a.ellipse.semi_minor_m, azimuthDeg: a.ellipse.azimuth_deg, role: 'mirror', selected: false, label: `mirror ${i + 1}` }),
+        solutions.push({ id: `mirror-${i}`, eventId: ev.id, lat: a.lat_deg, lon: a.lon_deg, semiMajorM: a.ellipse.semi_major_m, semiMinorM: a.ellipse.semi_minor_m, azimuthDeg: a.ellipse.azimuth_deg, role: 'mirror', selected: false, label: unresolved ? `position ${i + 2}` : `mirror ${i + 1}` }),
       );
     }
     return {
@@ -459,7 +550,7 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
       truth: ev.truth ? [{ id: ev.truth.emitter_id, lat: ev.truth.lat_deg, lon: ev.truth.lon_deg, label: 'truth (SIMULATION)' }] : [],
     };
     // keyed on what is drawn (ev and sol change identity on every update)
-  }, [ev.id, ev.solution_t_ns, truthKey, cfg, subs.data, lop]);
+  }, [ev.id, ev.solution_t_ns, sol?.fit_consistent, truthKey, cfg, subs.data, lop]);
   const focus = useMemo((): MapFocus | null => {
     // the fix with room for its ellipse, every mirror and (in simulation) the truth
     const pts: Array<{ lat: number; lon: number; r: number }> = [];
@@ -504,7 +595,7 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
   );
 }
 
-/** Tick decimals that keep neighbouring labels distinct over a span of values. */
+/** Tick decimals that keep neighboring labels distinct over a span of values. */
 function spanDigits(values: number[]): number {
   const finite = values.filter(Number.isFinite);
   const span = finite.length ? Math.max(...finite) - Math.min(...finite) : 0;
@@ -624,63 +715,86 @@ function History({ ev }: { ev: Event }) {
   if (!h.length) return <p className="ink2">No solution yet.</p>;
   const t0 = h[0]?.t_ns ?? '0';
   const x = h.map((r) => nsDiffSeconds(r.t_ns, t0));
+  // K18: solves whose measurements were set aside (a break, another transmitter) are drawn
+  // apart, in gray, and a dashed rule marks where the current transmission's solves begin
+  const split = splitHistory(h);
+  const pick = (rows: typeof h) => ({ x: rows.map((r) => nsDiffSeconds(r.t_ns, t0)), major: rows.map((r) => r.semi_major_m / 1000), minor: rows.map((r) => r.semi_minor_m / 1000) });
+  const old = pick(split.setAside);
+  const cur = pick(split.current);
+  const series = [
+    ...(old.x.length
+      ? [
+          { x: old.x, y: old.major, token: '--ink-3', label: 'semi-major, set aside', points: true },
+          { x: old.x, y: old.minor, token: '--ink-3', dash: [5, 4], label: 'semi-minor, set aside', points: true },
+        ]
+      : []),
+    { x: cur.x, y: cur.major, token: '--fix', label: 'semi-major', points: true },
+    { x: cur.x, y: cur.minor, token: '--fix', dash: [5, 4], label: 'semi-minor', points: true },
+  ];
+  const note = (r: (typeof h)[number]) => [r.set_aside ? 'set aside' : '', r.fit_consistent === false ? 'inconsistent, enlarged' : ''].filter(Boolean).join('; ');
   return (
-    <div className="plots" style={{ gridTemplateColumns: '2fr 1fr', alignItems: 'start' }}>
-      <div className="plot">
-        <LinePlot
-          series={[
-            { x, y: h.map((r) => r.semi_major_m / 1000), token: '--fix', label: 'semi-major', points: true },
-            { x, y: h.map((r) => r.semi_minor_m / 1000), token: '--fix', dash: [5, 4], label: 'semi-minor', points: true },
-          ]}
-          logY
-          xLabel={`seconds after ${zuluTime(t0)}Z`}
-          yLabel="km (95 %)"
-          xFormat={(v) => fixed(v, 0)}
-          yFormat={(v) => (v >= 1 ? fixed(v, 0) : fixed(v, 1))}
-          readout={(xv) => {
-            let best = 0;
-            x.forEach((v, i) => (Math.abs(v - xv) < Math.abs((x[best] ?? 0) - xv) ? (best = i) : null));
-            const r = h[best];
-            return r ? `${zuluTime(r.t_ns)}Z  ${r.n_measurements} meas.  ${km(r.semi_major_m)} × ${km(r.semi_minor_m)} km` : '';
-          }}
-          ariaLabel="95 % ellipse semi-axes against time, logarithmic"
-        />
-      </div>
-      <table className="grid">
-        <thead>
-          <tr>
-            <th>Time (Z)</th>
-            <th className="num">Meas.</th>
-            <th className="num">
-              Major <span className="unit">km</span>
-            </th>
-            <th className="num">
-              Minor <span className="unit">km</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {h.map((r) => (
-            <tr key={r.t_ns}>
-              <td className="mono">{zuluTime(r.t_ns)}</td>
-              <td className="num">{r.n_measurements}</td>
-              <td className="num">{km(r.semi_major_m)}</td>
-              <td className="num">{km(r.semi_minor_m)}</td>
+    <>
+      {split.breakNs ? (
+        <p className="ink2" style={{ marginBottom: 6 }}>
+          {plural(split.setAside.length, 'earlier solve')} set aside (gray); the current transmission's solves start at <span className="mono">{zuluTime(split.breakNs)}Z</span> (dashed rule).
+        </p>
+      ) : null}
+      <div className="plots" style={{ gridTemplateColumns: '2fr 1fr', alignItems: 'start' }}>
+        <div className="plot">
+          <LinePlot
+            series={series}
+            logY
+            xLabel={`seconds after ${zuluTime(t0)}Z`}
+            yLabel="km (95 % semi-axes)"
+            xFormat={(v) => fixed(v, 0)}
+            yFormat={(v) => (v >= 1 ? fixed(v, 0) : fixed(v, 1))}
+            marker={split.breakNs ? nsDiffSeconds(split.breakNs, t0) : null}
+            readout={(xv) => {
+              let best = 0;
+              x.forEach((v, i) => (Math.abs(v - xv) < Math.abs((x[best] ?? 0) - xv) ? (best = i) : null));
+              const r = h[best];
+              const n = r ? note(r) : '';
+              return r ? `${zuluTime(r.t_ns)}Z  ${r.n_measurements} meas.  semi-axes ${semiAxes(r.semi_major_m, r.semi_minor_m)}${n ? `  (${n})` : ''}` : '';
+            }}
+            ariaLabel="95 % ellipse semi-axes against time, logarithmic"
+          />
+        </div>
+        <table className="grid">
+          <thead>
+            <tr>
+              <th>Time (Z)</th>
+              <th className="num">Meas.</th>
+              <th className="num">
+                Semi-major <span className="unit">km</span>
+              </th>
+              <th className="num">
+                Semi-minor <span className="unit">km</span>
+              </th>
+              {h.some((r) => note(r)) ? <th>Note</th> : null}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {h.map((r) => (
+              <tr key={r.t_ns} className={r.set_aside ? 'muted' : undefined}>
+                <td className="mono">{zuluTime(r.t_ns)}</td>
+                <td className="num">{r.n_measurements}</td>
+                <td className="num">{km(r.semi_major_m)}</td>
+                <td className="num">{km(r.semi_minor_m)}</td>
+                {h.some((x2) => note(x2)) ? <td>{note(r)}</td> : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
 // The plots redraw their canvases on every render; an event update (several a round)
 // re-renders the dossier, so these re-render only when what they show changed.
 const CorrelationView = memo(Correlation, (a, b) => a.ev.id === b.ev.id && a.ev.caf?.t_ns === b.ev.caf?.t_ns);
-const HistoryView = memo(
-  History,
-  (a, b) => a.ev.id === b.ev.id && a.ev.solution_history.length === b.ev.solution_history.length && a.ev.solution_history.at(-1)?.t_ns === b.ev.solution_history.at(-1)?.t_ns,
-);
+const historyKey = (ev: Event) => ev.solution_history.map((r) => `${r.t_ns}${r.set_aside ? 's' : ''}${r.fit_consistent === false ? 'i' : ''}`).join('|');
+const HistoryView = memo(History, (a, b) => a.ev.id === b.ev.id && historyKey(a.ev) === historyKey(b.ev));
 
 const TASKING_WORD: Record<TaskingStatus['state'], string> = {
   waiting: 'waiting for the next round',
@@ -690,11 +804,12 @@ const TASKING_WORD: Record<TaskingStatus['state'], string> = {
 };
 
 /** What capture tasking is doing for the event (Event.tasking). */
-function TaskingLine({ t, active }: { t: TaskingStatus; active: boolean }) {
+function TaskingLine({ t, active, live }: { t: TaskingStatus; active: boolean; live: boolean }) {
   useTick(1000);
   const nowMs = serverNowMs();
-  let phrase = active ? TASKING_WORD[t.state] : 'stopped';
-  if (active && t.state === 'waiting' && t.next_round_ns) {
+  // UX-8: what tasking is doing now is unknown while the console is disconnected
+  let phrase = !live && active ? 'unknown (console disconnected)' : active ? TASKING_WORD[t.state] : 'stopped';
+  if (live && active && t.state === 'waiting' && t.next_round_ns) {
     const inS = (nsToMs(t.next_round_ns) - nowMs) / 1000;
     phrase = inS > 0.5 ? `next round in ${formatAge(inS)}` : 'next round due now';
   }
@@ -762,6 +877,122 @@ function exportEvent(ev: Event): void {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/** Header of the dossier: what the event is, where it is received, when it began and what tasking does. */
+function DossierHead({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
+  useTick(1000);
+  const link = useLive((s) => s.link);
+  const status = useLive((s) => s.status);
+  const { live, asOfMs } = freshness({ link, status }, Date.now());
+  const nowMs = serverNowMs();
+  const level = eventLevel(ev);
+  const lastAge = (nowMs - nsToMs(ev.last_seen_ns)) / 1000;
+  const onset = ev.onset_ns ?? ev.first_seen_ns;
+  // UX-3: a local signal is described by what is on the air at the site that sees it
+  const rx = ev.verdict === 'local' ? received(ev, cfg) : null;
+  const hidden = ev.not_visible_satellite_ids ?? [];
+  // UX-8: "now" only while live; otherwise the last time the console heard about it
+  const lastSeen = isActive(ev) && live && lastAge < 15 ? 'now' : `${dtgNs(ev.last_seen_ns)} (${formatAge(lastAge)} ago)`;
+  return (
+    <div className="dhead">
+      <div className="titleline">
+        <h1 className="mono">{ev.id}</h1>
+        <Status level={level} word={`${VERDICT_WORD[ev.verdict]}`} />
+        <span className="ink2">{STATE_WORD[ev.state]}</span>
+        {ev.simulated ? <SimTag /> : null}
+        {ev.merged_into ? <span>merged into <a href={href('event', ev.merged_into)}>{ev.merged_into}</a></span> : null}
+        {!live && isActive(ev) ? <span className="ink2">as of {asOfMs === null ? 'no update' : zuluClock(new Date(asOfMs + (nowMs - Date.now())))}</span> : null}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn" onClick={() => exportEvent(ev)}>
+          Export JSON
+        </button>
+        <CloseButton ev={ev} />
+        <a className="btn" href={href('watch')}>
+          Map
+        </a>
+      </div>
+      <div className="facts">
+        {rx ? (
+          <>
+            <span>
+              Received <b className="mono">{rx.range}</b> at <b>{rx.sites.join(', ') || '—'}</b>
+            </span>
+            <span>
+              On{' '}
+              {rx.channels.map((c, i) => (
+                <span key={c.channel}>
+                  {i ? ', ' : ''}
+                  <b className="mono">{c.channel}</b>
+                  {c.sat ? <span className="mono"> ({c.sat})</span> : null}
+                </span>
+              ))}
+            </span>
+          </>
+        ) : (
+          <>
+            <span>
+              Uplink{' '}
+              <b className="mono">
+                {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? `${mhz(ev.uplink_lo_hz)} – ${mhz(ev.uplink_hi_hz)} MHz` : 'outside every transponder'}
+              </b>
+              {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? ` (${fixed((ev.uplink_hi_hz - ev.uplink_lo_hz) / 1000, 2)} kHz)` : ''}
+            </span>
+            <span>
+              Downlink <span className="unit">MHz</span>{' '}
+              {ev.transponders.length ? (
+                ev.transponders.map((t, i) => (
+                  <span key={`${t.sat_id}/${t.transponder_id}`} className="nowrap">
+                    {i ? ';  ' : ''}
+                    <b className="mono">
+                      {t.sat_id} {t.transponder_id}
+                    </b>{' '}
+                    <span className="mono">
+                      {mhz(t.downlink_lo_hz, 4)}–{mhz(t.downlink_hi_hz, 4)}
+                    </span>
+                  </span>
+                ))
+              ) : ev.downlink_lo_hz !== null && ev.downlink_lo_hz !== undefined ? (
+                <b className="mono">
+                  {mhz(ev.downlink_lo_hz, 4)}–{mhz(ev.downlink_hi_hz ?? ev.downlink_lo_hz, 4)}
+                </b>
+              ) : (
+                '—'
+              )}
+            </span>
+          </>
+        )}
+        {hidden.length ? (
+          // ADAPT-1: satellites of the plan that cannot see the estimated position
+          <span>
+            Not affected <b className="mono">{hidden.join(', ')}</b> (cannot see the estimated position)
+          </span>
+        ) : null}
+        {/* UX-5: the start of the current transmission is the time to report */}
+        <span>
+          Start <b className="mono">{dtgSecondsNs(onset)}</b>
+        </span>
+        {onset !== ev.first_seen_ns ? (
+          <span>
+            First seen <b className="mono">{dtgNs(ev.first_seen_ns)}</b>
+          </span>
+        ) : null}
+        {ev.resumed_ns ? (
+          <span>
+            Detected again <b className="mono">{dtgSecondsNs(ev.resumed_ns)}</b>
+            {ev.break_s !== null && ev.break_s !== undefined ? ` after a break of ${formatAge(ev.break_s)}` : ''}
+          </span>
+        ) : null}
+        <span>
+          Last seen <b className="mono">{lastSeen}</b>
+        </span>
+        <span>
+          Class <b>{ev.classification ? `${ev.classification.label}, ${percent(ev.classification.confidence)} confidence` : 'not classified yet'}</b>
+        </span>
+        {ev.tasking ? <TaskingLine t={ev.tasking} active={isActive(ev)} live={live} /> : null}
+      </div>
+    </div>
+  );
+}
+
 export function EventDossier({ id }: { id: string }) {
   const cached = useLive((s) => s.events.get(id) ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -791,69 +1022,9 @@ export function EventDossier({ id }: { id: string }) {
     );
   }
   const ev = cached;
-  const level = eventLevel(ev);
-  const first = dtgNs(ev.first_seen_ns);
-  const lastAge = (serverNowMs() - nsToMs(ev.last_seen_ns)) / 1000;
   return (
     <article className="dossier" aria-label={`Event ${ev.id}`}>
-      <div className="dhead">
-        <div className="titleline">
-          <h1 className="mono">{ev.id}</h1>
-          <Status level={level} word={`${VERDICT_WORD[ev.verdict]}`} />
-          <span className="ink2">{STATE_WORD[ev.state]}</span>
-          {ev.simulated ? <SimTag /> : null}
-          {ev.merged_into ? <span>merged into <a href={href('event', ev.merged_into)}>{ev.merged_into}</a></span> : null}
-          <span style={{ flex: 1 }} />
-          <button type="button" className="btn" onClick={() => exportEvent(ev)}>
-            Export JSON
-          </button>
-          <CloseButton ev={ev} />
-          <a className="btn" href={href('watch')}>
-            Map
-          </a>
-        </div>
-        <div className="facts">
-          <span>
-            Uplink{' '}
-            <b className="mono">
-              {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? `${mhz(ev.uplink_lo_hz)} – ${mhz(ev.uplink_hi_hz)} MHz` : 'outside every transponder'}
-            </b>
-            {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? ` (${fixed((ev.uplink_hi_hz - ev.uplink_lo_hz) / 1000, 2)} kHz)` : ''}
-          </span>
-          <span>
-            Downlink <span className="unit">MHz</span>{' '}
-            {ev.transponders.length ? (
-              ev.transponders.map((t, i) => (
-                <span key={`${t.sat_id}/${t.transponder_id}`}>
-                  {i ? ';  ' : ''}
-                  <b className="mono">
-                    {t.sat_id} {t.transponder_id}
-                  </b>{' '}
-                  <span className="mono">
-                    {mhz(t.downlink_lo_hz, 4)}–{mhz(t.downlink_hi_hz, 4)}
-                  </span>
-                </span>
-              ))
-            ) : ev.downlink_lo_hz !== null && ev.downlink_lo_hz !== undefined ? (
-              <b className="mono">
-                {mhz(ev.downlink_lo_hz, 4)}–{mhz(ev.downlink_hi_hz ?? ev.downlink_lo_hz, 4)}
-              </b>
-            ) : (
-              '—'
-            )}
-          </span>
-          <span>
-            First seen <b className="mono">{first}</b>
-          </span>
-          <span>
-            Last seen <b className="mono">{isActive(ev) && lastAge < 15 ? 'now' : `${dtgNs(ev.last_seen_ns)} (${formatAge(lastAge)} ago)`}</b>
-          </span>
-          <span>
-            Class <b>{ev.classification ? `${ev.classification.label}, ${percent(ev.classification.confidence)} confidence` : 'not classified yet'}</b>
-          </span>
-          {ev.tasking ? <TaskingLine t={ev.tasking} active={isActive(ev)} /> : null}
-        </div>
-      </div>
+      <DossierHead ev={ev} cfg={cfg} />
 
       <section className="advisory" aria-label="Advisory">
         <h2>{ev.advisory.headline}</h2>
