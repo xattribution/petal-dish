@@ -40,7 +40,7 @@ For the long ASA-GF and ASA-CF petals, in order of importance:
 
 1. **Chamber at the top of its range**, and let it reach temperature before the first layer. This is the setting that does the most against warping.
 2. **Dry filament.** Bambu ASA-CF: 80 °C for 8 hours. ASA-GF: 70–80 °C for 4–6 hours. PCTG: 65 °C for 4–6 hours. Keep fiber-filled spools below 20% humidity while printing.
-3. **A wide brim.** A 10 mm brim raises the contact of a 170 × 10 mm strip from about 1,700 mm² to about 5,600 mm². Bambu Studio's automatic brim grows with a part's height for exactly this reason. In PETAL, set **Gap between parts** (Print tab) to 16–20 mm so 8–10 mm brims do not merge, or accept merged brims and cut the parts apart afterward.
+3. **A wide brim.** A 10 mm brim raises the contact of a 170 × 10 mm strip from about 1,700 mm² to about 5,600 mm². Bambu Studio's automatic brim grows with a part's height for exactly this reason. In PETAL, set **Gap between parts** (Plates tab) to 16–20 mm so 8–10 mm brims do not merge, or accept merged brims and cut the parts apart afterward.
 4. **Plate and glue.** Prusa: smooth or satin sheet with glue stick for ASA. Bambu: Engineering, High-Temp or textured PEI with glue, with the plate type in the slicer matching the plate fitted. PCTG sticks too well: use glue as a release layer.
 5. **Low fan and moderate speed.** Keep the part fan at or below the profile's value. Slow down and lower the acceleration for tall parts.
 6. **Hardened nozzle.** The H2D and H2C come with hardened steel. On the CORE One L fit a hardened or ObXidian nozzle before printing CF or GF.
@@ -66,7 +66,7 @@ The plate count does not change at any of these thicknesses.
 
 ![Section through the rim of the default dish with an L, U and frame band](rim-band-section.png)
 
-Every layer of a side-printed petal is one long curve that ends at the rim. That end is a free 2.4 mm edge standing up to 300 mm tall, so it flexes when the nozzle reaches it and turns around, and the layer lands slightly off. **Rim band** (Shape tab) puts a wall behind the rim of each outer petal, square to the dish, so that every layer ends in a hook instead:
+Every layer of a side-printed petal is one long curve that ends at the rim. That end is a free 2.4 mm edge standing up to 300 mm tall, so it flexes when the nozzle reaches it and turns around, and the layer lands slightly off. **Rim band** (Dish & printer tab) puts a wall behind the rim of each outer petal, square to the dish, so that every layer ends in a hook instead:
 
 ![One print layer at the rim end of a petal with no band, an L, a U and a frame](rim-band-layers.png)
 
@@ -84,7 +84,7 @@ Every layer of a side-printed petal is one long curve that ends at the rim. That
 - The wall stays square to the dish with any petal count. With 6 petals its inner face reaches 60° from vertical near the top of the side print (45° with 8 petals, less with more). It is a short face on the hidden inside of a thick wall and prints without support; expect a slightly rougher surface there.
 - Seam stations near the rim move toward the hub just far enough to keep their bolts, clips or levers clear of the band. A short seam that would crowd its stations loses one.
 
-**Underside ribs** (Shape tab, off by default):
+**Underside ribs** (Dish & printer tab, off by default):
 
 - **Diamond grid:** low ribs, 2.5 mm tall and 50 mm apart by default, across the underside of every petal, mirrored on each petal so the ribs meet the next petal's at the seams. On a 600 mm, 8-petal dish they add about 8% material.
 - **Center ring:** one ring rib, 3 mm tall by default (2–6 mm), half way along each petal (each ring of petals on a larger dish). It stiffens a long petal where it is least supported, about 2.4 times through the shell at 3 mm, and braces each print layer at mid-length.
@@ -96,12 +96,12 @@ Every layer of a side-printed petal is one long curve that ends at the rim. That
 
 ![A 400 mm petal in print orientation with the rim support in front of its rim, and a section through one tine](rim-support.png)
 
-The rim band holds each layer's end from behind. **Breakaway rim support** (Print tab, on by default) holds it from the front: a wall printed in front of the rim of each outer petal, joined to the rim's front edge by small tines that snap off. It is in the same STL as the petal and is not part of the dish.
+The rim band holds each layer's end from behind. **Breakaway rim support** (Plates tab, on by default) holds it from the front: a wall printed in front of the rim of each outer petal, joined to the rim's front edge by small tines that snap off. It is in the same STL as the petal and is not part of the dish.
 
 | | Default | Range |
 |---|---|---|
-| Shape | Wall + ribs | Wall + ribs, or Lip rib |
-| Thickness (wall or lip rib) | 2.5 mm | 2–8 mm |
+| Support style | Wall + ribs | Wall + ribs, or Lip rib |
+| Support thickness (wall or lip rib) | 2.5 mm | 2–8 mm |
 | Inner edge lean | 12° from vertical | 0–30° |
 | Ribs square to the wall | 2 | 0–4 |
 | Gap to the rim's front edge | 0.2 mm | 0.15–0.8 mm |
@@ -111,7 +111,7 @@ The rim band holds each layer's end from behind. **Breakaway rim support** (Prin
 
 - The wall is solid and stands on the bed. Its face is vertical, parallel to the rim's front edge, which is at one depth all the way up. Its outer edge follows the rim. Its inner edge runs from the rim's top almost straight down to the bed, so the wall is widest at the bed. Every layer is one solid island, so the nozzle never travels across a window and leaves strings. Nothing on it is steeper than 45°, and each tine is a bridge of about 1 mm.
 - **Ribs** stand square to the wall on its outer face, so the wall also resists pushes across its face, not only along it. The first runs along the inner edge, making an L in plan; the others spread across the foot. Each is a thin triangle, deepest at the bed (12% of its height, 6–16 mm) and running back into the wall at its top.
-- **Lip rib** (Shape) drops the wall and keeps only a rib along the rim's front edge, square to it, tied to it by the same tines. It stands 6–12 mm out at the bed (6% of its height) and 4 mm at the top, and widens near the top of a 6-petal rim so its inner side leans no more than 45°. On the default 400 mm dish it uses 6.7 cm³ per petal instead of 30 cm³ and needs 3 plates instead of 4.
+- **Lip rib** (Support style) drops the wall and keeps only a rib along the rim's front edge, square to it, tied to it by the same tines. It stands 6–12 mm out at the bed (6% of its height) and 4 mm at the top, and widens near the top of a 6-petal rim so its inner side leans no more than 45°. On the default 400 mm dish it uses 6.7 cm³ per petal instead of 30 cm³ and needs 3 plates instead of 4.
 
 ![The lip rib on a 400 mm petal](rim-support-lip-rib.png)
 
@@ -145,7 +145,7 @@ If the seams close at the hub but stand open toward the rim, and only screws pul
   - So the leaning face ends up at a slightly different angle on every petal. The hub prints flat, so its angles stay exact.
   - The errors add up around the ring. With 0.3% more shrink in Z than in XY, the gap at the rim is about 0.26 mm per seam on a 400 mm dish and about 0.8 mm per seam on a 1200 mm dish. That is several millimetres around the whole ring.
   - No seam fastener should pull that shut. It stresses the shell and the seams.
-- **The fix: Print → Petal Z scale.** Every kit's FIT_TEST folder has `sector-scale-gauge.stl`: the outer 14 mm of an outer petal, oriented exactly as the petal prints.
+- **The fix: Plates → Petal Z scale.** Every kit's FIT_TEST folder has `sector-scale-gauge.stl`: the outer 14 mm of an outer petal, oriented exactly as the petal prints.
   1. Print it with the petal filament and profile.
   2. Measure its length along the bed and its height.
   3. Work out the new value with the formula in `SECTOR-GAUGE.md`, which uses the nominal and modelled sizes for your dish. Enter it and regenerate.

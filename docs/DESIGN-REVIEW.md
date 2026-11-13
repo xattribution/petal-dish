@@ -26,7 +26,7 @@ A petal prints standing on one seam flange, so one seam face lies on the bed and
 
 This looks exactly like warped petals that have to be pulled together. Closing it takes hundreds of newtons of hoop strain: within an M3 screw's preload, and far beyond a clip.
 
-**Changed:** a new **Print → Petal Z scale** setting scales only the side-printed parts along print Z.
+**Changed:** a new **Plates → Petal Z scale** setting scales only the side-printed parts along print Z.
 - Every kit's FIT_TEST folder now has `sector-scale-gauge.stl`, the outer 14 mm of an outer petal printed exactly like the petal.
 - `SECTOR-GAUGE.md` turns two caliper readings (length along the bed, and height) into the setting. See [PRINTING-LARGE-PETALS.md](PRINTING-LARGE-PETALS.md).
 

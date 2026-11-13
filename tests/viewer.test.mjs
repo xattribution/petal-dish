@@ -11,4 +11,13 @@ const old=[...viewer.pan];canvas.dispatchEvent(new window.KeyboardEvent('keydown
 viewer.reset();pointer('pointerdown',1,100,100);pointer('pointermove',1,150,100);pointer('pointerup',1,150,100);assert(viewer.yaw>-.35);assert.deepEqual(viewer.pan,[0,0]);
 const depth=uniforms.depthRange;canvas.dispatchEvent(new window.WheelEvent('wheel',{deltaY:-3000,clientX:400,clientY:300,cancelable:true}));assert(viewer.zoom>3);assert.equal(uniforms.depthRange,depth);assert.deepEqual(viewer.pan,[0,0]);
 viewer.reset();pointer('pointerdown',1,100,100);pointer('pointerdown',2,200,100);pointer('pointermove',2,300,140);assert(viewer.zoom>1);assert.notEqual(viewer.pan[0],0);pointer('pointercancel',1,100,100);pointer('pointerup',2,300,140);viewer.reset();assert.equal(viewer.zoom,1);assert.deepEqual(viewer.pan,[0,0]);
-console.log('PASS viewport orbit, middle/keyboard pan, pinch, expanded zoom, independent depth range and reset. WebGL calls mocked.');dom.window.close();
+// fit() refits without turning the view.
+viewer.yaw=.5;viewer.zoom=3;viewer.pan=[5,5];viewer.fit();assert.equal(viewer.zoom,1);assert.deepEqual(viewer.pan,[0,0]);assert.equal(viewer.yaw,.5);
+// Plate labels: one per bed slot, under each bed's nearest corner, in grid order; none outside the layout view.
+{const layer=window.document.createElement('div');viewer.labelLayer=layer;viewer.mode='layout';viewer.model={p:{bedX:220,bedY:220,bedZ:250}};viewer.layoutGrid={cols:2,rows:1,cell:244};viewer.grid={cols:2,rows:1,cell:244,count:1};
+ viewer.slots=[{center:[-122,0,0],text:'Plate 1',note:'2 parts'},{center:[122,0,0],text:'+ new plate',empty:true}];viewer.reset();viewer.draw();
+ const [a,b]=layer.children;assert.equal(layer.children.length,2);assert.equal(a.children[0].textContent,'Plate 1');assert.equal(a.children[1].textContent,'2 parts');assert(!a.children[1].hidden);assert(b.classList.contains('new')&&!a.classList.contains('new'));
+ assert(parseFloat(a.style.left)<parseFloat(b.style.left));assert(parseFloat(a.style.top)>300&&parseFloat(a.style.top)<600,a.style.top);assert.equal(a.style.top,b.style.top);
+ viewer.dropPlate=1;viewer.draw();assert(b.classList.contains('target'));viewer.dropPlate=-1;
+ viewer.mode='assembled';viewer.draw();assert.equal(layer.children.length,0);viewer.labelLayer=null;viewer.model={};}
+console.log('PASS viewport orbit, middle/keyboard pan, pinch, expanded zoom, independent depth range, reset, refit and plate labels. WebGL calls mocked.');dom.window.close();

@@ -98,7 +98,7 @@ Petals print standing on one seam flange, so one seam face lies on the bed and t
 1. Measure its **length along the bed** (X, the largest horizontal span, just above the first layer to skip elephant's foot) and its **height** (Z, from the bed face to the top).
 2. Nominal at 100%: length **${f(g.nominal.x)} mm**, height **${f(g.nominal.z)} mm**. This file was exported at Z scale **${g.zScale}%**, so its modelled height is **${f(g.file.z)} mm**.
 3. New Z scale % = 100 × (measured length / ${f(g.nominal.x)}) × (${f(g.file.z)} / measured height). The modelled height already includes the current setting, so this works from any starting value.
-4. Enter that under **Print → Petal Z scale**, regenerate, and print the petals. Re-check with a new gauge if you change filament or printer.
+4. Enter that under **Plates → Petal Z scale**, regenerate, and print the petals. Re-check with a new gauge if you change filament or printer.
 
 Example: length ${f(g.nominal.x*0.998)} and height ${f(g.file.z*0.995)} → ${(100*0.998/0.995).toFixed(2)}%.
 

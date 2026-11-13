@@ -23,10 +23,10 @@ export function appendMount(m){if(!m.p.mountMode)return;
   m.instances.push({part,a:0,matrix:affine(fn)});
  }
  // Interference at this pose: one solid per part, transformed per instance; only overlapping bounds are intersected.
- const base=new Map(),place=i=>{if(!base.has(i.part))base.set(i.part,solid(i.part.mesh));const s=base.get(i.part).transform(q=>scenePoint(m,i,q)),{min,max}=s.raw.boundingBox();return{id:i.part.id,s,min,max};},touch=(a,b)=>a.min.every((v,k)=>v<=b.max[k]+.01)&&a.max.every((v,k)=>v>=b.min[k]-.01);
+ const base=new Map(),place=i=>{if(!base.has(i.part))base.set(i.part,solid(i.part.mesh));const s=base.get(i.part).transform(q=>scenePoint(m,i,q)),{min,max}=s.raw.boundingBox();return{id:i.part.id,name:i.part.name,s,min,max};},touch=(a,b)=>a.min.every((v,k)=>v<=b.max[k]+.01)&&a.max.every((v,k)=>v>=b.min[k]-.01);
  const mounts=m.instances.filter(i=>i.part.kind==='mount').map(place);
  let maxOverlap=0;
- for(const i of m.instances.filter(i=>i.part.kind!=='mount')){const s=place(i);for(const t of mounts){if(!touch(s,t))continue;const overlap=s.s.intersect(t.s).raw.volume();maxOverlap=Math.max(maxOverlap,overlap);if(overlap>.1)throw Error(`${i.part.name} interferes with ${t.id} at this aiming pose. Change elevation or dish settings.`);}}
+ for(const i of m.instances.filter(i=>i.part.kind!=='mount')){const s=place(i);for(const t of mounts){if(!touch(s,t))continue;const overlap=s.s.intersect(t.s).raw.volume();maxOverlap=Math.max(maxOverlap,overlap);if(overlap>.1)throw Error(`${i.part.name} interferes with ${t.name} at this aiming pose. Change elevation or dish settings.`);}}
  // clearances are measured below the lowest mount face: the base bottom (z 0) or, without the base, the yoke plate (z 14)
  const b=sceneBounds(m),lo=rad(range[0]),hi=rad(range[1]),toCradle=q=>{const v=rx(q,-Math.PI/2);v[1]+=F.hubL+16-45**2/(4*m.focal);return v;},points=[];let sweepMin=floor;
  for(const i of m.instances.filter(i=>i.part.kind!=='mount'))for(const q of i.part.mesh.v){const v=toCradle(localPoint(i,q));if(legs)points.push(v);let critical=Math.atan2(v[1],v[2])+Math.PI;while(critical>Math.PI)critical-=2*Math.PI;const angles=[lo,hi,...(critical>=lo&&critical<=hi?[critical]:[])];for(const a of angles)sweepMin=Math.min(sweepMin,F.axisZ+v[1]*Math.sin(a)+v[2]*Math.cos(a));}
