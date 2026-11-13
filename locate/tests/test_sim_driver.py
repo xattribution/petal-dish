@@ -1114,10 +1114,27 @@ async def test_node_agent_runs_the_sim_driver_end_to_end(
         assert all(h["clock"]["source"] == "sim" for h in backplane.of("heartbeat"))
 
         fetched = len(backplane.requests)
-        backplane.publish(2, time.time_ns() + 2 * NS, scenario(tone=True))
-        backplane.send_ws({"type": "sim_update", "version": 2, "effective_ns": time.time_ns() + 2 * NS})
+        e2 = time.time_ns() + 2 * NS
+        sc2 = scenario(tone=True)
+        backplane.publish(2, e2, sc2)
+        backplane.send_ws({"type": "sim_update", "version": 2, "effective_ns": e2})
         await wait_until(lambda: len(backplane.requests) > fetched, 5.0, "fetch after sim_update")
         assert set(backplane.authorizations) == {f"Bearer {TOKEN}"}
+        # through the real agent, captures on either side of the change come from the
+        # world in force at their first sample
+        starts = {"cap-before": e2 - 600_000_000, "cap-after": e2 + 200_000_000}
+        for cap_id, t0 in starts.items():
+            backplane.send_ws({"type": "capture_request", "capture_id": cap_id, "channel_id": "tokyo-pac",
+                               "t_start_ns": t0, "n_samples": 3125, "sample_rate_hz": FS, "center_hz": FC,
+                               "deadline_ns": t0 + 10 * NS})
+        await wait_until(lambda: all(c in backplane.captures for c in starts), 10.0, "captures around the change")
+        newer = world(sc2, e2)
+        before = backplane.captures["cap-before"]
+        after = backplane.captures["cap-after"]
+        assert before.t_first_ns == starts["cap-before"] and after.t_first_ns == starts["cap-after"]
+        assert np.array_equal(before.iq, reference.render_iq("tokyo-pac", starts["cap-before"], 3125, FS, FC))
+        assert np.array_equal(after.iq, newer.render_iq("tokyo-pac", starts["cap-after"], 3125, FS, FC))
+        assert not np.array_equal(after.iq, reference.render_iq("tokyo-pac", starts["cap-after"], 3125, FS, FC))
     finally:
         await agent.stop(timeout_s=5.0)
     assert task.done() and task.exception() is None

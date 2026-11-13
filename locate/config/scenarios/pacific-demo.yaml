@@ -12,11 +12,19 @@ description: >-
   an uplink verdict within seconds, cross-satellite correlations far above threshold
   (about 40 dB post-correlation SNR in a 1 s capture for every satellite pair, against
   a 13 dB threshold) and a located event near 20 N 132 E. The transponders stay about
-  6 dB below saturation. Small truth errors are applied so that calibration visibly
-  matters: satellite positions are off by up to a kilometre (inside the configured
-  operator sigmas), the satellite translation oscillators are off by 2.5e-7 to 4e-7
-  (10 to 16 Hz of FDOA) and the Tokyo clock is 40 ns late; without the reference
-  calibration the fix is off by a few kilometres, with it by tens of metres.
+  6 dB below saturation. Small truth errors are applied (satellite positions off by up
+  to a kilometre, inside the configured operator sigmas; translation oscillators off
+  by 2.5e-7 to 4e-7, 10 to 16 Hz of FDOA; the Tokyo clock 40 ns late). Calibrated
+  against the Guam reference carrier, which the server does by default, the fix lands
+  1 to 2.5 km from the truth inside a 95 % ellipse of about 2.5 to 4 km by 0.8 km:
+  calibration removes the satellite and oscillator errors, but the reference carrier's
+  own measurement noise then dominates (it reaches MUOS Pacific and 172 E through the
+  back of its antenna, 26 to 32 dB post-correlation SNR, 2 to 4 microseconds of TDOA
+  noise), so the fix does not get sharper than about a kilometre. Without calibration
+  the fix is typically 0.5 to 2.5 km off inside a long ellipse (5 to 11 km by 0.6 km);
+  at some times of day the two TDOA hyperbolas cross twice inside the region, the
+  uncalibrated FDOA (dominated by the oscillator offsets) cannot tell the crossings
+  apart, and the system shows both as an unresolved ambiguity.
 emitters:
   - id: jammer-philsea
     name: Uplink noise jammer (simulated, open ocean)

@@ -109,7 +109,7 @@ def test_scenario_specifics(cfg: SystemConfig) -> None:
     assert fault.emitters == demo.emitters and fault.seed == demo.seed
     diff = {k: v for k, v in fault.errors.site_clock_offset_ns.items()
             if demo.errors.site_clock_offset_ns.get(k) != v}
-    assert list(diff.values()) == [2000.0]
+    assert diff == {"naha": 10000.0}  # a site the tasking pairs across sites (test_sim_verify)
     local = sc["local-interferer"].emitters[0]
     assert local.kind == "local"
     assert not any(tp.relays(local.freq_hz) for s in cfg.satellites for tp in s.transponders)

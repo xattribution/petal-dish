@@ -3,15 +3,18 @@ name: uplink-swept
 seed: 3
 description: >-
   Simulated scenario (not real data): a swept (sawtooth chirp) jammer at a fictional
-  open-ocean point in the Philippine Sea (21 N, 127 E) sweeps 10 kHz every 20 ms around
+  open-ocean point in the Philippine Sea (21 N, 127 E) sweeps 10 kHz every 40 ms around
   301.005 MHz, inside the shared-1 channel relayed by all three satellites, at 20 dBW
   from an omnidirectional antenna. The operator should see a 10 kHz-wide signal on
   every channel's shared-1 window (52 to 56 dB-Hz), a classification of swept,
-  and an uplink verdict. A periodic sweep correlates with itself one sweep period
-  later and at every sweep-rate step in delay and Doppler, so the cross-satellite
-  correlations should come back ambiguous (several peaks of almost equal height, listed
-  as candidates) rather than give a single TDOA/FDOA; the system must report that and
-  not show a false position. Truth errors are the small ones of pacific-demo.
+  and an uplink verdict. A periodic sweep has a line spectrum (lines 25 Hz apart), so
+  it correlates with itself at near-equal height one sweep period later and at every
+  step of 100 microseconds in delay with 25 Hz in Doppler. Even the narrowest search
+  window (a calibrated pair, a few tens of hertz in Doppler) holds several of these
+  peaks, so every cross-satellite correlation comes back ambiguous (eight candidates
+  listed), with or without calibration, instead of giving a single TDOA/FDOA; the
+  system must report that and show no position. Truth errors are the small ones of
+  pacific-demo.
 emitters:
   - id: jammer-swept
     name: Uplink swept jammer (simulated, open ocean)

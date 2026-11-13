@@ -6,13 +6,19 @@ description: >-
   open-ocean point in the Philippine Sea (15 N, 130 E) radiates 5 dBW at 301.130 MHz,
   inside the shared-2 channel relayed by all three satellites and clear of the Sapporo
   reference carrier. The operator should see a narrow line on every channel's shared-2
-  window (37 to 41 dB-Hz, about 20 to 26 dB above the floor in one 30 Hz bin), a
-  classification of cw, and an uplink verdict. Cross-satellite correlations detect it
-  far above threshold (37 to 39 dB post-correlation SNR in a 1 s capture), but a CW
-  carrier has no bandwidth, so its time difference of arrival cannot be measured:
-  every cross-satellite correlation should report FDOA only (TDOA unavailable, reason
-  narrowband) and the system must say so instead of producing a TDOA. Truth errors are
-  the small ones of pacific-demo.
+  window (35 to 42 dB-Hz, 15 to 22 dB above the floor over the three or four bins the
+  detector gives the line), a classification of cw, and an uplink verdict.
+  Cross-satellite correlations detect it far above threshold (35 to 39 dB
+  post-correlation SNR in a 1 s capture), but a CW carrier has no bandwidth, so its
+  time difference of arrival cannot be measured: every cross-satellite correlation
+  reports FDOA only (TDOA unavailable, reason narrowband) and the system must say so
+  instead of producing a TDOA. Two FDOA rows alone do not give a position while they
+  carry the uncalibrated satellite-oscillator uncertainty (up to 40 Hz): without
+  calibration the solver reports the event unobservable. Calibrated against the
+  Sapporo reference carrier, which shares shared-2, the oscillator terms cancel and a
+  coarse FDOA-only fix appears, tens of kilometres from the truth inside a very long
+  95 % ellipse (hundreds of kilometres by a few kilometres) that contains it. Truth
+  errors are the small ones of pacific-demo.
 emitters:
   - id: jammer-cw
     name: Uplink CW jammer (simulated, open ocean)

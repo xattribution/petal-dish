@@ -19,7 +19,8 @@ runs it (ARCHITECTURE.md section 7), against a ``SimWorld`` instead of radios:
   and turned into corrections with ``solver.calibration_correction``; the target
   windows are then shifted by them and keep only the fixed margins.
 - **Solve.** ``solver.solve`` with every accepted TDOA/FDOA row (CAF results that are
-  undetected, ambiguous or coupled are recorded with their reason and not used), the
+  undetected, ambiguous, coupled or mirror-ambiguous are recorded with their reason
+  and not used, as in tasking; a mirror-ambiguous reference gives no calibration), the
   configured solver settings, region and ``resolved_uncertainty()``, global search.
 
 Every trial is independent and deterministic in ``(seed, trial index)``: the trial's
@@ -67,6 +68,7 @@ from petal_locate.sim.world import SimWorld
 
 __all__ = [
     "DEFAULT_T_NS",
+    "REASON_MIRROR_AMBIGUOUS",
     "EventPlan",
     "PairTask",
     "ReferenceTask",
@@ -79,6 +81,9 @@ __all__ = [
 
 DEFAULT_T_NS: int = int(T_REF_S) * 1_000_000_000
 """Default capture start, 2026-01-01T00:00:00Z (integer UTC ns), unless the emitter starts later."""
+
+REASON_MIRROR_AMBIGUOUS = "mirror ambiguous"
+"""Reason recorded for a CAF result flagged ``mirror_ambiguous`` (never solved, as in tasking)."""
 
 _SAME_SITE_PREFERENCE_DB = 3.0  # a channel at the primary's site is preferred within this of the best
 _CHI2_2_95 = -2.0 * math.log(0.05)  # 5.991: the 95 % ellipse of a 2-D Gaussian
@@ -426,13 +431,14 @@ def run_trials(
         raise ValueError(f"n_trials must be a positive integer, got {n_trials!r}")
     if isinstance(seed, bool) or not isinstance(seed, (int, np.integer)) or seed < 0:
         raise ValueError(f"seed must be a non-negative integer, got {seed!r}")
-    base = SimWorld(config, scenario)
+    if t_ns is not None and (isinstance(t_ns, bool) or not isinstance(t_ns, (int, np.integer))):
+        raise ValueError(f"t_ns must be integer nanoseconds (int), got {type(t_ns).__name__}")
+    # epoch of ephemeris truth errors that grow (ric_vel_mps) without a t_ref of their own
+    base = SimWorld(config, scenario, epoch_ns=DEFAULT_T_NS if t_ns is None else int(t_ns))
     emitter = base.emitter(emitter_id)
     if t_ns is None:
         t_start = DEFAULT_T_NS if emitter.t_start_ns is None else max(DEFAULT_T_NS, emitter.t_start_ns)
     else:
-        if isinstance(t_ns, bool) or not isinstance(t_ns, (int, np.integer)):
-            raise ValueError(f"t_ns must be integer nanoseconds (int), got {type(t_ns).__name__}")
         t_start = int(t_ns)
     if not emitter.active_at(t_start):
         raise ValueError(f"t_ns: emitter {emitter_id!r} is not radiating at {iso_from_ns(t_start)}")
@@ -543,8 +549,10 @@ def _run_trial(
             ref = task.reference
             ref_mid = ref.plan.t_mid_ns(plan.t_start_ns)
             r_ref, why = estimate(task.a_channel, task.b_channel, ref.a, ref.b, ref.plan, ref.search, biases_ns[k], None)
+            if r_ref is not None and r_ref.mirror_ambiguous:
+                why = why or REASON_MIRROR_AMBIGUOUS
             ref_report: dict[str, Any] = {"carrier_id": ref.carrier_id, "reason": why}
-            if r_ref is not None:
+            if r_ref is not None and not r_ref.mirror_ambiguous:  # as tasking: never calibrate from one
                 ref_report.update(snr_db=r_ref.snr_db, tdoa_s=r_ref.tdoa_s, fdoa_hz=r_ref.fdoa_hz,
                                   sigma_tdoa_s=r_ref.sigma_tdoa_s, sigma_fdoa_hz=r_ref.sigma_fdoa_hz)
                 for kind, value, sigma in (("tdoa", r_ref.tdoa_s, r_ref.sigma_tdoa_s), ("fdoa", r_ref.fdoa_hz, r_ref.sigma_fdoa_hz)):
@@ -560,6 +568,8 @@ def _run_trial(
             correction = (corrections["tdoa"][0] if "tdoa" in corrections else None,
                           corrections["fdoa"][0] if "fdoa" in corrections else None)
         result, why = estimate(task.a_channel, task.b_channel, task.a, task.b, task.plan, task.search, biases_ns[k], correction)
+        if result is not None and result.mirror_ambiguous:
+            why = why or REASON_MIRROR_AMBIGUOUS
         report["reason"] = why
         try:
             true_tdoa, true_fdoa = world.truth_measurement(plan.emitter_id, task.a, task.b, t_mid)
@@ -574,7 +584,7 @@ def _run_trial(
                           sigma_fdoa_hz=result.sigma_fdoa_hz, noise_bandwidth_hz=result.noise_bandwidth_hz,
                           integration_s=result.integration_s)
             for kind, value, sigma in (("tdoa", result.tdoa_s, result.sigma_tdoa_s), ("fdoa", result.fdoa_hz, result.sigma_fdoa_hz)):
-                if value is None or sigma is None:
+                if value is None or sigma is None or result.mirror_ambiguous:  # as tasking: never solved
                     continue
                 c, cal = corrections.get(kind, (0.0, None))
                 rows.append(Measurement(kind, float(value), float(sigma), t_mid, task.a, task.b, correction=c, cal=cal,

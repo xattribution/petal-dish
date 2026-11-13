@@ -439,8 +439,8 @@ def _psd_case(cfg: SystemConfig, emitters: list[dict[str, Any]], channel: str, f
     expected = world.render_psd(channel, T0, fc, span, nfft, navg, expected=True)
     freqs = np.fft.fftshift(np.fft.fftfreq(nfft, 1.0 / span))
     occupied = expected > 3.0
-    empty = expected < 0.05
-    if guard_hz > 0.0:  # stay a chirp skirt's width away from every relayed jammer edge
+    empty = expected < 0.25  # within 0.25 dB of the thermal reference (chirp skirts are modelled)
+    if guard_hz > 0.0:  # optionally stay away from every relayed jammer edge
         for path in world.channel_paths(channel, T0, fc, span):
             if path.emitter_id == "j1" and path.treatment != "omitted":
                 empty &= np.abs(freqs - path.f_bb_hz) > 0.5 * path.bandwidth_hz + guard_hz
@@ -466,7 +466,7 @@ MON_172E = 301.0e6 - 33.6e6  # the shared-1 monitor centre of a channel on uhf-1
         ("cw", [jammer(waveform={"type": "cw"}, eirp_dbw=0.0)], "seoul-172e", MON_172E, 31250.0, 1024, 0.0),
         ("psk", [jammer(waveform={"type": "psk", "symbol_rate_hz": 6000})], "seoul-172e", MON_172E, 31250.0, 1024, 0.0),
         ("chirp", [jammer(waveform={"type": "chirp", "bandwidth_hz": 15e3, "sweep_period_s": 0.01})],
-         "seoul-172e", MON_172E, 31250.0, 1024, 1250.0),
+         "seoul-172e", MON_172E, 31250.0, 1024, 0.0),
         ("gated", [jammer(waveform={"type": "noise", "bandwidth_hz": 10e3, "duty": 0.3, "period_s": 0.05})],
          "seoul-172e", MON_172E, 31250.0, 1024, 0.0),
         ("slice", [jammer(freq_hz=301.0e6, eirp_dbw=25.0, waveform={"type": "noise", "bandwidth_hz": 200e3})],
