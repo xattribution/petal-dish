@@ -1,5 +1,6 @@
 // Astro status ladder and how PETAL Locate states map onto it (DESIGN.md ledger).
 import type { EventSummary, NodeStatus } from '../api/types.gen';
+import { formatAge } from '../time/dtg';
 
 export type Level = 'off' | 'standby' | 'normal' | 'caution' | 'serious' | 'critical';
 export const LEVELS: readonly Level[] = ['off', 'standby', 'normal', 'caution', 'serious', 'critical'];
@@ -66,7 +67,7 @@ export interface NodeAssessment {
 export function nodeLevel(n: NodeStatus, staleAfterS = 1.5): NodeAssessment {
   if (!n.online) return { level: 'serious', reasons: ['offline'] };
   const reasons: string[] = [];
-  if (n.clock && !n.clock.locked) reasons.push(`clock unlocked (${n.clock.source}, holdover ${Math.round(n.clock.holdover_s)} s)`);
+  if (n.clock && !n.clock.locked) reasons.push(`clock unlocked (${n.clock.source}, holdover ${formatAge(n.clock.holdover_s)})`);
   if (!n.clock) reasons.push('no clock report');
   const bad = n.channels.filter((c) => !c.ok);
   if (bad.length) reasons.push(`${bad.length} channel${bad.length > 1 ? 's' : ''} failed`);

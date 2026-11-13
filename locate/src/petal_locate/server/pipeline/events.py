@@ -54,7 +54,10 @@ from petal_locate.server.api import schemas
 __all__ = [
     "ACTIVE_STATES",
     "DEFAULT_REFRESH_S",
+    "MAX_HISTORY_ROWS",
+    "MAX_INACTIVE_RECORDS",
     "MAX_MEASUREMENT_ROWS",
+    "MAX_TRANSITION_ROWS",
     "EventBook",
     "EventNotFound",
     "EventRecord",
@@ -87,6 +90,18 @@ DEFAULT_REFRESH_S: Final[float] = 5.0
 
 MAX_MEASUREMENT_ROWS: Final[int] = 1000
 """Measurement rows an event keeps for display (oldest dropped first)."""
+
+MAX_HISTORY_ROWS: Final[int] = 500
+"""Solution-history rows an event document keeps (the first and the newest; the store
+keeps every solution). A solve every 5 s would otherwise add 17 280 rows a day to every
+published document."""
+
+MAX_TRANSITION_ROWS: Final[int] = 200
+"""Transitions an event document keeps (the first and the newest; the store keeps all)."""
+
+MAX_INACTIVE_RECORDS: Final[int] = 1000
+"""Inactive events (closed, lost beyond the re-open window, or history) kept in memory;
+older ones are dropped from memory only (they stay in the store)."""
 
 Space = Literal["up", "down"]
 """Frequency space of an event: ``up`` for uplink ranges (mapped through a
@@ -297,6 +312,13 @@ Publisher = Callable[[Publication], None]
 Listener = Callable[[EventRecord, frozenset[str]], None]
 
 
+def _cap_keep_first(rows: list[Any], limit: int) -> None:
+    """Trim ``rows`` in place to ``limit`` entries: the first and the newest."""
+    excess = len(rows) - limit
+    if excess > 0 and limit >= 2:
+        del rows[1 : 1 + excess]
+
+
 def _finite_or_none(value: Any) -> float | None:
     """A finite float, or None for None, NaN and infinities."""
     if value is None:
@@ -487,6 +509,7 @@ class EventBook:
             return
         transition = schemas.Transition(t_ns=int(t_ns), state=state, verdict=verdict, reason=reason)  # type: ignore[arg-type]
         record.transitions.append(transition)
+        _cap_keep_first(record.transitions, MAX_TRANSITION_ROWS)
         record.unsaved_transitions.append(transition)
         logger.info(
             "event %s: %s / %s (%s)",
@@ -716,6 +739,7 @@ class EventBook:
                     n_measurements=out.n_measurements,
                 )
             )
+            _cap_keep_first(record.solution_history, MAX_HISTORY_ROWS)
             self._advance(record, "located", "position estimated")
         self.touch(record, "solution")
         return True
@@ -832,6 +856,40 @@ class EventBook:
     def pending_numeric(self) -> int:
         """Dirty records waiting for their refresh interval."""
         return len(self._dirty)
+
+    def prune(self, reopen_window_s: float, limit: int = MAX_INACTIVE_RECORDS) -> list[str]:
+        """Drop the oldest inactive records from memory beyond ``limit`` (they stay in the
+        store, which the publisher wrote them to). Only records that can no longer
+        change are eligible: closed (or merged) ones holding no detection, history, and
+        lost ones lost longer than ``reopen_window_s`` (which cannot re-open), with
+        nothing waiting to be published. Returns the dropped ids, oldest first."""
+        now = self._clock()
+        window_ns = int(float(reopen_window_s) * 1e9)
+        eligible = [
+            r
+            for r in self._records.values()
+            if r.id not in self._dirty
+            and not r.members
+            and (
+                r.historic
+                or r.closed
+                or (r.lost and r.lost_ns is not None and now - r.lost_ns > window_ns)
+            )
+        ]
+        excess = len(eligible) - int(limit)
+        if excess <= 0:
+            return []
+        dropped = [r.id for r in sorted(eligible, key=lambda r: r.seq)[:excess]]
+        for event_id in dropped:
+            del self._records[event_id]
+        logger.info(
+            "%d inactive event(s) dropped from memory (kept in the store): %s ... %s",
+            len(dropped),
+            dropped[0],
+            dropped[-1],
+            extra={"dropped": len(dropped)},
+        )
+        return dropped
 
     def _publish(self, record: EventRecord, now: int, signature: tuple[Any, ...]) -> bool:
         try:

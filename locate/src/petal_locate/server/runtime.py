@@ -45,6 +45,7 @@ import concurrent.futures
 import contextvars
 import functools
 import logging
+import math
 import re
 import time
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
@@ -60,7 +61,7 @@ from petal_locate.protocol.messages import SIM_UPDATE_LEAD_NS, ChannelAssignment
 from petal_locate.server.api import schemas
 from petal_locate.server.app import HubProviders
 from petal_locate.server.pipeline.advisory import advise
-from petal_locate.server.pipeline.correlator import Correlator, QualityTable
+from petal_locate.server.pipeline.correlator import REOPEN_WINDOW_S, Correlator, QualityTable
 from petal_locate.server.pipeline.detection import (
     DetectionPipeline,
     WindowKey,
@@ -125,6 +126,12 @@ HISTORY_LIMIT: Final[int] = 500
 
 CPU_WORKERS: Final[int] = 3
 """Worker threads for CPU-heavy jobs (``WorkPool``)."""
+
+LOOP_LAG_PROBE_S: Final[float] = 0.1
+"""Period of the event-loop lag probe, s."""
+
+LOOP_LAG_WARN_S: Final[float] = 0.1
+"""Event-loop lag logged as a warning, s (twice the 50 ms budget)."""
 
 _PRESET_NAME: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _PRESET_SUFFIXES: Final[tuple[str, ...]] = (".yaml", ".yml", ".json")
@@ -645,6 +652,7 @@ class ServerRuntime:
         self._state = "new"
         self._status_failures = 0
         self._tasking: Tasking | None = None
+        self._lag: dict[str, float] = {"samples": 0, "max_s": 0.0, "over_50ms": 0}
 
     # ------------------------------------------------------------------ construction
 
@@ -947,6 +955,7 @@ class ServerRuntime:
         self._tasks = [
             loop.create_task(self._status_loop(), name="petal-runtime-status"),
             loop.create_task(self._quality_loop(), name="petal-runtime-quality"),
+            loop.create_task(self._lag_loop(), name="petal-runtime-lag"),
         ]
         self._state = "running"
         try:
@@ -989,7 +998,14 @@ class ServerRuntime:
         await self._store.close()
         self._console.close()
         self._state = "stopped"
-        logger.info("runtime stopped")
+        lag = self.loop_lag_stats()
+        logger.info(
+            "runtime stopped (event loop lag: worst %.0f ms, %d of %d probes over 50 ms)",
+            lag["max_s"] * 1e3,
+            lag["over_50ms"],
+            lag["samples"],
+            extra={"loop_lag": lag},
+        )
 
     async def _reconcile_store(self) -> None:
         """Make sure the store holds the configuration (and scenario) in force under
@@ -1052,6 +1068,7 @@ class ServerRuntime:
         while True:
             try:
                 self._correlator.tick()
+                self._book.prune(REOPEN_WINDOW_S)
                 self._publish_status()
                 self._status_failures = 0
             except Exception:  # keep the console informed whatever one tick did
@@ -1059,6 +1076,38 @@ class ServerRuntime:
                 if self._status_failures <= 3:
                     logger.exception("status tick failed")
             await asyncio.sleep(STATUS_INTERVAL_S)
+
+    async def _lag_loop(self) -> None:
+        """Measure how late the event loop wakes a 100 ms sleep: the time something held
+        the loop (or the GIL). Kept in ``loop_lag_stats()``; a lag beyond
+        ``LOOP_LAG_WARN_S`` is logged (at most once a minute, with the count since)."""
+        loop = asyncio.get_running_loop()
+        reported_at = -math.inf
+        unreported = 0
+        while True:
+            started = loop.time()
+            await asyncio.sleep(LOOP_LAG_PROBE_S)
+            lag = max(0.0, loop.time() - started - LOOP_LAG_PROBE_S)
+            stats = self._lag
+            stats["samples"] += 1
+            stats["max_s"] = max(stats["max_s"], lag)
+            if lag > 0.05:
+                stats["over_50ms"] += 1
+            if lag > LOOP_LAG_WARN_S:
+                unreported += 1
+                if loop.time() - reported_at >= 60.0:
+                    logger.warning(
+                        "event loop held for %.0f ms (%d time(s) over %.0f ms since the last report)",
+                        lag * 1e3,
+                        unreported,
+                        LOOP_LAG_WARN_S * 1e3,
+                        extra={"lag_ms": round(lag * 1e3, 1), "count": unreported},
+                    )
+                    reported_at, unreported = loop.time(), 0
+
+    def loop_lag_stats(self) -> dict[str, float]:
+        """Event-loop lag seen by the probe: ``samples``, ``max_s``, ``over_50ms``."""
+        return dict(self._lag)
 
     async def _quality_loop(self) -> None:
         while True:
@@ -1168,7 +1217,11 @@ class ServerRuntime:
 
     def _queue(self) -> schemas.QueueStatus:
         pending = 0
-        if self._hub is not None:
+        if self._tasking is not None:
+            # Exact: captures tasking requested and the hub has not answered yet. (The
+            # hub's counters also count refusals that never became requests.)
+            pending = self._tasking.captures_in_flight
+        elif self._hub is not None:
             counters = self._hub.counters()
             finished = counters.get("capture_completed", 0) + counters.get("capture_cancelled", 0)
             finished += sum(v for k, v in counters.items() if k.startswith("capture_failed_"))

@@ -29,7 +29,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* The shell is fixed to the viewport and clips (not scrolls) its overflow, so nothing,
    not even scrollIntoView on a deep element, can scroll the marking banners away. */
 html, body { overflow: hidden; }
-.app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto auto 1fr auto; min-width: 1000px; overflow: clip; }
+.app { position: fixed; inset: 0; display: grid; grid-template-rows: auto auto auto 1fr auto; grid-template-columns: minmax(0, 1fr); min-width: 1000px; overflow: clip; }
 .banner {
   text-align: center; font-weight: 700; font-size: 12px; line-height: 20px; height: 20px;
   text-transform: uppercase; letter-spacing: 0.06em; /* ledger: marking banners are caps by rule */
@@ -48,7 +48,7 @@ html, body { overflow: hidden; }
   background: var(--surface); border-bottom: 1px solid var(--rule);
 }
 .product { font-weight: 700; font-size: 15px; align-self: center; white-space: nowrap; }
-.tabs { display: flex; gap: 2px; align-items: stretch; }
+.tabs { display: flex; gap: 2px; align-items: stretch; flex: none; }
 .tab {
   display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; background: none;
   color: var(--ink-2); cursor: pointer; text-decoration: none; white-space: nowrap;
@@ -59,8 +59,12 @@ html, body { overflow: hidden; }
 .appbar .spacer { flex: 1; }
 .appbar-right { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 .linkstate { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.linkstate > span:last-child { max-width: 340px; overflow: hidden; text-overflow: ellipsis; }
-.appbar-right { min-width: 0; }
+.linkstate > span:last-child { max-width: 340px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.appbar-right { min-width: 0; overflow: hidden; }
+.appbar-right > * { flex: none; }
+.appbar-right > .linkstate { flex: 0 1 auto; }
+.themesel { color: var(--ink-2); font-size: 12px; }
+.themesel select { height: 26px; font-size: 13px; color: var(--ink); }
 
 .clockstrip {
   display: flex; align-items: baseline; gap: 18px; padding: 3px 12px; overflow: hidden; white-space: nowrap;
@@ -222,7 +226,7 @@ dl.facts dd { margin: 0; }
 .heatscale .heatbar span { flex: 1; }
 .heatscale .heatticks span { position: absolute; top: 11px; transform: translateX(-50%); font-size: 11px; line-height: 12px; color: var(--ink-2); }
 .mapstatus { display: flex; gap: 16px; padding: 3px 10px; font-size: 12px; color: var(--ink-2); background: var(--surface); border-top: 1px solid var(--rule); min-height: 22px; white-space: nowrap; overflow: hidden; }
-.mapnote { position: absolute; left: 10px; bottom: 10px; background: var(--surface); border: 1px solid var(--rule-strong); padding: 4px 8px; font-size: 12px; z-index: 4; }
+.mapnote { position: absolute; left: 10px; top: 10px; background: var(--surface); border: 1px solid var(--rule-strong); padding: 4px 8px; font-size: 12px; z-index: 4; }
 
 /* ---------------------------------------------------------------- dossier */
 .dossier { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
@@ -230,6 +234,7 @@ dl.facts dd { margin: 0; }
 .dhead .titleline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .dhead .facts { display: flex; gap: 6px 20px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
 .dhead .facts b { color: var(--ink); font-weight: 400; }
+.dhead .facts .unit { color: var(--ink-3); }
 .dhead .facts .tmsg { display: block; color: var(--ink); }
 .advisory { padding: 10px 14px; border-bottom: 1px solid var(--rule); }
 .advisory h2 { font-size: 15px; margin-bottom: 4px; }
@@ -248,7 +253,8 @@ dl.facts dd { margin: 0; }
 .plot .readout { font-size: 12px; color: var(--ink-2); min-height: 17px; white-space: nowrap; overflow: hidden; }
 
 /* evidence matrix (signature) */
-table.matrix { border-collapse: collapse; }
+table.matrix { border-collapse: collapse; table-layout: fixed; width: 100%; max-width: 1100px; }
+table.matrix thead th:first-child { width: 92px; }
 table.matrix th { font-size: 11px; color: var(--ink-2); font-weight: 700; padding: 3px 8px; text-align: left; white-space: nowrap; }
 table.matrix thead th { text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--rule-strong); } /* ledger: dense headers */
 table.matrix td { padding: 3px 8px; border: 1px solid var(--rule); min-width: 132px; height: 40px; vertical-align: middle; }
@@ -292,7 +298,7 @@ table.matrix td.stale { background: repeating-linear-gradient(135deg, var(--hatc
 .cfgform { padding: 10px 14px; display: grid; gap: 14px; max-width: 1100px; }
 .cfgform fieldset { border: 0; border-top: 1px solid var(--rule); padding: 8px 0 0; margin: 0; display: grid; gap: 8px; }
 .cfgform legend { font-weight: 700; font-size: 13px; padding: 0 6px 0 0; }
-.problems { margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--surface-2); }
+.problems { margin: 0; padding: 8px 14px 8px 32px; border-bottom: 1px solid var(--rule); background: var(--surface-2); }
 .problems li { margin: 2px 0; }
 .edittable td { padding: 2px 4px; }
 .edittable input, .edittable select { width: 100%; height: 26px; }
@@ -311,6 +317,9 @@ dialog { border: 1px solid var(--rule-strong); background: var(--surface); color
 dialog::backdrop { background: var(--paper); opacity: 0.7; }
 
 /* ---------------------------------------------------------------- narrow screens (1024 px) */
+@media (max-width: 1400px) {
+  .tab kbd { display: none; }
+}
 @media (max-width: 1240px) {
   .watch { grid-template-columns: 320px 1fr; }
   .split { grid-template-columns: 360px 1fr; }

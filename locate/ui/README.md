@@ -11,7 +11,7 @@ Design record and justification ledger: [DESIGN.md](DESIGN.md).
 npm ci                      # dependencies (pinned; .npmrc sets legacy-peer-deps)
 npm run dev                 # console + mock API on http://localhost:5173
 PETAL_PROXY=http://127.0.0.1:8000 npm run dev    # console against a running server instead
-npm test                    # Vitest: formatters, PLB1 decoder, API client, socket, mock parity
+npm test                    # Vitest: formatters, PLB1 decoder, API client, socket, map geometry, mock parity
 npm run typecheck           # strict TypeScript, app and smoke test
 npm run build               # type-check, then write the bundle to ../src/petal_locate/server/static/
 npm run e2e                 # build, start the mock, walk every screen in both themes (Playwright)
@@ -24,7 +24,9 @@ npm run preview:mock        # the built bundle + mock API on http://127.0.0.1:41
 Smoke-test options: `PETAL_TOKEN` (API token of the server), `PETAL_SHOTS` (screenshot
 directory, default `test-results/screens`), `PW_CHROMIUM` (Chromium executable when the
 Playwright browsers are not installed). `MOCK_TOKEN=secret npm run preview:mock` makes the
-mock require a token, to exercise the token prompt.
+mock require a token, to exercise the token prompt. `MOCK_PSD_HZ=20 npm run preview:mock`
+streams spectrum ten times faster than the monitors' 2 Hz, so a minute of it soaks the
+waterfall with ten minutes of frames (heap and frame timing were flat in the review run).
 
 ## Layout
 
@@ -35,7 +37,8 @@ src/state/      live store (status, events, link), shared resources (config, geo
 src/time/       ns-string arithmetic, DTG, zone letters and offsets, site zones
 src/format/     units (MHz, kHz, us, Hz/mHz, km, dB), positions (DD + datum, MGRS)
 src/domain/     Astro status mapping, monitor derivation, electrically-small dish caution
-src/map/        canvas world map (d3-geo, antimeridian-safe), Natural Earth loader
+src/map/        canvas world map (d3-geo Mercator: conformal, so ellipse azimuths read true;
+                antimeridian-safe), legend strip, scale bar, Natural Earth loader
 src/spectrum/   SpectrumEngine (trace + waterfall on canvas, outside React), the view
 src/views/      Watch + event dossier, Network, Plan, Configure, Simulation
 mock/           generate_fixtures.py (real core), fixtures/, server.mjs (REST + /ws/ui),

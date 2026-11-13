@@ -139,7 +139,7 @@ export function TextF({ path, label, mono, hint, optional, wide, aria }: { path:
  * Number in a display unit: the document holds value * scale (kHz shown, Hz stored: scale 1000).
  * Text that does not parse is kept as typed and sent as is, so the server names the problem.
  */
-export function NumF({ path, label, unit, scale = 1, optional, hint, step, info, integer, aria }: { path: Path; label: string; unit?: string; scale?: number; optional?: boolean; hint?: ReactNode; step?: string; info?: ReactNode; integer?: boolean; aria?: string }) {
+export function NumF({ path, label, unit, scale = 1, optional, hint, step, info, integer, aria, placeholder }: { path: Path; label: string; unit?: string; scale?: number; optional?: boolean; hint?: ReactNode; step?: string; info?: ReactNode; integer?: boolean; aria?: string; placeholder?: string }) {
   const f = useField(path);
   const fmt = (v: unknown) => (typeof v === 'number' ? String(Number((v / scale).toPrecision(12))) : v === undefined || v === null ? '' : String(v));
   const [text, setText] = useState(fmt(f.value));
@@ -154,6 +154,7 @@ export function NumF({ path, label, unit, scale = 1, optional, hint, step, info,
         className="mono"
         inputMode={integer ? 'numeric' : 'decimal'}
         value={text}
+        placeholder={placeholder}
         step={step}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}

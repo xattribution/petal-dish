@@ -47,7 +47,8 @@ function evidenceNumbers(r: EvidenceRow, nowMs: number, node: NodeStatus | undef
       if (node && !node.online) parts.push('node offline');
       if (age !== null && age !== undefined) parts.push(`no frame for ${formatAge(age)}`);
       else if (!node || node.online) parts.push('no recent frames');
-      if (r.last_seen_ns) parts.push(`detected ${formatAge((nowMs - nsToMs(r.last_seen_ns)) / 1000)} ago`);
+      const detAge = r.last_seen_ns ? (nowMs - nsToMs(r.last_seen_ns)) / 1000 : null;
+      if (detAge !== null && (age === null || age === undefined || Math.abs(detAge - age) > 5)) parts.push(`last detection ${formatAge(detAge)} ago`);
       return parts.join(', ');
     }
   }
@@ -516,8 +517,8 @@ function History({ ev }: { ev: Event }) {
 
 const TASKING_WORD: Record<TaskingStatus['state'], string> = {
   waiting: 'waiting for the next round',
-  capturing: 'capturing IQ',
-  processing: 'correlating and solving',
+  capturing: 'capturing IQ now',
+  processing: 'correlating and solving now',
   idle: 'idle',
 };
 
@@ -525,24 +526,20 @@ const TASKING_WORD: Record<TaskingStatus['state'], string> = {
 function TaskingLine({ t, active }: { t: TaskingStatus; active: boolean }) {
   useTick(1000);
   const nowMs = serverNowMs();
-  let next = '';
+  let phrase = active ? TASKING_WORD[t.state] : 'stopped';
   if (active && t.state === 'waiting' && t.next_round_ns) {
     const inS = (nsToMs(t.next_round_ns) - nowMs) / 1000;
-    next = inS > 0.5 ? `, next in ${formatAge(inS)}` : ', next due now';
+    phrase = inS > 0.5 ? `next round in ${formatAge(inS)}` : 'next round due now';
   }
   return (
     <span className="tasking">
-      Captures{' '}
-      <b>
-        {active ? TASKING_WORD[t.state] : 'stopped'}, {plural(t.rounds, 'round')}
-        {next}
-      </b>
+      Captures <b>{phrase}</b> ({plural(t.rounds, 'round')} so far
       {t.channels.length ? (
         <>
-          {' '}
-          on <span className="mono">{t.channels.join(', ')}</span>
+          , last on <span className="mono">{t.channels.join(', ')}</span>
         </>
       ) : null}
+      )
       {t.message ? <span className="tmsg">{t.message}</span> : null}
     </span>
   );
@@ -657,7 +654,7 @@ export function EventDossier({ id }: { id: string }) {
             {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? ` (${fixed((ev.uplink_hi_hz - ev.uplink_lo_hz) / 1000, 2)} kHz)` : ''}
           </span>
           <span>
-            Downlink{' '}
+            Downlink <span className="unit">MHz</span>{' '}
             {ev.transponders.length ? (
               ev.transponders.map((t, i) => (
                 <span key={`${t.sat_id}/${t.transponder_id}`}>
@@ -676,8 +673,7 @@ export function EventDossier({ id }: { id: string }) {
               </b>
             ) : (
               '—'
-            )}{' '}
-            MHz
+            )}
           </span>
           <span>
             First seen <b className="mono">{first}</b>

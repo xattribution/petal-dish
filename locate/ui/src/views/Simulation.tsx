@@ -261,17 +261,17 @@ function TruthErrors({ s, cfg }: { s: Scenario; cfg: SystemConfig }) {
         <legend>Oscillators and clocks</legend>
         <div className="fieldrow">
           {cfg.satellites.map((sat) => (
-            <NumF key={sat.id} path={['errors', 'sat_osc_frac', sat.id]} label={`${sat.id} translation oscillator`} unit="fraction" optional />
+            <NumF key={sat.id} path={['errors', 'sat_osc_frac', sat.id]} label={`${sat.id} translation oscillator`} unit="fraction" optional placeholder="0 (exact)" />
           ))}
         </div>
         <div className="fieldrow">
           {cfg.sites.map((site) => (
-            <NumF key={site.id} path={['errors', 'site_clock_offset_ns', site.id]} label={`${site.id} clock offset`} unit="ns" optional />
+            <NumF key={site.id} path={['errors', 'site_clock_offset_ns', site.id]} label={`${site.id} clock offset`} unit="ns" optional placeholder="0 (exact)" />
           ))}
         </div>
         <div className="fieldrow">
           {cfg.sites.map((site) => (
-            <NumF key={site.id} path={['errors', 'site_osc_frac', site.id]} label={`${site.id} oscillator`} unit="fraction" optional />
+            <NumF key={site.id} path={['errors', 'site_osc_frac', site.id]} label={`${site.id} oscillator`} unit="fraction" optional placeholder="0 (exact)" />
           ))}
         </div>
       </fieldset>

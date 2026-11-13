@@ -77,6 +77,10 @@ DB_FILE_NAME: Final[str] = "petal-locate.sqlite3"
 CAPTURE_DIR_NAME: Final[str] = "captures"
 """Subdirectory of the data directory that holds saved IQ captures."""
 
+MAX_PENDING_WRITES: Final[int] = 4096
+"""Fire-and-forget writes allowed to wait for the worker thread; beyond it a write is
+refused with ``StoreError`` (logged by the caller) instead of queuing without bound."""
+
 DEFAULT_CAPTURE_LIMIT_BYTES: Final[int] = 512 * 1024 * 1024
 """Default total size of saved capture data files before the oldest are deleted."""
 
@@ -441,8 +445,13 @@ class Store:
 
     def _submit(self, what: str, fn: Callable[..., Any], *args: Any) -> asyncio.Future[Any]:
         """Queue ``fn(conn, *args)`` on the worker thread without waiting; failures are
-        logged and counted."""
+        logged and counted. Raises ``StoreError`` when ``MAX_PENDING_WRITES`` writes are
+        already waiting (a stalled disk must not grow memory without bound; the caller
+        logs what was not stored)."""
         executor = self._check_open(what)
+        if len(self._pending) >= MAX_PENDING_WRITES:
+            self._counters[f"{what}_refused_backlog"] += 1
+            raise StoreError(f"{what}: {len(self._pending)} writes are already waiting (is the disk stalled?)")
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(executor, functools.partial(self._guarded, what, fn, *args))
         self._pending.add(future)

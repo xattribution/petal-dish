@@ -52,17 +52,17 @@ digit by digit (frequencies to the hertz). Sizes 12 / 13 / 15 / 20 px; weights 4
 |                               UNCLASSIFIED                                       |
 | PETAL Locate  Watch 1  Spectrum 2  Network 3  Plan 4  Configure 5  Simulation 6   |
 |                                       [roll-up] [link: Live 0.3 s] [theme] [token]|
-| 131805Z NOV 26 | Honolulu 0805W -10:00 | Tokyo 0305I +09:00 +1 | ...              |
+| 131805Z NOV 26 | Honolulu, Hilo 0805W -10:00 | Tokyo, Naha, Seoul 0305I +09:00 +1 | ..|
 +-------------------------------+--------------------------------------------------+
 | Network: 6 of 7 nodes online  |                                                  |
 |  [tri] Serious  hilo offline  |               world map (Pacific)                |
 |  [dia] Caution  manila clock  |   ellipses, LOPs, sites, sub-points, footprints  |
 | Events  4 active              |                                                  |
-| [oct] EV-0042 Uplink located  |                                     layers +    |
-|   shared-1  301.001-301.009   |                                     legend       |
-|   12.3 x 0.6 km  20.35N ...   |                                                  |
-| [oct] EV-0043 ...             | cursor 20.35 N 132.42 E  53Q ...                  |
-| Inactive: 2                   |                                                  |
+| [sq] EV-0042 UPLINK located   |                                                  |
+|   301.0010-301.0090 MHz up    |                                                  |
+|   20.35N 132.42E 95% 10.6x0.6 | [scale bar: 2000 km at the equator]              |
+| [sq] EV-0043 ...              | [x] Fixes  [x] Sites  [x] Sub-points  [ ] Footpr.|
+| Show 2 lost or closed         | 20.350 N 132.420 E WGS 84  MGRS 53Q ...           |
 +-------------------------------+--------------------------------------------------+
 |                               UNCLASSIFIED                                       |
 ```
@@ -77,6 +77,15 @@ cell per receive channel showing its evidence state (seen, would see but does no
 could not see, stale) as shape plus word plus SNR. The uplink-or-local verdict of MATH.md
 section 7 becomes visible as a pattern: a lit column across distant sites is uplink, one
 lit row is local. Everything else stays quiet.
+
+**Map** (review pass): Mercator, rotated so the antimeridian is an ordinary meridian.
+Mercator is conformal, so the error ellipse keeps its true shape and its major-axis
+azimuth reads correctly off the map at any latitude, and lines of position cross at their
+true angle (the first build used plate carree, which at 49.5 N stretched east-west by
+1.54 and turned a 10 degree major axis into an apparent 15 degrees). Layer toggles and the
+legend sit in a strip under the map, never over data; a scale bar gives km at the center
+latitude; labels are placed around their marks and dropped (sites, sub-points) when they
+would collide, never for fixes or truth.
 
 ## Swap test
 
@@ -109,7 +118,8 @@ charts, a "Welcome back". Changes made against it:
 | `--fix` (magenta) on map and history plot | Estimated emitter position and its ellipse; no status meaning | Data color, distinct from status hues and 2525 fills |
 | Dashed `--fix` outline | Ambiguous (mirror) solution | MATH.md section 9 ambiguities |
 | `--lop` solid / dashed | TDOA / FDOA line of position; band is the ±2 sigma region | MATH.md section 11 |
-| `--heat-0..6` one-hue ramp with km legend | Predicted 95 % semi-major axis; lighter = better located (dark theme) | MATH.md section 10; dataviz sequential ramp |
+| `--heat-0..6` one-hue ramp with km legend | Predicted 95 % semi-major axis (or CEP50); the step farthest from the page color = best located, in both themes | MATH.md section 10; dataviz sequential ramp |
+| `--heat-ink-0/1` | Dominant-error letters legible on light and dark heat cells | Contrast |
 | Letters on accuracy cells | Dominant error source (N noise, P ephemeris position, V ephemeris velocity, C clock, O oscillator, B TDOA bias, R reference) | MATH.md section 9 `dominant_error` |
 | Grayscale waterfall (`--wf-lo`→`--wf-hi`) | Power over time; saturated hues are reserved for status | Spectrum convention; B6 |
 | Shaded band on spectrum trace (`--fix`) | Detection of an unauthorised signal (interference) | MATH.md section 7 detections |
@@ -125,3 +135,10 @@ charts, a "Welcome back". Changes made against it:
 | Motion: none, except the reconnect countdown text | Real state change only | B13 |
 | Dark default, light theme by setting | Dim ops floor; planners and briefings | Domain read 1 |
 | Caution note on parabolic antennas under 3 wavelengths | Behaves as a reflector, broad beam | UI-BRIEF capability 7; core.antennas |
+| Caution diamond in the look-angle antenna column | `LookAngle.electrically_small` for that channel and satellite | UI-BRIEF capability 6, 7 |
+| Mercator projection | Conformal: ellipse azimuth and LOP crossing angles are true on screen | MATH.md section 9 (azimuth clockwise from true north) |
+| Scale bar, km at the center latitude | Distances on a zoomed map (ellipse axes, miss distance) | Chart convention |
+| Legend strip under the map | Every layer can be toggled and has a legend, without covering data | UI-BRIEF Map |
+| Bracket in the strip above the spectrum trace | Authorized carrier allocation and its id, clear of the trace | Frequency plan (Carrier) |
+| "Captures" line in the dossier header | What tasking is doing (`Event.tasking`): next round, rounds, channels, the server's message | schemas.py TaskingStatus |
+| Clock strip grouped by shared local time | One entry per zone in use, so every site's letter and offset fit at 1024 px | mil conventions, Time |

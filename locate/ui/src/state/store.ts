@@ -198,6 +198,12 @@ export const socket = new UiSocket({
     },
     onState: (link) => {
       const wasLive = state.link.kind === 'live';
+      if (link.kind === 'reconnecting' && link.authRefused) {
+        // close code 1008: retrying with the same token cannot work; ask for one (setToken restarts the socket)
+        set({ link, needToken: true });
+        queueMicrotask(() => socket.stop());
+        return;
+      }
       set({ link });
       // after a reconnect, re-read what may have changed while no messages arrived
       if (link.kind === 'live' && !wasLive && booted) {

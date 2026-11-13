@@ -369,7 +369,13 @@ class MeasurementRow(_Out):
     residual: whitened residual against the current solution; null when the
     measurement is not in the current solution.
     used: whether the solver was given it. reason: why not, when ``used`` is false
-    (for example ``not_detected``, ``ambiguous``, ``clock_unlocked``).
+    (for example ``not_detected``, ``ambiguous``, ``narrowband`` (a signal too narrow
+    for a time difference: TDOA only), ``clock_unlocked``).
+    correction: when ``calibrated``, the reference-carrier correction already
+    subtracted from ``value`` (s or Hz; the raw measurement is ``value + correction``),
+    else null. It holds everything the reference measured on the same pair: clock
+    offsets between the two sites, ephemeris and oscillator errors.
+    reference_carrier_id: the reference carrier of that correction, else null.
     """
 
     t_ns: ConsoleTimeNs
@@ -382,6 +388,8 @@ class MeasurementRow(_Out):
     calibrated: bool
     used: bool
     reason: str | None
+    correction: float | None = None
+    reference_carrier_id: str | None = None
 
 
 class CafCut(_Out):
@@ -429,13 +437,17 @@ class TaskingStatus(_Out):
 
     state: ``waiting`` (the next round is scheduled), ``capturing`` (IQ captures
     requested from the nodes), ``processing`` (correlating, calibrating, solving) or
-    ``idle`` (nothing to capture: no usable channel sees the event, or no second
-    satellite with a usable channel relays it, so it cannot be located).
+    ``idle`` (nothing to capture: no usable channel sees the event, no second
+    satellite with a usable channel relays it, or the event was judged ``local``, so it
+    cannot be located by satellite; ``message`` says which).
     rounds: capture rounds started for the event. last_round_ns / next_round_ns: server
     time of the last round's start and of the next one (null when none is planned).
     channels: the receive channels of the last round, primary first.
-    message: one plain sentence about the last round (what failed and is being
-    retried, what is awaited), or null when all went well.
+    message: plain sentences about the last completed round, kept while the next one
+    runs: what failed and is being retried, what is awaited, and why the signal itself
+    gives no usable measurement when every pair failed for one reason (for example
+    "No TDOA: the signal is too narrow ..." for a CW carrier, or "The correlations are
+    ambiguous ..." for a repeating sweep); null when all went well.
     solve_reason: why the last solve gave no position (for example ``unobservable``
     or ``fewer than two accepted measurements``); null after a successful solve.
     """

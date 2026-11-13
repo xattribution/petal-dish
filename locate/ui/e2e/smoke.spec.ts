@@ -114,6 +114,10 @@ for (const theme of ['dark', 'light'] as const) {
         await expect(page.getByRole('region', { name: 'Measurements' })).toContainText('TDOA');
         await page.getByRole('region', { name: 'Correlation' }).scrollIntoViewIfNeeded();
         await expect(page.getByRole('img', { name: /Correlation surface/ })).toBeVisible();
+        // scrolling deep into the dossier must never scroll the shell: banners and app bar stay put
+        expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
+        if (meta.marking) expect((await page.locator('.banner').first().boundingBox())?.y).toBe(0);
+        await expect(page.locator('.appbar')).toBeInViewport();
         await shot(page, 'event-correlation', theme);
       }
       if (await page.locator('.dossier .simtag').count()) await expect(page.locator('.dossier')).toContainText('SIMULATION');

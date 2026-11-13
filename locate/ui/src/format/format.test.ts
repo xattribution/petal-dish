@@ -9,7 +9,7 @@ describe('units', () => {
   it('formats MHz to the hertz with grouped decimals', () => {
     expect(mhz(301005000)).toBe(`301.005${T}000`);
     expect(mhz(260502500)).toBe(`260.502${T}500`);
-    expect(mhz(301.0125e6, 4)).toBe(`301.012${T}5`);
+    expect(mhz(301.0125e6, 4)).toBe(`301.0125`); // fewer than 6 decimals: not grouped (a lone grouped digit reads as a typo)
     expect(mhz(null)).toBe('—');
   });
   it('formats widths and automatic units', () => {

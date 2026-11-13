@@ -85,4 +85,39 @@ describe('socket', () => {
     s.stop();
     vi.useRealTimers();
   });
+
+  it('schedules one reconnect for a silent socket even when its close event comes late', () => {
+    vi.useFakeTimers();
+    const states: LinkState[] = [];
+    const created: FakeWs[] = [];
+    // a dead link: close() does not fire onclose until much later
+    class SlowCloseWs extends FakeWs {
+      pendingClose: (() => void) | null = null;
+      override close(code = 1000, reason = '') {
+        const cb = this.onclose;
+        this.pendingClose = () => cb?.({ code, reason });
+      }
+    }
+    const s = new UiSocket({
+      url: () => 'ws://x',
+      create: (u) => {
+        const w = new SlowCloseWs(u);
+        created.push(w);
+        return w;
+      },
+      random: () => 0,
+      silenceMs: 5000,
+      handlers: { onMessage: () => {}, onFrame: () => {}, onState: (st) => states.push(st) },
+    });
+    s.start();
+    created[0]!.open();
+    vi.advanceTimersByTime(5001);
+    const reconnecting = states.filter((st) => st.kind === 'reconnecting').length;
+    (created[0] as SlowCloseWs).pendingClose?.(); // the old socket's close finally arrives
+    expect(states.filter((st) => st.kind === 'reconnecting').length).toBe(reconnecting);
+    vi.advanceTimersByTime(1000);
+    expect(created).toHaveLength(2);
+    s.stop();
+    vi.useRealTimers();
+  });
 });

@@ -65,16 +65,16 @@ function LookTable({ cfg, looks, watchedOnly }: { cfg: SystemConfig; looks: Look
     // MATH/ARCHITECTURE: a dish under 3 wavelengths across behaves as a reflector, not a focusing dish
     const wl = 299_792_458 / l.freq_hz;
     const across = a && a.type === 'parabolic' ? a.diameter_m / wl : null;
-    return `${kind}, ${across !== null ? `${fixed(across, 2)} λ across` : 'under 3 λ'}: reflector`;
+    return `${kind}: reflector, ${across !== null ? `${fixed(across, 2)} λ` : 'under 3 λ'}`;
   };
   return (
-    <table className="grid" aria-label="Look angles of every channel to every satellite">
+    <table className="grid compact" aria-label="Look angles of every channel to every satellite">
       <thead>
         <tr>
           <th>Site</th>
           <th>Channel</th>
           <th>Satellite</th>
-          <th>Watched</th>
+          {watchedOnly ? null : <th>Watched</th>}
           <th className="num">
             Az <span className="unit">°</span>
           </th>
@@ -99,7 +99,7 @@ function LookTable({ cfg, looks, watchedOnly }: { cfg: SystemConfig; looks: Look
             <td>{siteLabel(cfg, l.site_id)}</td>
             <td className="mono">{l.channel_id}</td>
             <td className="mono">{l.sat_id}</td>
-            <td>{l.watched ? 'yes' : ''}</td>
+            {watchedOnly ? null : <td>{l.watched ? 'yes' : 'no'}</td>}
             <td className="num">{deg(l.az_deg)}</td>
             <td className="num">{l.visible ? deg(l.el_deg) : `${deg(l.el_deg)} below`}</td>
             <td className="num">{fixed(l.range_km, 0)}</td>

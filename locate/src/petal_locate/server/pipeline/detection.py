@@ -10,7 +10,12 @@ For every (channel, monitor) of the configuration there is one
 - carriers: the authorised carriers of the frequency plan mapped to downlink Hz
   through every watched satellite whose transponder relays the carrier's centre (an
   authorised uplink appears on every satellite that hears it, not only the one it is
-  assigned to, and must not raise an event there either);
+  assigned to, and must not raise an event there either), each range widened by where
+  the carrier can actually appear (``downlink_spread_hz``: the Doppler of both legs
+  over a day, and three sigma of the configured translation and site oscillator
+  errors) and rounded outward to whole bins. Without the widening an inclined
+  geostationary satellite moves a carrier's edge 2 to 4 bins outside its nominal
+  range and the edge is raised as an unauthorised signal;
 - ``frame_rate_hz`` from the monitor, the detection settings from
   ``processing.detection``.
 
@@ -33,7 +38,8 @@ backwards. Each accepted frame gives:
   the newest per window and client.
 
 Cost: a tracker update is about 1 ms for 1024 bins. The cost is measured per window
-(exponential average); a window whose updates average more than ``offload_cost_s``
+(median of its last ``COST_WINDOW`` updates, timed where they run, so that a moment of GIL
+contention does not move it); a window whose median is above ``offload_cost_s``
 (or with ``nfft >= OFFLOAD_NFFT``) is updated in the server's worker pool instead of
 on the event loop.
 """
@@ -42,21 +48,28 @@ from __future__ import annotations
 import logging
 import math
 import time
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Protocol
 
 import numpy as np
 
+from petal_locate.core.constants import C as SPEED_OF_LIGHT
+from petal_locate.core.constants import GM
 from petal_locate.core.detect import Detection, SignalTracker
+from petal_locate.core.geometry import baseband_frequency, bent_pipe_rates, elevation_deg
 from petal_locate.core.linkbudget import relay_rise_db
+from petal_locate.core.orbits import orbit_state
 from petal_locate.protocol.framing import encode_console_psd
 
 __all__ = [
-    "COST_EWMA_ALPHA",
+    "COST_WINDOW",
     "OFFLOAD_COST_S",
     "OFFLOAD_NFFT",
+    "OFFLOAD_RETURN_FRACTION",
+    "OSCILLATOR_SIGMAS",
+    "SPREAD_SPAN_S",
     "ConsolePsdSink",
     "DetectionPipeline",
     "DetectionSink",
@@ -65,6 +78,7 @@ __all__ = [
     "WindowSpec",
     "build_trackers",
     "build_window_specs",
+    "downlink_spread_hz",
 ]
 
 logger = logging.getLogger(__name__)
@@ -75,13 +89,37 @@ OFFLOAD_COST_S: Final[float] = 0.003
 OFFLOAD_NFFT: Final[int] = 16384
 """Windows with at least this many bins are always updated in a worker thread."""
 
-COST_EWMA_ALPHA: Final[float] = 0.2
-"""Weight of the newest update in the per-window average cost."""
+COST_WINDOW: Final[int] = 16
+"""Updates whose median is a window's cost (eight seconds at the usual 2 frames/s)."""
+
+_COST_MIN_SAMPLES: Final[int] = 4  # updates measured before a window may be offloaded
+
+OFFLOAD_RETURN_FRACTION: Final[float] = 0.5
+"""An offloaded window returns to the event loop when its average update cost (timed in
+the worker thread, without the wait for a worker) falls below this fraction of
+``offload_cost_s``."""
+
+
+def _timed_update(tracker: SignalTracker, psd: np.ndarray, t_ns: int) -> tuple[list[Detection], float]:
+    """``tracker.update`` and how long it took, s (runs inline or in a worker thread)."""
+    started = time.perf_counter()
+    detections = tracker.update(psd, t_ns)
+    return detections, time.perf_counter() - started
 
 WindowKey = tuple[str, str]
 """(channel_id, monitor_id)."""
 
 _RISE_ROUND_DB: Final[float] = 0.5  # rises closer than this do not rebuild a tracker
+
+SPREAD_SPAN_S: Final[float] = 86_400.0
+"""Time over which ``downlink_spread_hz`` takes the Doppler envelope, s (a day: the
+period of a geostationary satellite's inclination swing)."""
+
+OSCILLATOR_SIGMAS: Final[float] = 3.0
+"""Configured oscillator sigmas added to a carrier's range on each side."""
+
+_SPREAD_MAX_STEP_S: Final[float] = 900.0
+_SPREAD_STEPS_PER_ORBIT: Final[int] = 64
 
 
 @dataclass(frozen=True)
@@ -203,14 +241,127 @@ class WorkRunner(Protocol):
 # --------------------------------------------------------------------- building
 
 
+def downlink_spread_hz(
+    orbit: Any,
+    site_xyz: np.ndarray,
+    x_e: np.ndarray | None,
+    f_e_hz: float,
+    translation_hz: float,
+    t_s: float,
+    *,
+    sat_osc_frac: float = 0.0,
+    site_osc_frac: float = 0.0,
+    span_s: float = SPREAD_SPAN_S,
+    sigmas: float = OSCILLATOR_SIGMAS,
+) -> tuple[float, float]:
+    """How far from its nominal downlink frequency ``f_e_hz + translation_hz`` an uplink
+    at ``f_e_hz`` can appear in a channel at ``site_xyz`` (blocking, a few ms).
+
+    orbit: the relaying satellite's orbit. site_xyz: the receive antenna, ECEF m.
+    x_e: the emitter, ECEF m, or None when unknown. f_e_hz, translation_hz: the uplink
+    frequency and the transponder's nominal translation, Hz. t_s: start of the span,
+    Unix s. sat_osc_frac, site_osc_frac: one-sigma fractional errors of the
+    translation oscillator and of the site oscillator. span_s: time span covered, s.
+    sigmas: how many oscillator sigmas to cover.
+
+    Returns ``(lo_hz, hi_hz)``, ``lo_hz <= 0 <= hi_hz``: the signal stays within
+    ``[nominal + lo_hz, nominal + hi_hz]`` while the satellite is above the site's
+    horizon during the span. The Doppler part is the envelope of
+    ``geometry.baseband_frequency`` (both legs, MATH.md section 4) over the span, sampled
+    64 times per orbital period (at most every 15 minutes); with no emitter position the
+    uplink leg is bounded by the satellite's ground-relative speed. The oscillator part
+    is ``sigmas * (sat_osc_frac |translation| + site_osc_frac f_down)`` on both sides.
+    A satellite never above the horizon gives the oscillator part only.
+    """
+    r0, _ = orbit_state(orbit, float(t_s))
+    radius = float(np.linalg.norm(r0))
+    period = 2.0 * math.pi * math.sqrt(max(radius, 1.0) ** 3 / GM)
+    step = min(_SPREAD_MAX_STEP_S, period / _SPREAD_STEPS_PER_ORBIT)
+    times = float(t_s) + np.arange(0.0, float(span_s) + 0.5 * step, step)
+    f_down = float(f_e_hz) + float(translation_hz)
+    visible = np.asarray(elevation_deg(site_xyz, orbit, times), dtype=np.float64) >= 0.0
+    if x_e is not None:
+        visible &= np.asarray(elevation_deg(x_e, orbit, times), dtype=np.float64) >= 0.0
+    lo = hi = 0.0
+    if visible.any():
+        t_vis = times[visible]
+        if x_e is not None:
+            _, tau_d_dot, tau_u_dot = bent_pipe_rates(x_e, orbit, site_xyz, t_vis)
+            shift = np.asarray(
+                baseband_frequency(f_e_hz, translation_hz, f_down, tau_d_dot, tau_u_dot), dtype=np.float64
+            )
+        else:
+            # Downlink leg exactly; uplink leg bounded by the satellite's speed over the ground.
+            _, tau_d_dot, _ = bent_pipe_rates(site_xyz, orbit, site_xyz, t_vis)
+            _, velocity = orbit_state(orbit, t_vis)
+            speed = np.linalg.norm(np.asarray(velocity, dtype=np.float64), axis=-1)
+            down = -f_down * np.asarray(tau_d_dot, dtype=np.float64)
+            up = float(f_e_hz) * speed / SPEED_OF_LIGHT
+            shift = np.concatenate([down - up, down + up])
+        finite = shift[np.isfinite(shift)]
+        if finite.size:
+            lo, hi = min(float(finite.min()), 0.0), max(float(finite.max()), 0.0)
+    osc = float(sigmas) * (abs(float(sat_osc_frac)) * abs(float(translation_hz)) + abs(float(site_osc_frac)) * abs(f_down))
+    return lo - osc, hi + osc
+
+
+def _widened_carrier(
+    config: Any,
+    carrier: Any,
+    sat_id: str,
+    transponder: Any,
+    site_id: str,
+    t_s: float,
+    cache: dict[tuple[str, str, str, str], tuple[float, float]],
+) -> tuple[float, float]:
+    """``downlink_spread_hz`` of one carrier through one transponder into one site
+    (cached per call of ``build_window_specs``). Failures are logged and give the
+    oscillator part only."""
+    key = (carrier.id, sat_id, transponder.id, site_id)
+    if key in cache:
+        return cache[key]
+    uncertainty = config.resolved_uncertainty()
+    sat_osc = float(uncertainty.sat_osc_frac.get(sat_id, 0.0))
+    site_osc = float(uncertainty.site_osc_frac.get(site_id, 0.0))
+    try:
+        x_e = config.carrier_xyz(carrier.id) if carrier.location is not None else None
+        spread = downlink_spread_hz(
+            config.orbit(sat_id),
+            config.site_xyz(site_id),
+            x_e,
+            float(carrier.uplink_center_hz),
+            float(transponder.translation_hz),
+            t_s,
+            sat_osc_frac=sat_osc,
+            site_osc_frac=site_osc,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "Doppler spread of carrier %s through %s/%s at %s could not be computed (%s); "
+            "only the oscillator allowance is applied",
+            carrier.id,
+            sat_id,
+            transponder.id,
+            site_id,
+            exc,
+            extra={"carrier_id": carrier.id, "sat_id": sat_id, "site_id": site_id},
+        )
+        osc = OSCILLATOR_SIGMAS * (sat_osc * abs(float(transponder.translation_hz)))
+        spread = (-osc, osc)
+    cache[key] = spread
+    return spread
+
+
 def build_window_specs(config: Any, t_s: float) -> dict[WindowKey, WindowSpec]:
     """The window specs of a configuration (blocking: run it in a worker thread).
 
-    config: ``SystemConfig``. t_s: Unix seconds at which relay rises are evaluated.
+    config: ``SystemConfig``. t_s: Unix seconds at which relay rises are evaluated
+    (and from which carrier Doppler envelopes are taken, over ``SPREAD_SPAN_S``).
     A relay rise that cannot be computed is logged and taken as 0 dB.
     """
     specs: dict[WindowKey, WindowSpec] = {}
     rises: dict[tuple[str, str, str], float] = {}
+    spreads: dict[tuple[str, str, str, str], tuple[float, float]] = {}
 
     def rise(channel_id: str, sat_id: str, transponder_id: str) -> float:
         key = (channel_id, sat_id, transponder_id)
@@ -250,6 +401,7 @@ def build_window_specs(config: Any, t_s: float) -> dict[WindowKey, WindowSpec]:
                                 rise(channel.id, sat_id, transponder.id),
                             )
                         )
+                bin_hz = float(monitor.span_hz) / int(monitor.nfft)
                 for carrier in config.carriers:
                     for sat_id in watched:
                         satellite = config.satellite(sat_id)
@@ -258,8 +410,15 @@ def build_window_specs(config: Any, t_s: float) -> dict[WindowKey, WindowSpec]:
                                 continue
                             d_lo = carrier.uplink_lo_hz + transponder.translation_hz
                             d_hi = carrier.uplink_hi_hz + transponder.translation_hz
-                            entry = (carrier.id, float(d_lo), float(d_hi))
-                            if d_hi > lo and d_lo < hi and entry not in carriers:
+                            if not (d_hi > lo and d_lo < hi):
+                                continue
+                            s_lo, s_hi = _widened_carrier(config, carrier, sat_id, transponder, site.id, t_s, spreads)
+                            # Outward to whole bins of the window, so that the tracker's inputs
+                            # (and so the tracker) survive a rebuild at another time.
+                            w_lo = lo + math.floor((d_lo + s_lo - lo) / bin_hz) * bin_hz
+                            w_hi = lo + math.ceil((d_hi + s_hi - lo) / bin_hz) * bin_hz
+                            entry = (carrier.id, float(w_lo), float(w_hi))
+                            if entry not in carriers:
                                 carriers.append(entry)
                 spec = WindowSpec(
                     channel_id=channel.id,
@@ -330,6 +489,7 @@ class _Window:
     last_t_ns: int | None = None
     last_received_ns: int | None = None
     cost_s: float | None = None
+    recent_costs: deque[float] = field(default_factory=lambda: deque(maxlen=COST_WINDOW))
     offload: bool = False
     frames: int = 0
     carry: tuple[int, list[Detection], int] | None = None
@@ -534,12 +694,13 @@ class DetectionPipeline:
             return
         window.last_t_ns = t_ns
         tracker = window.tracker
-        started = time.perf_counter()
         try:
             if window.offload and self._pool is not None:
-                detections = await self._pool.run(tracker.update, psd, t_ns)
+                # Timed inside the thread: the wait for a free worker (CAF and solver jobs
+                # share the pool) is not the window's cost.
+                detections, cost = await self._pool.run(_timed_update, tracker, psd, t_ns)
             else:
-                detections = tracker.update(psd, t_ns)
+                detections, cost = _timed_update(tracker, psd, t_ns)
         except RuntimeError as exc:  # the worker pool closed: the server is stopping
             self._drop("pool_closed")
             logger.debug("window %s/%s: frame dropped (%s)", spec.channel_id, spec.monitor_id, exc)
@@ -554,7 +715,6 @@ class DetectionPipeline:
                 extra={"channel_id": spec.channel_id, "monitor_id": spec.monitor_id},
             )
             return
-        cost = time.perf_counter() - started
         if self._windows.get(key) is not window:
             self._drop("stale_tracker")  # reconfigured while the update ran in a thread
             return
@@ -591,17 +751,33 @@ class DetectionPipeline:
         self._costs.append(cost)
         if len(self._costs) > 512:
             del self._costs[:256]
-        window.cost_s = cost if window.cost_s is None else (1 - COST_EWMA_ALPHA) * window.cost_s + COST_EWMA_ALPHA * cost
-        if not window.offload and self._pool is not None:
-            if window.spec.nfft >= OFFLOAD_NFFT or window.cost_s > self._offload_cost_s:
+        window.recent_costs.append(cost)
+        window.cost_s = float(np.median(window.recent_costs))
+        if self._pool is None:
+            return
+        if not window.offload:
+            settled = len(window.recent_costs) >= _COST_MIN_SAMPLES
+            if window.spec.nfft >= OFFLOAD_NFFT or (settled and window.cost_s > self._offload_cost_s):
                 window.offload = True
                 logger.info(
-                    "window %s/%s: tracker updates take %.1f ms on average; moved to the worker pool",
+                    "window %s/%s: tracker updates take %.1f ms (median); moved to the worker pool",
                     window.spec.channel_id,
                     window.spec.monitor_id,
                     window.cost_s * 1e3,
                     extra={"channel_id": window.spec.channel_id, "monitor_id": window.spec.monitor_id},
                 )
+        elif window.spec.nfft < OFFLOAD_NFFT and window.cost_s < OFFLOAD_RETURN_FRACTION * self._offload_cost_s:
+            # A cost inflated by a busy moment (GIL contention) must not keep the window
+            # behind the CAF and solver jobs for good: a frame waiting there holds up
+            # every window's spectrum.
+            window.offload = False
+            logger.info(
+                "window %s/%s: tracker updates take %.1f ms (median); back on the event loop",
+                window.spec.channel_id,
+                window.spec.monitor_id,
+                window.cost_s * 1e3,
+                extra={"channel_id": window.spec.channel_id, "monitor_id": window.spec.monitor_id},
+            )
 
     def _console_frame(self, window: _Window, header: Any, psd: np.ndarray, detections: Sequence[Detection]) -> None:
         console = self._console

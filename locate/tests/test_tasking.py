@@ -43,6 +43,7 @@ from petal_locate.server.pipeline.tasking import (
     REASON_NARROWBAND_CAF,
     REASON_RATE_MISMATCH,
     REASON_UNCONFIRMED,
+    PairOutcome,
     RoundReport,
     Tasking,
     truth_emitters,
@@ -451,6 +452,44 @@ async def test_cw_emitter_gives_fdoa_rows_only_with_the_narrowband_reason() -> N
             bound = 3.0 * m.sigma if m.b.sat_id == "uhf-172e" else 0.1  # Hz for the two-copy pair
             assert abs(error) <= bound, (m.b, error / m.sigma)
         assert all(p.status == "measured" for p in reports[1].pairs)
+        # The operator is told why there is no TDOA, in words.
+        message = env.book.to_schema(record).tasking.message
+        assert message is not None and message.startswith(tasking_module.EXPLAIN_NARROWBAND)
+
+
+def test_round_explanation_names_a_cause_every_pair_shares() -> None:
+    from types import SimpleNamespace
+
+    def outcome(reason: str | None, detected: bool = True) -> PairOutcome:
+        p = PairOutcome("a", "b", "rejected")
+        p.result = SimpleNamespace(reason=reason, detected=detected)  # type: ignore[assignment]
+        return p
+
+    explain = tasking_module.round_explanation
+    assert explain([outcome("narrowband"), outcome("narrowband")]) == tasking_module.EXPLAIN_NARROWBAND
+    assert explain([outcome("ambiguous")]) == tasking_module.EXPLAIN_AMBIGUOUS
+    assert explain([outcome("delay-doppler coupled")]) == tasking_module.EXPLAIN_COUPLED
+    assert explain([outcome("below threshold", detected=False)]) == tasking_module.EXPLAIN_NOT_DETECTED
+    assert explain([outcome(None), outcome(None)]) is None  # complete results need no excuse
+    assert explain([outcome("narrowband"), outcome("ambiguous")]) is None  # no single cause
+    assert explain([PairOutcome("a", "b", "failed")]) is None  # nothing was correlated
+
+
+async def test_event_judged_local_gets_an_idle_status_and_no_further_round() -> None:
+    async with environment(NO_CAL, None, fail_all="offline") as env:
+        record = make_event(env, config=NO_CAL)
+        await env.tasking.run_round(record.id)
+        env.book.flush(force=True)
+        assert env.book.to_schema(record).tasking.state == "waiting"
+        record.verdict = "local"  # what the correlator decides
+        env.clock.advance(5.0)
+        calls = len(env.hub.calls)
+        env.tasking._schedule()
+        env.book.flush(force=True)
+        status = env.book.to_schema(record).tasking
+        assert status.state == "idle" and status.next_round_ns is None
+        assert "local" in status.message and "nothing to locate" in status.message
+        assert env.tasking.rounds_in_flight() == 0 and len(env.hub.calls) == calls
 
 
 async def test_unlocked_clock_drops_tdoa_between_sites_but_keeps_fdoa() -> None:
@@ -610,6 +649,41 @@ async def test_partner_choice_prefers_the_primary_site_within_3_db() -> None:
         env.hub.max_hz = 100e6
         primary, partners, notes = env.tasking._choose_channels(record, state, table(6.5), 301.005e6)
         assert primary is None and partners == [] and any("cannot tune" in n for n in notes)
+
+
+async def test_partners_within_1_db_take_turns_in_odd_rounds_from_the_third() -> None:
+    async with environment(NO_CAL, None) as env:
+        record = make_event(env, config=NO_CAL)
+        state = tasking_module._EventState(record.id)
+        values = {(ch, "muos-io", "shared-1"): 0.0 for ch in ("naha-io", "busan-io", "tokyo-io")}
+        values[("seoul-io", "muos-io", "shared-1")] = 10.0
+        values[("manila-io", "muos-io", "shared-1")] = 9.5  # within 1 dB of the best
+        values[("seoul-172e", "uhf-172e", "shared-1")] = 5.0
+        table = QualityTable(0.0, values)
+        chosen = []
+        for k in range(8):
+            state.rounds = k
+            _, partners, _ = env.tasking._choose_channels(record, state, table, 301.005e6)
+            chosen.append({p.sat_id: p.channel_id for p in partners}["muos-io"])
+        assert chosen == ["seoul-io"] * 3 + ["manila-io", "seoul-io", "manila-io", "seoul-io", "manila-io"]
+
+
+async def test_the_previous_primary_is_held_while_within_3_db_of_the_strongest() -> None:
+    async with environment(NO_CAL, None) as env:
+        record = make_event(env, config=NO_CAL)  # tokyo-pac is the strongest sighting
+        state = tasking_module._EventState(record.id)
+        table = QualityTable(0.0, {})
+        primary, _, _ = env.tasking._choose_channels(record, state, table, 301.005e6)
+        assert primary is not None and primary.channel_id == "tokyo-pac"
+        units = {u.channel_id: u for u in record.members.values()}
+        weaker = next(c for c in units if c != "tokyo-pac")
+        best = units["tokyo-pac"].snr_db
+        units[weaker].snr_db = best + 2.0  # another channel now reads 2 dB stronger
+        primary, _, _ = env.tasking._choose_channels(record, state, table, 301.005e6)
+        assert primary is not None and primary.channel_id == "tokyo-pac"
+        units[weaker].snr_db = best + 4.0  # beyond the hold
+        primary, _, _ = env.tasking._choose_channels(record, state, table, 301.005e6)
+        assert primary is not None and primary.channel_id == weaker
 
 
 async def test_event_relayed_by_one_satellite_is_classified_then_left_idle() -> None:

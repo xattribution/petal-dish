@@ -628,6 +628,53 @@ def test_tasking_mutations_drive_the_lifecycle_and_are_published() -> None:
     assert not h.book.set_caf(record.id, display)
 
 
+def test_event_document_lists_stay_bounded_on_a_long_event() -> None:
+    """A solve every 5 s for a day, and a flapping signal, must not grow the published
+    document without bound: the first and the newest rows are kept."""
+    from petal_locate.server.pipeline.events import MAX_HISTORY_ROWS, MAX_TRANSITION_ROWS
+
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    seqs = [h.book.add_measurement(record.id, _row("tdoa"), Measurement("tdoa", 1e-3, 1e-6, T0, path, other)),
+            h.book.add_measurement(record.id, _row("tdoa"), Measurement("tdoa", 1e-3, 1e-6, T0, path, other))]
+    first_t = T0 + 1
+    for k in range(MAX_HISTORY_ROWS + 50):
+        assert h.book.set_solution(record.id, FakeSolution([0.1, -0.1]), first_t + k, used=seqs)
+    assert len(record.solution_history) == MAX_HISTORY_ROWS
+    assert record.solution_history[0].t_ns == first_t
+    assert record.solution_history[-1].t_ns == first_t + MAX_HISTORY_ROWS + 49
+    for k in range(MAX_TRANSITION_ROWS + 30):
+        h.book.mark_lost(record)
+        h.book.reopen(record)
+    assert len(record.transitions) == MAX_TRANSITION_ROWS
+    assert record.transitions[0].state == "detected"
+    h.book.flush()
+    document = json.loads(h.published[-1].text)
+    assert len(document["solution_history"]) == MAX_HISTORY_ROWS
+
+
+def test_inactive_events_beyond_the_limit_are_dropped_from_memory_only() -> None:
+    h = Harness(make_config())
+    ids = []
+    for k in range(6):
+        record = h.book.create(space="up", lo_hz=UP + k * 1e5, hi_hz=UP + k * 1e5 + 1e3, first_seen_ns=T0, last_seen_ns=T0)
+        ids.append(record.id)
+    h.book.close(ids[0])
+    h.book.close(ids[1])
+    h.book.mark_lost(h.book.require(ids[2]))  # lost just now: may still re-open
+    h.book.mark_lost(h.book.require(ids[3]))
+    h.book.flush(force=True)
+    assert h.book.prune(900.0, limit=1) == [ids[0]]  # two closed are eligible, one is kept
+    assert h.book.get(ids[0]) is None and h.book.get(ids[1]) is not None
+    h.clock.advance(901.0)
+    assert h.book.prune(900.0, limit=1) == [ids[1], ids[2]]  # the lost ones aged out
+    assert h.book.get(ids[3]) is not None and h.book.get(ids[4]) is not None  # active stays
+    assert h.book.prune(900.0, limit=1) == []
+
+
 def test_cross_satellite_detection_makes_the_verdict_uplink() -> None:
     h = Harness(make_config(("alpha", "near")))
     sightings = {A1: [det(1, UP - 5e3, UP + 5e3)]}

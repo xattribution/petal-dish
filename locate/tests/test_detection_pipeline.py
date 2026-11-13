@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -157,11 +158,88 @@ def test_window_specs_are_built_as_the_detect_engineer_specified() -> None:
     assert (lo, hi) == (259.9875e6, 260.0125e6)  # the downlink passband
     expected = relay_rise_db(cfg, "alpha-a", "sat-a", "t1", t_s)
     assert expected is not None and rise == pytest.approx(expected) and rise > 0
-    assert spec.carriers == (("ref-1", 299.990e6 + SHIFT, 299.995e6 + SHIFT),)
+    # The carrier's downlink range, widened by where it can appear (Doppler plus three
+    # configured oscillator sigmas: 3 x 1e-6 x 40 MHz = 120 Hz) and rounded out to bins.
+    (cid, c_lo, c_hi), = spec.carriers
+    assert cid == "ref-1"
+    nominal_lo, nominal_hi = 299.990e6 + SHIFT, 299.995e6 + SHIFT
+    assert nominal_lo - 400.0 < c_lo <= nominal_lo - 120.0
+    assert nominal_hi + 120.0 <= c_hi < nominal_hi + 400.0
+    for edge in (c_lo, c_hi):
+        bins = (edge - spec.lo_hz) / spec.bin_hz
+        assert bins == pytest.approx(round(bins), abs=1e-6)
     # The satellite is below the antipode's horizon: no relayed noise reaches it.
     assert relay_rise_db(cfg, "anti-a", "sat-a", "t1", t_s) is None
     assert specs[("anti-a", "sat-a:t1")].passbands[0][2] == 0.0
     assert spec.frame_period_s == 0.5 and spec.contains(260.0e6) and not spec.contains(261e6)
+
+
+def test_downlink_spread_matches_range_rates_of_an_inclined_geostationary_satellite() -> None:
+    """Independent check of ``downlink_spread_hz``: the Doppler of both legs from range
+    rates differenced on the orbit positions (light time ignored, a few mHz here)."""
+    from petal_locate.core.geodesy import lla_to_ecef
+    from petal_locate.core.orbits import orbit_position
+    from petal_locate.server.pipeline.detection import downlink_spread_hz
+
+    cfg = SystemConfig.model_validate(
+        {
+            **make_config().model_dump(mode="json", exclude={"satellites"}),
+            "satellites": [{"id": "sat-a", "name": "Sat A",
+                            "orbit": {"type": "geo", "lon_deg": 140.0, "inclination_deg": 4.0},
+                            "transponders": [make_config().satellites[0].transponders[0].model_dump(mode="json")]}],
+        }
+    )
+    orbit = cfg.orbit("sat-a")
+    site = cfg.site_xyz("alpha")
+    emitter = lla_to_ecef(10.0, 150.0, 0.0)
+    f_e, shift = 300.0e6, SHIFT
+    t_s = T0 / 1e9
+    lo, hi = downlink_spread_hz(orbit, site, emitter, f_e, shift, t_s)
+    times = t_s + np.arange(0.0, 86_400.0, 60.0)
+    h = 1.0
+
+    def rate(point: np.ndarray) -> np.ndarray:
+        ahead = np.linalg.norm(orbit_position(orbit, times + h) - point, axis=-1)
+        behind = np.linalg.norm(orbit_position(orbit, times - h) - point, axis=-1)
+        return (ahead - behind) / (2 * h)
+
+    c = 299_792_458.0
+    doppler = -(f_e * rate(emitter) + (f_e + shift) * rate(site)) / c
+    assert doppler.min() < -15.0 and doppler.max() > 15.0  # a 4 degree inclination moves it
+    assert lo == pytest.approx(doppler.min(), abs=0.5)
+    assert hi == pytest.approx(doppler.max(), abs=0.5)
+    # Oscillator allowance: three sigmas of each oscillator, on both sides.
+    lo2, hi2 = downlink_spread_hz(orbit, site, emitter, f_e, shift, t_s, sat_osc_frac=1e-6, site_osc_frac=1e-9)
+    allowance = 3.0 * (1e-6 * abs(shift) + 1e-9 * (f_e + shift))
+    assert lo2 == pytest.approx(lo - allowance) and hi2 == pytest.approx(hi + allowance)
+    # Without an emitter position the uplink leg is bounded by the satellite's speed.
+    lo3, hi3 = downlink_spread_hz(orbit, site, None, f_e, shift, t_s)
+    assert lo3 <= lo and hi3 >= hi
+    # A satellite never above the site's horizon: oscillators only.
+    antipode = cfg.site_xyz("antipode")
+    assert downlink_spread_hz(orbit, antipode, None, f_e, shift, t_s, sat_osc_frac=1e-6) == pytest.approx(
+        (-3.0 * 1e-6 * abs(shift), 3.0 * 1e-6 * abs(shift)))
+
+
+def test_a_carrier_moved_by_doppler_raises_no_unauthorised_detection() -> None:
+    """The quiet-scenario false alarm: an authorised 5 kHz carrier 13 dB above the floor,
+    moved 3 bins below its nominal range (Doppler of an inclined satellite plus the
+    translation oscillator), must not leave an unauthorised detection at its edge."""
+    cfg = make_config()
+    sink = Sink()
+    pipeline, specs = _pipeline(cfg, sink)
+    spec = specs[KEY]
+    maker = FrameMaker(spec, seed=3)
+    moved = 3 * spec.bin_hz
+    carrier = (299.990e6 + SHIFT - moved, 299.995e6 + SHIFT - moved, 13.0)
+
+    async def run() -> None:
+        for k in range(40):
+            await pipeline.on_psd(maker.frame(k, [carrier]))
+
+    asyncio.run(run())
+    unauthorised = [d for r in sink.reports for _, d in r.detections if d.authorized_carrier_id is None]
+    assert unauthorised == []
 
 
 def test_detections_are_raised_after_confirmation_and_released_after_the_misses() -> None:
@@ -378,6 +456,36 @@ def test_update_cost_is_measured_and_costly_windows_move_to_the_worker_pool() ->
     stats = p1.cost_stats()
     assert stats["count"] == 20.0
     assert stats["median_s"] < 0.02  # about 1 ms for 1024 bins; loose for a shared machine
+
+
+def test_an_offloaded_window_returns_to_the_loop_when_cheap_again_and_queue_time_is_not_cost() -> None:
+    """The cost of an offloaded update is timed inside the worker, so a pool busy with
+    long jobs does not make the window look costly, and a window whose cost was
+    inflated for a moment comes back to the event loop."""
+    cfg = make_config()
+
+    async def run() -> tuple[bool, bool, float]:
+        pool = WorkPool(1)
+        try:
+            sink = Sink()
+            pipeline, specs = _pipeline(cfg, sink, pool=pool, offload_cost_s=1e-9)
+            maker = FrameMaker(specs[KEY], seed=7)
+            for k in range(4):  # a window is judged on a few updates, not one
+                await pipeline.on_psd(maker.frame(k))
+            first = pipeline.offloaded(KEY)
+            pipeline._offload_cost_s = 1.0  # what a cheap window measures against
+            blocker = asyncio.create_task(pool.run(time.sleep, 0.3))  # a long job holds the only worker
+            await asyncio.sleep(0.01)
+            for k in range(4, 40):
+                await pipeline.on_psd(maker.frame(k))
+            await blocker
+            return first, pipeline.offloaded(KEY), pipeline.cost_stats()["max_s"]
+        finally:
+            await pool.close()
+
+    first, after, worst = asyncio.run(run())
+    assert first and not after
+    assert worst < 0.2  # the 0.3 s wait for the worker is not counted as update cost
 
 
 def test_demo_scenario_frames_from_the_simulator_give_an_uplink_event() -> None:

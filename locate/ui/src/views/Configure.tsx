@@ -502,7 +502,7 @@ function SiteEditor({ cfg, i }: { cfg: SystemConfig; i: number }) {
           <NumF path={[...base, 'antenna_height_m']} label="Antenna height" unit="m above ground" optional />
           <NumF path={[...base, 'clock', 'sigma_ns']} label="Clock 1-sigma" unit="ns" optional />
         </div>
-        {Number.isFinite(lat) && Number.isFinite(lon) ? (
+        {Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? (
           <p className="mono ink2">
             {formatLatLon(lat, lon, 4)} WGS 84, MGRS {formatMgrs(lat, lon) ?? 'not defined (UPS zone)'}
           </p>

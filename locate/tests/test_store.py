@@ -163,6 +163,22 @@ async def test_a_failing_fire_and_forget_write_is_logged_and_counted(store: Stor
     assert await store.count_rows("events") == 1
 
 
+async def test_a_stalled_disk_cannot_queue_writes_without_bound(store: Store, monkeypatch: pytest.MonkeyPatch) -> None:
+    import petal_locate.server.store as store_module
+
+    monkeypatch.setattr(store_module, "MAX_PENDING_WRITES", 3)
+    gate = threading.Event()
+    blocker = asyncio.get_running_loop().run_in_executor(store._executor, gate.wait)  # the worker is stuck
+    accepted = [store.put_event(**_event(event_id=f"EV-00000{k}", seq=k)) for k in range(1, 4)]  # type: ignore[arg-type]
+    with pytest.raises(StoreError, match="already waiting"):
+        store.put_event(**_event(event_id="EV-000009", seq=9))  # type: ignore[arg-type]
+    assert store.counters()["put_event_refused_backlog"] == 1
+    gate.set()
+    await blocker
+    await asyncio.gather(*accepted)
+    assert await store.count_rows("events") == 3 and store.pending_writes == 0
+
+
 async def test_node_sessions_open_close_and_replace(store: Store) -> None:
     store.node_session_opened("alpha", "node-1", T0, "sim", "1.0")
     store.node_session_opened("alpha", "node-1", T0 + 10, "sim", "1.0")  # replaced without a close

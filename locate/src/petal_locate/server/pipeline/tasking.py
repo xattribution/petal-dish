@@ -5,7 +5,8 @@ lies in a transponder passband (``EventBook.taskable``), ``Tasking`` runs one *r
 every ``capture.interval_s``:
 
 1. **Plan.** The primary channel is the event's detection with the highest SNR
-   (``Correlator.sightings``); for every other satellite whose transponder overlaps
+   (``Correlator.sightings``; the previous primary stays while within
+   ``PRIMARY_HOLD_DB`` of it); for every other satellite whose transponder overlaps
    the uplink range, the channel watching it with the highest ``downlink_quality_db``
    is chosen, preferring a channel at the primary's site within 3 dB (common clock).
    A channel must be online, acknowledged (``hub.channel_capabilities``), able to
@@ -79,6 +80,15 @@ Deviations from the documents:
   pair's TDOA moves by microseconds in 5 s, against sigmas of a fraction of one).
 - A reference carrier whose band overlaps the event's uplink range is not used.
 - A partner channel with no admissible emitter position for the pair is not captured.
+- Partner diversity: from the third round on, every other round replaces a partner by
+  another candidate within ``ROTATE_WITHIN_DB`` of the best quality, in turn
+  (``Tasking._rotate``). Downlink qualities of a network's channels typically differ by
+  fractions of a dB, so the documented choice alone always used the same sites; a
+  fault at an unused site (a late clock) was invisible and nothing averaged over sites.
+- The status message explains a round whose pairs all failed for one reason of the
+  signal itself (``round_explanation``: no TDOA on a narrowband signal, ambiguous
+  correlations of a periodic waveform, coupling, no copy found); an event judged
+  ``local`` gets an ``idle`` status saying there is nothing to locate by satellite.
 
 Known limits (measured against ``SimWorld``): a CW has no delay to separate copies by,
 so when a channel hears a second copy of the tone (a co-channel satellite, or a
@@ -191,6 +201,14 @@ SWEEP_PERIODS: Final[int] = 5
 """A swept waveform is captured again over at least this many sweep periods."""
 
 PREFER_SAME_SITE_DB: Final[float] = 3.0
+
+PRIMARY_HOLD_DB: Final[float] = 3.0
+"""The previous round's primary channel stays primary while its sighting is within this
+of the strongest, dB (``Tasking._choose_channels``)."""
+
+ROTATE_WITHIN_DB: Final[float] = 1.0
+"""Partners whose downlink quality is within this of the best take turns in the odd
+rounds from the third on (``Tasking._rotate``), dB."""
 """A channel at the primary's site is preferred when within this of the best quality, dB."""
 
 RECLASSIFY_S: Final[float] = 60.0
@@ -440,6 +458,7 @@ class _EventState:
     last_round_ns: int | None = None
     channels: tuple[str, ...] = ()
     solve_reason: str | None = None
+    primary_channel_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -857,6 +876,47 @@ def _consistent(prev: _Detection, new: _Detection, rates: tuple[float, float]) -
     return common > 0
 
 
+EXPLAIN_NARROWBAND: Final[str] = (
+    "No TDOA: the signal is too narrow for a time difference of arrival to be measured "
+    "(an unmodulated carrier has no bandwidth to time), so each satellite pair gives a "
+    "frequency difference (FDOA) only and the position rests on FDOA alone."
+)
+EXPLAIN_AMBIGUOUS: Final[str] = (
+    "The correlations are ambiguous: several peaks of almost equal height (a periodic "
+    "waveform such as a repeating sweep matches itself one period later), so no time or "
+    "frequency difference is used and no position is computed from them."
+)
+EXPLAIN_COUPLED: Final[str] = (
+    "Delay and Doppler cannot be told apart in the correlation (a single sweep across the "
+    "capture), so no time or frequency difference is used."
+)
+EXPLAIN_NOT_DETECTED: Final[str] = (
+    "The copy relayed by the other satellite was not found in the correlation (below the "
+    "detection threshold), so the pair gives no measurement."
+)
+
+
+def round_explanation(pairs: Sequence[PairOutcome]) -> str | None:
+    """One plain sentence for the operator when every correlated pair of a round failed
+    to give a usable time difference for the same reason (``EXPLAIN_*``), else None.
+
+    pairs: the round's outcomes; only those with a ``CafResult`` count.
+    """
+    results = [p.result for p in pairs if p.result is not None]
+    if not results:
+        return None
+    reasons = {r.reason if r.detected else REASON_BELOW_THRESHOLD for r in results}
+    if len(reasons) != 1:
+        return None
+    reason = reasons.pop()
+    return {
+        REASON_NARROWBAND: EXPLAIN_NARROWBAND,
+        REASON_AMBIGUOUS: EXPLAIN_AMBIGUOUS,
+        REASON_COUPLED: EXPLAIN_COUPLED,
+        REASON_BELOW_THRESHOLD: EXPLAIN_NOT_DETECTED,
+    }.get(reason)  # type: ignore[arg-type]
+
+
 def truth_emitters(world: Any) -> list[TruthEmitter]:
     """``TruthEmitter`` records of a ``sim.world.SimWorld``'s resolved emitters, for
     ``events.event_truth`` (simulation only)."""
@@ -1061,7 +1121,8 @@ class Tasking:
             if record is None or record.closed or record.historic:
                 del self._states[event_id]
         running = self.rounds_in_flight()
-        for record in self._book.taskable():
+        taskable = self._book.taskable()
+        for record in taskable:
             state = self._states.setdefault(record.id, _EventState(record.id))
             if state.task is not None and not state.task.done():
                 continue
@@ -1072,6 +1133,26 @@ class Tasking:
                 break
             self._start_round(state)
             running += 1
+        self._idle_untaskable({r.id for r in taskable})
+
+    def _idle_untaskable(self, taskable_ids: set[str]) -> None:
+        """Give an active event tasking no longer works on (judged ``local``) an
+        ``idle`` status saying why, once, instead of a stale ``waiting`` with a next
+        round that will not come."""
+        for event_id, state in self._states.items():
+            if event_id in taskable_ids or (state.task is not None and not state.task.done()):
+                continue
+            record = self._book.get(event_id)
+            if record is None or not record.active or record.verdict != "local":
+                continue
+            message = (
+                "Judged local to one site: nothing reaches a satellite, so there is nothing to "
+                "locate by satellite and no further captures are made."
+            )
+            if state.state == "idle" and state.message == message:
+                continue
+            state.state, state.message, state.next_due_ns = "idle", message, 0
+            self._publish_status(state)
 
     def _start_round(self, state: _EventState) -> asyncio.Task[RoundReport]:
         interval_ns = int(float(self._config.processing.capture.interval_s) * _NS)
@@ -1245,9 +1326,18 @@ class Tasking:
         is passed over for the next candidate."""
         notes: list[str] = []
         primary: _Pick | None = None
-        for unit in self._sightings(record.id):
-            if unit.sat_id is None or unit.transponder_id is None:
-                continue
+        sightings = [u for u in self._sightings(record.id) if u.sat_id is not None and u.transponder_id is not None]
+        # The previous primary stays while it is within PRIMARY_HOLD_DB of the strongest
+        # sighting: SNRs of near-equal channels swap from frame to frame, and a new
+        # primary makes every pair new (unconfirmed until it repeats).
+        if sightings and state.primary_channel_id is not None:
+            strongest = sightings[0].snr_db
+            held = [u for u in sightings if u.channel_id == state.primary_channel_id]
+            if held and held[0].snr_db >= strongest - PRIMARY_HOLD_DB:
+                sightings.remove(held[0])
+                sightings.insert(0, held[0])
+        for unit in sightings:
+            assert unit.sat_id is not None and unit.transponder_id is not None
             pick, why = self._pick(
                 unit.channel_id, unit.sat_id, unit.transponder_id, f_e_hz, state, quality, require_quality=False
             )
@@ -1258,6 +1348,7 @@ class Tasking:
                 notes.append(why)
         if primary is None:
             return None, [], notes
+        state.primary_channel_id = primary.channel_id
         tunings: dict[str, float] = {primary.channel_id: primary.translation_hz}
         lo, hi = float(record.lo_hz), float(record.hi_hz)
         best_tp: dict[str, tuple[float, Any]] = {}
@@ -1296,9 +1387,37 @@ class Tasking:
                 and p.quality_db >= best_q - PREFER_SAME_SITE_DB
             ]
             choice = max(local, key=lambda p: p.quality_db or -math.inf) if local else best
+            choice = self._rotate(choice, candidates, best_q, state.rounds)
             tunings[choice.channel_id] = choice.translation_hz
             partners.append(choice)
         return primary, partners, notes
+
+    @staticmethod
+    def _rotate(choice: _Pick, candidates: Sequence[_Pick], best_q: float, round_index: int) -> _Pick:
+        """Partner diversity: from the third round on, every other round takes, in turn,
+        one of the other candidates within ``ROTATE_WITHIN_DB`` of the best quality.
+
+        The documented choice keeps the even rounds, so its pair is confirmed (a repeat
+        detection) and measured as before; the alternates add other sites (independent
+        clocks and geometry, calibrated through their own reference measurements), so
+        one channel's error cannot dominate and a fault at one site shows in its pairs'
+        calibration corrections. Candidates are ordered by channel id (deterministic).
+        """
+        if round_index < 2 or round_index % 2 == 0:
+            return choice
+        others = sorted(
+            (
+                p
+                for p in candidates
+                if p.channel_id != choice.channel_id
+                and p.quality_db is not None
+                and p.quality_db >= best_q - ROTATE_WITHIN_DB
+            ),
+            key=lambda p: p.channel_id,
+        )
+        if not others:
+            return choice
+        return others[(round_index // 2 - 1) % len(others)]
 
     def _needs_classification(self, record: EventRecord, state: _EventState) -> bool:
         """Whether this round should classify the primary capture: when the event has
@@ -1776,7 +1895,7 @@ class Tasking:
         state.rounds += 1
         state.last_round_ns = started
         state.channels = tuple([primary.channel_id] + [p.channel_id for p in partners])
-        state.state, state.message = "capturing", None
+        state.state = "capturing"  # the last round's message stays until this round has its own
         self._publish_status(state)
 
         requests: dict[str, Any] = {}
@@ -1897,25 +2016,25 @@ class Tasking:
         failed_keys = [k for k in report.failures if not k.startswith("ref:")]
         retried = [k for k in failed_keys if k not in state.excluded]
         dropped = [k for k in failed_keys if k in state.excluded]
-        if failed_keys:
-            parts = []
-            if retried:
-                parts.append(
-                    "Capture failed on "
-                    + ", ".join(f"{k} ({report.failures[k][0]})" for k in retried)
-                    + "; retrying at the next round."
-                )
-            if dropped:
-                parts.append(
-                    "Capture refused on "
-                    + ", ".join(f"{k} ({report.failures[k][0]})" for k in dropped)
-                    + "; that channel is no longer used for this event."
-                )
-            state.message = " ".join(parts)
-        elif any(p.reason in (REASON_UNCONFIRMED, REASON_INCONSISTENT) for p in report.pairs):
-            state.message = "Waiting for a repeat detection before the new measurements are used."
-        else:
-            state.message = None
+        parts = []
+        if retried:
+            parts.append(
+                "Capture failed on "
+                + ", ".join(f"{k} ({report.failures[k][0]})" for k in retried)
+                + "; retrying at the next round."
+            )
+        if dropped:
+            parts.append(
+                "Capture refused on "
+                + ", ".join(f"{k} ({report.failures[k][0]})" for k in dropped)
+                + "; that channel is no longer used for this event."
+            )
+        explanation = round_explanation(report.pairs)
+        if explanation:
+            parts.append(explanation)
+        if not failed_keys and any(p.reason in (REASON_UNCONFIRMED, REASON_INCONSISTENT) for p in report.pairs):
+            parts.append("Waiting for a repeat detection before the new measurements are used.")
+        state.message = " ".join(parts) or None
         state.state = "waiting"
         self._publish_status(state)
         return report
@@ -2086,6 +2205,8 @@ class Tasking:
         calibrated: bool,
         used: bool,
         reason: str | None,
+        correction: float | None = None,
+        reference_carrier_id: str | None = None,
     ) -> schemas.MeasurementRow:
         return schemas.MeasurementRow(
             t_ns=int(t_ns),
@@ -2098,7 +2219,16 @@ class Tasking:
             calibrated=calibrated,
             used=used,
             reason=reason,
+            correction=_finite(correction) if calibrated else None,
+            reference_carrier_id=reference_carrier_id if calibrated else None,
         )
+
+    def _carrier_of(self, cal: CalRef) -> str | None:
+        """The reference carrier of a calibration in force (by its ``cal_id``)."""
+        for entry in self._calibrations.values():
+            if entry.cal.cal_id == cal.cal_id:
+                return entry.carrier_id
+        return None
 
     def _record_rejection(self, event_id: str, pair: schemas.PairRef, t_ns: int, outcome: PairOutcome) -> None:
         """Rows of a pair that produced no measurement (both kinds, with the reason)."""
@@ -2202,6 +2332,8 @@ class Tasking:
                 cal is not None and value is not None,
                 measurement is not None,
                 None if measurement is not None else reason,
+                correction=cal[0] if cal is not None else None,
+                reference_carrier_id=self._carrier_of(cal[1]) if cal is not None else None,
             )
             seq = self._book.add_measurement(event_id, row, measurement)
             if kind == "tdoa":

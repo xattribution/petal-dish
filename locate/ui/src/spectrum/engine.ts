@@ -133,6 +133,22 @@ export class SpectrumEngine {
     };
     panel.trace.onpointermove = move;
     panel.trace.onpointerleave = leave;
+    // keyboard marker: focus the trace, Left/Right move it (Shift for larger steps)
+    panel.trace.tabIndex = 0;
+    panel.trace.onfocus = () => {
+      if (s.hoverX === null) s.hoverX = panel.trace.clientWidth / 2;
+      s.dirty = true;
+    };
+    panel.trace.onblur = leave;
+    panel.trace.onkeydown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+      e.preventDefault();
+      const w = panel.trace.clientWidth;
+      const x = s.hoverX ?? w / 2;
+      const step = e.shiftKey ? 20 : 2;
+      s.hoverX = e.key === 'Home' ? 34 : e.key === 'End' ? w - 6 : Math.max(34, Math.min(w - 6, x + (e.key === 'ArrowLeft' ? -step : step)));
+      s.dirty = true;
+    };
     panel.wf.onpointermove = move;
     panel.wf.onpointerleave = leave;
   }
@@ -142,6 +158,9 @@ export class SpectrumEngine {
     if (s?.panel) {
       s.panel.trace.onpointermove = null;
       s.panel.wf.onpointermove = null;
+      s.panel.trace.onkeydown = null;
+      s.panel.trace.onfocus = null;
+      s.panel.trace.onblur = null;
     }
     if (s) s.panel = null;
   }

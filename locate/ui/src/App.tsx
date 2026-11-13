@@ -55,10 +55,10 @@ function LinkState() {
   if (link.kind === 'reconnecting') {
     const secs = Math.max(0, Math.ceil((link.retryAt - now) / 1000));
     return (
-      <span className="linkstate" title={link.reason}>
+      <span className="linkstate" title={`Disconnected: ${link.reason}`}>
         <StatusSymbol level="serious" />
         <span>
-          Disconnected: {link.reason}. Retry in {secs} s
+          Disconnected: {link.reason}, retry {secs} s
         </span>
       </span>
     );
@@ -116,19 +116,15 @@ function RollupBadge() {
 
 function ThemeSwitch() {
   const { setting } = useTheme();
-  const opts: Array<[ThemeSetting, string]> = [
-    ['auto', 'Auto'],
-    ['dark', 'Dark'],
-    ['light', 'Light'],
-  ];
   return (
-    <span className="seg" role="group" aria-label="Theme">
-      {opts.map(([v, l]) => (
-        <button key={v} type="button" aria-pressed={setting === v} onClick={() => setTheme(v)}>
-          {l}
-        </button>
-      ))}
-    </span>
+    <label className="themesel">
+      Theme{' '}
+      <select value={setting} onChange={(e) => setTheme(e.target.value as ThemeSetting)}>
+        <option value="auto">Auto</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </label>
   );
 }
 
@@ -271,7 +267,7 @@ export function App() {
         ) : null}
         <nav className="tabs" aria-label="Views">
           {TABS.filter((t) => t.view !== 'simulation' || simulation).map((t) => (
-            <a key={t.view} className="tab" href={href(t.view)} aria-current={current === t.view ? 'page' : undefined}>
+            <a key={t.view} className="tab" href={href(t.view)} aria-current={current === t.view ? 'page' : undefined} title={`${t.label} (key ${t.key})`}>
               {t.label}
               <kbd>{t.key}</kbd>
             </a>

@@ -72,7 +72,7 @@ const Panel = memo(function Panel(props: { w: WindowInfo; engine: SpectrumEngine
           {props.offline ? 'node offline' : 'no frames yet'}
         </span>
       </header>
-      <canvas className="trace" ref={trace} aria-label="Trace: level in dB over frequency, thermal noise = 0 dB" />
+      <canvas className="trace" ref={trace} aria-label={`Trace of ${w.channel.id} ${w.monitor.id}: level in dB over frequency, thermal noise = 0 dB. Left and right arrows move the marker; the readout below follows it.`} />
       <canvas className="wf" ref={wf} aria-label="Waterfall: newest row at the top" />
       <div className="readout mono" ref={readout} aria-live="off">
         {' '}

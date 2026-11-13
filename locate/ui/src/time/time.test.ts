@@ -102,6 +102,8 @@ describe('DTG and the clock strip', () => {
     expect(formatAge(42)).toBe('42 s');
     expect(formatAge(245)).toBe('4 min 05 s');
     expect(formatAge(3 * 3600 + 720)).toBe('3 h 12 min');
+    expect(formatAge(119.6)).toBe('2 min 00 s'); // never "1 min 60 s"
+    expect(formatAge(3599.7)).toBe('1 h 00 min');
     expect(formatAge(Infinity)).toBe('—');
     expect(isoFileStamp(d)).toBe('2026-11-13T1805Z');
   });

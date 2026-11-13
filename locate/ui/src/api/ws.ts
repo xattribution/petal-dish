@@ -10,7 +10,7 @@ export type WsMessage = WsStatusMessage | WsEventMessage | WsConfigMessage | WsS
 export type LinkState =
   | { kind: 'connecting'; attempt: number }
   | { kind: 'live'; since: number }
-  | { kind: 'reconnecting'; attempt: number; retryAt: number; reason: string }
+  | { kind: 'reconnecting'; attempt: number; retryAt: number; reason: string; authRefused?: boolean }
   | { kind: 'stopped' };
 
 export interface SocketHandlers {
@@ -58,6 +58,14 @@ export function socketUrl(location: { protocol: string; host: string }, token: s
 }
 
 const KNOWN = new Set(['status', 'event', 'config', 'sim']);
+
+/** Close codes in the words an operator needs (PROTOCOL.md section A close codes). */
+const CLOSE_WORD: Record<number, string> = {
+  1001: 'server shutting down',
+  1006: 'server not reachable',
+  1011: 'server error',
+  1013: 'server busy',
+};
 
 export class UiSocket {
   private ws: WsLike | null = null;
@@ -181,16 +189,16 @@ export class UiSocket {
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
       this.ws = null;
-      const why = ev.code === 1008 ? 'the server refused the token' : ev.reason || `connection closed (code ${ev.code})`;
-      this.scheduleReconnect(why);
+      const why = ev.code === 1008 ? 'the server refused the token' : (CLOSE_WORD[ev.code] ?? (ev.reason || `connection closed (code ${ev.code})`));
+      this.scheduleReconnect(why, ev.code === 1008);
     };
   }
 
-  private scheduleReconnect(reason: string): void {
+  private scheduleReconnect(reason: string, authRefused = false): void {
     if (this.stopped) return;
     this.clearTimers();
     const delay = backoffDelay(this.attempt, this.o.minDelayMs, this.o.maxDelayMs, this.o.jitter, this.o.random);
-    this.setState({ kind: 'reconnecting', attempt: this.attempt, retryAt: this.o.now() + delay, reason });
+    this.setState({ kind: 'reconnecting', attempt: this.attempt, retryAt: this.o.now() + delay, reason, ...(authRefused ? { authRefused } : {}) });
     this.timer = setTimeout(() => this.connect(), delay);
   }
 

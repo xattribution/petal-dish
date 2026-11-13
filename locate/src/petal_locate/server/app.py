@@ -34,6 +34,7 @@ import gc
 import logging
 import re
 import socket
+import sys
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -70,6 +71,10 @@ logger = logging.getLogger(__name__)
 
 GRACEFUL_SHUTDOWN_S: int = 10
 """Longest uvicorn waits for open connections at shutdown before cancelling them, s."""
+
+SERVER_SWITCH_INTERVAL_S: Final[float] = 0.001
+"""Python's thread switch interval while the full server runs (default 5 ms), s: how
+long the event loop's thread may wait for the GIL behind a busy worker thread."""
 
 DEFAULT_STATIC_DIR: Final[Path] = Path(__file__).resolve().parent / "static"
 """Where the console build lives (``ui/`` builds into it)."""
@@ -267,8 +272,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     hub.start()
     owned = None
     frozen = False
+    switch_interval = sys.getswitchinterval()
     try:
         if app.state.manage_runtime:
+            # The worker threads run pure-Python stretches of the CAF and the solver while
+            # holding the GIL; each time the event loop's thread gives the GIL up (inside
+            # numpy, a socket call) it waits up to a whole switch interval to get it back.
+            # At the default 5 ms a 1 ms spectrum update on the loop measured 120 ms
+            # during a solve; 1 ms cuts such convoys fivefold.
+            sys.setswitchinterval(SERVER_SWITCH_INTERVAL_S)
             from petal_locate.server.runtime import ServerRuntime
 
             owned = await ServerRuntime.from_settings(app.state.settings, presets_dir=app.state.presets_dir)
@@ -296,6 +308,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             await owned.stop()
             if frozen:
                 gc.unfreeze()
+        sys.setswitchinterval(switch_interval)
         await hub.close()
         logger.info("server stopped")
 
