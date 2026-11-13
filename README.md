@@ -69,16 +69,18 @@ python3 -m http.server 56317 -d dist  # then open http://localhost:56317
 
 The editor has four tabs.
 
-1. **Shape:** dish diameter, focal ratio (f/D), shell thickness, an optional frequency, and the hub front.
-2. **Connections:** pick the seam method from the four cards, the seam bolt size and the hub joints. **Edit individual joints** changes one seam family or one joint; **Show in model** highlights it.
-3. **Accessories:** a feed support (prime focus, Cassegrain or Gregorian collector) and the aiming mount. Each has a checkbox to leave its parts off the print plates when you already have them.
-4. **Print:** your printer and plate packing. PETAL chooses how many petals and rings are needed, aiming for either the largest petals or the fewest print plates.
+1. **Dish & printer:** your printer first (it decides how the dish is split), then dish diameter, focal ratio (f/D), shell thickness, an optional frequency, and the hub front. PETAL chooses how many petals and rings are needed, aiming for either the largest petals or the fewest print plates.
+2. **Joints:** pick the seam method from the five cards, the seam bolt size and the hub joints. **Edit individual joints** changes one seam family or one joint; **Show in model** highlights it. Seams set individually are listed under the cards.
+3. **Add-ons:** a feed support (prime focus, Cassegrain or Gregorian collector) and the aiming mount. Each has a checkbox to leave its parts off the print plates when you already have them.
+4. **Plates:** plate packing, the breakaway rim support, hand arrangement and the largest dish for a number of plates.
+
+The model view shows the plate count for your printer next to the dish's depth and focus. On a tablet the design panel sits beside the model; on a phone it opens as a sheet below it.
 
 Then **Export kit (ZIP)**: every STL in its print orientation, packed plates, `ASSEMBLY.pdf`, `HARDWARE.csv` and the fit-test parts. **Print the two seam test strips first**, then one full petal, before printing the whole dish.
 
-The default 400 mm dish is six petals plus one hub: two unique parts, each with a flat flange down on the bed. Packed, they fit on two 220 × 220 mm beds: the petals lean the same way and nest. Drag a part to the empty slot to give it a bed of its own.
+The default 400 mm dish is six petals plus one hub: two unique parts, each with a flat flange down on the bed. Packed with the default breakaway rim support they need four 220 × 220 mm plates (three with the lighter lip-rib support, two with none): the petals lean the same way and nest. Drag a part to the empty slot to give it a plate of its own.
 
-![Print parts view: five petals nested on the first 220 mm bed, the sixth petal and the hub on the second, and an empty slot for a new bed](docs/snapshots/plates.png)
+![Plates view: five petals nested on the first 220 mm bed, the sixth petal and the hub on the second, and an empty slot for a new bed](docs/snapshots/plates.png)
 
 ### Sharing a design
 
@@ -96,7 +98,7 @@ Every assembly PDF shows the ID on each page and the full code on the build reco
 
 | Choice | Options |
 |---|---|
-| **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) |
+| **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) · **wedge keys**, tool-less: a printed key through both flanges drawn tight by a printed 1:12 wedge, with a V-register on the mating faces ([details](docs/WEDGE-KEY.md)) |
 | **Petal roots to hub** | Blind heat-set inserts, keeping the reflecting face closed (default) · through bolts, in recessed seats (default) or plain holes. M3, M4 (default) or M5 |
 | **Hub to mount** | Through bolts, in recessed seats (default) or plain holes · blind inserts. Four M3, M4 (default) or M5 on a 60 mm bolt circle around a clear Ø30 mm center |
 | **Hub clearance** | 0 mm (default) to 0.6 mm of extra gap at the hub's edges and root holes, so the petals line up on their seams before the root bolts clamp them to the hub. The mount holes stay put |
@@ -107,7 +109,7 @@ Every assembly PDF shows the ID on each page and the full code on the build reco
 | **Automatic sizing** | Largest petals: the fewest pieces and seams (default) · fewest print plates: may use more, smaller petals when they pack onto fewer beds |
 | **Large dishes** | Staggered rings (default) · aligned rings |
 | **Printer** | Presets for the Prusa CORE One L (with or without the INDX tool changer), Bambu Lab H2D and H2C, common volumes, or any custom volume. The last valid volume is remembered in the browser |
-| **Print plates** | Copies share beds and keep 6 mm apart at every height (adjustable, for wider brims), so side-printed petals that lean the same way nest like spoons. In **Print parts**, drag a part onto another bed (or the empty slot after the last one): it lands in the nearest spot that fits, turning if it has to. Exact positions can also be typed in. **Largest dish** finds the biggest dish whose kit fits a number of plates on your printer, with any petal and ring count |
+| **Print plates** | Copies share beds and keep 6 mm apart at every height (adjustable, for wider brims), so side-printed petals that lean the same way nest like spoons. In the **Plates** view, drag a part onto another plate (or the empty slot after the last one): it lands in the nearest spot that fits, turning if it has to. Exact positions can also be typed in. **Largest dish** finds the biggest dish whose kit fits a number of plates on your printer, with any petal and ring count |
 | **Feed support** | None · prime focus · Cassegrain secondary (experimental) · Gregorian collector: a bowl over the focus that folds the signal down to your insert, re-solved for every dish shape ([details](docs/FEED-OPTICS.md#gregorian-collector)). All on aluminum rods with generated cut lengths: four with 8, 12 or 16 petals, three with 6, or a fixed count |
 | **Aiming mount** | None · printed manual alt-az mount, split into parts joined with heat-set inserts. Optional elevation arc lock. The elevation clamp goes on the right, the left (a slip then tightens it) or both sides, a U with two clamps. Base: printed with an azimuth scale, tripod leg sockets for your own legs, or none (bolt the turntable to a stand). Bolt sizes: clamps M6, M8 (default) or M10; joint screws M3–M5; stand screws M4–M6; leg cross bolts by leg size or M3–M6. Joint and stand screws are socket heads in counterbores. The clamp bolt heads, the azimuth nut and the no-base stand screws sit in pockets or counterbores (default) or on plain holes ([details](docs/SIMPLE-MOUNT.md)) |
 
@@ -123,11 +125,11 @@ All seam hardware stays behind the reflecting face.
 
 Seams take M3 or M4. Petal roots and hub mounts take M3, M4 or M5; M4 is the default interface. Kits with joint overrides include `CONNECTIONS.csv` and individually named petal variants. Help for each setting is in its **ⓘ** tooltip, and the full print and assembly instructions are in the generated PDF.
 
-Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera. In **Print parts**, press a part to select it and drag it to move it to another bed.
+Viewport: drag to orbit, **middle drag / Shift drag** to pan, wheel to zoom toward the cursor, or use **Pan** mode. On touchscreens, use two fingers to pan and pinch. Shift + arrows pan; Home resets the camera. Click a part in any view to select it. In **Plates**, drag a part to move it to another plate.
 
 Feed revision 7 uses a small rounded taper around each direct petal rod hole and a compact side-screw ear. The large underside pyramid, separate rim shoes, backing plates and paired mounting bolts are gone. Only the bore changes angle as dish size or focal distance changes; the exterior blends into the dish underside. The circular bearing has 45° roof shoulders and a **0.8 mm bridge** for the exported side-print orientation.
 
-In **Accessories → Feed support**, choose **Enter diameter**, then enter your measured rod diameter in **mm or inches** (2–12.7 mm / approximately 0.079–0.5 inches). For example, 0.25 inches is exactly 6.35 mm. Both petal and carrier bores use this diameter plus the selected diametral clearance. Switching units preserves physical size. **Auto** screens 4, 5, 6, 6.35, 8, 10, 12 and 12.7 mm stock. On large dishes the rods start further in from the rim, on whichever ring holds that radius, where that keeps them under about 580 mm. No rod is longer than 1 m. Exported geometry, manifest and rod schedule use millimeters; the CSV also includes cut lengths in inches.
+In **Add-ons → Feed support**, choose **Enter diameter**, then enter your measured rod diameter in **mm or inches** (2–12.7 mm / approximately 0.079–0.5 inches). For example, 0.25 inches is exactly 6.35 mm. Both petal and carrier bores use this diameter plus the selected diametral clearance. Switching units preserves physical size. **Auto** screens 4, 5, 6, 6.35, 8, 10, 12 and 12.7 mm stock. On large dishes the rods start further in from the rim, on whichever ring holds that radius, where that keeps them under about 580 mm. No rod is longer than 1 m. Exported geometry, manifest and rod schedule use millimeters; the CSV also includes cut lengths in inches.
 
 Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set insert**, maximum 4 mm long, compatible with a 4.2 mm pilot. Carrier hex nuts remain unchanged. Regenerate mounting petals, carrier and rod cuts together; previous feed revisions are not interchangeable. Test one mounting petal for your rod and insert fit first. The carrier and secondary still need their own slicer support review.
 
@@ -139,7 +141,7 @@ Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set in
 - [Test article procedure](docs/TEST_ARTICLE.md): what to print and measure first.
 - [Reflective surface](docs/REFLECTOR.md): foil tape and conductive coatings.
 - [Feed optics and rod supports](docs/FEED-OPTICS.md)
-- [Aiming mount](docs/SIMPLE-MOUNT.md) · [Seam lever](docs/SEAM-LEVER.md)
+- [Aiming mount](docs/SIMPLE-MOUNT.md) · [Seam lever](docs/SEAM-LEVER.md) · [Wedge-key seams](docs/WEDGE-KEY.md)
 - [Printing large petals](docs/PRINTING-LARGE-PETALS.md): warping, settings for the CORE One L and H2D/H2C, shell thickness
 - [Engineering limits](docs/ENGINEERING.md) · [Validation record](docs/VALIDATION.md)
 - [Self-hosting](docs/SELF-HOSTING.md)
@@ -166,6 +168,7 @@ The app sources live in `dist/`:
 - `engine.js`: the geometry worker (build and every export); `engine-client.js` starts it, or runs it on the page if workers are unavailable
 - `params.js`: defaults, limits and validation, shared by the page and the worker
 - `geometry.js`: dish, flanges, hub and seam fasteners
+- `wedge-key.js`: wedge-key stations (slot, lugs, V-register) and their printed parts
 - `pack.js`: plate packing (per-height footprints, nested stacks, drag-and-drop moves)
 - `mount.js`: the aiming mount
 - `feed.js`: optics and feed supports

@@ -12,7 +12,9 @@ const BASE=Object.freeze({segmentGoal:0,rootBolt:4,mountBolt:4,jointBolt:4,clamp
  // added 2026-10-09 with the values that reproduce earlier designs (no band, no ribs)
  rimBand:0,rimDepth:14,ribs:0,ribHeight:2.5,ribPitch:50,
  rimLip:0,ringHeight:3,
- rimSupport:0,supportGap:.3,supportWall:3,tinePitch:4,tineWidth:.6,supportLean:12,supportRibs:0,supportStyle:0,tineHeight:.3});
+ rimSupport:0,supportGap:.3,supportWall:3,tinePitch:4,tineWidth:.6,supportLean:12,supportRibs:0,supportStyle:0,tineHeight:.3,
+ // added 2026-11-12: petal Z scale (100% = no compensation, as before)
+ zScale:100});
 // Preset deflate dictionary: the text codes are made of, most common last. It roughly halves a typical code.
 const DICT=new TextEncoder().encode('"segmentGoal":"rootBolt":"mountBolt":"jointBolt":"clampBolt":"standBolt":"legBolt":"rootSeat":"mountSeat":"headSeat":"nutSeat":"standSeat":"hubFloat":"rodClearance":"feedPayload":"phaseUnits":"autoSecondary":"secondaryWaves":"phaseOffset":"secondaryPosition":"backFocus":"collectorDiameter":"collectorAngle":"bowlDiameter":"mastDiameter":"legDiameter":"legSplay":"insertDiameter":"clipFit":"clipDetent":"clipMaterial":"clipAllowableStrain":"margin":"gap":"resolution":"rearStyle":"facetSize":"packPlates":"staggerRings":"plateGap":"seamBolt":"hubFlat":"rootThrough":"mountThrough":"mountArcLock":"mountSides":"mountBase":"azimuth":"elevation":"frequencyGHz":"rodDiameter":"feedLegs":"thickness":"sectors":"rows":"seamJoint":"c":{"families":{"radial":{"seamBolt":3,"seamJoint":"joints":{"roots":{"mounts":{"ring":{"pl":[["petal-1-mount:1",1,["petal-2:1",1,["hub:1",1,["mount-yoke:1",["feed-carrier:1",["clip:1",["seam-lever-","s":["clip","feed","lever","mount"],"fd":0.42,"feedMode":1,"mountMode":1,"diameter":600,"diameter":1000,"bedX":325,"bedY":320,"bedZ":325},"bedX":300,"bedY":300,"bedZ":330},"p":{"bedX":300,"bedY":300,"bedZ":330,"diameter":{"a":"5.3","p":{"bedX":');
 const b64=bytes=>{let s='';for(let i=0;i<bytes.length;i++)s+=String.fromCharCode(bytes[i]);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
@@ -21,7 +23,7 @@ const unb64=text=>{const s=atob(text.replace(/-/g,'+').replace(/_/g,'/')),out=ne
 const canon=x=>Array.isArray(x)?'['+x.map(canon).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).filter(k=>x[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+canon(x[k])).join(',')+'}':JSON.stringify(x);
 const norm=v=>typeof v==='number'?+v.toPrecision(12):v;
 const mm=v=>Math.round(v*1000)/1000+0;
-const PRINT_KEYS=['feed','mount','clip','lever'];
+const PRINT_KEYS=['feed','mount','clip','lever','wedge'];
 // Plate rows (as plateRows gives them) of a model's hand arrangement, or null when the packer arranged the plates.
 export const handRows=m=>m.manualPacking&&m.p.packPlates?m.plates.flatMap((plate,i)=>plate.placements.map(x=>({copy:x.copy,plate:i+1,x:x.x,y:x.y,yaw:x.yaw}))):null;
 // The content of a code: settings that differ from BASE (and any setting BASE predates), joint overrides, accessories

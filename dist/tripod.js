@@ -7,7 +7,7 @@ import {cylinder,loft} from './solid.js';
 import {octagon,teardrop} from './sockets.js';
 import {mountMesh} from './mount-fasteners.js';
 import {FASTENER} from './params.js';
-export const TRIPOD={embed:4,top:3,rimR:55,nutClear:11,clearance:.4,minEngagement:35,engagement:2.5,tipWall:[3,.15],rootWall:[5,.25],stability:1.5,ground:20,legMargin:3,density:{print:1.24,aluminum:2.7}};
+export const TRIPOD={embed:4,top:3,rimR:55,collar:[4,.2],collarLength:8,nutClear:11,clearance:.4,minEngagement:35,engagement:2.5,tipWall:[3,.15],rootWall:[5,.25],stability:1.5,ground:20,legMargin:3,density:{print:1.24,aluminum:2.7}};
 const BOLTS=[[14,3],[20,4],[Infinity,5]],NYLOC={3:4,4:5,5:5,6:6};   // Auto: leg Ø below -> M size; nyloc heights (ISO 10511)
 export function tripodGeometry(p){
  const T=TRIPOD,d=p.legDiameter,s=p.legSplay*Math.PI/180,bore=d+T.clearance,boreR=bore/2,E=Math.max(T.minEngagement,T.engagement*d);
@@ -37,7 +37,14 @@ export function tripodGeometry(p){
 // Print-frame base mesh with the sockets: the base blank, sockets unioned and bores cut in the model frame, then the
 // azimuth bolt and nut cuts for the selected size (no stand screws).
 export function tripodBase(p,t=tripodGeometry(p)){
- const sockets=t.legs.map(L=>{const frame=([x,y,z])=>L.at(z,x,y);return loft([octagon(t.afRoot,t.start),octagon(t.afRoot,0),octagon(t.afTip,t.length)]).transform(frame).trim([0,0,-1],-TRIPOD.top);});
+ // Root collar: leg bending loads the socket root across its layers (the base prints top face down, so the sockets rise
+ // from the bed side), so each socket widens into the plate. The collar's wide end lies wholly inside the plate (no flat
+ // face left under the base) and it tapers back to the socket over collarLength past the base bottom; it is kept within
+ // the plate's supported radius so nothing starts in mid-air in the print.
+ const T=TRIPOD,s=t.splay*Math.PI/180,f=Math.max(T.collar[0],T.collar[1]*t.d),afWide=t.afRoot+2*f,Rw=afWide/2/Math.cos(Math.PI/8),tWide=(T.embed-.5-Rw*Math.sin(s))/Math.cos(s),tNarrow=T.embed/Math.cos(s)+T.collarLength;
+ // ...and out of the middle, where the azimuth nut goes in from below.
+ const disc=cylinder([0,0,-400],[0,0,T.top+1],T.rimR,128).subtract(cylinder([0,0,-401],[0,0,T.top+2],T.nutClear,64));
+ const sockets=t.legs.map(L=>{const frame=([x,y,z])=>L.at(z,x,y);return loft([octagon(t.afRoot,t.start),octagon(t.afRoot,0),octagon(t.afTip,t.length)]).transform(frame).union(loft([octagon(afWide,Math.min(tWide,0)),octagon(t.afRoot,tNarrow)]).transform(frame).intersect(disc)).trim([0,0,-1],-T.top);});
  const w=t.bolt.acrossFlats/2+2,cut=t.legs.flatMap(L=>[cylinder(L.boreEnd,L.at(t.length+1),t.bore/2,64),teardrop(L.at(t.length-t.bolt.fromOpenEnd,0,-w),L.at(t.length-t.bolt.fromOpenEnd,0,w),t.bolt.hole/2,[0,0,-1])]);
  return mountMesh('base-legs',p,{add:sockets.reduce((a,b)=>a.union(b)),cut});
 }

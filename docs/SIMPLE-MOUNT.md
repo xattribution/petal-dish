@@ -33,7 +33,7 @@ Set them in PETAL under **Aiming mount**, or in `cad/simple-mount.scad`:
 | Clamp bolts | `clamp_m` | M6, **M8**, M10 | Azimuth hole and captive nut pocket in the base; elevation holes and the head pocket in the cheek. Azimuth M × 25 socket head; elevation hex bolt 40 mm (M6, M8) or 45 mm (M10) |
 | Joint screws | `joint_m` | M3, **M4**, M5 | Counterbores in the yoke and cradle plates (Ø6.5 / 8 / 9.5, 3.5 / 4.5 / 5.5 deep); insert pilots in the upright and cheek (Ø4.2 / 5.6 / 6.4). Socket heads 10 mm (upright) and 12 mm (cheek) at every size |
 | Stand screws | `stand_m` | M4, **M5**, M6 | Counterbored holes in the base or, without the base, the yoke plate |
-| Hub to mount (Connections tab) | `hub_m` | M3, **M4**, M5 | The four cradle holes, matching the hub's mount bolts |
+| Hub-to-mount fastening (Joints tab) | `hub_m` | M3, **M4**, M5 | The four cradle holes, matching the hub's mount bolts |
 | Leg cross bolt | (app only) | **Auto**, M3–M6 | Auto picks M3, M4 or M5 by leg diameter. The hole may take up to half the leg diameter |
 
 ### Seats

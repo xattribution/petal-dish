@@ -12,19 +12,21 @@ export function mountParts(p){const side=p.mountSides||0,L=side===1?'-left':'',a
  if(side===2)return[...base,['yoke',p.mountBase?'yoke-dual':'yoke-dual-stand'],['upright','upright'+arc],['upright-left','upright-left'],['cradle','cradle-dual'],['cheek','cheek'+arc],['cheek-left','cheek-left']];
  return[...base,['yoke',(p.mountBase?'yoke':'yoke-stand')+L],['upright','upright'+arc+L],['cradle','cradle'+L],['cheek','cheek'+arc+L]];}
 export const clampCount=p=>p.mountSides===2?2:1;
+// Mount meshes depend on the mount and dish settings but never on the aiming pose: pose-only rebuilds reuse them.
+const meshMemo=new Map(),mountMemo=(variant,p,fn)=>{const {azimuth,elevation,printSelection,packPlates,plateGap,...rest}=p,key=variant+JSON.stringify(rest);if(!meshMemo.has(key)){if(meshMemo.size>24)meshMemo.clear();meshMemo.set(key,fn());}return meshMemo.get(key);};
 export function appendMount(m){if(!m.p.mountMode)return;
  const p=m.p,turn=q=>rz(q,rad(-p.azimuth)),floor=p.mountBase?0:F.baseT,range=[seamHardware(p)?-7.5:-10,100],legs=p.mountBase===2?tripodGeometry(p):null;
- for(const[name,variant]of mountParts(p)){const mesh=variant==='base-legs'?tripodBase(p,legs):mountMesh(variant,p);let choice;for(let yaw=0;yaw<180;yaw+=15){const output=rotateBed(mesh,yaw),dim=bounds(output).size;if(dim[0]<=p.bedX-2*p.margin&&dim[1]<=p.bedY-2*p.margin&&dim[2]<=p.bedZ-2){choice={output,dim,yaw};break;}}if(!choice)throw Error('Mount '+name+' exceeds the print volume.');const {output,dim,yaw}=choice;
+ for(const[name,variant]of mountParts(p)){const mesh=mountMemo(variant,p,()=>variant==='base-legs'?tripodBase(p,legs):mountMesh(variant,p));let choice;for(let yaw=0;yaw<180;yaw+=15){const output=rotateBed(mesh,yaw),dim=bounds(output).size;if(dim[0]<=p.bedX-2*p.margin&&dim[1]<=p.bedY-2*p.margin&&dim[2]<=p.bedZ-2){choice={output,dim,yaw};break;}}if(!choice)throw Error('Mount '+name+' exceeds the print volume.');const {output,dim,yaw}=choice;
   const part={id:'mount-'+name,name:'Mount · '+name,mesh,print:output,output,dim,qty:1,kind:'mount',row:-1,bedRotation:yaw,angle:0,supportMeshes:[],spec:{variant,source:'cad/STL/blank/simple-'+blankOf(variant)+'.stl + fastener cuts (dist/mount-fasteners.js)'+(variant==='base-legs'?' + leg sockets (dist/tripod.js)':'')+(variant.endsWith('-left')?', mirrored in x':''),source_sha256:mesh.source_sha256,frame:mesh.frame,sizes:mountSizes(p)}};m.parts.push(part);
   // print coordinates -> assembly frame (inverse SCAD print transform) -> world at the selected pose
   const model=q=>apply(mesh.toModel,q),fn=mesh.frame==='cradle'?q=>{const v=rx(model(q),rad(p.elevation));v[2]+=F.axisZ;return turn(v);}:name==='base'?model:q=>turn(model(q));
   m.instances.push({part,a:0,matrix:affine(fn)});
  }
  // Interference at this pose: one solid per part, transformed per instance; only overlapping bounds are intersected.
- const base=new Map(),place=i=>{if(!base.has(i.part))base.set(i.part,solid(i.part.mesh));const s=base.get(i.part).transform(q=>scenePoint(m,i,q)),{min,max}=s.raw.boundingBox();return{id:i.part.id,s,min,max};},touch=(a,b)=>a.min.every((v,k)=>v<=b.max[k]+.01)&&a.max.every((v,k)=>v>=b.min[k]-.01);
+ const base=new Map(),place=i=>{if(!base.has(i.part))base.set(i.part,solid(i.part.mesh));const s=base.get(i.part).transform(q=>scenePoint(m,i,q)),{min,max}=s.raw.boundingBox();return{id:i.part.id,name:i.part.name,s,min,max};},touch=(a,b)=>a.min.every((v,k)=>v<=b.max[k]+.01)&&a.max.every((v,k)=>v>=b.min[k]-.01);
  const mounts=m.instances.filter(i=>i.part.kind==='mount').map(place);
  let maxOverlap=0;
- for(const i of m.instances.filter(i=>i.part.kind!=='mount')){const s=place(i);for(const t of mounts){if(!touch(s,t))continue;const overlap=s.s.intersect(t.s).raw.volume();maxOverlap=Math.max(maxOverlap,overlap);if(overlap>.1)throw Error(`${i.part.name} interferes with ${t.id} at this aiming pose. Change elevation or dish settings.`);}}
+ for(const i of m.instances.filter(i=>i.part.kind!=='mount')){const s=place(i);for(const t of mounts){if(!touch(s,t))continue;const overlap=s.s.intersect(t.s).raw.volume();maxOverlap=Math.max(maxOverlap,overlap);if(overlap>.1)throw Error(`${i.part.name} interferes with ${t.name} at this aiming pose. Change elevation or dish settings.`);}}
  // clearances are measured below the lowest mount face: the base bottom (z 0) or, without the base, the yoke plate (z 14)
  const b=sceneBounds(m),lo=rad(range[0]),hi=rad(range[1]),toCradle=q=>{const v=rx(q,-Math.PI/2);v[1]+=F.hubL+16-45**2/(4*m.focal);return v;},points=[];let sweepMin=floor;
  for(const i of m.instances.filter(i=>i.part.kind!=='mount'))for(const q of i.part.mesh.v){const v=toCradle(localPoint(i,q));if(legs)points.push(v);let critical=Math.atan2(v[1],v[2])+Math.PI;while(critical>Math.PI)critical-=2*Math.PI;const angles=[lo,hi,...(critical>=lo&&critical<=hi?[critical]:[])];for(const a of angles)sweepMin=Math.min(sweepMin,F.axisZ+v[1]*Math.sin(a)+v[2]*Math.cos(a));}
