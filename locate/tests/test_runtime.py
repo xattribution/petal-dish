@@ -164,7 +164,7 @@ async def running(files: dict[str, Path]) -> AsyncIterator[Running]:
     await asyncio.sleep(0)
     leftovers = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
     assert leftovers == []
-    assert store_threads() == [] and not [t for t in threading.enumerate() if t.name.startswith("petal-work")]
+    assert store_threads() == [] and not [t for t in threading.enumerate() if t.name.startswith(("petal-work", "petal-spectrum"))]
 
 
 def drain(subscription: Any) -> list[Any]:
@@ -347,7 +347,7 @@ async def test_bad_files_fail_start_up_and_leave_nothing_behind(files: dict[str,
     files["config"].write_text("name: [")
     with pytest.raises(ValueError):
         await ServerRuntime.from_settings(settings_for(files))
-    assert store_threads() == [] and not [t for t in threading.enumerate() if t.name.startswith("petal-work")]
+    assert store_threads() == [] and not [t for t in threading.enumerate() if t.name.startswith(("petal-work", "petal-spectrum"))]
 
 
 # --------------------------------------------------------------------- simulation
@@ -616,7 +616,7 @@ async def test_work_pool_limits_concurrency_and_closes_cleanly() -> None:
     await pool.close()
     with pytest.raises(RuntimeError):
         await pool.run(job, 1)
-    assert not [t for t in threading.enumerate() if t.name.startswith("petal-work")]
+    assert not [t for t in threading.enumerate() if t.name.startswith(("petal-work", "petal-spectrum"))]
     with pytest.raises(ValueError):
         WorkPool(0)
 

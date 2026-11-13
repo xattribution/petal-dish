@@ -143,10 +143,20 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Demo]:
         for child in leftovers:  # never leave a node running, even when the check fails
             with contextlib.suppress(ProcessLookupError):
                 os.kill(child, signal.SIGKILL)
+        if process.stdout is not None:
+            process.stdout.close()
         text = log_path.read_text(encoding="utf-8", errors="replace")
     assert process.returncode == 0, f"the demo exited with {process.returncode}"
     assert not leftovers, f"node processes left running after the demo stopped: {leftovers}"
     assert "Traceback" not in text, "the server logged a traceback:\n" + _excerpt(text, "Traceback")
+    # The runtime's own event-loop probe (every 100 ms), reported when it stops. The
+    # budget is 50 ms; this machine is shared and runs seven node processes beside the
+    # server, so the test fails only on gross blocking and reports the numbers.
+    lag = re.search(r"event loop lag: worst (\d+) ms, (\d+) of (\d+) probes over 50 ms", text)
+    assert lag is not None, "the runtime did not report its event-loop lag"
+    worst_ms, over, probes = (int(g) for g in lag.groups())
+    print(f"\n[demo] event loop lag: worst {worst_ms} ms, {over} of {probes} probes over 50 ms")
+    assert worst_ms < 500 and over <= 0.05 * probes
 
 
 def _console_address(process: subprocess.Popen[str], log_path: Path) -> str:
@@ -158,9 +168,8 @@ def _console_address(process: subprocess.Popen[str], log_path: Path) -> str:
             raise AssertionError(f"the demo exited before serving:\n{log_path.read_text()[-4000:]}")
         match = re.search(r"Console:\s+(http://\S+?)/?\s*$", line)
         if match:
-            # Keep draining stdout so that the demo never blocks on a full pipe.
-            stdout = process.stdout
-            os.set_blocking(stdout.fileno(), False)
+            # After the banner the demo prints two short lines at most (nodes online,
+            # stopped), far below a pipe's buffer, so nothing needs to read them.
             return match.group(1)
     raise AssertionError("the demo printed no console address")
 
@@ -486,7 +495,7 @@ async def test_uplink_cw_gives_fdoa_only_and_says_why_there_is_no_tdoa(demo: Dem
         assert all(not m["used"] and m["value"] is None and m["reason"] == "narrowband" for m in tdoa)
         assert any(m["used"] for m in fdoa)
         message = event["tasking"]["message"] or ""
-        assert message.startswith("No TDOA") and "FDOA" in message
+        assert "No TDOA: the signal is too narrow" in message and "FDOA" in message
         assert event["caf"]["reason"] == "narrowband" and event["caf"]["peak_tdoa_s"] is None
         if event["truth"]["miss_m"] is not None:  # an FDOA-only fix is long and thin, but honest
             assert event["truth"]["inside_ellipse"] is True
@@ -591,7 +600,7 @@ async def test_uplink_swept_is_ambiguous_and_gives_no_false_position(demo: Demo)
         assert event["solution"] is None and event["state"] != "located"
         assert not any(m["used"] for m in event["measurements"])
         assert {m["reason"] for m in event["measurements"]} <= {"ambiguous", "delay_doppler_coupled"}
-        assert (event["tasking"]["message"] or "").startswith("The correlations are ambiguous")
+        assert "The correlations are ambiguous" in (event["tasking"]["message"] or "")
 
 
 @pytest.mark.slow

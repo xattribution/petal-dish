@@ -458,6 +458,43 @@ def test_update_cost_is_measured_and_costly_windows_move_to_the_worker_pool() ->
     assert stats["median_s"] < 0.02  # about 1 ms for 1024 bins; loose for a shared machine
 
 
+def test_a_dedicated_spectrum_thread_runs_every_update_with_the_same_results() -> None:
+    import concurrent.futures
+    import threading
+
+    cfg = make_config()
+    names: set[str] = set()
+
+    async def run(executor: concurrent.futures.Executor | None) -> list[list[tuple[float, float]]]:
+        sink = Sink()
+        pipeline, specs = _pipeline(cfg, sink, spectrum_executor=executor)
+        tracker = pipeline.tracker(KEY)
+        assert tracker is not None
+        update = tracker.update
+
+        def spy(psd: np.ndarray, t_ns: int) -> Any:
+            names.add(threading.current_thread().name)
+            return update(psd, t_ns)
+
+        tracker.update = spy  # type: ignore[method-assign]
+        maker = FrameMaker(specs[KEY], seed=11)
+        for k in range(20):
+            await pipeline.on_psd(maker.frame(k, [SIGNAL] if 5 <= k < 15 else []))
+        assert not pipeline.offloaded(KEY)
+        return [[(d.f_lo_hz, d.f_hi_hz) for _, d in r.detections] for r in sink.reports]
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="petal-spectrum")
+    try:
+        threaded = asyncio.run(run(executor))
+    finally:
+        executor.shutdown(wait=True)
+    assert names and all(n.startswith("petal-spectrum") for n in names)
+    names.clear()
+    inline = asyncio.run(run(None))
+    assert names == {threading.main_thread().name}
+    assert threaded == inline and any(threaded)
+
+
 def test_an_offloaded_window_returns_to_the_loop_when_cheap_again_and_queue_time_is_not_cost() -> None:
     """The cost of an offloaded update is timed inside the worker, so a pool busy with
     long jobs does not make the window look costly, and a window whose cost was

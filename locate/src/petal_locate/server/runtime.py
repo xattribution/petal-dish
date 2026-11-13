@@ -641,7 +641,10 @@ class ServerRuntime:
         )
         self._book.set_publisher(self._publish_event)
         self._correlator = Correlator(config, self._book, windows={}, quality=None, is_online=self._is_online, clock=clock)
-        self._detection = DetectionPipeline(sink=self._correlator, console=self._console, pool=self._pool)
+        self._spectrum = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="petal-spectrum")
+        self._detection = DetectionPipeline(
+            sink=self._correlator, console=self._console, pool=self._pool, spectrum_executor=self._spectrum
+        )
         self._assignments = self._build_assignments(config)
         self._hub: Any = None
         self._subscriptions: list[Any] = []
@@ -988,6 +991,9 @@ class ServerRuntime:
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        # No spectrum frame is in flight any more (the subscription ended above): the
+        # thread is idle, so this returns at once.
+        await asyncio.to_thread(self._spectrum.shutdown, wait=True)
         if self._tasking is not None:
             await self._tasking.stop()  # cancels rounds before the pool and store close
         try:

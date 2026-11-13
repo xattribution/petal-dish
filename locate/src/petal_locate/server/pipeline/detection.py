@@ -37,14 +37,20 @@ backwards. Each accepted frame gives:
   their authorised-carrier flag and anomaly), offered to the console bus, which keeps
   the newest per window and client.
 
-Cost: a tracker update is about 1 ms for 1024 bins. The cost is measured per window
-(median of its last ``COST_WINDOW`` updates, timed where they run, so that a moment of GIL
-contention does not move it); a window whose median is above ``offload_cost_s``
-(or with ``nfft >= OFFLOAD_NFFT``) is updated in the server's worker pool instead of
-on the event loop.
+Cost: a tracker update is about 1 ms for 1024 bins, about a hundred a second for a
+network of 57 windows. The server runs every update in one dedicated thread
+(``spectrum_executor``): on the event loop's own thread each update waited for the GIL
+behind the CAF and solver threads at every numpy call and held the loop for 50 to
+170 ms at a time (measured with the demo; 59 ms worst afterwards). Without that thread
+(tests, tools) the cost is measured per window (median of its last ``COST_WINDOW``
+updates, timed where they run, so that a moment of GIL contention does not move it); a
+window whose median is above ``offload_cost_s`` (or with ``nfft >= OFFLOAD_NFFT``) is
+updated in the worker pool instead of on the event loop, and comes back below half of it.
 """
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
 import math
 import time
@@ -513,18 +519,26 @@ class DetectionPipeline:
         console: ConsolePsdSink | None = None,
         pool: WorkRunner | None = None,
         offload_cost_s: float = OFFLOAD_COST_S,
+        spectrum_executor: concurrent.futures.Executor | None = None,
     ) -> None:
         """
         sink: receives a ``WindowReport`` per accepted frame and window removals.
         console: console bus for spectrum frames (None: none are built).
         pool: worker pool for windows too costly for the event loop (None: always
-            inline).
-        offload_cost_s: average update time beyond which a window is offloaded, s.
+            inline). Not used when ``spectrum_executor`` is given.
+        offload_cost_s: median update time beyond which a window is offloaded, s.
+        spectrum_executor: a dedicated (single) thread that runs every tracker update.
+            The server gives one: about a hundred updates a second on the event loop's
+            own thread each wait for the GIL behind the CAF and solver threads at every
+            numpy call, which held the loop for 50 to 170 ms at a time; in their own
+            thread they cost the loop one wake-up per frame and never queue behind the
+            long jobs of the shared pool. The caller owns (and shuts down) it.
         """
         self._sink = sink
         self._console = console
         self._pool = pool
         self._offload_cost_s = float(offload_cost_s)
+        self._spectrum = spectrum_executor
         self._windows: dict[WindowKey, _Window] = {}
         self._confirm_n = 5
         self._counters: Counter[str] = Counter()
@@ -695,7 +709,10 @@ class DetectionPipeline:
         window.last_t_ns = t_ns
         tracker = window.tracker
         try:
-            if window.offload and self._pool is not None:
+            if self._spectrum is not None:
+                loop = asyncio.get_running_loop()
+                detections, cost = await loop.run_in_executor(self._spectrum, _timed_update, tracker, psd, t_ns)
+            elif window.offload and self._pool is not None:
                 # Timed inside the thread: the wait for a free worker (CAF and solver jobs
                 # share the pool) is not the window's cost.
                 detections, cost = await self._pool.run(_timed_update, tracker, psd, t_ns)
@@ -753,7 +770,7 @@ class DetectionPipeline:
             del self._costs[:256]
         window.recent_costs.append(cost)
         window.cost_s = float(np.median(window.recent_costs))
-        if self._pool is None:
+        if self._pool is None or self._spectrum is not None:
             return
         if not window.offload:
             settled = len(window.recent_costs) >= _COST_MIN_SAMPLES
