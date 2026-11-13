@@ -10,9 +10,10 @@ const seamIcon=method=>`<svg viewBox="0 0 120 64" aria-hidden="true"><path d="M1
  '<path d="M24 30h72m-65-8v16m58-16v16" stroke="var(--icon-hw)" stroke-width="6"/>',
  '<path d="M30 25V12h60v13" stroke="var(--icon-hw2)" stroke-width="8" fill="none"/>',
  '<path d="M24 30h72M30 20V9h60v11" stroke="var(--icon-hw)" stroke-width="6" fill="none"/>',
- '<path d="M24 30h66l17-20M22 23v14" stroke="var(--icon-hw2)" stroke-width="7" fill="none"/>'][method]}</svg>`;
+ '<path d="M24 30h66l17-20M22 23v14" stroke="var(--icon-hw2)" stroke-width="7" fill="none"/>',
+ '<path d="M30 30h52M30 22v16" stroke="var(--icon-hw)" stroke-width="6" fill="none"/><path d="M84 23l24 3v8l-24 3z" fill="var(--icon-hw2)"/>'][method]}</svg>`;
 const hubIcon=method=>`<svg viewBox="0 0 120 64" aria-hidden="true"><path d="M14 22h92M14 40h92" stroke="var(--icon-line)" stroke-width="4" fill="none"/>${method?'<path d="M60 10v44M50 10h20M50 54h20" stroke="var(--icon-hw)" stroke-width="6" fill="none"/>':'<path d="M60 40V24" stroke="var(--icon-hw)" stroke-width="10"/><path d="M60 56V36" stroke="var(--icon-hw2)" stroke-width="4"/>'}</svg>`;
-const SEAM_TITLES=['M3 or M4 bolts clamp flat seats on both flanges, with a loose nut.','Printed clips snap over both flanges. No hardware.','Every station takes a bolt or a clip.','Quick-release cam levers through the seam holes. No tools; the springs print in TPU.'];
+const SEAM_TITLES=['M3 or M4 bolts clamp flat seats on both flanges, with a loose nut.','Printed clips snap over both flanges. No hardware.','Every station takes a bolt or a clip.','Quick-release cam levers through the seam holes. No tools; the springs print in TPU.','A printed key through both flanges, drawn tight by a printed 1:12 wedge; a V-register lines the petals up. No tools.'];
 function card(label,icon,checked,title,onclick){const b=document.createElement('button');b.type='button';b.className='connection-card';b.setAttribute('role','radio');b.setAttribute('aria-checked',String(checked));if(title)b.title=title;b.innerHTML=icon+'<span>'+label+'</span>';b.onclick=onclick;return b;}
 export function setupWorkspace({changed,getModel,showJoint}){
  // Category tabs

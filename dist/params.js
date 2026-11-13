@@ -2,7 +2,7 @@
 import {validateConnections} from './connections.js';
 import {INTERFACE_REVISION} from './interface.js';
 export const defaults={segmentGoal:0,rootBolt:4,mountBolt:4,jointBolt:4,clampBolt:8,standBolt:5,legBolt:0,rootSeat:0,mountSeat:0,headSeat:0,nutSeat:0,standSeat:0,hubFloat:0,feedMode:0,feedLegs:0,rodDiameter:6.35,rodClearance:.35,feedPayload:100,phaseUnits:0,autoSecondary:1,secondaryWaves:4,phaseOffset:0,secondaryPosition:.82,backFocus:-20,frequencyGHz:0,diameter:400,fd:.42,thickness:2.4,bedX:220,bedY:220,bedZ:250,margin:8,gap:.4,resolution:5,sectors:0,rows:0,rearStyle:0,facetSize:20,packPlates:1,staggerRings:1,plateGap:6,seamJoint:0,clipFit:.05,clipDetent:.3,clipMaterial:0,clipAllowableStrain:1.5,mountMode:0,mountBase:1,mountArcLock:0,mountSides:0,azimuth:0,elevation:30,seamBolt:3,hubFlat:1,rootThrough:0,mountThrough:1,insertDiameter:5.6,collectorDiameter:30,collectorAngle:25,bowlDiameter:90,mastDiameter:16,legDiameter:20,legSplay:20,rimBand:3,rimDepth:14,rimLip:1,ribs:0,ribHeight:2.5,ribPitch:50,ringHeight:3,rimSupport:1,supportStyle:0,supportGap:.2,supportWall:2.5,supportLean:12,supportRibs:2,tinePitch:2,tineWidth:1,tineHeight:.5};
-export const limits={segmentGoal:[0,1],rootBolt:[3,5],mountBolt:[3,5],jointBolt:[3,5],clampBolt:[6,10],standBolt:[4,6],legBolt:[0,6],rootSeat:[0,1],mountSeat:[0,1],headSeat:[0,1],nutSeat:[0,1],standSeat:[0,1],hubFloat:[0,.6],feedMode:[0,3],feedLegs:[0,4],rodDiameter:[0,12.7],rodClearance:[.15,.7],feedPayload:[1,2000],phaseUnits:[0,1],autoSecondary:[0,1],secondaryWaves:[2,10],phaseOffset:[-150,150],secondaryPosition:[.6,.95],backFocus:[-200,-5],frequencyGHz:[0,100],diameter:[260,1200],fd:[.25,.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[.2,1],resolution:[2,10],sectors:[0,16],rows:[0,8],rearStyle:[0,1],facetSize:[10,30],packPlates:[0,1],staggerRings:[0,1],plateGap:[3,30],seamJoint:[0,3],clipFit:[0,.1],clipDetent:[.3,2],clipMaterial:[0,2],clipAllowableStrain:[.2,10],mountMode:[0,1],mountBase:[0,2],mountArcLock:[0,1],mountSides:[0,2],azimuth:[-180,180],elevation:[-10,100],seamBolt:[3,4],hubFlat:[0,1],rootThrough:[0,1],mountThrough:[0,1],insertDiameter:[5.2,6],collectorDiameter:[8,120],collectorAngle:[10,60],bowlDiameter:[56,400],mastDiameter:[6,25.4],legDiameter:[8,25.4],legSplay:[10,30],rimBand:[0,3],rimDepth:[6,30],rimLip:[0,3],ribs:[0,3],ribHeight:[1,6],ribPitch:[25,120],ringHeight:[2,6],rimSupport:[0,1],supportStyle:[0,1],supportGap:[.15,.8],supportWall:[2,8],supportLean:[0,30],supportRibs:[0,4],tinePitch:[1,12],tineWidth:[.4,2],tineHeight:[.2,1.5]};
+export const limits={segmentGoal:[0,1],rootBolt:[3,5],mountBolt:[3,5],jointBolt:[3,5],clampBolt:[6,10],standBolt:[4,6],legBolt:[0,6],rootSeat:[0,1],mountSeat:[0,1],headSeat:[0,1],nutSeat:[0,1],standSeat:[0,1],hubFloat:[0,.6],feedMode:[0,3],feedLegs:[0,4],rodDiameter:[0,12.7],rodClearance:[.15,.7],feedPayload:[1,2000],phaseUnits:[0,1],autoSecondary:[0,1],secondaryWaves:[2,10],phaseOffset:[-150,150],secondaryPosition:[.6,.95],backFocus:[-200,-5],frequencyGHz:[0,100],diameter:[260,1200],fd:[.25,.8],thickness:[1.6,6],bedX:[140,1000],bedY:[140,1000],bedZ:[60,1000],margin:[2,20],gap:[.2,1],resolution:[2,10],sectors:[0,16],rows:[0,8],rearStyle:[0,1],facetSize:[10,30],packPlates:[0,1],staggerRings:[0,1],plateGap:[3,30],seamJoint:[0,4],clipFit:[0,.1],clipDetent:[.3,2],clipMaterial:[0,2],clipAllowableStrain:[.2,10],mountMode:[0,1],mountBase:[0,2],mountArcLock:[0,1],mountSides:[0,2],azimuth:[-180,180],elevation:[-10,100],seamBolt:[3,4],hubFlat:[0,1],rootThrough:[0,1],mountThrough:[0,1],insertDiameter:[5.2,6],collectorDiameter:[8,120],collectorAngle:[10,60],bowlDiameter:[56,400],mastDiameter:[6,25.4],legDiameter:[8,25.4],legSplay:[10,30],rimBand:[0,3],rimDepth:[6,30],rimLip:[0,3],ribs:[0,3],ribHeight:[1,6],ribPitch:[25,120],ringHeight:[2,6],rimSupport:[0,1],supportStyle:[0,1],supportGap:[.15,.8],supportWall:[2,8],supportLean:[0,30],supportRibs:[0,4],tinePitch:[1,12],tineWidth:[.4,2],tineHeight:[.2,1.5]};
 // Feed layouts: 0 none, 1 prime focus, 2 Cassegrain (convex secondary), 3 Gregorian collector (concave bowl + insert mast).
 // Rod count (feedLegs): 0 automatic (4 rods when the petal count divides by 4, else 3), or 3 or 4.
 // Stiffeners (stiffeners.js): rimBand 0 none, 1 L (a wall behind the rim, square to the dish), 2 U (its foot bent 90°
@@ -25,10 +25,26 @@ export const CLIP={width:10,detentR:2.6,detentY:3,tip:2.5,root:4,top:6.75,floor:
 export const clipOuter=(a0,Y)=>a0+CLIP.root+(CLIP.tip-CLIP.root)*(Y-CLIP.floor)/(CLIP.top-CLIP.floor);
 // Bolt height in the station frame: with both bolts and clips, the bolt sits low and the detent high so the seat stays flat.
 export const boltY=p=>p.seamJoint>=2?-2.2:0;
-// Seam fastening modes: 0 bolts, 1 snap clips, 2 both (hole and clip window), 3 seam levers (same stations as 2).
+// Seam fastening modes: 0 bolts, 1 snap clips, 2 both (hole and clip window), 3 seam levers (same stations as 2),
+// 4 wedge keys (tool-less: a printed T-key through a slot in both walls, drawn tight by a printed 1:12 wedge).
 export const usesClips=p=>p.seamJoint===1||p.seamJoint===2;
 export const usesLevers=p=>p.seamJoint===3;
-export const seamHoles=p=>p.seamJoint!==1;
+export const usesWedges=p=>p.seamJoint===4;
+export const seamHoles=p=>p.seamJoint!==1&&p.seamJoint!==4;
+// Wedge-key station (mode 4), in the station frame of the upper ("male", full gusset) flange: X across the seam into the
+// male petal (the bed-side "female" wall is X -5…0), Y toward the shell, U along the seam. Same stations, 5 mm walls and
+// gusset windows as the clip modes. Slot through both walls, centred at Y = yc; the key's head bears on the male outer
+// face inside the window, its tail passes the female wall, and the wedge slides along the seam on the female outer face
+// between that face and the key window's outboard edge (c from the face at zero gap). Taper 1:12 is self-locking (4.8°
+// against a 7–17° friction angle); draw = run / taper (2.0 mm), closing gaps up to c - tip (1.6 mm) with 0.4 mm reserve.
+// The thumb pad starts where the taper ends, so it stops the wedge against the key's tail once the reserve is used.
+// Lugs deepen both walls under the slot. The V-register: a ridge on the male mating face, a groove in the female one,
+// in straight segments between the stations, each tilted from horizontal by at most ridge.maxTilt of the final petal's
+// slide (see wedgeRegister in wedge-key.js). Every part is Y-symmetric about yc, so turning a set end for end (180° about
+// the slot axis) is the same as mirroring it along the seam.
+export const WEDGE={slotU:6.4,slotY:6.7,yc:.5,clear:.2,head:{t:3,u:10,half:5.5},window:{y:3,inboard:.4},c:2.5,tail:4,chamfer:1,taper:12,tip:.9,run:24,wy:2.7,pad:{x:11,u:5,r:1.5},travel:2,
+ lug:{depth:3,half:10,flush:1},ridge:{h:.8,top:.4,flank:50,clear:.1,relief:.3,reliefDepth:.25,minFlat:3},thumbNut:{d:12,length:7,nutAF:7.2,nutDepth:3.4,hole:4.5,washer:1},keeper:{t:5,headAF:7.2,pocketDepth:3,boss:1}};
+export const wedgeKey=(clear=WEDGE.clear)=>({u:WEDGE.slotU-2*clear,y:WEDGE.slotY-2*clear});
 // Any seam with clips, levers or both, globally or through a per-joint choice: the clip mount needs elevation ≥ -7.5°.
 export const seamHardware=p=>Boolean(p.seamJoint||[...Object.values(p.connections?.families||{}),...Object.values(p.connections?.joints||{})].some(c=>c.seamJoint));
 // Seam bolt size: M3 (Ø3.4 bore, Ø10 seats) or M4 (Ø4.5 bore, Ø11 seats, larger pads).

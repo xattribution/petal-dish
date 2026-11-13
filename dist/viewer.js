@@ -8,7 +8,7 @@ const ZERO=[0,0,0];
 function cssColor(el,name,fallback){try{const doc=el.ownerDocument,v=doc.defaultView.getComputedStyle(doc.documentElement).getPropertyValue(name).trim(),m=/^#([0-9a-f]{6})$/i.exec(v);if(m)return[0,2,4].map(i=>parseInt(m[1].slice(i,i+2),16)/255);}catch{}return fallback;}
 // Bounds of a mesh under a 3 × 4 affine matrix.
 const extent=(mesh,M)=>{const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(const v of mesh.v)for(let k=0;k<3;k++){const x=M[k][0]*v[0]+M[k][1]*v[1]+M[k][2]*v[2]+M[k][3];if(x<min[k])min[k]=x;if(x>max[k])max[k]=x;}return{min,max};};
-const kindColor=(part,support)=>support?[.90,.43,.30]:part.kind==='panel'?(part.row%2?[.48,.63,.85]:[.72,.73,.76]):part.kind==='hub'?[.88,.65,.34]:part.kind==='mount'?[.35,.48,.64]:part.kind==='clip'?[.95,.58,.25]:part.kind==='lever'?(part.flex?[.86,.80,.45]:[.80,.36,.30]):part.kind==='feed'?[.42,.70,.62]:[.46,.48,.54];
+const kindColor=(part,support)=>support?[.90,.43,.30]:part.kind==='panel'?(part.row%2?[.48,.63,.85]:[.72,.73,.76]):part.kind==='hub'?[.88,.65,.34]:part.kind==='mount'?[.35,.48,.64]:part.kind==='clip'?[.95,.58,.25]:part.kind==='lever'?(part.flex?[.86,.80,.45]:[.80,.36,.30]):part.kind==='wedge'?[.84,.62,.18]:part.kind==='feed'?[.42,.70,.62]:[.46,.48,.54];
 // Flat-shaded triangle soup (and optional edge lines) for a mesh under an affine map [[a b c d] x3].
 function soup(mesh,M,wire){
  const v=mesh.v,n=v.length,W=new Float64Array(n*3);

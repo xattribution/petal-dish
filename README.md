@@ -70,7 +70,7 @@ python3 -m http.server 56317 -d dist  # then open http://localhost:56317
 The editor has four tabs.
 
 1. **Shape:** dish diameter, focal ratio (f/D), shell thickness, an optional frequency, and the hub front.
-2. **Connections:** pick the seam method from the four cards, the seam bolt size and the hub joints. **Edit individual joints** changes one seam family or one joint; **Show in model** highlights it.
+2. **Connections:** pick the seam method from the five cards, the seam bolt size and the hub joints. **Edit individual joints** changes one seam family or one joint; **Show in model** highlights it.
 3. **Accessories:** a feed support (prime focus, Cassegrain or Gregorian collector) and the aiming mount. Each has a checkbox to leave its parts off the print plates when you already have them.
 4. **Print:** your printer and plate packing. PETAL chooses how many petals and rings are needed, aiming for either the largest petals or the fewest print plates.
 
@@ -96,7 +96,7 @@ Every assembly PDF shows the ID on each page and the full code on the build reco
 
 | Choice | Options |
 |---|---|
-| **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) |
+| **Seam fastening** | **M3 or M4 bolts** on flat seats (default M3) · **snap clips**, no hardware · **both** (each station takes a bolt or a clip) · **seam levers**, a screwless quick-release cam clamp ([details](docs/SEAM-LEVER.md)) · **wedge keys**, tool-less: a printed key through both flanges drawn tight by a printed 1:12 wedge, with a V-register on the mating faces ([details](docs/WEDGE-KEY.md)) |
 | **Petal roots to hub** | Blind heat-set inserts, keeping the reflecting face closed (default) · through bolts, in recessed seats (default) or plain holes. M3, M4 (default) or M5 |
 | **Hub to mount** | Through bolts, in recessed seats (default) or plain holes · blind inserts. Four M3, M4 (default) or M5 on a 60 mm bolt circle around a clear Ø30 mm center |
 | **Hub clearance** | 0 mm (default) to 0.6 mm of extra gap at the hub's edges and root holes, so the petals line up on their seams before the root bolts clamp them to the hub. The mount holes stay put |
@@ -139,7 +139,7 @@ Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set in
 - [Test article procedure](docs/TEST_ARTICLE.md): what to print and measure first.
 - [Reflective surface](docs/REFLECTOR.md): foil tape and conductive coatings.
 - [Feed optics and rod supports](docs/FEED-OPTICS.md)
-- [Aiming mount](docs/SIMPLE-MOUNT.md) · [Seam lever](docs/SEAM-LEVER.md)
+- [Aiming mount](docs/SIMPLE-MOUNT.md) · [Seam lever](docs/SEAM-LEVER.md) · [Wedge-key seams](docs/WEDGE-KEY.md)
 - [Printing large petals](docs/PRINTING-LARGE-PETALS.md): warping, settings for the CORE One L and H2D/H2C, shell thickness
 - [Engineering limits](docs/ENGINEERING.md) · [Validation record](docs/VALIDATION.md)
 - [Self-hosting](docs/SELF-HOSTING.md)
@@ -166,6 +166,7 @@ The app sources live in `dist/`:
 - `engine.js`: the geometry worker (build and every export); `engine-client.js` starts it, or runs it on the page if workers are unavailable
 - `params.js`: defaults, limits and validation, shared by the page and the worker
 - `geometry.js`: dish, flanges, hub and seam fasteners
+- `wedge-key.js`: wedge-key stations (slot, lugs, V-register) and their printed parts
 - `pack.js`: plate packing (per-height footprints, nested stacks, drag-and-drop moves)
 - `mount.js`: the aiming mount
 - `feed.js`: optics and feed supports

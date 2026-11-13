@@ -1,4 +1,4 @@
-export const CONNECTION_METHODS=['Bolts','Snap clips','Bolts + clips','Quick-release levers'];
+export const CONNECTION_METHODS=['Bolts','Snap clips','Bolts + clips','Quick-release levers','Wedge keys · tool-less'];
 export function jointKey(frame,start,end,angle){
  const {o,e}=frame,c=Math.cos(angle),s=Math.sin(angle),points=[start,end].map(t=>{const x=o[0]+t*e[0],y=o[1]+t*e[1];return [c*x-s*y,s*x+c*y].map(v=>Math.round(v*10)).join(',');}).sort();
  return 'seam:'+points.join('/');
@@ -17,7 +17,7 @@ export function validateConnections(config){
  for(const key of ['families','joints'])for(const [id,choice]of Object.entries(config[key]||{})){
   if(key==='families'&&!['radial','ring'].includes(id))throw Error('Unknown seam family.');
   if(!choice||typeof choice!=='object'||Object.keys(choice).some(k=>!['seamJoint','seamBolt'].includes(k)))throw Error('Invalid seam choice.');
-  if(choice.seamJoint!==undefined&&![0,1,2,3].includes(choice.seamJoint))throw Error('Choose an available seam method.');
+  if(choice.seamJoint!==undefined&&![0,1,2,3,4].includes(choice.seamJoint))throw Error('Choose an available seam method.');
   if(choice.seamBolt!==undefined&&![3,4].includes(choice.seamBolt))throw Error('Choose M3 or M4 seam hardware.');
  }
  for(const key of ['roots','mounts'])for(const [id,value]of Object.entries(config[key]||{}))if(!/^\d+$/.test(id)||![0,1].includes(value))throw Error('Choose inserts or through bolts.');
