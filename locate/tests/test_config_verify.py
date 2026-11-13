@@ -1554,20 +1554,23 @@ def test_pacific_frequency_plan_helpers(pacific: SystemConfig, pacific_raw: dict
 
 
 def brute_force_frame(span_hz: float, frame_rate_hz: float = 2.0) -> tuple[int, int] | None:
-    """The derivation rule of ARCHITECTURE.md section 3, by trying every candidate in order."""
+    """The derivation rule, by trying every candidate in order of preference: 8 averages with
+    the finest bins that fit (nfft 1024 down to 64), and only then fewer averages at nfft = 64.
+    (ARCHITECTURE.md section 3 gives up averages first; the detection threshold is calibrated
+    for navg >= 8, so the configuration keeps them as long as it can.)"""
     period = 1.0 / frame_rate_hz
-    for navg in range(8, 0, -1):  # navg reduced (minimum 1) until the frame fits
-        if 1024 * navg / span_hz <= period:
-            return 1024, navg
-    for nfft in (512, 256, 128, 64):  # then nfft halved (minimum 64)
-        if nfft / span_hz <= period:
-            return nfft, 1
+    for nfft in (1024, 512, 256, 128, 64):
+        if nfft * 8 / span_hz <= period:
+            return nfft, 8
+    for navg in range(7, 0, -1):
+        if 64 * navg / span_hz <= period:
+            return 64, navg
     return None
 
 
 def test_monitor_derivation_rule_brute_force() -> None:
     rng = np.random.default_rng(11)
-    spans = np.concatenate([10.0 ** rng.uniform(1.5, 7.0, 300), [128.0, 127.9, 2048.0, 2047.0, 16384.0, 16383.0, 4096.0, 31250.0, 5e6]])
+    spans = np.concatenate([10.0 ** rng.uniform(1.5, 7.0, 300), [128.0, 127.9, 1024.0, 1023.0, 2048.0, 2047.0, 16384.0, 16383.0, 4096.0, 31250.0, 5e6]])
     seen = set()
     for span in spans:
         want = brute_force_frame(float(span))
@@ -1577,8 +1580,18 @@ def test_monitor_derivation_rule_brute_force() -> None:
         else:
             assert fit_monitor_frame(float(span)) == want, span
         seen.add(want)
-    assert {None, (1024, 8), (1024, 1), (64, 1), (512, 1), (1024, 3)} <= seen | {(1024, 3)}
-    assert fit_monitor_frame(6250.0) == (1024, 3)  # 1.25 * 5 kHz: 3072 samples in 0.4915 s
+    assert {None, (1024, 8), (512, 8), (64, 8), (64, 7), (64, 1)} <= seen
+    # every span of 1024 Hz and more keeps 8 averages at 2 frames per second
+    assert all(want[1] == 8 for span, want in zip(spans, map(brute_force_frame, map(float, spans))) if span >= 1024.0)
+    assert fit_monitor_frame(6250.0) == (256, 8)  # 1.25 * 5 kHz: 2048 samples in 0.328 s
+    for rate in (0.5, 1.0, 4.0, 10.0, 40.0):
+        for span in (300.0, 900.0, 5000.0, 2.0e5):
+            want = brute_force_frame(span, rate)
+            if want is None:
+                with pytest.raises(ValueError, match="too narrow"):
+                    fit_monitor_frame(span, frame_rate_hz=rate)
+            else:
+                assert fit_monitor_frame(span, frame_rate_hz=rate) == want, (span, rate)
 
 
 @pytest.mark.parametrize("name", SHIPPED)
@@ -1951,3 +1964,278 @@ def test_load_config_file_errors(tmp_path: Path) -> None:
     assert {"loc": "sites.0.lat_deg"}.items() <= info.value.errors[0].items()
     with pytest.raises(ValueError, match="SystemConfig"):
         dump_config({"name": "x"})  # type: ignore[arg-type]
+
+
+# =========================================================================== worked budget, literal numbers
+
+
+def test_pacific_worked_budget_in_decibels() -> None:
+    """ref-guam -> muos-io shared-1 -> tokyo-io at 2026-01-01T03:00:00Z, worked out once in decibels.
+
+    The numbers below came from a separate scratch derivation (Friis in dB, the geo orbit
+    written with explicit trigonometry, no project code):
+
+        slant ranges       rho_u = 40 474 373.40 m (el 11.046 deg), rho_d = 40 424 450.62 m (el 11.496 deg)
+        FSPL               up 174.1625 dB at 300.9925 MHz, down 172.8799 dB at 259.9925 MHz
+        PFD                13 - 10 log10(4 pi rho_u^2) = -150.1357 dBW/m^2
+        C/N0 up            13 - 174.1625 - 14 + 228.6 = 53.4375 dBHz
+        EIRP_c             26 - (-136 + 150.1357) = 11.8643 dBW          (back-off 13.6696 dB: linear)
+        EIRP_n0            26 + 136 + 11.0272 + 14 - 228.6 = -41.5730 dBW/Hz
+        C_rx               11.8643 - 172.8799 + 10 - 3 = -154.0156 dBW   (beam on axis, 3 dB polarisation)
+        N0_relay           -41.5730 - 172.8799 + 10 - 3 = -207.4529 dBW/Hz
+        N0_site            -228.6 + 10 log10(400) = -202.5794 dBW/Hz
+        C/N0               -154.0156 - 10 log10(10^-20.25794 + 10^-20.74529) = 47.3398 dBHz
+    """
+    cfg = load_config(CONFIG_DIR / "pacific-uhf.yaml")
+    got = lb.path_budget(cfg, cfg.carrier("ref-guam").emitter, 300.9925e6, cfg.carrier_xyz("ref-guam"), "muos-io", "shared-1", "tokyo-io", T_EVAL)
+    assert got is not None
+    assert float(got.uplink.elevation_deg) == pytest.approx(11.046084, abs=1e-5)
+    assert float(got.uplink.eirp_toward_sat_dbw) == pytest.approx(13.0, abs=1e-9)
+    assert float(got.uplink.pfd_dbw_m2) == pytest.approx(-150.135701, abs=1e-5)
+    assert float(got.uplink.cn0_up_dbhz) == pytest.approx(53.437501, abs=1e-5)
+    assert float(got.transponder_eirp_dbw) == pytest.approx(11.864299, abs=1e-5)
+    assert lb.transponder_noise_eirp_dbw_hz(cfg.satellite("muos-io").transponder("shared-1")) == pytest.approx(-41.572986, abs=1e-5)
+    assert lb.transponder_outputs([float(got.uplink.pfd_dbw_m2)], cfg.satellite("muos-io").transponder("shared-1")).backoff_db == pytest.approx(13.669598, abs=1e-5)
+    assert float(got.downlink.elevation_deg) == pytest.approx(11.496384, abs=1e-5)
+    assert float(got.downlink.off_axis_deg) == pytest.approx(0.0, abs=1e-6)
+    assert float(got.downlink.c_rx_dbw) == pytest.approx(-154.015583, abs=1e-5)
+    assert float(got.downlink.relayed_n0_dbw_hz) == pytest.approx(-207.452868, abs=1e-5)
+    assert float(got.downlink.site_n0_dbw_hz) == pytest.approx(-202.579400, abs=1e-5)
+    assert float(got.cn0_total_dbhz) == pytest.approx(47.339768, abs=1e-5)
+
+
+# =========================================================================== monitors the spectrum tracker can use
+
+
+def detection_base(transponder_widths_hz: list[float]) -> dict[str, Any]:
+    """``minimal()`` with one 300 MHz-band transponder per requested width, 1 MHz apart."""
+    doc = minimal()
+    template = doc["satellites"][0]["transponders"][0]
+    doc["satellites"][0]["transponders"] = [
+        dict(template, id=f"t{k}", uplink_center_hz=300.0e6 + 1.0e6 * k, bandwidth_hz=width) for k, width in enumerate(transponder_widths_hz)
+    ]
+    return doc
+
+
+def test_the_six_db_threshold_needs_eight_averages() -> None:
+    """Why derived monitors keep navg = 8: a Welch bin of white noise averaged over navg
+    independent segments is Gamma(navg, 1/navg). The chance that it lies more than 6 dB above
+    its median (detection.threshold_db over a median baseline, MATH.md section 7):"""
+    from scipy import stats
+
+    def exceedance(navg: int) -> float:
+        bin_power = stats.gamma(navg, scale=1.0 / navg)
+        return float(bin_power.sf(10.0**0.6 * bin_power.median()))
+
+    # navg = 1 in closed form: an exponential bin, median ln 2, exceeds 10^0.6 ln 2 with probability 2^(-10^0.6)
+    assert exceedance(1) == pytest.approx(2.0 ** (-(10.0**0.6)), rel=1e-9)
+    assert exceedance(1) == pytest.approx(0.0633, abs=1e-4)  # 6 % of the bins of every frame
+    assert exceedance(2) > 5e-3 and exceedance(4) > 1e-4  # 20 and 0.6 noise bins per second in a 1024-bin window at 2 Hz
+    assert exceedance(8) < 1e-6  # 3.5e-7: a few single-bin crossings an hour, which M-of-N confirmation removes
+    # every monitor the shipped configurations derive has the 8 averages
+    for name in SHIPPED:
+        cfg = load_config(CONFIG_DIR / f"{name}.yaml")
+        monitors = [m for site in cfg.sites for channel in site.channels for m in channel.monitors]
+        assert monitors and all(m.navg == 8 and m.nfft == 1024 for m in monitors), name
+        assert not [n for n in cfg.warnings() if "navg" in n["msg"]]
+
+
+def test_narrow_transponders_keep_eight_averages_and_the_rest_is_flagged() -> None:
+    # 1.25 x width = span: 31.25 kHz, 6.25 kHz, 1.25 kHz, 1024 Hz, 625 Hz, 160 Hz
+    widths = [25e3, 5e3, 1e3, 819.2, 500.0, 128.0]
+    cfg = loads_config(json.dumps(detection_base(widths)), fmt="json")
+    channel = cfg.channel("c1")[1]
+    assert channel.monitors_derived
+    got = {m.id: (m.span_hz, m.nfft, m.navg) for m in channel.monitors}
+    want = {f"s1:t{k}": (1.25 * w, *brute_force_frame(1.25 * w)) for k, w in enumerate(widths)}
+    assert got == want
+    assert [got[f"s1:t{k}"][1:] for k in range(6)] == [(1024, 8), (256, 8), (64, 8), (64, 8), (64, 4), (64, 1)]
+    for m in channel.monitors:  # each frame fits its period, by the literal inequality
+        assert m.nfft * m.navg / m.span_hz <= 1.0 / m.frame_rate_hz
+    flagged = [n for n in cfg.warnings() if n["loc"] == "sites.0.channels.0.monitors"]
+    assert len(flagged) == 2
+    assert "'s1:t4'" in flagged[0]["msg"] and "navg = 4" in flagged[0]["msg"]
+    assert "'s1:t5'" in flagged[1]["msg"] and "navg = 1" in flagged[1]["msg"]
+    # a configured window with too few averages is flagged the same way (it stays valid)
+    doc = minimal()
+    doc["sites"][0]["channels"][0]["monitors"] = [{"id": "m", "center_hz": 260.0e6, "span_hz": 50e3, "navg": 4}]
+    (note,) = loads_config(json.dumps(doc), fmt="json").warnings()
+    assert note["loc"] == "sites.0.channels.0.monitors" and "'m'" in note["msg"] and "navg = 4" in note["msg"]
+
+
+def test_baseline_must_span_ten_frames_of_every_monitor() -> None:
+    from petal_locate.core.detect import SignalTracker
+
+    def tracker_accepts(cfg: SystemConfig) -> bool:
+        for site in cfg.sites:
+            for channel in site.channels:
+                for m in channel.monitors:
+                    try:
+                        SignalTracker(m.center_hz, m.span_hz, m.nfft, m.frame_rate_hz, cfg.processing.detection, [], [])
+                    except ValueError:
+                        return False
+        return True
+
+    # a configured monitor at one frame a minute against the default 600 s baseline: 10 frames, accepted
+    doc = minimal()
+    doc["sites"][0]["channels"][0]["monitors"] = [{"id": "slow", "center_hz": 260.0e6, "span_hz": 50e3, "frame_rate_hz": 1.0 / 60.0}]
+    assert tracker_accepts(loads_config(json.dumps(doc), fmt="json"))
+    # 1 / 61 Hz: 600 s span 9.84 frames; the tracker would raise, so the configuration does, at the field
+    doc["sites"][0]["channels"][0]["monitors"][0]["frame_rate_hz"] = 1.0 / 61.0
+    with pytest.raises(ValueError):
+        SignalTracker(260.0e6, 50e3, 1024, 1.0 / 61.0, SimpleNamespace(**{**minimal_detection(), "baseline_tau_s": 600.0}), [], [])
+    error = expect_error(doc, "sites.0.channels.0.monitors.0.frame_rate_hz", "'slow'", "baseline_tau_s")
+    assert [e["loc"] for e in error.errors] == ["sites.0.channels.0.monitors.0.frame_rate_hz"]
+    # ... and a longer baseline cures it
+    doc["processing"] = {"detection": {"baseline_tau_s": 610.0}}
+    assert tracker_accepts(loads_config(json.dumps(doc), fmt="json"))
+    # derived monitors run at 2 frames per second: a baseline under 5 s is reported once, at the setting
+    doc = minimal()
+    doc["sites"][0]["channels"].append({"id": "c2", "antenna": {"type": "isotropic"}, "pointing": {"satellite_id": "s1"}})
+    doc["processing"] = {"detection": {"baseline_tau_s": 4.9}}
+    error = expect_error(doc, "processing.detection.baseline_tau_s", "frame periods")
+    assert [e["loc"] for e in error.errors] == ["processing.detection.baseline_tau_s"]
+    doc["processing"] = {"detection": {"baseline_tau_s": 5.0}}  # exactly 10 frames
+    assert tracker_accepts(loads_config(json.dumps(doc), fmt="json"))
+    for name in SHIPPED:
+        assert tracker_accepts(load_config(CONFIG_DIR / f"{name}.yaml")), name
+
+
+def minimal_detection() -> dict[str, Any]:
+    return SystemConfig.model_validate(minimal()).processing.detection.model_dump()
+
+
+def test_monitor_nfft_floor_is_the_trackers() -> None:
+    from petal_locate.core.detect import SignalTracker
+
+    cfg_detection = SystemConfig.model_validate(minimal()).processing.detection
+    with pytest.raises(ValueError, match="nfft"):
+        SignalTracker(260.0e6, 50e3, 15, 2.0, cfg_detection, [], [])
+    doc = minimal()
+    doc["sites"][0]["channels"][0]["monitors"] = [{"id": "m", "center_hz": 260.0e6, "span_hz": 50e3, "nfft": 15}]
+    expect_error(doc, "sites.0.channels.0.monitors.0.nfft")
+    doc["sites"][0]["channels"][0]["monitors"][0]["nfft"] = 16
+    (m,) = loads_config(json.dumps(doc), fmt="json").channel("c1")[1].monitors
+    assert m.nfft == 16
+    SignalTracker(m.center_hz, m.span_hz, m.nfft, m.frame_rate_hz, cfg_detection, [], [])
+
+
+# =========================================================================== electrically small dishes
+
+
+def test_every_small_dish_is_flagged_at_its_operating_frequency() -> None:
+    """D < 3 wavelengths, wavelength = C / f, at the lowest frequency the antenna works at."""
+    doc = minimal()  # s1: one transponder, 300 MHz up, 260 MHz down
+    template = doc["satellites"][0]["transponders"][0]
+    doc["satellites"].append(
+        {"id": "s2", "name": "S2", "orbit": {"type": "geo", "lon_deg": 105.0}, "transponders": [dict(template, translation_hz=-60.0e6)]}  # 240 MHz down
+    )
+    doc["satellites"].append(
+        {"id": "s3", "name": "S3", "orbit": {"type": "geo", "lon_deg": 95.0}, "transponders": [dict(template, uplink_center_hz=14.25e9, bandwidth_hz=36e6, translation_hz=-2.3e9)]}
+    )
+    dish = lambda d: {"type": "parabolic", "diameter_m": d}  # noqa: E731
+    doc["sites"][0]["channels"] = [
+        {"id": "a", "antenna": dish(1.2), "pointing": {"satellite_id": "s1"}},  # 1.04 wavelengths at 260 MHz
+        {"id": "b", "antenna": dish(3.5), "pointing": {"az_deg": 180.0, "el_deg": 60.0, "satellite_ids": ["s1", "s2"]}},  # 3.04 at 260, 2.80 at 240 MHz
+        {"id": "c", "antenna": dish(3.5), "pointing": {"satellite_id": "s1"}},  # 3.04 wavelengths at 260 MHz: focuses
+        {"id": "d", "antenna": dish(0.6), "pointing": {"satellite_id": "s3"}},  # 23.9 wavelengths at 11.95 GHz
+        {"id": "e", "antenna": dish(3.6), "pointing": {"satellite_id": "s1"}, "monitors": [{"id": "low", "center_hz": 249.0e6, "span_hz": 50e3}]},  # 2.99 at 249 MHz
+        {"id": "f", "antenna": {"type": "beam", "gain_dbi": 3.0, "hpbw_deg": 120.0}, "pointing": {"satellite_id": "s1"}},
+    ]
+    carrier = {"id": "k", "name": "K", "satellite_id": "s1", "transponder_id": "t1", "uplink_center_hz": 300.0e6, "bandwidth_hz": 5e3}
+    doc["carriers"] = [
+        dict(carrier, id="k-small", emitter={"eirp_dbw": 10.0, "bandwidth_hz": 5e3, "antenna": dish(2.0), "pointing": {"satellite_id": "s1"}}),  # 2.00 wavelengths
+        dict(carrier, id="k-big", emitter={"eirp_dbw": 10.0, "bandwidth_hz": 5e3, "antenna": dish(3.1), "pointing": {"satellite_id": "s1"}}),  # 3.10 wavelengths
+        dict(carrier, id="k-plain"),
+    ]
+    cfg = loads_config(json.dumps(doc), fmt="json")
+
+    # the independent expectation, straight from the document
+    def lowest_frequency(channel: dict[str, Any]) -> float:
+        pointing = channel["pointing"]
+        watched = [pointing["satellite_id"]] if "satellite_id" in pointing else pointing["satellite_ids"]
+        freqs = [tp["uplink_center_hz"] + tp["translation_hz"] for s in watched for tp in by_id(doc["satellites"], s)["transponders"]]
+        return min(freqs + [m["center_hz"] for m in channel.get("monitors", [])])
+
+    want = [
+        f"carriers.{k}.emitter.antenna"
+        for k, c in enumerate(doc["carriers"])
+        if "emitter" in c and c["emitter"]["antenna"]["type"] == "parabolic" and c["emitter"]["antenna"]["diameter_m"] * c["uplink_center_hz"] / C < 3.0
+    ] + [
+        f"sites.0.channels.{k}.antenna"
+        for k, ch in enumerate(doc["sites"][0]["channels"])
+        if ch["antenna"]["type"] == "parabolic" and ch["antenna"]["diameter_m"] * lowest_frequency(ch) / C < 3.0
+    ]
+    assert want == ["carriers.0.emitter.antenna", "sites.0.channels.0.antenna", "sites.0.channels.1.antenna", "sites.0.channels.4.antenna"]
+    notes = [n for n in cfg.warnings() if n["loc"].endswith(".antenna")]
+    assert [n["loc"] for n in notes] == want  # one note per antenna, a channel watching two satellites included
+    assert "240.000 MHz" in notes[2]["msg"] and "249.000 MHz" in notes[3]["msg"] and "300.000 MHz" in notes[0]["msg"]
+    # the Ku file: nothing small, the reference emitter's 1.2 m dish included (57 wavelengths at 14.236 GHz)
+    assert not [n for n in load_config(CONFIG_DIR / "ku-adjacent.yaml").warnings() if n["loc"].endswith(".antenna")]
+
+
+# =========================================================================== ephemeris tables
+
+
+def table_doc(n_samples: int, step_s: float = 60.0) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``minimal()`` with its geo satellite replaced by an ECEF table sampled from the same orbit."""
+    from petal_locate.core.timebase import iso_from_ns
+
+    doc = minimal()
+    orbit = {"type": "geo", "lon_deg": 100.0, "inclination_deg": 3.0, "phase_deg": 15.0}
+    samples = []
+    for k in range(n_samples):
+        t = T_REF + k * step_s
+        velocity = (geo_position(orbit, t + 0.5) - geo_position(orbit, t - 0.5)) / 1.0
+        samples.append({"t": iso_from_ns(int(round(t)) * 10**9), "r_m": geo_position(orbit, t).tolist(), "v_mps": velocity.tolist()})
+    doc["satellites"][0]["orbit"] = {"type": "table", "samples": samples}
+    return doc, orbit
+
+
+def test_table_orbits_are_built_once_and_follow_edits(monkeypatch: pytest.MonkeyPatch) -> None:
+    import petal_locate.config.models as models
+
+    doc, orbit = table_doc(1440)
+    cfg = loads_config(json.dumps(doc), fmt="json")
+    builds = []
+    real = models.orbit_from_config
+    monkeypatch.setattr(models, "orbit_from_config", lambda model, dut1_s=0.0: builds.append(model.type) or real(model, dut1_s))
+    emitter = SimpleNamespace(eirp_dbw=10.0, antenna=None, pointing="omni")
+    t = T_REF + 3 * 3600.0
+    first = cfg.orbits()["s1"]
+    for _ in range(5):  # what a link budget asks for, again and again
+        assert lb.path_budget(cfg, emitter, 300.0e6, ecef(5.0, 105.0, 0.0), "s1", "t1", "c1", t) is not None
+        assert lb.downlink_quality_db(cfg, "c1", "s1", "t1", t) is not None
+    assert cfg.orbits()["s1"] is first and cfg.orbit("s1") is first
+    assert builds == []  # the table was unpacked once, at validation
+    # the orbit is the table: at a sample time the Hermite interpolant is the sample itself
+    np.testing.assert_allclose(first.state_ecef(T_REF + 600.0)[0], geo_position(orbit, T_REF + 600.0), atol=1e-6)
+    # an edit made in place after validation is not missed
+    cfg.satellites[0].orbit.samples[10].r_m[2] += 5000.0
+    moved = cfg.orbits()["s1"]
+    assert builds == ["table"] and moved is not first
+    np.testing.assert_allclose(moved.state_ecef(T_REF + 600.0)[0] - geo_position(orbit, T_REF + 600.0), [0.0, 0.0, 5000.0], atol=1e-6)
+    # model equality ignores the kept orbit; a copy with new samples gets its own
+    a = loads_config(json.dumps(doc), fmt="json")
+    b = loads_config(json.dumps(doc), fmt="json")
+    a.orbits()
+    assert a == b and a.model_copy(deep=True) == b
+    shorter = b.satellites[0].orbit.model_copy(update={"samples": b.satellites[0].orbit.samples[:100]})
+    with pytest.raises(ValueError, match="outside the ephemeris table span"):
+        shorter.numeric_orbit().state_ecef(T_REF + 200 * 60.0)
+    # the budget through the table equals the budget through the analytic orbit it samples (Hermite error ~ mm)
+    analytic = loads_config(json.dumps(minimal() | {"satellites": [dict(minimal()["satellites"][0], orbit=orbit)]}), fmt="json")
+    via_table = lb.path_budget(b, emitter, 300.0e6, ecef(5.0, 105.0, 0.0), "s1", "t1", "c1", t + 17.3)
+    via_orbit = lb.path_budget(analytic, emitter, 300.0e6, ecef(5.0, 105.0, 0.0), "s1", "t1", "c1", t + 17.3)
+    assert float(via_table.cn0_total_dbhz) == pytest.approx(float(via_orbit.cn0_total_dbhz), abs=1e-6)
+
+
+def test_warnings_survive_a_time_outside_an_ephemeris_table() -> None:
+    doc, _ = table_doc(5)  # four minutes of ephemeris
+    cfg = loads_config(json.dumps(doc), fmt="json")
+    assert cfg.warnings(T_REF + 120.0) == []
+    (note,) = cfg.warnings(T_REF + 3600.0)
+    assert note["loc"] == "satellites.0.orbit" and "'s1'" in note["msg"] and "table span" in note["msg"]
+    for bad in (float("nan"), (T_REF + 120.0) * 1e9):  # not a time; nanoseconds by mistake
+        with pytest.raises(ValueError, match="t_s"):
+            cfg.warnings(bad)

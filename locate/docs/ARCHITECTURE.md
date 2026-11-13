@@ -7,7 +7,8 @@ Nothing is specific to one satellite, band or site: satellites, transponders, si
 antennas, frequency plans and processing settings are all configuration.
 
 Read `MATH.md` first. It fixes every sign, unit and algorithmic requirement.
-Revision 2 (after independent review).
+Revision 3: matches the implementation as built and verified, including the optional
+arguments and helpers other modules use.
 
 ## 1. Layout
 
@@ -89,14 +90,14 @@ ReceiveChannel   id, name="", antenna: Antenna, pointing: Pointing, system_noise
                  polarization_loss_db=0, max_sample_rate_hz=2e6, monitors: list[Monitor] = []
 Pointing         {satellite_id}                                  # tracks that satellite; boresight recomputed from its orbit
                | {az_deg, el_deg, satellite_ids: [str, ...]}     # fixed boresight; watches the listed satellites (at least one)
-Monitor          id, center_hz, span_hz, nfft=1024, navg=8, frame_rate_hz=2.0       (downlink frequencies)
+Monitor          id, center_hz, span_hz, nfft=1024 (16..131072), navg=8, frame_rate_hz=2.0   (downlink frequencies)
 Antenna          discriminated on `type`:
                    isotropic {gain_dbi=0}
                    parabolic {diameter_m, efficiency=0.55}       # a PETAL dish is this
                    beam      {gain_dbi, hpbw_deg, front_to_back_db=20}   # yagi, helix, patch
                    table     {theta_deg: [...], gain_dbi: [...]}
 EmitterModel     eirp_dbw, antenna: Antenna = isotropic, pointing: {satellite_id} | {az_deg, el_deg} | "omni" = "omni",
-                 bandwidth_hz, waveform: "cw" | "noise" | "chirp" | "psk" = "noise"
+                 bandwidth_hz (0 only for cw), waveform: "cw" | "noise" | "chirp" | "psk" = "noise"
 Carrier          id, name, satellite_id, transponder_id, uplink_center_hz, bandwidth_hz,
                  location?: {lat_deg, lon_deg, alt_m=0, antenna_height_m=10}, emitter?: EmitterModel,
                  use_as_reference=false         (use_as_reference requires location and emitter)
@@ -120,42 +121,94 @@ Region           lat_min=-70, lat_max=70, lon_min=-180, lon_max=180
 
 Rules:
 
-- Ids: satellite, site, carrier and channel ids are unique across the whole config
-  (channel ids across sites); transponder ids are unique within a satellite and
-  monitor ids within a channel.
+- Ids: 1 to 64 characters from `A-Z a-z 0-9 . _ -`, starting with a letter or digit
+  (ids go into `|`-separated hash labels, URLs, environment-variable names and file
+  names); monitor ids also allow `:` and up to 129 characters (derived monitors are
+  named `<satellite id>:<transponder id>`). Satellite, site, carrier and channel ids
+  are each unique within their kind across the whole config (channel ids across
+  sites; a site may share an id with a satellite); transponder ids are unique within a
+  satellite and monitor ids within a channel.
 - Orbits of type `tle` use the `tle` ephemeris sigmas; `geo`, `kepler` and `table` use
   `operator`; `Satellite.ephemeris_sigma` overrides either.
 - Monitor: the node reads `nfft * navg` samples at `fs = span_hz` centred on
-  `center_hz`. Validation: `span_hz <= max_sample_rate_hz` and
-  `nfft * navg / span_hz <= 1 / frame_rate_hz`, else `ValueError` naming the monitor.
-  Empty `monitors` makes the loader derive one window per transponder of each watched
-  satellite: `center_hz` = downlink centre, `span_hz = min(1.25 * bandwidth_hz,
-  max_sample_rate_hz)`, `navg` reduced (minimum 1) until the frame fits the frame
-  period; when even `navg = 1` does not fit, `nfft` is halved (minimum 64) until it
-  does. A transponder wider than `max_sample_rate_hz` is monitored only over its
+  `center_hz`. Validation: `span_hz <= max_sample_rate_hz`,
+  `nfft * navg / span_hz <= 1 / frame_rate_hz` and `16 <= nfft <= 131072` (the
+  spectrum tracker refuses fewer than 16 bins, although the wire allows 2), and
+  `processing.detection.baseline_tau_s` must span at least 10 frame periods of every
+  monitor (the tracker refuses less; the error names the monitor's `frame_rate_hz`, or
+  `baseline_tau_s` once for derived monitors). Empty `monitors` gives one derived
+  window per transponder of each watched satellite: `center_hz` = downlink centre,
+  `span_hz = min(1.25 * bandwidth_hz, max_sample_rate_hz)`, `frame_rate_hz = 2`;
+  `nfft` is halved (minimum 64) until the frame fits the frame period, keeping
+  `navg = 8`, and only when 64 x 8 samples do not fit (spans under 1024 Hz) is `navg`
+  reduced (minimum 1; `ValueError` when even 64 x 1 does not fit). Reason: the
+  detection threshold and the C/N0 estimate are calibrated for `navg >= 8`, while a
+  coarser bin costs a signal narrower than a bin 3 dB per halving. Watched satellites
+  that share a downlink plan would give identical windows; each distinct
+  `(center_hz, span_hz)` is monitored once, under the first satellite. Derivation runs
+  in `SystemConfig` validation (so a config built from JSON by the API gets monitors
+  too) and replaces the channel by a copy; derived monitors are flagged
+  (`ReceiveChannel.monitors_derived`) and left out by `dump_config` and `export_dict`
+  so that they derive again on load (plain `model_dump` writes them as explicit
+  monitors). A transponder wider than `max_sample_rate_hz` is monitored only over its
   central `max_sample_rate_hz` unless explicit monitors tile it.
 - Region: `lon_min = -180` with `lon_max = 180` is the full circle; otherwise the span
   runs eastward from `lon_min` to `lon_max` (`lon_max < lon_min` wraps the
-  antimeridian; equal values are invalid). Methods: `contains(lat_deg, lon_deg) ->
-  bool array`; `lon_span_deg() -> float`; `grid(step_deg) -> (lat_deg[n_lat],
-  lon_deg[n_lon])` with `lon_deg = lon_min + k * step`, increasing and allowed to
-  exceed 180 (unwrapped).
-- Other validation: references resolve, positive bandwidths, latitude and longitude in
-  range, TLE checksum, table strictly increasing in time.
+  antimeridian; equal values, and `lon_min = 180` with `lon_max = -180`, are invalid).
+  Methods: `contains(lat_deg, lon_deg) -> bool array` (longitudes in any 360 degree
+  range); `lon_span_deg() -> float`; `is_full_circle`; `grid(step_deg) ->
+  (lat_deg[n_lat], lon_deg[n_lon])` with `lon_deg = lon_min + k * step`, increasing and
+  allowed to exceed 180 (unwrapped).
+- Other validation (each error names the field): references resolve, positive
+  bandwidths, latitude and longitude in range, TLE checksum and matching catalogue
+  numbers, table strictly increasing in time, every orbit buildable, a carrier's centre
+  inside its transponder's uplink passband, `emitter.bandwidth_hz` not above the
+  carrier's, Kepler perigee above the Earth's surface, transponder uplink and downlink
+  passbands above 0 Hz, `confirm_m <= confirm_n`, `dut1_s` in [-1, 1], pointing
+  `az_deg` in [-360, 360]; unknown fields and non-finite numbers are rejected.
+- The orbit and channel-pointing unions are the classes `OrbitModel` and
+  `ChannelPointing`, exported also under the names `Orbit` and `Pointing` used above.
 
 Helper methods on `SystemConfig`: `satellite(id)`, `site(id)`,
-`channel(id) -> (Site, ReceiveChannel)`, `site_xyz(site_id) -> ndarray[3]` (phase
-centre, includes `antenna_height_m`), `sites_xyz() -> dict`, `orbits() -> dict[sat_id,
-Orbit]`, `boresight_ecef(channel_id, t_s) -> unit ECEF vector`,
+`channel(id) -> (Site, ReceiveChannel)`, `carrier(id)`, `reference_carriers()`,
+`carrier_xyz(carrier_id)`, `site_xyz(site_id) -> ndarray[3]` (phase centre, includes
+`antenna_height_m`), `sites_xyz() -> dict`, `orbit(sat_id) -> Orbit`,
+`orbits() -> dict[sat_id, Orbit]` (`tle`, `geo` and `kepler` orbits are built on every
+call; a `table` orbit is built at validation and reused while its samples' content is
+unchanged), `boresight_ecef(channel_id, t_s) -> unit ECEF vector`,
 `channels_watching(sat_id) -> list[(Site, ReceiveChannel)]`,
 `transponders_covering(f_lo_up, f_hi_up) -> list[(Satellite, Transponder)]` (every
-transponder whose uplink passband overlaps the range at all),
-`uplink_for(sat_id, f_down_hz) -> (Transponder, f_up_hz) | None`,
+transponder whose uplink passband overlaps the range at all: more than an edge for a
+range of non-zero width, the closed passband for a single frequency),
+`uplink_for(sat_id, f_down_hz) -> (Transponder, f_up_hz) | None` (the nearest downlink
+centre when passbands overlap, the earlier transponder on a tie),
 `downlink_hz(sat_id, transponder_id, f_up)`,
-`resolved_uncertainty() -> core.solver.Uncertainty`.
+`resolved_uncertainty() -> core.solver.Uncertainty`,
+`export_dict() -> dict` (JSON-compatible data that loads back to an equal model,
+without unset optional fields and derived monitors), and
+`warnings(t_s=None) -> list[{loc, msg}]`, what is valid but deserves attention: a
+parabolic antenna under 3 wavelengths (one note per channel at its lowest working
+frequency, the downlink centres of its watched transponders and its monitor centres;
+a carrier emitter's dish at the carrier's uplink centre); a carrier allocation reaching
+beyond its transponder's uplink passband; a monitor with `navg < 8`; a channel whose
+configured monitors miss the downlink of a transponder it watches; and, with `t_s`
+(Unix seconds; `ValueError` beyond `MAX_UNIX_S`), a watched satellite at or below a
+site's horizon and a satellite whose orbit cannot be evaluated then (a table not
+covering `t_s`; its channels then get no horizon note). Also
+`Transponder.relays(f_up_hz)` (centre inside the closed uplink passband) with
+`uplink_lo_hz`, `uplink_hi_hz`, `downlink_center_hz`, `downlink_lo_hz`,
+`downlink_hi_hz`; `ReceiveChannel.watched_satellite_ids`, `monitors_derived`,
+`antenna_summary`; `Monitor.frame_duration_s`, `bin_hz`.
 
-`loader.py`: `load_config(path) -> SystemConfig`, `dump_config(cfg) -> str` (YAML),
-`config_json_schema() -> dict`.
+`field_errors(exc) -> list[{loc, msg}]` turns a `ValidationError` into dotted document
+paths (pydantic's union-member names, as in `orbit.geo.lon_deg`, removed).
+
+`loader.py`: `load_config(path) -> SystemConfig`,
+`loads_config(text, fmt="yaml", source="<string>") -> SystemConfig`,
+`dump_config(cfg) -> str` (YAML of `export_dict`), `config_json_schema() -> dict`.
+Every read, parse or validation failure is a `ConfigError` (a `ValueError`) naming the
+file, with `errors` holding the `field_errors` list and the pydantic error as
+`__cause__`; duplicate keys in YAML or JSON are rejected.
 
 Node tokens, the API token and the marking banner are **server settings**, not part of
 `SystemConfig` (section 7).
@@ -217,14 +270,19 @@ has `location` and `emitter` and that no scenario emitter names.
   section 4 exactly (paths, visibility, channel filter, in-band slices, relayed noise,
   thermal noise keyed so repeat calls agree). Delay and phase come from a polynomial
   fit of the exact light-time functions over the window, fit error checked (< 1e-4
-  cycle of carrier phase) and the window subdivided when needed.
+  cycle of carrier phase) and the window subdivided when needed. The channel filter's
+  `W` is `Waveform.bandwidth_hz`; a decimated path is rendered with
+  `decimate_margin(m)` extra samples at each end, which are dropped; direct paths
+  point the emitter with `linkbudget.emitter_boresight`.
 - `render_psd(channel_id, t_start_ns, fc, span_hz, nfft, navg) -> float32[nfft]`:
   the expected Welch PSD without synthesising IQ. Linear power in bin k =
   1 (thermal, 0 dB) + sum over transponders of `N0_relay / N0_site` on their passband
-  bins + sum over paths of `(C_rx / (N0_site * span_hz)) * nfft * S_p[k]`, where `S_p`
-  (sum over k = 1) is the path's spectral shape centred on its `f_bb` (flat over the
-  bandwidth for noise and chirp, RRC squared for psk, the Hann main lobe for cw),
-  scaled by the gate duty overlapping the snippet; then multiplied per bin by a
+  bins + sum over paths of `(C_rx / (N0_site * span_hz)) * nfft * S_p[k]`, where
+  `S_p[k] = waveform.spectral_shape(f_k - f_bb, resolution_hz=bin_hz) * bin_hz` (sum
+  over k = 1 when the band is inside the span: flat over the bandwidth for noise and
+  chirp, RRC squared for psk, the full Hann-window kernel of `welch_psd_db`, main lobe
+  and sidelobes, for cw), scaled by `waveform.gate_fraction` over the snippet; then
+  multiplied per bin by a
   `Gamma(shape=navg, scale=1/navg)` draw keyed by (channel, centre, `t_start_ns`).
   A test requires `render_psd` and `welch_psd_db(render_iq(...))` to agree within
   1 dB (mean over occupied bins and over empty bins).
@@ -247,10 +305,14 @@ Shapes: `x_e` may have leading axes `[..., 3]`; time arguments may be a float or
 
 ```python
 # timebase.py
-now_ns() -> int;  ns_from_iso(s: str) -> int;  iso_from_ns(t_ns: int) -> str
-sec(t_ns: int) -> float;  gmst_rad(t_s, dut1_s=0.0)
+now_ns() -> int;  ns_from_iso(s: str) -> int;  iso_from_ns(t_ns: int) -> str;  ns_from_datetime(value) -> int
+    # ns_from_iso: no zone designator means UTC; ":60" and more than 9 fractional digits raise ValueError
+sec(t_ns: int) -> float                                 # correctly rounded t_ns / 10**9
+gmst_rad(t_s, dut1_s=0.0);  wrapped_phase(rate_rad_s, dt_s)   # (rate * dt) mod 2 pi from an exact product
+MAX_UNIX_S = 1e11                                       # a larger |t_s| is t_ns passed as seconds: ValueError
 
 # geodesy.py   (degrees in, metres out)
+wrap_lon_deg(lon_deg)                                   # to [-180, 180)
 lla_to_ecef(lat_deg, lon_deg, alt_m=0.0) -> ndarray[...,3]
 ecef_to_lla(xyz) -> (lat_deg, lon_deg, alt_m)
 enu_basis(lat_deg, lon_deg) -> ndarray[3,3]            # rows east, north, up (unit ECEF vectors)
@@ -263,80 +325,130 @@ radii_of_curvature(lat_deg) -> (M, N)                  # meridional, prime verti
 # orbits.py
 class Orbit(Protocol):  state_ecef(t_s) -> tuple[ndarray, ndarray]
 TleOrbit, GeoOrbit, KeplerOrbit, TableOrbit, PerturbedOrbit(base, ric_pos_m, ric_vel_mps, t_ref_s)
+TableOrbit.from_samples(samples)                         # config-style [{t, r_m, v_mps}]
+    # these set supports_split_time and take state_ecef(t_s, dt_s=0.0) and position_ecef(t_s, dt_s=0.0):
+    # the state at t_s + dt_s without rounding the sum
+orbit_position(orbit, t_s, dt_s=0.0) -> ndarray[..., 3];  orbit_state(orbit, t_s, dt_s=0.0) -> (r, v)
+    # any Orbit; an object without supports_split_time is evaluated at float64(t_s + dt_s)
 orbit_from_config(orbit_model, dut1_s=0.0) -> Orbit     # reads attributes; accepts the pydantic models or any object with the same fields
 subsatellite_point(orbit, t_s) -> (lat_deg, lon_deg, alt_m)
+tle_checksum(line) -> int
 
 # geometry.py
-uplink_delay(x_e, orbit, t_sat_s) -> tau_u
-downlink_delay(orbit, x_g, t_rx_s) -> tau_d
-@dataclass BentPipe: D, tau_d, tau_u, t_sat_s           # D, tau_u: [..., M]; tau_d, t_sat_s: [M]
-bent_pipe(x_e, orbit, x_g, t_rx_s, tau_x=0.0) -> BentPipe
-bent_pipe_rates(x_e, orbit, x_g, t_rx_s, tau_x=0.0) -> (D_dot, tau_d_dot, tau_u_dot)   # tau_u_dot = d tau_u / d t_sat
+    # every delay function takes an optional trailing dt_s: the result for time + dt_s exactly (a capture start plus n / fs)
+uplink_delay(x_e, orbit, t_sat_s, dt_s=0.0) -> tau_u
+downlink_delay(orbit, x_g, t_rx_s, dt_s=0.0) -> tau_d
+@dataclass BentPipe: D, tau_d, tau_u, t_sat_s           # D, tau_u: [..., M]; tau_d, t_sat_s: [M] (t_sat_s is the rounded float)
+bent_pipe(x_e, orbit, x_g, t_rx_s, tau_x=0.0, dt_s=0.0) -> BentPipe
+bent_pipe_rates(x_e, orbit, x_g, t_rx_s, tau_x=0.0, dt_s=0.0) -> (D_dot, tau_d_dot, tau_u_dot)   # tau_u_dot = d tau_u / d t_sat
 baseband_frequency(f_e, translation, f_tune, tau_d_dot, tau_u_dot, eps_g=0.0) -> f_bb
 @dataclass(frozen=True) PathSpec: sat_id, site_id, f_e_hz, translation_hz, tau_x_s=0.0
+                        # property f_tune_hz = f_e_hz + translation_hz
 predict_tdoa(x_e, a: PathSpec, b: PathSpec, t_rx_s, orbits, sites_xyz) -> ndarray[..., M]     # MATH section 5, t_rx_s = t_mid
 predict_fdoa(x_e, a: PathSpec, b: PathSpec, t_rx_s, orbits, sites_xyz) -> ndarray[..., M]
+predict_pair(x_e, a: PathSpec, b: PathSpec, t_rx_s, orbits, sites_xyz) -> (tdoa, fdoa)        # both from one evaluation
+    # the three predictors raise ValueError when the two path delays differ by more than 1 s
+STENCIL_STEP_S = 0.5                                    # h of the rate stencil, MATH section 3
 elevation_deg(x, orbit, t_s) -> ndarray                  # elevation of the satellite seen from ground point(s) x
-footprint(orbit, t_s, min_elevation_deg=0.0, n=181) -> list[(lat_deg, lon_deg)]   # closed ring, longitudes continuous around the sub-satellite longitude
+footprint(orbit, t_s, min_elevation_deg=0.0, n=181) -> list[(lat_deg, lon_deg)]
+    # ring from due north of the sub-satellite point running west (counter-clockwise), longitudes continuous around the
+    # sub-satellite longitude; closed (last vertex = first) except that a ring containing a pole ends 360 degrees from its start
 measurement_windows(a, b, t_rx_s, orbits, sites_xyz, region, min_elevation_deg=0.0, height_m=0.0, step_deg=2.0)
-    -> ((tdoa_min, tdoa_max), (fdoa_min, fdoa_max)) | None      # geometric extremes over the admissible region; None when no admissible point
+    -> ((tdoa_min, tdoa_max), (fdoa_min, fdoa_max)) | None
+    # a bound on the predictions over the continuous admissible area (MATH section 6), elevation >= min_elevation_deg;
+    # step_deg is the largest grid step (reduced for low satellites and small regions); None when no grid point and
+    # no mask-contour sample is admissible
 search_windows(geo_windows, a, b, caf_cfg, uncertainty, correction=None) -> (delay_window, doppler_window)   # MATH section 6 widening
+    # correction: None, (tdoa_corr | None, fdoa_corr | None) or {"tdoa": ..., "fdoa": ...}; each kind shifted on its own
 self_peak(sat_id, translation_hz, f_e_hz, a: PathSpec, b: PathSpec, t_rx_s, orbits, sites_xyz) -> (tdoa, fdoa)
-    # satellite sat_id heard by both channels: exact CAF location including the tuning offsets of a and b
+    # satellite sat_id heard by both channels: exact CAF location including the tuning offsets of a and b; TDOA solved to
+    # convergence; omits + f_e tau_u_dot (tau_d,a_dot - tau_d,b_dot), which needs the emitter position (below 1e-6 Hz on
+    # GEO, up to a few tenths of a hertz in low orbit)
 
 # antennas.py
 gain_dbi(antenna_model, off_axis_deg, freq_hz) -> ndarray
 peak_gain_dbi(antenna_model, freq_hz);  hpbw_deg(antenna_model, freq_hz)
 electrically_small(antenna_model, freq_hz) -> bool      # parabolic with D < 3 wavelengths
 # parabolic: G0 = eta (pi D / lambda)^2; main lobe -12 (theta/HPBW)^2 dB with HPBW = 70 lambda / D degrees,
-# floored by the side-lobe envelope min(G0, 32 - 25 log10(theta)) dBi for 1..48 deg and -10 dBi beyond.
-# Electrically small (D < 3 lambda): HPBW = min(70 lambda / D, 120), floor G0 - 15 dB. Never below -10 dBi.
+# floored by the side-lobe envelope min(G0, 32 - 25 log10(theta)) dBi for 1..48 deg and -10 dBi beyond. Inside 1 deg the
+# envelope is held at its 1 deg value (without that a large dish has a 3 dB hole just inside 1 deg).
+# Electrically small (D < 3 lambda): HPBW = min(70 lambda / D, 120), floor G0 - 15 dB. Never below -10 dBi (G0 included).
+# hpbw_deg: 360 for isotropic and for a table that never falls 3 dB below its boresight value.
 
 # linkbudget.py   (boresight arguments are unit ECEF vectors; None = "omni")
 fspl_db(dist_m, freq_hz)
+transponder_noise_eirp_dbw_hz(transponder) -> float     # EIRP_n0 of MATH section 4, before power robbing
 uplink_budget(eirp_dbw, antenna, boresight, x_e, sat_r, f_e_hz, transponder)
     -> UplinkBudget(eirp_toward_sat_dbw, pfd_dbw_m2, cn0_up_dbhz, elevation_deg)      # broadcast over x_e
 transponder_outputs(pfd_dbw_m2: ndarray[K], transponder)
     -> TransponderOutputs(eirp_down_dbw: ndarray[K], relayed_n0_eirp_dbw_hz: float, backoff_db: float)
+    # backoff_db = EIRP_sat - (carriers + noise over bandwidth_hz, unclipped), dB: positive is back-off; negative means
+    # saturated, every carrier and the noise reduced by -backoff_db (also .compression_db >= 0). pfd [..., K] gives arrays.
 downlink_budget(eirp_down_dbw, relayed_n0_eirp_dbw_hz, f_d_hz, sat_r, site_xyz, channel, boresight)
     -> DownlinkBudget(c_rx_dbw, relayed_n0_dbw_hz, site_n0_dbw_hz, elevation_deg, off_axis_deg)
+    # properties n0_total_dbw_hz = 10 log10(N0_site + N0_relay), relay_rise_db = 10 log10(1 + N0_relay / N0_site)
 direct_budget(eirp_dbw, antenna, boresight, x_e, h_e_m, site_xyz, h_g_m, channel, channel_boresight, f_hz)
-    -> DirectBudget(c_rx_dbw, in_horizon: bool)
+    -> DirectBudget(c_rx_dbw, in_horizon: bool)     # c_rx_dbw = -inf outside the radio horizon; ValueError within one wavelength
+emitter_boresight(emitter, x_e, orbits, t_s) -> unit ndarray[..., 3] | None
+    # None for "omni"; {satellite_id}: toward its geometric position at t_s; {az_deg, el_deg}: local, azimuth
+    # clockwise from north
 @dataclass PathBudget: uplink, transponder_eirp_dbw, downlink, cn0_total_dbhz;  snr_db(bandwidth_hz)
 path_budget(config, emitter: EmitterModel, f_e_hz, x_e, sat_id, transponder_id, channel_id, t_s, other_pfd_dbw_m2=()) -> PathBudget | None
+    # reads emitter.eirp_dbw, .antenna, .pointing only; t_s scalar; None when f_e_hz is outside the transponder's uplink
+    # passband or a leg is below the horizon; for a batch of x_e, arrays with -inf where the emitter cannot see the satellite
 downlink_quality_db(config, channel_id, sat_id, transponder_id, t_s) -> float | None      # MATH section 7; None below the horizon
+relay_rise_db(config, channel_id, sat_id, transponder_id, t_s) -> float | None    # R_k of MATH section 7; None below the horizon
 
 # iono.py
-slant_factor(el_deg);  group_delay_s(vtec_tecu, el_deg, freq_hz)
+slant_factor(el_deg);  group_delay_s(vtec_tecu, el_deg, freq_hz)     # el_deg outside [0, 90] raises ValueError
 
 # crlb.py
 effective_snr(g1, g2);  coherence(g1, g2);  post_correlation_snr(noise_bw_hz, T_s, g1, g2) -> rho
-stein_sigmas(noise_bw_hz, rms_bw_hz, T_s, g1, g2) -> (sigma_tdoa_s, sigma_fdoa_hz)     # with the q term when rms_bw < B/sqrt(12)
-sigmas_from_coherence(C, noise_bw_hz, rms_bw_hz, T_s) -> (sigma_tdoa_s, sigma_fdoa_hz)
+stein_sigmas(noise_bw_hz, rms_bw_hz, T_s, g1, g2, *, rho_tf=0.0) -> (sigma_tdoa_s, sigma_fdoa_hz)
+    # with the q term when rms_bw < B/sqrt(12); rms_bw = 0 gives inf; rho_tf: the coupled variances of MATH section 8
+sigmas_from_coherence(C, noise_bw_hz, rms_bw_hz, T_s, noise_rms_bw_hz=None, *, rho_tf=0.0, signal_noise_share=None)
+    -> (sigma_tdoa_s, sigma_fdoa_hz)
+    # noise_rms_bw_hz multiplies sigma_tdoa by F = noise_rms_bw_hz / rms_bw_hz (MATH section 6 item 4)
 
 # spectrum.py
 welch_psd_db(iq: complex[nfft*navg], fs, nfft, navg) -> float32[nfft]     # MATH section 7 normalisation; fft-shifted
 
 # signals.py
-class Waveform: evaluate(base_ns: int, t_rel: ndarray) -> complex128;  bandwidth_hz;  rms_bandwidth_hz;  spectral_shape(freqs_hz) -> ndarray
-waveform_from_spec(spec, key_label: str) -> Waveform
+class Waveform: evaluate(base_ns: int, t_rel: ndarray) -> complex128;  bandwidth_hz;  rms_bandwidth_hz;
+                spectral_shape(freqs_hz, resolution_hz=None) -> ndarray;  gate(base_ns, t_rel) -> bool ndarray;
+                gate_fraction(base_ns: int, duration_s) -> float;  duty;  gate_period_s
+    # spectral_shape: density (1/Hz) of the ungated envelope; with a resolution (given, or the spacing of a uniform 1-D
+    # freqs_hz) each value is averaged over one bin, so sum * bin width is the in-span power fraction; cw returns the
+    # full Hann-window kernel of welch_psd_db and needs a resolution. bandwidth_hz: 0 for cw, symbol_rate_hz (1 + rolloff)
+    # for psk. gate_fraction: exact on-fraction of [base_ns, base_ns + duration_s) (MATH section 4)
+CwWaveform, ChirpWaveform, NoiseWaveform, PskWaveform (symbols(n_first, count): the symbol centred on n / symbol_rate_hz)
+waveform_from_spec(spec, key_label: str) -> Waveform     # spec.seed is not read: it is part of key_label
 key128(label: str) -> int
 
 # channel.py
 render_path(waveform, base_ns, n, fs, delay_fn, phase_fn, amplitude) -> complex128[n]
     # delay_fn(t_rel: float64[n]) -> seconds, phase_fn(t_rel) -> cycles; t_rel = k/fs seconds of labelled time after base_ns
-decimate(x, m) -> ndarray            # linear-phase FIR of MATH section 4, group delay removed exactly
+decimate(x, m) -> ndarray            # linear-phase FIR of MATH section 4, group delay removed exactly; ceil(len(x) / m)
+                                     # samples, x taken as zero outside the array
+decimate_margin(m) -> int            # output samples at each end carrying that edge transient (26; 0 for m = 1)
+decimation_fir(m) -> ndarray         # its 52 m + 1 taps
 thermal_noise(n, key_label) -> complex128[n]      # E|x|^2 = 1
 
 # caf.py
-@dataclass CafResult: tdoa_s|None, fdoa_hz|None, sigma_tdoa_s, sigma_fdoa_hz, rho_tf, snr_db, coherence, detected: bool,
-                      mirror_ambiguous: bool, candidates: list[(tdoa_s, fdoa_hz, snr_db)], rms_bandwidth_hz,
+@dataclass CafResult: tdoa_s|None, fdoa_hz|None, sigma_tdoa_s|None, sigma_fdoa_hz|None, rho_tf, snr_db, coherence, detected: bool,
+                      mirror_ambiguous: bool, candidates: list[(tdoa_s, fdoa_hz, snr_db)], rms_bandwidth_hz|None,
                       surface: float32[<=65, <=65] dB, delay_axis_s, doppler_axis_hz,
-                      delay_cut: (axis_s, dB), doppler_cut: (axis_hz, dB), reason: str|None
+                      delay_cut: (axis_s, dB), doppler_cut: (axis_hz, dB), reason: str|None,
+                      noise_bandwidth_hz: float (B used), integration_s: float (T: samples in the sum / fs)
+    # sigmas and rms_bandwidth_hz are None when not detected or not finite, never inf or NaN
+REASON_BELOW_THRESHOLD = "below threshold";  REASON_AMBIGUOUS = "ambiguous";  REASON_COUPLED = "delay-doppler coupled"
+REASON_NARROWBAND = "narrowband" (FDOA valid, TDOA None);  REASON_OUTSIDE = "peak outside window"
 caf_estimate(ya: complex[n], yb: complex[n], fs, *, delay_window: tuple[float, float], doppler_window: tuple[float, float],
              signal_bw_hz: float | None = None, t0_offset_s: float = 0.0, exclude: Sequence[tuple[float, float]] = (),
              mirror_window: tuple[tuple[float, float], tuple[float, float]] | None = None,
              min_snr_db=13.0, max_tdoa_sigma_s=5e-4) -> CafResult
+    # ValueError (naming the argument) when a delay window plus its guard reaches beyond half the capture, or a Doppler
+    # window leaves +/- fs/2 or spans more than fs/2; ya and yb may differ in length
 
 # detect.py
 @dataclass Detection: track_id: int, f_lo_hz, f_hi_hz (downlink), power_db, snr_db, cn0_dbhz,
@@ -344,9 +456,12 @@ caf_estimate(ya: complex[n], yb: complex[n], fs, *, delay_window: tuple[float, f
 class SignalTracker:
     __init__(center_hz, span_hz, nfft, frame_rate_hz, cfg,
              passbands: list[(f_lo_hz, f_hi_hz, relay_rise_db)], carriers: list[(carrier_id, f_lo_hz, f_hi_hz)])
+        # nfft >= 16; ValueError when cfg.baseline_tau_s spans fewer than 10 frame periods
     update(psd_db: float32[nfft], t_ns: int) -> list[Detection]      # every confirmed, unreleased track
-    baseline_db: float32[nfft]
-classify(iq, fs) -> Classification(label, confidence, features: dict)
+        # a track on an authorised carrier only while anomalous; ValueError for a non-increasing t_ns or non-finite bins
+    baseline_db: float32[nfft]                                       # NaN before the first update
+    effective_threshold_db: float                                    # threshold in force, MATH section 7
+classify(iq, fs) -> Classification(label, confidence, features: dict)   # label in CLASS_LABELS; at least 1024 samples
 
 # solver.py
 @dataclass(frozen=True) CalRef: cal_id: str, x_ref: ndarray[3], a: PathSpec, b: PathSpec, t_ns: int, sigma: float
@@ -360,13 +475,21 @@ classify(iq, fs) -> Classification(label, confidence, features: dict)
                      chi2, dof, reduced_chi2: float | None, residuals (whitened, input order),
                      ambiguities: list[Solution], ambiguity_resolved_by: "none"|"region"|"measurements"|"unresolved",
                      converged: bool, dominant_error: str, n_measurements: int
+                     Solution.as_dict() -> JSON-ready dict (matrices as nested lists)
 solve(measurements, orbits, sites_xyz, solver_cfg, region, uncertainty: Uncertainty | None = None,
       starts: Sequence[tuple[float, float]] | None = None) -> tuple[Solution | None, str | None]     # (solution, reason)
+    # reason: "unobservable" | "no admissible region" | "no admissible solution" | "not converged" (MATH section 9)
 calibration_correction(ref_measurement: Measurement, x_ref, orbits, sites_xyz, cal_id) -> tuple[float, CalRef]
+    # reversed pair: use -c with the same CalRef; ValueError for a reference row with a correction or cal, or on other satellites
+position_covariance(measurements, lat_deg, lon_deg, orbits, sites_xyz, height_m=0.0, uncertainty=None, confidence=0.95)
+    -> {cov_en_m2, cov_noise_en_m2, cov_consider_en_m2, ellipse, cep50_m, dominant_error, budget_m2} | None
+    # J, S and observability rule of solve at a given position, without solving (row values unused); None when unobservable
 error_ellipse(P_2x2, confidence) -> dict;  cep50(P_2x2) -> float
+above_mask(lat_deg, lon_deg, x, r_sat, min_elevation_deg) -> bool array;  ERROR_SOURCES   # values of dominant_error
 
 # lop.py
 lop_geojson(measurement, orbits, sites_xyz, region, height_m=0.0, min_elevation_deg=0.0, step_deg=0.25, k_sigma=2.0) -> dict   # FeatureCollection
+    # 0 to 2 features, properties.role "line" (MultiLineString) or "band" (MultiPolygon); MATH section 11
 
 # accuracy.py
 accuracy_map(config, pairs: list[tuple[str, str]] (channel ids A, B), emitter: EmitterModel, f_e_hz, t_ns, region, step_deg,
@@ -497,5 +620,8 @@ satellites. `docs/LIMITATIONS.md` must list: illustrative link and frequency-pla
 numbers, nominal orbital slots, no real-hardware validation of drivers,
 UT1/polar-motion simplifications, linear transponder model, no terrain model,
 stationary-emitter assumption, CAF dynamics limits for low orbits, order-of-magnitude
-ephemeris sigmas for TLEs, and the requirement that the reference satellite's
-transponder overlaps the interferer's uplink band.
+ephemeris sigmas for TLEs, the requirement that the reference satellite's
+transponder overlaps the interferer's uplink band, and that the parabolic pattern of
+section 5 is an envelope, not a physical pattern: it integrates to more than isotropic
+power for dishes of about 1.6 to 3 wavelengths (1.36 for 2.4 m at 260 MHz) and for
+large dishes (1.10 to 1.24 at Ku band), which is conservative for interference.

@@ -269,18 +269,27 @@ def test_coarse_surface_matches_brute_force_definition() -> None:
     col_nu = co.nu_c + (co.bin0 + np.arange(co.power.shape[1])) * co.dnu
     assert col_nu[0] <= nu_lo and col_nu[-1] >= nu_hi and co.dnu <= fs / (4.0 * yb.size)  # padded to 4 K
 
-    def block_sum(lag: int, nu: float) -> complex:
+    def block_sum(lag: int, nu: float) -> tuple[complex, int]:
         # What the search does, with explicit loops: remove the window centre, sum
         # each B segment against A at this lag, apply the Doppler phase once per segment.
-        total = 0.0 + 0.0j
+        # Also counts the products that exist (both samples inside their captures).
+        total, count = 0.0 + 0.0j, 0
         for k in range(-(-yb.size // seg)):
             acc = 0.0 + 0.0j
             for i in range(k * seg, min((k + 1) * seg, yb.size)):
                 j = i + lag
                 if 0 <= j < ya.size:
                     acc += ya[j] * np.exp(-2j * np.pi * co.nu_c * j / fs) * np.conj(yb[i])
+                    count += 1
             total += acc * np.exp(-2j * np.pi * (nu - co.nu_c) * k * seg / fs)
-        return total
+        return total, count
+
+    def cell(lag: int, nu: float) -> float:
+        # Every row of the surface is scaled to the same number of products (the length
+        # of B), so that its noise floor does not depend on the lag (see caf._Coarse):
+        # |segment sum|^2 * len(yb) / (products at this lag).
+        total, count = block_sum(lag, nu)
+        return abs(total) ** 2 * yb.size / count
 
     row_pk, col_pk = np.unravel_index(int(np.argmax(co.power)), co.power.shape)
     assert lag0 + row_pk == lag_true and abs(col_nu[col_pk] - nu_true) <= 0.5 * co.dnu
@@ -288,12 +297,15 @@ def test_coarse_surface_matches_brute_force_definition() -> None:
     cells = [(int(row_pk), int(col_pk)), (int(row_pk), 0), (0, int(col_pk))]
     cells += [(int(rng.integers(0, n_lags)), int(rng.integers(0, col_nu.size))) for _ in range(9)]
     for row, col in cells:
-        assert co.power[row, col] == pytest.approx(abs(block_sum(lag0 + row, float(col_nu[col]))) ** 2, rel=2e-3)
+        assert co.power[row, col] == pytest.approx(cell(lag0 + row, float(col_nu[col])), rel=2e-3)
+    # The scale at the peak row: A ends 1331 samples after lag 717, B has 1948 samples.
+    overlap = min(yb.size, ya.size - lag_true)
+    assert overlap == 1331 and block_sum(lag_true, 0.0)[1] == overlap
     # Against the exact CAF the segment sums cost a coherent peak sinc^2(nu' L / fs) at most:
     # 0.2 dB here, and 0.9 dB at the edge of any window by the choice of L.
     exact = abs(brute_caf(ya, yb, fs, lag_true, float(col_nu[col_pk]))) ** 2
     loss = np.sinc((col_nu[col_pk] - co.nu_c) * seg / fs) ** 2
-    assert co.power[row_pk, col_pk] / exact == pytest.approx(loss, rel=0.03)
+    assert co.power[row_pk, col_pk] * overlap / yb.size / exact == pytest.approx(loss, rel=0.03)
     assert exact == pytest.approx(float(yb.size - lag_true) ** 2, rel=0.1)  # N^2 for unit-power copies
     # The half-lag statistic of the pair of lags around the peak was collected too.
     assert np.any((co.half_row == row_pk) & (co.half_col == col_pk))
@@ -504,7 +516,12 @@ def test_no_false_alarms_with_a_narrow_band_filter() -> None:
 
 
 def test_false_alarm_rate_is_low_in_the_default_uhf_window() -> None:
-    """The 40 ms x 400 Hz window of the default geometry holds about 4e5 cells."""
+    """The 40 ms x 400 Hz window of the default geometry holds about 4e5 cells.
+
+    A smoke test only. Measured over 800 noise-only captures (400 with the 25 kHz
+    filter, 400 without): 13 detections (1.6 % a capture) at the default 13 dB, all
+    below 13.4 dB; none reached 13.5 dB.
+    """
     detections = 0
     for i in range(12):
         r = caf_estimate(white(9100 + i, 31250), white(9200 + i, 31250), FS, **WIDE)

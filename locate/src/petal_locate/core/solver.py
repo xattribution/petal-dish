@@ -85,6 +85,7 @@ _MAX_SEMI_MAJOR_M = 1e7  # observability rule: 1-sigma semi-major axis limit
 _LM_OFFSET_M = 1e7  # constant added to the LM variables, see _levenberg_marquardt
 _LM_MAX_NFEV = 100
 _LM_FLAT_EVALUATIONS = 5  # consecutive unobservable iterates after which a refinement is abandoned
+_ESCAPE_M = 10_000.0  # restart distance either side of an unobservable converged point, metres
 _CEP_NODES = 512
 _ZERO3 = np.zeros(3)
 
@@ -213,11 +214,16 @@ def solve(
     the start and again at the converged point, followed by one more refinement. The
     equatorial mirror ``(-lat, lon)`` of every refined minimum is refined as well,
     whether or not it is admissible, so that a mirror excluded only by the region is
-    known to exist (``ambiguity_resolved_by == "region"``). Points that did not converge
-    or are not admissible are discarded, points within 1 km of a lower-cost point are
-    duplicates, candidates are ordered by chi2 (ties within 1e-6 by descending
-    latitude); the first is the solution and the others within ``chi2_ambiguity`` of it
-    are its ``ambiguities``. If the solution or one of those ambiguities fails the
+    known to exist (``ambiguity_resolved_by == "region"``). A converged point where
+    ``J^T S^-1 J`` fails the observability rule is refined again from 10 km either side
+    of it along its unobservable axis; if that reaches a lower chi2 the point was a
+    saddle (Gauss-Newton stops where the residual gradient vanishes, e.g. on the equator
+    under equatorial satellites, where every row is symmetric in latitude) and is
+    dropped. Points that did not converge or are not admissible are discarded, points
+    within 1 km of a lower-cost point are duplicates, candidates are ordered by chi2
+    (ties within 1e-6 by descending latitude); the first is the solution and the others
+    within ``chi2_ambiguity`` of it are its ``ambiguities``. If the solution or one of
+    those ambiguities fails the
     observability rule the result is ``(None, "unobservable")``.
 
     Raises ValueError (naming the field) for fewer than two rows or any invalid input.
@@ -235,7 +241,7 @@ def solve(
     else:
         start_points = _check_starts(starts)
 
-    refined = _refine_with_mirrors(rows, start_points, cfg.height_m)
+    refined = _escape_saddles(rows, _refine_with_mirrors(rows, start_points, cfg.height_m), cfg.height_m)
     fits = [f for f in refined if f.converged]
     if not fits:
         return None, "unobservable" if any(f.flat for f in refined) else "not converged"
@@ -376,7 +382,8 @@ def position_covariance(
         raise ValueError(f"measurements: at least 2 rows are needed, got {rows.m}")
     lat, lon = _point(lat_deg, lon_deg, "lat_deg", "lon_deg")
     height = _finite(height_m, "height_m")
-    if not 0.0 < float(confidence) < 1.0:
+    probability = _finite(confidence, "confidence")
+    if not 0.0 < probability < 1.0:
         raise ValueError(f"confidence must be within (0, 1), got {confidence!r}")
     gain = rows.consider(lla_to_ecef(lat, lon, height)[None, :])
     whitener = _Whitener(rows.sigma, None if gain is None else gain[0])
@@ -387,7 +394,7 @@ def position_covariance(
         "cov_en_m2": stats.total,
         "cov_noise_en_m2": stats.noise,
         "cov_consider_en_m2": stats.consider,
-        "ellipse": error_ellipse(stats.total, float(confidence)),
+        "ellipse": error_ellipse(stats.total, probability),
         "cep50_m": cep50(stats.total),
         "dominant_error": stats.dominant,
         "budget_m2": dict(stats.budget),
@@ -1265,6 +1272,61 @@ def _admissible(rows: _Rows, lat: np.ndarray, lon: np.ndarray, cfg: _SolverCfg, 
     return ok
 
 
+def _normal_matrix(
+    rows: _Rows, lat: float, lon: float, height: float, whitener: _Whitener
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """``(h, (D S^-1 J)^T, D^-1 J, J^T S^-1 J)`` at ``(lat, lon)``.
+
+    ``h``: the stencil predictions ``[5, m]`` (the point first); ``J``: central
+    differences of ``h`` over 100 m east and north, ``[m, 2]``; ``D = diag(sigma)``.
+    """
+    h = _stencil_predictions(rows, lat, lon, height, _JAC_STEP_M)
+    jac = np.stack([h[1] - h[2], h[3] - h[4]], axis=1) / (2.0 * _JAC_STEP_M)  # d h / d (east, north)
+    jac_n = jac * whitener.inv_sigma[:, None]  # D^-1 J, [m, 2]
+    solved = whitener.solve_normalised(jac_n.T)  # (D S^-1 J)^T, [2, m]
+    return h, solved, jac_n, solved @ jac_n
+
+
+def _escape_saddles(rows: _Rows, fits: Sequence[_Fit], height: float) -> list[_Fit]:
+    """Restart from either side of converged points that fail the observability rule.
+
+    Levenberg-Marquardt stops wherever the gradient of the cost vanishes, which is also
+    true at a saddle whose descent direction the rows' Jacobian cannot see: on the
+    equator under equatorial satellites every row is symmetric in latitude, so a start
+    on the equator converges to the equator, where ``J`` has no north component, while
+    the minima lie north and south of it. For each such point (``J^T S^-1 J`` not
+    positive definite or its one-sigma semi-major above 1e7 m) the start is repeated
+    10 km either side along the unobservable axis (with mirrors, as any start). Those
+    refinements join the candidates; the point itself is dropped when one of them
+    reaches a chi2 lower by more than the tie tolerance, and kept otherwise (a minimum
+    the rows cannot pin down, to which the observability rule then applies).
+    """
+    out: list[_Fit] = []
+    for fit in fits:
+        if not fit.converged:
+            out.append(fit)
+            continue
+        normal = _normal_matrix(rows, fit.lat, fit.lon, height, fit.whitener)[3]
+        if not np.all(np.isfinite(normal)):
+            out.append(fit)
+            continue
+        lam, vec = np.linalg.eigh(0.5 * (normal + normal.T))
+        if lam[0] > 0.0 and 1.0 / np.sqrt(lam[0]) <= _MAX_SEMI_MAJOR_M:
+            out.append(fit)
+            continue
+        deg_e, deg_n = _metres_to_degrees(fit.lat, height)
+        east, north = vec[0, 0], vec[1, 0]  # the weakest direction, metres east / north
+        starts = []
+        for sign in (1.0, -1.0):
+            lat, lon = _fold(fit.lat + sign * _ESCAPE_M * north * deg_n, fit.lon + sign * _ESCAPE_M * east * deg_e)
+            starts.append((float(lat), float(wrap_lon_deg(lon))))
+        escaped = _refine_with_mirrors(rows, starts, height)
+        out.extend(escaped)
+        if not any(e.converged and e.chi2 < fit.chi2 - _CHI2_TIE for e in escaped):
+            out.append(fit)
+    return out
+
+
 @dataclass
 class _Covariance:
     total: np.ndarray
@@ -1287,11 +1349,7 @@ def _covariance_at(
     ``P_total`` to rounding. The observability rule of MATH.md section 9 is applied to
     ``J^T S^-1 J``.
     """
-    h = _stencil_predictions(rows, lat, lon, height, _JAC_STEP_M)
-    jac = np.stack([h[1] - h[2], h[3] - h[4]], axis=1) / (2.0 * _JAC_STEP_M)  # d h / d (east, north)
-    jac_n = jac * whitener.inv_sigma[:, None]  # D^-1 J, [m, 2]
-    solved = whitener.solve_normalised(jac_n.T)  # (D S^-1 J)^T, [2, m]
-    normal = solved @ jac_n  # J^T S^-1 J
+    h, solved, jac_n, normal = _normal_matrix(rows, lat, lon, height, whitener)
     if not np.all(np.isfinite(normal)):
         return None
     lam, vec = np.linalg.eigh(0.5 * (normal + normal.T))

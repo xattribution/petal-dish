@@ -554,26 +554,30 @@ def test_region_feeds_geometry_measurement_windows(pacific: SystemConfig) -> Non
 
 
 def rule_by_the_book(span_hz: float, frame_rate_hz: float) -> tuple[int, int] | None:
-    """ARCHITECTURE section 3, step by step: drop navg one at a time, then halve nfft."""
+    """The derivation rule, step by step: halve nfft (minimum 64) keeping navg = 8, then
+    drop navg one at a time. (ARCHITECTURE section 3 drops navg first; the config keeps
+    navg = 8 as long as it can because the detection threshold is calibrated for it.)"""
     nfft, navg = 1024, 8
-    while navg > 1 and nfft * navg / span_hz > 1.0 / frame_rate_hz:
-        navg -= 1
     while nfft > 64 and nfft * navg / span_hz > 1.0 / frame_rate_hz:
         nfft //= 2
+    while navg > 1 and nfft * navg / span_hz > 1.0 / frame_rate_hz:
+        navg -= 1
     return (nfft, navg) if nfft * navg / span_hz <= 1.0 / frame_rate_hz else None
 
 
 def test_fit_monitor_frame_follows_the_reduction_rule() -> None:
     assert fit_monitor_frame(31250.0) == (1024, 8)  # 0.262 s fits 0.5 s
     assert fit_monitor_frame(16384.0) == (1024, 8)  # exactly 0.5 s
-    assert fit_monitor_frame(16383.0) == (1024, 7)
-    assert fit_monitor_frame(6250.0) == (1024, 3)  # a 5 kHz transponder
-    assert fit_monitor_frame(2048.0) == (1024, 1)
-    assert fit_monitor_frame(1250.0) == (512, 1)  # a 1 kHz transponder: navg = 1 first, then nfft halves
+    assert fit_monitor_frame(16383.0) == (512, 8)
+    assert fit_monitor_frame(6250.0) == (256, 8)  # a 5 kHz transponder
+    assert fit_monitor_frame(2048.0) == (128, 8)
+    assert fit_monitor_frame(1250.0) == (64, 8)  # a 1 kHz transponder: still 8 averages, 19.5 Hz bins
+    assert fit_monitor_frame(1024.0) == (64, 8)  # the narrowest window with 8 averages at 2 frames/s
+    assert fit_monitor_frame(1023.0) == (64, 7)  # only now does navg give way
     assert fit_monitor_frame(128.0) == (64, 1)
     with pytest.raises(ValueError, match="too narrow"):
         fit_monitor_frame(127.0)
-    assert fit_monitor_frame(1000.0, frame_rate_hz=0.5) == (1024, 1)
+    assert fit_monitor_frame(1000.0, frame_rate_hz=0.5) == (128, 8)
     assert fit_monitor_frame(2e6, frame_rate_hz=20.0) == (1024, 8)
     rng = np.random.default_rng(3)
     spans = np.concatenate([10.0 ** rng.uniform(1.5, 6.5, 300), [64.0, 128.0, 1024.0, 2048.0, 8192.0, 16384.0]])
@@ -616,8 +620,8 @@ def test_derived_monitor_span_and_frame_reduction() -> None:
     assert by_id["sat-a:wide"].span_hz == 2e6 and by_id["sat-a:wide"].center_hz == 11.95e9  # central 2 MHz only
     assert by_id["sat-a:mid"].span_hz == 2e6
     assert by_id["sat-a:std"].span_hz == 500e3
-    assert (by_id["sat-a:thin"].span_hz, by_id["sat-a:thin"].nfft, by_id["sat-a:thin"].navg) == (6250.0, 1024, 3)
-    assert (by_id["sat-a:hair"].span_hz, by_id["sat-a:hair"].nfft, by_id["sat-a:hair"].navg) == (1250.0, 512, 1)
+    assert (by_id["sat-a:thin"].span_hz, by_id["sat-a:thin"].nfft, by_id["sat-a:thin"].navg) == (6250.0, 256, 8)
+    assert (by_id["sat-a:hair"].span_hz, by_id["sat-a:hair"].nfft, by_id["sat-a:hair"].navg) == (1250.0, 64, 8)
     for monitor in by_id.values():
         assert monitor.nfft * monitor.navg / monitor.span_hz <= 1.0 / monitor.frame_rate_hz
         assert monitor.frame_duration_s == monitor.nfft * monitor.navg / monitor.span_hz

@@ -21,7 +21,13 @@ Rules enforced here:
   ``span_hz <= max_sample_rate_hz`` of its channel and
   ``nfft * navg / span_hz <= 1 / frame_rate_hz``.
 - A channel without monitors gets one derived window per transponder of each satellite
-  it watches (``derive_monitors``).
+  it watches (``derive_monitors``). Departing from ARCHITECTURE.md section 3, a window
+  too narrow for ``nfft = 1024, navg = 8`` halves ``nfft`` before it gives up averages:
+  the detection threshold is only calibrated for ``navg >= 8`` (``DETECTION_MIN_NAVG``).
+- Every monitor has ``nfft >= 16`` and a frame rate at which
+  ``processing.detection.baseline_tau_s`` spans at least 10 frames: the spectrum
+  tracker (``core.detect.SignalTracker``) refuses anything less, so the configuration
+  does too, naming the field.
 - ``Region``: ``lon_min = -180`` with ``lon_max = 180`` is the full circle; otherwise
   the span runs eastward from ``lon_min`` to ``lon_max`` and wraps the antimeridian
   when ``lon_max < lon_min``.
@@ -52,15 +58,18 @@ from ..core.constants import WGS84_A
 from ..core.geodesy import azel_to_ecef, look_angles, lla_to_ecef
 from ..core.orbits import Orbit as NumericOrbit
 from ..core.orbits import orbit_from_config, orbit_position, tle_checksum
-from ..core.timebase import iso_from_ns, ns_from_datetime, ns_from_iso
+from ..core.timebase import MAX_UNIX_S, iso_from_ns, ns_from_datetime, ns_from_iso
 from ..core.types import Uncertainty
 
 __all__ = [
     "DEFAULT_MONITOR_FRAME_RATE_HZ",
     "DEFAULT_MONITOR_NAVG",
     "DEFAULT_MONITOR_NFFT",
+    "DETECTION_MIN_NAVG",
     "MAX_MONITOR_NFFT",
+    "MIN_BASELINE_FRAMES",
     "MIN_DERIVED_NFFT",
+    "MIN_MONITOR_NFFT",
     "MONITOR_SPAN_FACTOR",
     "Antenna",
     "AzElPointing",
@@ -110,8 +119,18 @@ DEFAULT_MONITOR_NAVG: int = 8
 DEFAULT_MONITOR_FRAME_RATE_HZ: float = 2.0
 MIN_DERIVED_NFFT: int = 64
 """Smallest ``nfft`` a derived monitor is reduced to."""
+MIN_MONITOR_NFFT: int = 16
+"""Smallest ``nfft`` of any monitor: ``core.detect.SignalTracker`` refuses fewer bins."""
 MAX_MONITOR_NFFT: int = 131072
 """Largest ``nfft`` of a monitor (a PSD frame must fit one WebSocket message; PROTOCOL.md)."""
+DETECTION_MIN_NAVG: int = 8
+"""Fewest averages per PSD frame the detection statistics are calibrated for. With fewer,
+noise bins cross ``detection.threshold_db`` far more often and C/N0 reads high (MATH.md
+section 7), so derived monitors keep ``navg = 8`` by shrinking ``nfft`` first and
+``SystemConfig.warnings`` flags any monitor below it."""
+MIN_BASELINE_FRAMES: float = 10.0
+"""``detection.baseline_tau_s`` must span at least this many frame periods of every
+monitor (``core.detect.SignalTracker`` refuses a shorter baseline)."""
 MONITOR_SPAN_FACTOR: float = 1.25
 """A derived monitor spans this many transponder bandwidths (when the channel can sample that fast)."""
 
@@ -264,11 +283,39 @@ class TableSample(_Model):
     v_mps: Vector3
 
 
+class _BuiltOrbit:
+    """A numeric orbit kept next to the table it was built from.
+
+    Not part of the configuration's value: any two compare equal (so model equality is
+    unaffected), copies share it, and ``key`` (the samples' content) decides whether it
+    still matches the table it hangs on.
+    """
+
+    __slots__ = ("key", "orbit")
+
+    def __init__(self, key: tuple[Any, ...], orbit: NumericOrbit) -> None:
+        self.key = key
+        self.orbit = orbit
+
+    def __eq__(self, other: object) -> bool:
+        return other is None or isinstance(other, _BuiltOrbit)
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __copy__(self) -> _BuiltOrbit:
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _BuiltOrbit:
+        return self  # read-only; the key check guards every reuse
+
+
 class TableOrbitModel(_Model):
     """Operator ephemeris table in ECEF, cubic Hermite interpolated; never extrapolated."""
 
     type: Literal["table"]
     samples: list[TableSample] = Field(min_length=2)
+
+    _built: _BuiltOrbit | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _check(self) -> TableOrbitModel:
@@ -279,8 +326,23 @@ class TableOrbitModel(_Model):
                     f"samples[{k}].t: sample times must be strictly increasing "
                     f"({self.samples[k].t} does not follow {self.samples[k - 1].t})"
                 )
-        _require_buildable(self)
+        self.numeric_orbit()
         return self
+
+    def numeric_orbit(self) -> NumericOrbit:
+        """The ``core.orbits`` table orbit of these samples.
+
+        Unpacking a long table (thousands of ISO stamps) takes milliseconds, and every
+        link budget asks for the orbits, so the orbit built at validation is reused for
+        as long as the samples are unchanged (checked by content on every call, about
+        0.2 ms for a day of one-minute samples; an edit in place is picked up).
+        """
+        key = tuple((sample.t, *sample.r_m, *sample.v_mps) for sample in self.samples)
+        built = self._built
+        if built is None or built.key != key:
+            built = _BuiltOrbit(key, orbit_from_config(self))
+            self._built = built
+        return built.orbit
 
 
 OrbitModel = Annotated[
@@ -564,7 +626,7 @@ class Monitor(_Model):
     id: MonitorId
     center_hz: PositiveFloat
     span_hz: PositiveFloat
-    nfft: int = Field(DEFAULT_MONITOR_NFFT, ge=2, le=MAX_MONITOR_NFFT)
+    nfft: int = Field(DEFAULT_MONITOR_NFFT, ge=MIN_MONITOR_NFFT, le=MAX_MONITOR_NFFT)
     navg: int = Field(DEFAULT_MONITOR_NAVG, ge=1)
     frame_rate_hz: PositiveFloat = DEFAULT_MONITOR_FRAME_RATE_HZ
 
@@ -951,8 +1013,13 @@ def fit_monitor_frame(
     """Reduce ``(nfft, navg)`` until a frame fits the frame period.
 
     span_hz: window width and sample rate, Hz. frame_rate_hz: frames per second.
-    ``navg`` is reduced (minimum 1) until ``nfft * navg / span_hz <= 1 / frame_rate_hz``;
-    when even ``navg = 1`` does not fit, ``nfft`` is halved (minimum 64) until it does.
+    ``nfft`` is halved (minimum 64) until ``nfft * navg / span_hz <= 1 / frame_rate_hz``,
+    keeping ``navg`` (8 by default): the detection threshold and the C/N0 estimate are
+    calibrated for at least ``DETECTION_MIN_NAVG`` averages per frame, whereas coarser
+    bins only cost sensitivity to signals narrower than a bin (3 dB per halving for a
+    carrier). Only when ``nfft = 64`` still does not fit is ``navg`` reduced (minimum 1;
+    ``SystemConfig.warnings`` then flags the monitor).
+    (ARCHITECTURE.md section 3 reduces ``navg`` first; see the module notes.)
     Returns ``(nfft, navg)``; raises ValueError when ``nfft = 64, navg = 1`` still does
     not fit (the window is too narrow for the frame rate).
     """
@@ -961,9 +1028,10 @@ def fit_monitor_frame(
     if nfft < MIN_DERIVED_NFFT or navg < 1:
         raise ValueError(f"nfft must be at least {MIN_DERIVED_NFFT} and navg at least 1")
     budget = span_hz * (1.0 + _FIT_RTOL) / frame_rate_hz  # samples that fit one frame period
-    navg = max(1, min(navg, int(budget // nfft)))
     while nfft * navg > budget and nfft // 2 >= MIN_DERIVED_NFFT:
         nfft //= 2
+    if nfft * navg > budget:
+        navg = max(1, int(budget // nfft))
     if nfft * navg > budget:
         raise ValueError(
             f"span_hz = {span_hz:g} Hz is too narrow for frame_rate_hz = {frame_rate_hz:g}: "
@@ -978,7 +1046,8 @@ def derive_monitors(channel: ReceiveChannel, satellites: Iterable[Satellite]) ->
     ``center_hz`` is the transponder's downlink centre and
     ``span_hz = min(1.25 * bandwidth_hz, max_sample_rate_hz)`` (so a transponder wider
     than the channel can sample is monitored over its central ``max_sample_rate_hz``
-    only); ``nfft`` and ``navg`` follow ``fit_monitor_frame`` at 2 frames per second.
+    only); ``nfft`` and ``navg`` follow ``fit_monitor_frame`` at 2 frames per second
+    (``navg = 8`` kept down to spans of 1024 Hz, ``nfft`` halved instead).
     Monitor ids are ``<satellite id>:<transponder id>``. Watched satellites that share
     a downlink plan would give identical windows; each distinct ``(center_hz, span_hz)``
     is monitored once, under the first satellite that has it.
@@ -1104,8 +1173,37 @@ class SystemConfig(_Model):
                 channels.append(fresh)
             sites.append(site.model_copy(update={"channels": channels}))
         problems.raise_if_any()
+        self._check_baseline_span(sites, problems)
+        problems.raise_if_any()
         self.sites = sites
         return self
+
+    def _check_baseline_span(self, sites: Sequence[Site], problems: _Problems) -> None:
+        """``baseline_tau_s * frame_rate_hz >= 10`` for every monitor (the spectrum tracker
+        refuses a baseline shorter than 10 frame periods). A configured monitor is named at
+        its ``frame_rate_hz``; derived monitors (2 frames per second) are reported once, at
+        ``processing.detection.baseline_tau_s``."""
+        tau = self.processing.detection.baseline_tau_s
+        derived_reported = False
+        for s, site in enumerate(sites):
+            for c, channel in enumerate(site.channels):
+                for m, monitor in enumerate(channel.monitors):
+                    frames = tau * monitor.frame_rate_hz
+                    if frames >= MIN_BASELINE_FRAMES:
+                        continue
+                    message = (
+                        f"processing.detection.baseline_tau_s = {tau:g} s spans only {frames:.3g} frame "
+                        f"periods of monitor {monitor.id!r} (frame_rate_hz = {monitor.frame_rate_hz:g}); "
+                        f"the detection baseline needs at least {MIN_BASELINE_FRAMES:g}"
+                    )
+                    if channel._monitors_derived:
+                        if not derived_reported:
+                            problems.add(("processing", "detection", "baseline_tau_s"), message, tau)
+                            derived_reported = True
+                    else:
+                        problems.add(
+                            ("sites", s, "channels", c, "monitors", m, "frame_rate_hz"), message, monitor.frame_rate_hz
+                        )
 
     def _check_unique_ids(self, problems: _Problems) -> None:
         def unique(entries: Iterable[tuple[_Loc, str]], what: str) -> None:
@@ -1220,16 +1318,16 @@ class SystemConfig(_Model):
 
     def orbit(self, sat_id: str) -> NumericOrbit:
         """The numeric orbit of one satellite (``core.orbits``), built with ``dut1_s``."""
-        return orbit_from_config(self.satellite(sat_id).orbit, self.dut1_s)
+        return _numeric_orbit(self.satellite(sat_id).orbit, self.dut1_s)
 
     def orbits(self) -> dict[str, NumericOrbit]:
         """The numeric orbit of every satellite: ``dict[sat_id, Orbit]``.
 
-        Built from the configuration on every call; hold on to the result.
+        ``tle``, ``geo`` and ``kepler`` orbits are built from the configuration on every
+        call (microseconds each); a ``table`` orbit is built once and reused while its
+        samples are unchanged (``TableOrbitModel.numeric_orbit``). A new dict each call.
         """
-        return {
-            satellite.id: orbit_from_config(satellite.orbit, self.dut1_s) for satellite in self.satellites
-        }
+        return {satellite.id: _numeric_orbit(satellite.orbit, self.dut1_s) for satellite in self.satellites}
 
     def boresight_ecef(self, channel_id: str, t_s: Any) -> np.ndarray:
         """Unit ECEF vector along the boresight of a channel's antenna at Unix seconds ``t_s``.
@@ -1363,12 +1461,20 @@ class SystemConfig(_Model):
         """Things that are valid but deserve the operator's attention: ``[{"loc", "msg"}]``
         (the shape of ``field_errors``).
 
-        - a parabolic antenna under 3 wavelengths at a downlink it watches (it behaves
-          as a reflector with a broad beam, not as a focusing dish);
+        - a parabolic antenna under 3 wavelengths at its operating frequency (it behaves
+          as a reflector with a broad beam, not as a focusing dish): a receive channel's
+          dish at the lowest frequency it works at (the downlink centres of the
+          transponders of the satellites it watches and the centres of its monitors),
+          one note per channel; a carrier emitter's dish at the carrier's uplink centre;
         - with ``t_s`` (Unix seconds) given: a watched satellite that is not above the
-          site's horizon at that time (its downlink never appears in the channel);
+          site's horizon at that time (its downlink never appears in the channel), and a
+          satellite whose orbit cannot be evaluated then (an ephemeris table that does not
+          cover ``t_s``; its channels get no horizon note);
         - a carrier whose allocation reaches beyond the uplink passband of its
           transponder (it is relayed, its centre being inside, but not all of it);
+        - a monitor with fewer than ``DETECTION_MIN_NAVG`` (8) averages per frame: the
+          detection threshold and the C/N0 estimate are calibrated for at least 8
+          (MATH.md section 7), so such a window raises false alarms or misses;
         - a channel with configured (not derived) monitors none of which overlaps the
           downlink passband of a transponder of a satellite it watches: nothing on that
           transponder can be detected through the channel. Configured monitors do not
@@ -1377,7 +1483,22 @@ class SystemConfig(_Model):
         """
         notes: list[dict[str, str]] = []
         sats = {satellite.id: satellite for satellite in self.satellites}
-        orbits = self.orbits() if t_s is not None else {}
+        positions: dict[str, np.ndarray | None] = {}
+        if t_s is not None:
+            t = float(t_s)
+            if not (math.isfinite(t) and abs(t) <= MAX_UNIX_S):
+                raise ValueError(f"t_s must be finite Unix seconds (not nanoseconds), got {t_s!r}")
+            for k, satellite in enumerate(self.satellites):
+                try:
+                    positions[satellite.id] = orbit_position(_numeric_orbit(satellite.orbit, self.dut1_s), t)
+                except ValueError as exc:
+                    positions[satellite.id] = None
+                    notes.append(
+                        {
+                            "loc": f"satellites.{k}.orbit",
+                            "msg": f"satellite {satellite.id!r}: the orbit cannot be evaluated at t_s = {t!r} ({exc})",
+                        }
+                    )
         for k, carrier in enumerate(self.carriers):
             transponder = sats[carrier.satellite_id].transponder(carrier.transponder_id)
             if (
@@ -1392,9 +1513,46 @@ class SystemConfig(_Model):
                         f"({transponder.uplink_lo_hz:.0f} to {transponder.uplink_hi_hz:.0f} Hz)",
                     }
                 )
+            if (
+                carrier.emitter is not None
+                and carrier.emitter.antenna.type == "parabolic"
+                and electrically_small(carrier.emitter.antenna, carrier.uplink_center_hz)
+            ):
+                notes.append(
+                    {
+                        "loc": f"carriers.{k}.emitter.antenna",
+                        "msg": f"carrier {carrier.id!r}: a {carrier.emitter.antenna.diameter_m:g} m dish is under "
+                        f"3 wavelengths at {carrier.uplink_center_hz / 1e6:.3f} MHz; it behaves as a reflector "
+                        "with a broad beam, not as a focusing dish",
+                    }
+                )
         for s, site in enumerate(self.sites):
             for c, channel in enumerate(site.channels):
                 base = f"sites.{s}.channels.{c}"
+                for monitor in channel.monitors:
+                    if monitor.navg < DETECTION_MIN_NAVG:
+                        notes.append(
+                            {
+                                "loc": f"{base}.monitors",
+                                "msg": f"channel {channel.id!r}: monitor {monitor.id!r} averages only "
+                                f"navg = {monitor.navg} spectra per frame; the detection threshold and the "
+                                f"C/N0 estimate assume at least {DETECTION_MIN_NAVG} (more false alarms, "
+                                "C/N0 reads high)",
+                            }
+                        )
+                if channel.antenna.type == "parabolic":
+                    working = [
+                        tp.downlink_center_hz for sat_id in channel.watched_satellite_ids for tp in sats[sat_id].transponders
+                    ] + [monitor.center_hz for monitor in channel.monitors]
+                    if working and electrically_small(channel.antenna, min(working)):
+                        notes.append(
+                            {
+                                "loc": f"{base}.antenna",
+                                "msg": f"channel {channel.id!r}: a {channel.antenna.diameter_m:g} m dish is "
+                                f"under 3 wavelengths at {min(working) / 1e6:.3f} MHz; it behaves as a "
+                                "reflector with a broad beam, not as a focusing dish",
+                            }
+                        )
                 if not channel.monitors_derived:
                     windows = [
                         (monitor.center_hz - 0.5 * monitor.span_hz, monitor.center_hz + 0.5 * monitor.span_hz)
@@ -1413,20 +1571,9 @@ class SystemConfig(_Model):
                                     }
                                 )
                 for sat_id in channel.watched_satellite_ids:
-                    downlinks = [tp.downlink_center_hz for tp in sats[sat_id].transponders]
-                    if downlinks and channel.antenna.type == "parabolic":
-                        lowest = min(downlinks)
-                        if electrically_small(channel.antenna, lowest):
-                            notes.append(
-                                {
-                                    "loc": f"{base}.antenna",
-                                    "msg": f"channel {channel.id!r}: a {channel.antenna.diameter_m:g} m dish is "
-                                    f"under 3 wavelengths at {lowest / 1e6:.3f} MHz ({sat_id}); it behaves as a "
-                                    "reflector with a broad beam, not as a focusing dish",
-                                }
-                            )
-                    if t_s is not None:
-                        elevation = float(look_angles(site.xyz(), orbit_position(orbits[sat_id], float(t_s)))[1])
+                    position = positions.get(sat_id)
+                    if position is not None:
+                        elevation = float(look_angles(site.xyz(), position)[1])
                         if elevation <= 0.0:
                             notes.append(
                                 {
@@ -1436,6 +1583,13 @@ class SystemConfig(_Model):
                                 }
                             )
         return notes
+
+
+def _numeric_orbit(model: Any, dut1_s: float) -> NumericOrbit:
+    """Numeric orbit of an orbit model; tables reuse their built orbit (ECEF, no ``dut1_s``)."""
+    if isinstance(model, TableOrbitModel):
+        return model.numeric_orbit()
+    return orbit_from_config(model, dut1_s)
 
 
 def _dotted(loc: Sequence[Union[str, int]]) -> str:

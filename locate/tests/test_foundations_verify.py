@@ -12,7 +12,12 @@ Nothing here is compared with the implementation's own output. The references ar
   crossing with a bracketing root finder;
 - two phase histories built from those events (emitter phase at the emission time plus
   transponder oscillator phase at the satellite time minus receiver oscillator phase
-  at the reception time), differentiated with an 8th-order stencil.
+  at the reception time), differentiated with an 8th-order stencil;
+- for the search windows, the real configuration ``Region`` and the shipped configs,
+  against a dense scan of the region with the mask contours located by bisection along
+  every scan line and the corners where two contours meet located by Newton's method
+  (what is independent there is the admissible set; the values at its points come from
+  ``predict_pair``, which the phase-history tests above check on their own).
 """
 from __future__ import annotations
 
@@ -20,11 +25,13 @@ import datetime as dt
 import math
 import time
 from fractions import Fraction
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
 import numpy as np
 import pytest
+from pydantic import TypeAdapter
 from scipy.integrate import quad, solve_ivp
 from scipy.interpolate import CubicHermiteSpline
 from scipy.optimize import brentq
@@ -33,6 +40,8 @@ from sgp4 import exporter
 from sgp4.api import WGS72, Satrec, jday
 from sgp4.propagation import gstime
 
+from petal_locate.config.loader import load_config
+from petal_locate.config.models import OrbitModel, Region
 from petal_locate.core import geodesy as gd
 from petal_locate.core import geometry as gm
 from petal_locate.core import orbits as ob
@@ -1026,6 +1035,10 @@ PREDICT_ORBITS: dict[str, Any] = {
     "l2": ob.KeplerOrbit(7.1e6, 0.002, 60.0, 100.0, 10.0, 200.0, EPOCH_ISO),
     "t1": ob.TleOrbit(*TLE_GEO_LINES),
     "t2": ob.TleOrbit(*TLE_LEO_LINES),
+    # what the simulator truth and the solver's consider partials evaluate: a base orbit
+    # displaced in RIC (MATH.md section 2), with a TLE and a low Kepler base
+    "p1": ob.PerturbedOrbit(ob.TleOrbit(*TLE_GEO_LINES), [2000.0, 20000.0, 10000.0], [0.3, 0.3, 0.7], TLE_EPOCH + 4000.0),
+    "p2": ob.PerturbedOrbit(ob.KeplerOrbit(7.0e6, 0.001, 98.0, 30.0, 40.0, 50.0, EPOCH_ISO), [100.0, -2000.0, 500.0], [0.1, -0.5, 0.2], T_LEO - 50.0),
 }
 PREDICT_CASES = [
     ("geo-geo", PathSpec("s1", "hnl", 300e6, -41e6, 1e-3), PathSpec("s2", "tyo", 300e6, -33.6e6, 2e-3), T_GEO),
@@ -1037,6 +1050,8 @@ PREDICT_CASES = [
     ("leo-geo", PathSpec("l1", "hnl", 300e6, -41e6, 1e-3), PathSpec("s2", "tyo", 300e6, -33.6e6), T_LEO),
     ("tle-geo-leo", PathSpec("t1", "hnl", 300e6, -41e6, 1e-3), PathSpec("t2", "tyo", 300e6, -33.6e6), TLE_EPOCH + 5000.0),
     ("tle-leo-geo", PathSpec("t2", "hnl", 300e6, -41e6, 1e-3), PathSpec("t1", "tyo", 300e6, -33.6e6), TLE_EPOCH + 5000.0),
+    ("perturbed-tle-geo", PathSpec("p1", "hnl", 300e6, -41e6, 1e-3), PathSpec("s2", "tyo", 300e6, -33.6e6), TLE_EPOCH + 5000.0),
+    ("perturbed-leo-leo", PathSpec("p2", "hnl", 300e6, -41e6, 1e-3), PathSpec("l2", "tyo", 300e6, -33.6e6), T_LEO),
 ]
 
 
@@ -1380,3 +1395,255 @@ def test_geometry_rejects_bad_input_naming_the_field() -> None:
             call()
     # TDOA does not need the frequencies and must not start requiring them
     assert np.isfinite(gm.predict_tdoa(EMITTER, PathSpec("s1", "hnl", np.nan, np.nan), b, T_GEO, PREDICT_ORBITS, SITES))
+
+
+# ============================================================================ windows on the real configuration
+
+
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+PACIFIC = load_config(CONFIG_DIR / "pacific-uhf.yaml")
+LEO_CONFIG = load_config(CONFIG_DIR / "leo-example.yaml")
+T_PAC = EPOCH + 86400.0 * 59 + 7.3 * 3600.0  # 2026-03-01T07:18Z
+
+
+def elevation_grid(lat_deg: Any, lon_deg: Any, height: float, sat: np.ndarray) -> np.ndarray:
+    """Elevation (deg) of ``sat`` from geodetic points: the textbook ellipsoid normal, vectorised."""
+    lat, lon = np.radians(lat_deg), np.radians(lon_deg)
+    up = np.stack(np.broadcast_arrays(np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)), axis=-1)
+    d = sat - gd.lla_to_ecef(lat_deg, lon_deg, height)
+    return np.degrees(np.arcsin(np.clip(np.sum(d * up, axis=-1) / np.linalg.norm(d, axis=-1), -1.0, 1.0)))
+
+
+def admissible_truth(sats: list[np.ndarray], region: Any, mask: float, height: float, fine: float) -> tuple[np.ndarray, np.ndarray]:
+    """Emitter positions that see every satellite in ``sats`` from inside ``region``.
+
+    A scan of the region ``fine`` degrees apart (its edges included), plus the exact points
+    where each satellite's mask contour crosses every scan line (bisection, 45 halvings),
+    plus the exact corners where two contours meet (Newton's method from every scan cell in
+    which both satellites' elevations cross the mask). The extremes of a smooth function
+    over the admissible area sit on the area's edge or inside it; the scan covers the
+    inside, the crossings and corners the edge. Returns ECEF ``[K, 3]`` and the corners
+    ``[J, 2]`` (lat, lon degrees)."""
+    span = region.lon_span_deg()
+    lat = np.append(np.arange(region.lat_min, region.lat_max, fine), region.lat_max)
+    lon = region.lon_min + np.arange(0.0, 360.0, fine) if span >= 360.0 else np.append(region.lon_min + np.arange(0.0, span, fine), region.lon_min + span)
+    grid_lat, grid_lon = np.meshgrid(lat, lon, indexing="ij")
+    g = np.stack([elevation_grid(grid_lat, grid_lon, height, s) - mask for s in sats])
+
+    def g_of(k: int, la: Any, lo: Any) -> np.ndarray:
+        return elevation_grid(la, lo, height, sats[k]) - mask
+
+    found = [np.stack([grid_lat[np.all(g >= 0.0, axis=0)], grid_lon[np.all(g >= 0.0, axis=0)]], axis=-1)]
+    for k in range(len(sats)):
+        for along_lon in (True, False):
+            above = g[k] >= 0.0
+            if along_lon:
+                i, j = np.nonzero(above[:, :-1] != above[:, 1:])
+                fixed, lo_v, hi_v = grid_lat[i, 0], grid_lon[i, j], grid_lon[i, j + 1]
+                f = lambda v, k=k, fixed=fixed: g_of(k, fixed, v)
+            else:
+                i, j = np.nonzero(above[:-1, :] != above[1:, :])
+                fixed, lo_v, hi_v = grid_lon[0, j], grid_lat[i, j], grid_lat[i + 1, j]
+                f = lambda v, k=k, fixed=fixed: g_of(k, v, fixed)
+            if i.size == 0:
+                continue
+            sign_lo = f(lo_v) >= 0.0
+            for _ in range(45):
+                mid = 0.5 * (lo_v + hi_v)
+                same = (f(mid) >= 0.0) == sign_lo
+                lo_v, hi_v = np.where(same, mid, lo_v), np.where(same, hi_v, mid)
+            v = 0.5 * (lo_v + hi_v)
+            found.append(np.stack([fixed, v], axis=-1) if along_lon else np.stack([v, fixed], axis=-1))
+    corners = np.zeros((0, 2))
+    if len(sats) == 2:
+        def crosses(a: np.ndarray) -> np.ndarray:
+            c = np.stack([a[:-1, :-1], a[1:, :-1], a[:-1, 1:], a[1:, 1:]]) >= 0.0
+            return np.any(c, axis=0) & ~np.all(c, axis=0)
+
+        i, j = np.nonzero(crosses(g[0]) & crosses(g[1]))
+        if i.size:
+            x = np.stack([grid_lat[i, j] + 0.5 * fine, grid_lon[i, j] + 0.5 * fine], axis=-1)
+            d = 1e-6
+            for _ in range(12):
+                la, lo = np.clip(x[:, 0], -90.0, 90.0), x[:, 1]
+                f0 = np.stack([g_of(0, la, lo), g_of(1, la, lo)], axis=-1)
+                d_lat = (np.stack([g_of(0, la + d, lo), g_of(1, la + d, lo)], axis=-1) - f0) / d
+                d_lon = (np.stack([g_of(0, la, lo + d), g_of(1, la, lo + d)], axis=-1) - f0) / d
+                det = d_lat[:, 0] * d_lon[:, 1] - d_lon[:, 0] * d_lat[:, 1]
+                x = x - np.stack(
+                    [(f0[:, 0] * d_lon[:, 1] - d_lon[:, 0] * f0[:, 1]) / det, (d_lat[:, 0] * f0[:, 1] - f0[:, 0] * d_lat[:, 1]) / det], axis=-1
+                )
+            good = np.all(np.isfinite(x), axis=-1) & (np.abs(x[:, 0]) <= 90.0)
+            la, lo = x[good, 0], x[good, 1]
+            seed = np.stack([grid_lat[i, j], grid_lon[i, j]], axis=-1)[good] + 0.5 * fine
+            keep = (np.maximum(np.abs(g_of(0, la, lo)), np.abs(g_of(1, la, lo))) < 1e-9) & np.all(np.abs(np.stack([la, lo], -1) - seed) < 2 * fine, axis=-1)
+            keep &= np.asarray(region.contains(la, lo), dtype=bool)
+            corners = np.stack([la[keep], lo[keep]], axis=-1)
+            found.append(corners)
+    pts = np.concatenate(found)
+    ok = np.asarray(region.contains(pts[:, 0], pts[:, 1]), dtype=bool)
+    for k in range(len(sats)):
+        ok &= g_of(k, pts[:, 0], pts[:, 1]) >= -1e-9
+    return gd.lla_to_ecef(pts[ok, 0], pts[ok, 1], height), corners
+
+
+def window_against_truth(window: Any, x: np.ndarray, a: PathSpec, b: PathSpec, t: float, orbits: Any, sites: Any) -> tuple[float, float, float, float]:
+    """Every admissible prediction lies in the window; returns (slack_t, span_t, slack_f, span_f)."""
+    assert window is not None
+    tdoa, fdoa = gm.predict_pair(x, a, b, t, orbits, sites)
+    (t_lo, t_hi), (f_lo, f_hi) = window
+    # tolerances are rounding only (a region corner is formed slightly differently on each side)
+    assert t_lo <= tdoa.min() + 1e-15 and tdoa.max() <= t_hi + 1e-15
+    assert f_lo <= fdoa.min() + 1e-7 and fdoa.max() <= f_hi + 1e-7
+    return (t_hi - t_lo) - float(np.ptp(tdoa)), float(np.ptp(tdoa)), (f_hi - f_lo) - float(np.ptp(fdoa)), float(np.ptp(fdoa))
+
+
+PACIFIC_PAIRS = [
+    (PathSpec("muos-pac", "honolulu", 301e6, -41e6), PathSpec("uhf-172e", "tokyo", 301e6, -33.6e6)),
+    (PathSpec("muos-pac", "tokyo", 301e6, -41e6), PathSpec("muos-io", "tokyo", 301e6, -41e6)),  # co-channel, 108 deg apart
+    (PathSpec("muos-io", "manila", 301e6, -41e6), PathSpec("uhf-172e", "seoul", 301e6, -33.6e6)),
+]
+
+
+@pytest.mark.parametrize("pair", PACIFIC_PAIRS, ids=lambda p: f"{p[0].sat_id}-{p[1].sat_id}")
+@pytest.mark.parametrize("mask", [0.0, 10.0])
+def test_measurement_windows_on_the_shipped_pacific_config_against_brute_force(pair: tuple[PathSpec, PathSpec], mask: float) -> None:
+    a, b = pair
+    region = PACIFIC.processing.region
+    assert isinstance(region, Region) and region.lon_min > region.lon_max  # 60 E eastward to 120 W: wraps
+    orbits, sites = PACIFIC.orbits(), PACIFIC.sites_xyz()
+    x, _ = admissible_truth([orbits[p.sat_id].position_ecef(T_PAC) for p in (a, b)], region, mask, 0.0, 0.25)
+    assert x.shape[0] > 20000
+    window = gm.measurement_windows(a, b, T_PAC, orbits, sites, region, mask)
+    slack_t, span_t, slack_f, span_f = window_against_truth(window, x, a, b, T_PAC, orbits, sites)
+    # a bound, wider than the true extremes by about a cell where a horizon crosses the grid
+    assert slack_t < 0.12 * span_t + 2e-4
+    assert slack_f < 0.05 * span_f + 0.5
+
+
+@pytest.mark.parametrize("minutes", [0.0, 215.0, 743.0])
+@pytest.mark.parametrize("mask", [0.0, 15.0])
+def test_measurement_windows_on_the_shipped_leo_config_against_brute_force(minutes: float, mask: float) -> None:
+    a, b = PathSpec("leo-a", "naha", 435.1e6, -289.2e6), PathSpec("leo-b", "naha", 435.1e6, -289.2e6)
+    region, orbits, sites = LEO_CONFIG.processing.region, LEO_CONFIG.orbits(), LEO_CONFIG.sites_xyz()
+    t = EPOCH + 60.0 * minutes
+    x, corners = admissible_truth([orbits[p.sat_id].position_ecef(t) for p in (a, b)], region, mask, 0.0, 0.1)
+    assert x.shape[0] > 5000 and corners.shape[0] > 0  # the two footprints meet inside the region
+    window = gm.measurement_windows(a, b, t, orbits, sites, region, mask)
+    slack_t, span_t, slack_f, span_f = window_against_truth(window, x, a, b, t, orbits, sites)
+    assert slack_t < 0.1 * span_t + 1e-4
+    assert slack_f < 0.1 * span_f + 50.0
+
+
+def test_measurement_windows_on_a_full_circle_region_and_a_polar_cap() -> None:
+    a, b = PACIFIC_PAIRS[0]
+    orbits, sites = PACIFIC.orbits(), PACIFIC.sites_xyz()
+    region = Region()  # default: every longitude, the grid wraps at the antimeridian
+    assert region.lon_span_deg() == 360.0
+    x, _ = admissible_truth([orbits[p.sat_id].position_ecef(T_PAC) for p in (a, b)], region, 5.0, 0.0, 0.25)
+    window_against_truth(gm.measurement_windows(a, b, T_PAC, orbits, sites, region, 5.0), x, a, b, T_PAC, orbits, sites)
+    # two polar satellites near the north pole and a region whose top grid row is the pole
+    polar = {
+        "p1": ob.KeplerOrbit(7.0e6, 0.0, 90.0, 0.0, 0.0, 85.0, EPOCH_ISO, j2=False),
+        "p2": ob.KeplerOrbit(7.0e6, 0.0, 90.0, 20.0, 0.0, 80.0, EPOCH_ISO, j2=False),
+    }
+    cap = Region(lat_min=70.0, lat_max=90.0)
+    pa, pb = PathSpec("p1", "g", 3e8, -4e7), PathSpec("p2", "g", 3e8, -4e7)
+    psites = {"g": gd.lla_to_ecef(75.0, 20.0, 0.0)}
+    x, _ = admissible_truth([polar[k].position_ecef(EPOCH) for k in polar], cap, 0.0, 0.0, 0.15)
+    assert x.shape[0] > 100000
+    window_against_truth(gm.measurement_windows(pa, pb, EPOCH, polar, psites, cap), x, pa, pb, EPOCH, polar, psites)
+
+
+def circular(h: float, inc: float, raan: float, mean_anomaly: float) -> Any:
+    return ob.KeplerOrbit(WGS84_A + h, 0.0, inc, raan, 0.0, mean_anomaly, EPOCH_ISO, j2=False)
+
+
+# (id, h1, h2, inc, raan1, raan2, m1, m2, mask, height, region box, site, scan step, grid point inside)
+SMALL_AREA_CASES = [
+    # a lens 0.36 x 5.8 deg between two 500 km satellites, placed between the grid columns;
+    # FDOA peaks inside it, off its edge
+    ("equatorial-lens", 500e3, 500e3, 0.0, 0.0, 0.0, 100.0, 143.6, 0.0, 0.0, (-4.0, 3.7205, 20.8585, 24.139), (0.0, 21.139), 0.01, False),
+    # tilted lenses from a randomised search; the extremes are at the corners where the contours meet
+    ("tilted-lens", 1149823.0, 1149823.0, 53.0, 34.4723, 34.4723, 103.6702, 167.5159, 0.0, 3000.0, (26.8083, 41.5004, 74.4157, 92.1699), (34.154, 83.293), 0.035, False),
+    ("unequal-heights-lens", 608714.2, 517739.4, 30.0, 78.8639, 78.8639, 332.631, 378.9159, 0.0, 3000.0, (-6.6942, 2.4421, -30.0302, -20.8876), (-2.126, -25.459), 0.02, False),
+    # a region smaller than two grid steps: FDOA peaks inside a cell, so the curvature pad is needed
+    ("small-region", 1432829.5, 1432829.5, 98.0, 119.8802, 121.6579, 161.0193, 213.9535, 10.0, 0.0, (-8.9363, -5.9744, -162.4901, -159.5029), (-7.455, -160.997), 0.006, True),
+]
+
+
+@pytest.mark.parametrize("case", SMALL_AREA_CASES, ids=lambda c: c[0])
+def test_measurement_windows_bound_small_co_visible_areas_of_low_satellites(case: tuple[Any, ...]) -> None:
+    """Before the fix these four missed real emitters by 5 ns to 137 ns and 0.02 Hz to 0.09 Hz:
+    the edge of a lens with no grid point was bracketed on chords (short of the corners) and
+    nothing inside the lens was evaluated; a region under two steps across had no curvature pad."""
+    _, h1, h2, inc, raan1, raan2, m1, m2, mask, height, box, site, fine, grid_inside = case
+    orbits = {"q1": circular(h1, inc, raan1, m1), "q2": circular(h2, inc, raan2, m2)}
+    region = Region(lat_min=box[0], lat_max=box[1], lon_min=box[2], lon_max=box[3])
+    sites = {"g": gd.lla_to_ecef(site[0], site[1], 0.0)}
+    a, b = PathSpec("q1", "g", 300e6, -40e6), PathSpec("q2", "g", 300e6, -40e6)
+    sats = [orbits[k].position_ecef(EPOCH) for k in ("q1", "q2")]
+    # the grid documented by measurement_windows: 1/8 of the lowest height, halved below 5 points per axis
+    step = min(2.0, 0.125 * math.degrees((min(np.linalg.norm(s) for s in sats) - WGS84_A - height) / WGS84_A))
+    lat, lon = region.grid(step)
+    while lat.size < 5 or lon.size < 5:
+        step *= 0.5
+        lat, lon = region.grid(step)
+    grid_lat, grid_lon = np.meshgrid(lat, lon, indexing="ij")
+    on_grid = (elevation_grid(grid_lat, grid_lon, height, sats[0]) >= mask) & (elevation_grid(grid_lat, grid_lon, height, sats[1]) >= mask)
+    assert bool(np.any(on_grid)) == grid_inside
+    x, _ = admissible_truth(sats, region, mask, height, fine)
+    assert x.shape[0] > 200
+    window_against_truth(gm.measurement_windows(a, b, EPOCH, orbits, sites, region, mask, height), x, a, b, EPOCH, orbits, sites)
+
+
+def test_search_windows_from_the_real_config_models() -> None:
+    caf, unc, settings = PACIFIC.processing.caf, PACIFIC.resolved_uncertainty(), PACIFIC.processing.uncertainty
+    geo = ((-0.012, 0.004), (-35.0, 22.0))
+    a, b = PACIFIC_PAIRS[0]
+    clock = [PACIFIC.site(p.site_id).clock.sigma_ns * 1e-9 for p in (a, b)]
+    pad_t = caf.delay_margin_s + 3 * math.sqrt(clock[0] ** 2 + clock[1] ** 2 + (settings.tdoa_bias_ns * 1e-9) ** 2)
+    pad_f = caf.doppler_margin_hz + 3 * math.sqrt(
+        sum((settings.sat_osc_frac * p.translation_hz) ** 2 + (settings.site_osc_frac * (p.f_e_hz + p.translation_hz)) ** 2 for p in (a, b))
+    )
+    assert pad_t > caf.delay_margin_s and pad_f > caf.doppler_margin_hz + 100.0  # the systematics count
+    delay, doppler = gm.search_windows(geo, a, b, caf, unc)
+    assert delay == pytest.approx((-0.012 - pad_t, 0.004 + pad_t), rel=1e-12)
+    assert doppler == pytest.approx((-35.0 - pad_f, 22.0 + pad_f), rel=1e-12)
+    # one site, one translation, two satellites: no clock term, no site-oscillator term
+    a2, b2 = PACIFIC_PAIRS[1]
+    delay, doppler = gm.search_windows(geo, a2, b2, caf, unc)
+    pad_t2 = caf.delay_margin_s + 3 * settings.tdoa_bias_ns * 1e-9
+    pad_f2 = caf.doppler_margin_hz + 3 * math.sqrt(2.0) * settings.sat_osc_frac * 41e6
+    assert delay == pytest.approx((-0.012 - pad_t2, 0.004 + pad_t2), rel=1e-12)
+    assert doppler == pytest.approx((-35.0 - pad_f2, 22.0 + pad_f2), rel=1e-12)
+    # a valid calibration of the pair: shifted by its correction, fixed margins only
+    delay, doppler = gm.search_windows(geo, a, b, caf, unc, {"tdoa": 2e-7, "fdoa": -12.5})
+    assert delay == pytest.approx((-0.012 + 2e-7 - caf.delay_margin_s, 0.004 + 2e-7 + caf.delay_margin_s), rel=1e-12)
+    assert doppler == pytest.approx((-35.0 - 12.5 - caf.doppler_margin_hz, 22.0 - 12.5 + caf.doppler_margin_hz), rel=1e-12)
+
+
+def test_orbit_from_config_with_the_real_pydantic_models() -> None:
+    adapter = TypeAdapter(OrbitModel)
+    tle = ob.orbit_from_config(adapter.validate_python({"type": "tle", "line1": TLE_GEO_LINES[0], "line2": TLE_GEO_LINES[1]}), dut1_s=-0.21)
+    t = TLE_EPOCH + 4321.0
+    assert np.max(np.abs(tle.position_ecef(t) - teme_to_ecef_reference(TLE_GEO_LINES, t, -0.21)[0])) < 2e-6
+    kepler = ob.orbit_from_config(
+        adapter.validate_python({"type": "kepler", "a_m": 7.0e6, "e": 0.001, "inc_deg": 98.0, "raan_deg": 30.0, "argp_deg": 40.0, "mean_anomaly_deg": 50.0, "epoch": EPOCH_ISO}),
+        dut1_s=0.3,
+    )
+    want = kepler_reference(7.0e6, 0.001, *np.radians([98.0, 30.0, 40.0, 50.0]), 1000.0, True, 0.3)
+    assert np.max(np.abs(kepler.position_ecef(EPOCH + 1000.0) - want)) < 2e-5
+    geo = ob.orbit_from_config(adapter.validate_python({"type": "geo", "lon_deg": 172.0, "inclination_deg": 4.0, "phase_deg": 200.0}))
+    a = (GM / OMEGA_E**2) ** (1.0 / 3.0)
+    u = math.radians(200.0) + OMEGA_E * 10800.0
+    r_i = rot_z(math.radians(172.0 - 200.0)) @ rot_x(math.radians(4.0)) @ np.array([a * math.cos(u), a * math.sin(u), 0.0])
+    assert np.max(np.abs(geo.position_ecef(EPOCH + 10800.0) - rot_z(-OMEGA_E * 10800.0) @ r_i)) < 2e-6
+    assert np.array_equal(PACIFIC.orbits()["muos-pac"].position_ecef(T_PAC), ob.GeoOrbit(-177.0, 5.0, EPOCH_ISO, 40.0).position_ecef(T_PAC))
+    base = ob.KeplerOrbit(7.0e6, 0.001, 98.0, 30.0, 40.0, 50.0, EPOCH_ISO)
+    nodes = T_LEO + np.arange(-3, 4) * 10.0
+    r, v = base.state_ecef(nodes)
+    samples = [{"t": tb.iso_from_ns(int(round(n)) * 10**9), "r_m": rr.tolist(), "v_mps": vv.tolist()} for n, rr, vv in zip(nodes, r, v)]
+    table = ob.orbit_from_config(adapter.validate_python({"type": "table", "samples": samples}))
+    query = T_LEO + np.array([-29.5, -3.25, 0.0, 17.0])
+    assert np.max(np.abs(table.position_ecef(query) - CubicHermiteSpline(nodes - T_LEO, r, v, axis=0)(query - T_LEO))) < 5e-9

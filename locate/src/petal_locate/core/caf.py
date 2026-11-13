@@ -105,8 +105,15 @@ class CafResult:
     sigma_tdoa_s, sigma_fdoa_hz: one-sigma errors (s, Hz) from the normalised peak;
         None when not detected or not finite (for example the delay of a CW). Never
         below 2e-4 sample and 2e-4 / T, the numerical accuracy of the fine search.
-    rho_tf: correlation coefficient of the delay and Doppler errors (-1..1), from the
-        curvature of ``|chi|^2`` at the peak; 0.0 when not available.
+        Delay-Doppler coupling widens them as `crlb.sigmas_from_coherence` describes
+        (more than MATH.md's 1 / sqrt(1 - rho_tf^2) when both channels are noisy).
+    rho_tf: delay-Doppler correlation of the curvature of ``|chi|^2`` at the peak
+        (-1..1; MATH.md section 6 item 4), positive when the Doppler error follows the
+        delay error; 0.0 when not available. It is the time-frequency correlation of
+        the waveform (1 / m for m linear sweeps across the capture) and equals the
+        correlation of the two errors when one channel is free of noise; with noise in
+        both channels the errors correlate more strongly (about 0.7 against rho_tf 0.48
+        at two equal SNRs of -3 dB, see `crlb`). It decides "delay-doppler coupled".
     snr_db: post-correlation SNR of the strongest admissible peak, 10 log10 of peak
         power over the mean off-peak power of the surface.
     coherence: ``|chi_peak|^2 / (sum |y_A|^2 sum |y_B|^2)`` over the samples in the
@@ -191,6 +198,16 @@ def _check_iq(x: object, name: str) -> np.ndarray:
     if not np.any(arr):
         raise ValueError(f"{name} has zero power")
     return arr
+
+
+def _check_scalar(value: object, name: str) -> float:
+    """A real number (not a string, not None), as float; ValueError naming the argument otherwise."""
+    if isinstance(value, (str, bytes)) or value is None:
+        raise ValueError(f"{name} must be a number (got {value!r})")
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number (got {value!r})") from exc
 
 
 def _check_window(w: object, name: str) -> tuple[float, float]:
@@ -1234,22 +1251,21 @@ def caf_estimate(
     """
     a = _check_iq(ya, "ya")
     b = _check_iq(yb, "yb")
-    try:
-        fs = float(fs)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"fs must be a number (got {fs!r})") from exc
+    fs = _check_scalar(fs, "fs")
     if not (math.isfinite(fs) and fs > 0.0):
         raise ValueError(f"fs must be finite and > 0 (got {fs!r})")
     dwin = _check_window(delay_window, "delay_window")
     nwin = _check_window(doppler_window, "doppler_window")
-    t0 = float(t0_offset_s)
+    t0 = _check_scalar(t0_offset_s, "t0_offset_s")
     if not math.isfinite(t0):
         raise ValueError(f"t0_offset_s must be finite (got {t0_offset_s!r})")
-    if signal_bw_hz is not None and not (math.isfinite(float(signal_bw_hz)) and float(signal_bw_hz) > 0.0):
-        raise ValueError(f"signal_bw_hz must be finite and > 0, or None (got {signal_bw_hz!r})")
-    if not math.isfinite(float(min_snr_db)):
+    if signal_bw_hz is not None:
+        bw_arg = _check_scalar(signal_bw_hz, "signal_bw_hz")
+        if not (math.isfinite(bw_arg) and bw_arg > 0.0):
+            raise ValueError(f"signal_bw_hz must be finite and > 0, or None (got {signal_bw_hz!r})")
+    if not math.isfinite(_check_scalar(min_snr_db, "min_snr_db")):
         raise ValueError(f"min_snr_db must be finite (got {min_snr_db!r})")
-    if not (float(max_tdoa_sigma_s) > 0.0):
+    if not (_check_scalar(max_tdoa_sigma_s, "max_tdoa_sigma_s") > 0.0):
         raise ValueError(f"max_tdoa_sigma_s must be > 0 (got {max_tdoa_sigma_s!r})")
     try:
         points = [(float(p[0]), float(p[1])) for p in exclude]

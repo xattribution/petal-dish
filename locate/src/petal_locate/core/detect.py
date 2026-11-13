@@ -33,14 +33,16 @@ Choices MATH.md leaves to the implementation (each is covered by a test):
   stay under the threshold for a weak tone.
 - *Threshold and frame statistics.* The tracker is not told `navg`. `threshold_db`
   above a median baseline is exceeded by a noise bin with probability 3.5e-7 at
-  `navg = 8` but 1.4 % at `navg = 2` and 6.3 % at `navg = 1` (the loader derives
-  `navg = 1` whenever it has to shrink `nfft`), where every literal implementation
-  of MATH.md fills the window with false tracks. The threshold in force
-  (`effective_threshold_db`) is therefore `threshold_db` or, when larger, the level a
-  noise bin exceeds with probability `NOISE_EXCEEDANCE`, for the number of averages
-  read from the bin-to-bin scatter of the frames themselves: 6.4 dB for 4 averages,
-  8.5 dB for 2, 11.2 dB for 1, and below 6 dB (so not in force with the default
-  `threshold_db`) from 5 averages up.
+  `navg = 8` but 1.0 % at `navg = 2` and 6.3 % at `navg = 1` (an explicit monitor
+  may set any `navg`; a derived one drops below 8 only for spans under 1024 Hz),
+  where a literal implementation of MATH.md fills the window with false tracks.
+  The threshold in force (`effective_threshold_db`) is therefore `threshold_db` or,
+  when larger, the level a noise bin exceeds with probability `NOISE_EXCEEDANCE`,
+  for the number of averages read from the bin-to-bin scatter of the frames
+  themselves: 6.4 dB for 4 averages, 8.5 dB for 2, 11.2 dB for 1, and below 6 dB
+  (so not in force with the default `threshold_db`) from 5 averages up. While a bin's history is young (60 to 600 s
+  after start-up) its median baseline scatters enough that `navg <= 2` frames can
+  still produce the odd false track; none was seen after that.
 - *Floor F.* Like the history, F leaves out bins in detection (inside a track, or
   more than the threshold above the previous frame's baseline) and is held when
   too few usable bins remain (16, or half the guard bins when there are fewer than
@@ -52,14 +54,17 @@ Choices MATH.md leaves to the implementation (each is covered by a test):
   threshold by that much. The percentile is therefore taken of `psd - R_k` and raised
   by the percentile-to-median offset of the frame's own fluctuation statistics.
 - *Merging and splitting tracks.* Unconfirmed fragments joined by one run merge at
-  once. Two confirmed tracks merge only after sharing a run in `confirm_m`
-  consecutive frames (a one-frame broadband transient does not fuse them), under the
-  lower id. A track is cut at a stretch inside its extent that has had no bin above
-  threshold for `release_frames + confirm_n` frames when the stretch is wider than
-  `4 * (merge_bins + 1)` bins, or wider than `merge_bins` and back at its baseline
-  (mean power of the last `confirm_n` frames within `threshold_db / 4` of it): two
-  signals 3 to 12 bins apart would otherwise stay fused for good after anything
-  bridged them for `confirm_m` frames. Each piece takes back the id it had before,
+  once (with the nearest confirmed track, when the run touches several). Two
+  confirmed tracks merge only after sharing a run in `confirm_m` consecutive frames
+  (a one-frame broadband transient does not fuse them), under the lower id; until
+  then each takes the part of the shared run on its side of the midpoint between
+  them, so the extents of two tracks never share a bin. A track is cut at a stretch
+  inside its extent that has had no bin above threshold for `release_frames +
+  confirm_n` frames when the stretch is wider than `4 * (merge_bins + 1)` bins, or
+  wider than `merge_bins` and back at its baseline (mean power of the last
+  `confirm_n` frames within `threshold_db / 4` of it): two signals 3 to 12 bins
+  apart would otherwise stay fused for good after anything bridged them for
+  `confirm_m` frames. Each piece takes back the id it had before,
   and a piece that never had one starts again as an unconfirmed track. When the
   signal a merged track is named after goes away and one it absorbed remains, the
   track carries on under the id and first-seen time of the one that remains.
@@ -67,10 +72,14 @@ Choices MATH.md leaves to the implementation (each is covered by a test):
   by two bins (the Hann main lobe). The power compared with `power_anomaly_db` is the
   mean over the bins the track shares with the carrier and over the last `confirm_n`
   frames, relative to the baseline of those bins: the bins of a single frame's run
-  are, by selection, already `threshold_db` above it. "More than" is decided with a
+  are, by selection, already `threshold_db` above it. The baseline is a median and
+  that power a mean, so the baseline is first raised by the mean-to-median ratio
+  of the frames' fluctuation (from the same scatter estimate as the threshold:
+  0.18 dB at `navg = 8`, 1.6 dB at `navg = 1`); otherwise an unchanged carrier
+  would already read that much "above" its baseline. "More than" is decided with a
   tolerance of 1e-5 dB (the resolution of a float32 frame), so a step of exactly
-  `power_anomaly_db` is not an anomaly. The anomaly clears after `release_frames`
-  consecutive frames at or below `power_anomaly_db`.
+  `power_anomaly_db` in noise-free frames is not an anomaly. The anomaly clears after
+  `release_frames` consecutive frames at or below `power_anomaly_db`.
 """
 from __future__ import annotations
 
@@ -244,17 +253,20 @@ def _runs(mask: npt.NDArray[np.bool_], max_gap: int) -> tuple[npt.NDArray[np.int
     return first, last
 
 
-def _fluctuation_table() -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+def _fluctuation_table() -> tuple[
+    npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]
+]:
     """Noise statistics of a PSD frame as functions of its bin-to-bin scatter.
 
     For bins distributed as Gamma(n) / n (n = navg of the Welch estimate) the dB
     difference of two independent bins is 10 log10 of an F(2n, 2n) variate, whose
     median absolute value is `10 log10(b / (1 - b))` with `b` the 0.75 quantile of
     Beta(n, n). The same n gives the distance from the FLOOR_PERCENTILE quantile to
-    the median, `10 log10(Q(0.5) / Q(FLOOR_PERCENTILE))`, and the distance from the
+    the median, `10 log10(Q(0.5) / Q(FLOOR_PERCENTILE))`, the distance from the
     median to the level a bin exceeds with probability NOISE_EXCEEDANCE,
-    `10 log10(Q(1 - NOISE_EXCEEDANCE) / Q(0.5))`. Returns (scatter_db, offset_db,
-    least_threshold_db), all in dB, scatter increasing, for n from 512 down to 0.5.
+    `10 log10(Q(1 - NOISE_EXCEEDANCE) / Q(0.5))`, and the mean over the median,
+    `10 log10(n / Q(0.5))`. Returns (scatter_db, offset_db, least_threshold_db,
+    mean_over_median_db), all in dB, scatter increasing, for n from 512 down to 0.5.
     """
     n = np.geomspace(512.0, 0.5, 81)
     b = scipy.special.betaincinv(n, n, 0.75)
@@ -262,7 +274,8 @@ def _fluctuation_table() -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float6
     median = scipy.special.gammaincinv(n, 0.5)
     offset = 10.0 * np.log10(median / scipy.special.gammaincinv(n, FLOOR_PERCENTILE))
     least = 10.0 * np.log10(scipy.special.gammainccinv(n, NOISE_EXCEEDANCE) / median)
-    return scatter, offset, least
+    mean_over_median = 10.0 * np.log10(n / median)
+    return scatter, offset, least, mean_over_median
 
 
 class SignalTracker:
@@ -391,9 +404,10 @@ class SignalTracker:
         self._floor_recent: deque[float] = deque(maxlen=FLOOR_SMOOTH_FRAMES)
 
         # threshold in force: threshold_db, or what the frames' own statistics require
-        self._scatter_db, self._offset_db, self._least_db = _fluctuation_table()
+        self._scatter_db, self._offset_db, self._least_db, self._mean_over_median_db = _fluctuation_table()
         self._scatter_recent: deque[float] = deque(maxlen=SCATTER_FRAMES)
         self._threshold_eff = self._threshold_db
+        self._mean_over_median = 1.0  # linear; mean of a frame's bins over their median
         self._empty_ratio = 10.0 ** (EMPTY_FRACTION * self._threshold_db / 10.0)
 
         # per-bin history (rows are bins so the per-bin sort runs over contiguous memory)
@@ -447,7 +461,12 @@ class SignalTracker:
         Returns the detections ordered by f_lo_hz. A track on an authorised carrier is
         listed only while its anomaly is asserted.
         """
-        psd = np.array(psd_db, dtype=np.float64)  # a copy: the last confirm_n frames are kept
+        if np.iscomplexobj(psd_db):
+            raise ValueError("psd_db must be real dB values (got complex)")
+        try:
+            psd = np.array(psd_db, dtype=np.float64)  # a copy: the last confirm_n frames are kept
+        except (TypeError, ValueError):
+            raise ValueError(f"psd_db must be an array of {self.nfft} numbers") from None
         if psd.shape != (self.nfft,):
             raise ValueError(f"psd_db must have shape ({self.nfft},), got {psd.shape}")
         if not np.isfinite(psd).all():
@@ -499,7 +518,8 @@ class SignalTracker:
         apart (pairs touching a track are left out; the median ignores the edges of
         whatever else is in the window), averaged over the last SCATTER_FRAMES
         frames. It tells the number of averages behind a frame, and with it the level
-        over the median that a noise bin exceeds with probability NOISE_EXCEEDANCE.
+        over the median that a noise bin exceeds with probability NOISE_EXCEEDANCE and
+        the mean-to-median ratio of a bin.
         """
         x = psd - self._rise_db
         step = np.abs(x[_LAG:] - x[:-_LAG])
@@ -511,6 +531,8 @@ class SignalTracker:
             scatter = math.fsum(self._scatter_recent) / len(self._scatter_recent)
             least = float(np.interp(scatter, self._scatter_db, self._least_db))
             self._threshold_eff = max(self._threshold_db, least)
+            ratio_db = float(np.interp(scatter, self._scatter_db, self._mean_over_median_db))
+            self._mean_over_median = 10.0 ** (ratio_db / 10.0)
 
     def _floor(self, psd: npt.NDArray[np.float64]) -> float:
         """Start-up floor F in dB: this frame's estimate averaged with the previous four.
@@ -605,7 +627,13 @@ class SignalTracker:
             root = confirmed[0] if confirmed else linked[0]
             for j in linked:
                 if not tracks[j].confirmed:
-                    parent[find(j)] = find(root)
+                    # an unconfirmed fragment joins the nearest confirmed track, so a fragment
+                    # beyond a second confirmed track does not stretch the first over it
+                    near = root
+                    if confirmed:
+                        frag = tracks[j]
+                        near = min(confirmed, key=lambda c: max(tracks[c].lo - frag.hi, frag.lo - tracks[c].hi))
+                    parent[find(j)] = find(near)
             if len(confirmed) >= 2:
                 shared.append((confirmed, s, e))
             else:
@@ -621,9 +649,18 @@ class SignalTracker:
                     parent[find(j)] = find(group[0])
                 runs_of[group[0]].append((s, e))
             else:
-                for j in group:
+                # not merged (yet): each track takes the part of the run on its own side of
+                # the midpoints between neighbouring tracks, so extents never overlap
+                side = sorted(group, key=lambda j: tracks[j].lo)
+                for i, j in enumerate(side):
                     tr = tracks[j]
-                    runs_of[j].append((max(s, tr.lo - reach), min(e, tr.hi + reach)))
+                    lo, hi = max(s, tr.lo - reach), min(e, tr.hi + reach)
+                    if i > 0:
+                        lo = max(lo, (tracks[side[i - 1]].hi + tr.lo) // 2 + 1)
+                    if i + 1 < len(side):
+                        hi = min(hi, (tr.hi + tracks[side[i + 1]].lo) // 2)
+                    if lo <= hi:
+                        runs_of[j].append((lo, hi))
 
         # resolve merges: the confirmed track with the lowest id (else the oldest) survives
         members: dict[int, list[int]] = {}
@@ -824,12 +861,16 @@ class SignalTracker:
                 continue
             # Power over the shared bins, averaged over the last confirm_n frames: the
             # bins of one frame's run are those that happened to exceed the threshold,
-            # so a single frame would always read more than threshold_db.
+            # so a single frame would always read more than threshold_db. The baseline
+            # is a median; it is compared as the mean it stands for (frame statistics
+            # from _calibrate), so an unchanged carrier reads 0 dB, not +0.18 dB at
+            # navg 8 (+1.6 dB at navg 1).
             if sum_recent is None:
                 recent = np.exp(_DB_TO_NEPER * np.stack(self._recent)).mean(axis=0)
                 sum_recent = np.concatenate((zero, np.cumsum(recent)))
             rise_db = 10.0 * math.log10(
-                max(float(sum_recent[c_hi] - sum_recent[c_lo]), _TINY) / max(float(sum_b[c_hi] - sum_b[c_lo]), _TINY)
+                max(float(sum_recent[c_hi] - sum_recent[c_lo]), _TINY)
+                / max(float(sum_b[c_hi] - sum_b[c_lo]) * self._mean_over_median, _TINY)
             )
             if rise_db > self._power_anomaly_db + _DB_TOL:
                 tr.anomaly, tr.quiet = True, 0

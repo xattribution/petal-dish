@@ -29,9 +29,13 @@ gives, with ``k = 1 / (1 - rho^2)``::
     var(nu)  = [ (a +   b) k + rho^2 (1 + q) b k^2 ] / (2 B T T_e^2)
 
 MATH.md section 6 item 4 (multiply both sigmas by ``sqrt(k)``) is the case b = 0: one
-channel free of noise. With noise in both channels it understates the scatter, by
-1.25 in FDOA at rho = 0.5 and equal 0 dB input SNRs, and by 3 near rho = 0.9
-(measured, tests/test_caf_verify.py).
+channel free of noise. With noise in both channels it understates the scatter. Measured
+with `caf_estimate` on a 20 kHz sawtooth of two sweeps (rho = 0.48) correlated over
+31.25 kHz, 300 trials: at equal input SNRs of -3 dB the scatter is 1.12 (delay) and
+1.25 (Doppler) times the sqrt(k) rule and 0.98 and 1.01 times the formulas above; at
+-8 dB 1.14 and 1.34 against 0.97 and 1.00 (tests/test_caf_verify.py checks this). Near
+rho = 0.9 with noise times noise dominant (q = 1) the formulas give
+``sqrt(1 + 2 rho^2 k)``, about 3 times the sqrt(k) rule.
 """
 from __future__ import annotations
 
@@ -54,15 +58,25 @@ def _out(x: np.ndarray) -> Any:
     return float(x) if np.ndim(x) == 0 else x
 
 
+def _array(value: Any, name: str) -> np.ndarray:
+    """float64 array of a number or array of numbers; ValueError naming the argument otherwise."""
+    if value is None or isinstance(value, (str, bytes)):
+        raise ValueError(f"{name} must be a number or an array of numbers (got {value!r})")
+    try:
+        return np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number or an array of numbers (got {value!r})") from exc
+
+
 def _nonneg(value: Any, name: str) -> np.ndarray:
-    arr = np.asarray(value, dtype=np.float64)
+    arr = _array(value, name)
     if not np.all(np.isfinite(arr)) or np.any(arr < 0.0):
         raise ValueError(f"{name} must be finite and >= 0 (got {value!r})")
     return arr
 
 
 def _positive(value: Any, name: str) -> np.ndarray:
-    arr = np.asarray(value, dtype=np.float64)
+    arr = _array(value, name)
     if not np.all(np.isfinite(arr)) or np.any(arr <= 0.0):
         raise ValueError(f"{name} must be finite and > 0 (got {value!r})")
     return arr
@@ -108,7 +122,7 @@ def post_correlation_snr(noise_bw_hz: Any, T_s: Any, g1: Any, g2: Any) -> Any:
 
 def _coupling(rho_tf: Any) -> tuple[np.ndarray, np.ndarray]:
     """(rho^2, k = 1 / (1 - rho^2)) for a time-frequency correlation -1 < rho_tf < 1."""
-    rho = np.asarray(rho_tf, dtype=np.float64)
+    rho = _array(rho_tf, "rho_tf")
     if not np.all(np.isfinite(rho)) or np.any(np.abs(rho) >= 1.0):
         raise ValueError(f"rho_tf must be within (-1, 1) (got {rho_tf!r})")
     rho2 = rho * rho
@@ -193,7 +207,7 @@ def sigmas_from_coherence(
     that minimum when it is below it.
     Returns (sigma_tdoa_s, sigma_fdoa_hz).
     """
-    c = np.asarray(C, dtype=np.float64)
+    c = _array(C, "C")
     if not np.all(np.isfinite(c)) or np.any(c < 0.0) or np.any(c > 1.0):
         raise ValueError(f"C must be within [0, 1] (got {C!r})")
     bw, t = _positive(noise_bw_hz, "noise_bw_hz"), _positive(T_s, "T_s")
@@ -209,7 +223,7 @@ def sigmas_from_coherence(
     if signal_noise_share is None:
         share = share_min
     else:
-        share = np.asarray(signal_noise_share, dtype=np.float64)
+        share = _array(signal_noise_share, "signal_noise_share")
         if not np.all(np.isfinite(share)) or np.any(share < 0.0) or np.any(share > 1.0):
             raise ValueError(f"signal_noise_share must be within [0, 1] (got {signal_noise_share!r})")
         share = np.maximum(share, share_min)

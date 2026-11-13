@@ -79,9 +79,19 @@ _B = WGS84_A * (1.0 - WGS84_F)
 # dense grids: second differences stop bounding the in-cell variation above about 1/4.
 _GRID_HEIGHT_FRACTION = 0.125
 _MAX_GRID_POINTS = 4_000_000
+_MIN_AXIS_POINTS = 5  # grid points per axis needed for the second differences of the curvature pad
+_SMALL_REGION_HALVINGS = 40
 _CONTOUR_POINTS = 720  # samples of each satellite's elevation-mask contour
 _CONTOUR_BISECTIONS = 30  # pi / 2^30 rad: 2 cm on the ground
 _ARC_END_SUBDIVISIONS = 33  # applied twice: arc ends located to 1/1024 of the contour spacing
+_ARC_END_ROUNDS = 2
+# A co-visible area with no grid point in it is bounded over a grid spanning its bounding
+# box. The box is that of the contour samples, widened by twice the largest distance a
+# contour arc strays from the chord between two samples (sagitta <= (2 pi / 720)^2 / 8 rad).
+_BOX_MARGIN_DEG = 2.0 * float(np.degrees((2.0 * np.pi / _CONTOUR_POINTS) ** 2 / 8.0))
+_BOX_POINTS = 9  # at least this many box samples per axis (spacing never above the grid step)
+_BOX_REFINEMENTS = 4  # box grid spacing divided by 4 up to this many times to find admissible points
+_BOX_MAX_POINTS = 250_000
 
 
 @dataclass
@@ -398,7 +408,8 @@ def measurement_windows(
     horizon. height_m: emitter height above the ellipsoid. step_deg: largest grid step,
     degrees; it is reduced automatically to one eighth of the lowest satellite's height
     (as an angle at the Earth's centre), which leaves it alone above 1000 km for the
-    default 2 degrees and makes it 0.45 degrees at 400 km.
+    default 2 degrees and makes it 0.45 degrees at 400 km, and halved until the region
+    is at least five grid points across in latitude and in longitude.
 
     Returns ``((tdoa_min, tdoa_max), (fdoa_min, fdoa_max))`` in seconds and hertz, or
     ``None`` when no emitter position is admissible (inside the region and seeing both
@@ -420,8 +431,14 @@ def measurement_windows(
       each satellite's mask contour (at ``height_m``) is sampled at 720 points per
       epoch, the admissible ones are evaluated, and the ends of every admissible arc
       (where the contour meets the other satellite's contour or leaves the region) are
-      located to a thousandth of that spacing. Extremes usually sit there, and for
-      low satellites the co-visible area can be a lens with no grid point in it;
+      bracketed on the contour to a thousandth of that spacing. Extremes usually sit
+      there;
+    - for low satellites the co-visible area can be a lens with no grid point in it. At
+      such an epoch the lens's bounding box (from its edge samples, widened by more than
+      the arcs stray between samples) is gridded no coarser than the step and refined
+      until grid points fall inside the lens, and the same rule (admissible points, their
+      neighbours, curvature pad) is applied there, because an extreme can lie inside the
+      lens rather than on its edge;
     - both ends are padded by the bilinear-interpolation error bound, one eighth of the
       largest second difference along latitude plus that along longitude (curvature
       inside a cell; microseconds at the default step).
@@ -451,6 +468,14 @@ def measurement_windows(
     step = min(step, _GRID_HEIGHT_FRACTION * float(np.degrees(lowest / WGS84_A)))
 
     lat, lon = (np.asarray(v, dtype=np.float64).reshape(-1) for v in region.grid(step))
+    # The curvature pad needs second differences along both axes. A region less than a
+    # few steps across would have none (and no pad: an extreme inside a cell is then
+    # missed), so the step is halved until each axis has _MIN_AXIS_POINTS points.
+    for _ in range(_SMALL_REGION_HALVINGS):
+        if lat.size == 0 or lon.size == 0 or (lat.size >= _MIN_AXIS_POINTS and lon.size >= _MIN_AXIS_POINTS):
+            break
+        step *= 0.5
+        lat, lon = (np.asarray(v, dtype=np.float64).reshape(-1) for v in region.grid(step))
     if lat.size * lon.size > _MAX_GRID_POINTS:
         raise ValueError(
             f"step_deg: a {step:.3g} degree grid (needed for a satellite {lowest / 1e3:.0f} km up) has "
@@ -469,11 +494,13 @@ def measurement_windows(
     # the edge of the admissible area, epoch by epoch: values and nothing else
     edge_tdoa: list[np.ndarray] = []
     edge_fdoa: list[np.ndarray] = []
+    edge_points: list[np.ndarray] = []
     for m in range(t.size):
         rings = [_contour_candidates(sat_a[m], None if one_satellite else sat_b[m], el_min, height, inside_region)]
         if not one_satellite:
             rings.append(_contour_candidates(sat_b[m], sat_a[m], el_min, height, inside_region))
         candidates = np.concatenate(rings)
+        edge_points.append(candidates)
         if candidates.shape[0]:
             tdoa_m, fdoa_m = _predict(candidates, a, b, t[m : m + 1], orbits, sites_xyz, want_fdoa=True)
             edge_tdoa.append(tdoa_m.reshape(-1))
@@ -506,27 +533,38 @@ def measurement_windows(
             visible &= _elevation(pts, up, sat_b) >= el_min
         admissible = inside[..., None] & visible  # [n_lat, n_lon, M]
 
+    # epochs whose co-visible area fits between the grid points (a thin lens between two
+    # low satellites): bounded over the area's bounding box, since an extreme can lie
+    # inside the area, off its edge
+    on_grid = np.any(admissible, axis=(0, 1)) if admissible.size else np.zeros(t.size, dtype=bool)
+    boxes = [
+        _area_box_bound(
+            edge_points[m], a, b, t[m : m + 1], orbits, sites_xyz,
+            [sat_a[m]] if one_satellite else [sat_a[m], sat_b[m]], el_min, height, step, inside_region,
+        )
+        for m in range(t.size)
+        if not on_grid[m] and edge_points[m].shape[0]
+    ]
+
     if not np.any(admissible):
         if edges[0].size == 0:
             return None
-        # a co-visible area that fits between the grid points: its edge is all there is
-        return (
-            (float(np.min(edges[0])), float(np.max(edges[0]))),
-            (float(np.min(edges[1])), float(np.max(edges[1]))),
-        )
-
-    use = _dilate(admissible, wrap_lon=full_circle)
-    needed = np.any(use, axis=-1)  # grid points in play at any epoch
-    windows = []
-    for predicted, edge in zip(_predict(pts[needed], a, b, t, orbits, sites_xyz, want_fdoa=True), edges):
-        values = np.full(use.shape, np.nan)
-        values[needed] = predicted
-        pad = _cell_curvature(values[:n_lat, :n_lon], use[:n_lat, :n_lon], wrap_lon=full_circle)
-        picked = values[use]
-        low, high = float(np.min(picked)), float(np.max(picked))
-        if edge.size:
-            low, high = min(low, float(np.min(edge))), max(high, float(np.max(edge)))
-        windows.append((low - pad, high + pad))
+        windows = [(float(np.min(edge)), float(np.max(edge))) for edge in edges]
+    else:
+        use = _dilate(admissible, wrap_lon=full_circle)
+        needed = np.any(use, axis=-1)  # grid points in play at any epoch
+        windows = []
+        for predicted, edge in zip(_predict(pts[needed], a, b, t, orbits, sites_xyz, want_fdoa=True), edges):
+            values = np.full(use.shape, np.nan)
+            values[needed] = predicted
+            pad = _cell_curvature(values[:n_lat, :n_lon], use[:n_lat, :n_lon], wrap_lon=full_circle)
+            picked = values[use]
+            low, high = float(np.min(picked)), float(np.max(picked))
+            if edge.size:
+                low, high = min(low, float(np.min(edge))), max(high, float(np.max(edge)))
+            windows.append((low - pad, high + pad))
+    for box in boxes:
+        windows = [(min(w[0], bx[0]), max(w[1], bx[1])) for w, bx in zip(windows, box)]
     return windows[0], windows[1]
 
 
@@ -907,19 +945,116 @@ def _contour_candidates(
     found = [pts[ok]]
     ends = np.flatnonzero(ok != np.roll(ok, -1))
     if ends.size:
-        p0, p1 = pts[ends], pts[(ends + 1) % _CONTOUR_POINTS]
+        # Bracket each arc end on the contour itself, by subdividing the bearing between the
+        # two samples around it: both bracket points lie on the contour and the end lies
+        # between them. (A chord between the samples strays from the contour by up to
+        # 2e-4 deg; where two contours meet at a shallow angle, a crossing found on the chord
+        # sits 1e-3 deg short of the true corner, which is where the extremes of a thin
+        # lens are.)
         rows = np.arange(ends.size)
-        frac = np.linspace(0.0, 1.0, _ARC_END_SUBDIVISIONS)[None, :, None]
-        for _ in range(2):
-            chord = p0[:, None, :] + frac * (p1 - p0)[:, None, :]
-            c_lat, c_lon, _ = ecef_to_lla(chord)
-            chord = lla_to_ecef(c_lat, c_lon, height)
-            state = admissible(chord, np.asarray(c_lat), np.asarray(c_lon))
+        b0 = bearing[ends]
+        b1 = b0 + 2.0 * np.pi / _CONTOUR_POINTS
+        frac = np.linspace(0.0, 1.0, _ARC_END_SUBDIVISIONS)[None, :]
+        for _ in range(_ARC_END_ROUNDS):
+            sub = b0[:, None] + frac * (b1 - b0)[:, None]  # [E, S]
+            q, q_normal = _contour(r_own, el_min, height, sub.reshape(-1), _CONTOUR_BISECTIONS)
+            q_pts = (q + height * q_normal).reshape(sub.shape + (3,))
+            q_lat = np.degrees(np.arctan2(q_normal[:, 2], np.hypot(q_normal[:, 0], q_normal[:, 1])))
+            q_lon = np.degrees(np.arctan2(q[:, 1], q[:, 0]))
+            state = admissible(q_pts.reshape(-1, 3), q_lat, q_lon).reshape(sub.shape)
             k = np.argmax(state != state[:, :1], axis=1)  # first sample on the other side
             k = np.where(k == 0, _ARC_END_SUBDIVISIONS - 1, k)
-            p0, p1 = chord[rows, k - 1], chord[rows, k]
+            b0, b1 = sub[rows, k - 1], sub[rows, k]
+            p0, p1 = q_pts[rows, k - 1], q_pts[rows, k]
         found += [p0, p1]
     return np.concatenate(found)
+
+
+def _area_box_bound(
+    points: np.ndarray,
+    a: PathSpec,
+    b: PathSpec,
+    t_m: np.ndarray,
+    orbits: Mapping[str, Orbit],
+    sites_xyz: Mapping[str, Any],
+    sats: Sequence[np.ndarray],
+    el_min: float,
+    height: float,
+    step: float,
+    inside_region: Any,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Bound on the predictions over a small co-visible area given by its edge ``points``.
+
+    points: ECEF m ``[K, 3]``, the mask-contour samples and arc ends of the area (no grid
+    point lies inside it). t_m: the epoch, ``[1]``. sats: the satellite position(s) at
+    that epoch, ECEF m ``[3]`` each, that must be at least ``el_min`` degrees high.
+    inside_region(lat_deg, lon_deg) -> bool array.
+
+    The area lies inside the latitude / longitude bounding box of its edge widened by
+    ``_BOX_MARGIN_DEG`` (an area whose edge winds round a pole gets every longitude and the
+    pole). That box is gridded (spacing at most ``step``, at least ``_BOX_POINTS`` per axis)
+    and refined until some box points are admissible; the predictions are then bounded
+    exactly as on the main grid: admissible box points and their eight neighbours, padded
+    by the curvature bound (the caller adds the edge values). If no box point becomes
+    admissible within ``_BOX_REFINEMENTS`` refinements, every box point is used, which
+    bounds the whole box. The edge alone is not enough: an extreme can sit inside the area.
+    Returns ``((tdoa_lo, tdoa_hi), (fdoa_lo, fdoa_hi))``.
+    """
+    lat, lon, _ = ecef_to_lla(points)
+    lat, lon = np.atleast_1d(lat), np.atleast_1d(lon)
+    rel = np.mod(lon - lon[0] + 180.0, 360.0) - 180.0
+    lat_lo, lat_hi = float(np.min(lat)) - _BOX_MARGIN_DEG, float(np.max(lat)) + _BOX_MARGIN_DEG
+    if float(np.max(rel) - np.min(rel)) > 180.0:  # the edge winds round a pole
+        lon_lo, lon_hi = float(lon[0]) - 180.0, float(lon[0]) + 180.0
+        if float(np.mean(lat)) > 0.0:
+            lat_hi = 90.0
+        else:
+            lat_lo = -90.0
+    else:
+        widest = min(89.9, max(abs(lat_lo), abs(lat_hi)))
+        widen = min(180.0, _BOX_MARGIN_DEG / np.cos(np.radians(widest)))
+        lon_lo, lon_hi = float(lon[0] + np.min(rel)) - widen, float(lon[0] + np.max(rel)) + widen
+    lat_lo, lat_hi = max(lat_lo, -90.0), min(lat_hi, 90.0)
+
+    def box_grid(spacing: float, limit: int) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        n_lat = max(_BOX_POINTS, int(np.ceil((lat_hi - lat_lo) / spacing)) + 1)
+        n_lon = max(_BOX_POINTS, int(np.ceil((lon_hi - lon_lo) / spacing)) + 1)
+        if n_lat * n_lon > limit:
+            return None
+        lat2, lon2 = np.meshgrid(np.linspace(lat_lo, lat_hi, n_lat), np.linspace(lon_lo, lon_hi, n_lon), indexing="ij")
+        return lat2, lon2, lla_to_ecef(lat2, lon2, height)
+
+    # the first spacing is never coarser than the main grid's, whose size was already checked
+    spacing = min(step, max(lat_hi - lat_lo, lon_hi - lon_lo) / (_BOX_POINTS - 1))
+    grid = box_grid(spacing, max(_MAX_GRID_POINTS, _BOX_MAX_POINTS))
+    if grid is None:
+        raise ValueError(f"step_deg: a co-visible area too large to bound on a {spacing:.3g} degree grid")
+    use = None
+    candidate: tuple[np.ndarray, np.ndarray, np.ndarray] | None = grid
+    for _ in range(_BOX_REFINEMENTS + 1):
+        if candidate is None:
+            break
+        lat2, lon2, box = candidate
+        up = _up_vectors(lat2, lon2)
+        ok = np.asarray(inside_region(lat2, lon2), dtype=bool)
+        for r_sat in sats:
+            ok &= _elevation(box, up, r_sat) >= el_min
+        if np.any(ok):
+            grid, use = candidate, _dilate(ok, wrap_lon=False)
+            break
+        spacing /= 4.0
+        candidate = box_grid(spacing, _BOX_MAX_POINTS)
+    _, _, box = grid
+    if use is None:
+        use = np.ones(box.shape[:-1], dtype=bool)
+    bounds = []
+    for predicted in _predict(box[use], a, b, t_m, orbits, sites_xyz, want_fdoa=True):
+        values = np.full(use.shape, np.nan)
+        values[use] = predicted[..., 0]
+        pad = _cell_curvature(values, use, wrap_lon=False)
+        picked = values[use]
+        bounds.append((float(np.min(picked)) - pad, float(np.max(picked)) + pad))
+    return bounds[0], bounds[1]
 
 
 def _dilate(mask: np.ndarray, wrap_lon: bool) -> np.ndarray:

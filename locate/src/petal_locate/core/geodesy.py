@@ -76,9 +76,10 @@ def ecef_to_lla(xyz: Any) -> tuple[Any, Any, Any]:
 
     Geodetic latitude in degrees, longitude in ``[-180, 180)`` degrees, height above
     the WGS84 ellipsoid in metres. Bowring's iteration on the reduced latitude (four
-    fixed passes, no trigonometry inside the loop): round-trip error below 1e-8 m from
-    10 km below the surface to beyond geosynchronous height, poles included. Not
-    meaningful within about 50 km of the Earth's centre.
+    fixed passes, no trigonometry inside the loop): latitude and height within 3e-9 m of
+    the exact solution from 10 km below the surface to 2000 km up and within 2e-8 m out to
+    beyond geosynchronous height, poles included (measured against Newton's method in
+    extended precision). Not meaningful within about 50 km of the Earth's centre.
     """
     r = _vec3(xyz, "xyz")
     x, y, z = r[..., 0], r[..., 1], r[..., 2]
