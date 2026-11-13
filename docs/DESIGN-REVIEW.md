@@ -51,7 +51,15 @@ Both studies recommend the same architecture.
      - or a 3.6 mm UV-stabilised cable tie, giving 100–200 N.
 3. **Verdict.** A printed elastic snap can't replace screws for warp correction. Tool-less positive draw (wedge keys, thumb nuts, ties) can, for typical warp, provided the register supplies the alignment. Fix the angle and the bed lift at the printer first.
 
-The wedge-key mode is being added as a new seam option, with a fit-test coupon. See [WEDGE-KEY.md](WEDGE-KEY.md) once it lands.
+**Added:** **Joints → Wedge keys · tool-less** (seam mode 4), with a fit-test set. See [WEDGE-KEY.md](WEDGE-KEY.md). How it differs from the studies:
+
+- **The register is in straight segments between stations, not continuous.** The last petal slides in radially. A ridge that follows the curved shell would drift off its groove during that slide by more than the flanks allow at 8 or more petals.
+- **The wedge is 29 mm, not 32 mm,** so that neighbouring sets fit the 34 mm station pitch.
+- **Some stations get thumb screws.** Where neither orientation of a key set clears the neighbouring flanges, the station takes the M4 thumb-screw option, and the kit includes the drift keeper and thumb nut for it. That is 8 of 56 stations on a 600 mm two-ring dish, all next to ring junctions. Single-ring dishes had none in the tests.
+- **The kit is fixed at 0.20 mm key clearance and a 1:12 taper.** If the fit test favours another, print that FIT_TEST part in quantity.
+- **Builds are slower:** about 10% on the default dish and 40% on a 1200 mm dish, from the placement checks.
+
+All of this is untested in print. The clamp figures are hand calculations.
 
 ## Fixed in this review
 
