@@ -40,14 +40,17 @@ event outside every passband: every channel whose window contains it):
 
 Verdict (``decide_verdict``), evaluated once ``verdict_settle_s`` has passed since the
 event was raised (or re-opened), then on every change: ``uplink`` when ``seen`` at two
-sites farther apart than ``min_site_separation_km`` or when tasking reported a
-cross-satellite CAF detection; ``local`` when every ``seen`` row lies within
-``min_site_separation_km`` of one site and a row at a site farther than that from all
-of them is ``not_seen_capable``; ``undetermined`` otherwise, with what is missing.
-Hysteresis: ``uplink`` is kept for the life of the event once established (the
-evidence for it does not expire), and ``local`` is kept until the signal is seen at a
-distant site (which makes it ``uplink``), so that a site dropping out of view does not
-flip the verdict back and forth.
+sites farther apart than ``min_site_separation_km`` or when tasking accepted a
+cross-satellite CAF measurement within ``CAF_EVIDENCE_S``; ``local`` when every ``seen``
+row lies within ``min_site_separation_km`` of one site and a row at a site farther than
+that from all of them is ``not_seen_capable``; ``undetermined`` otherwise, with what is
+missing. Hysteresis: ``uplink`` is kept once established and ``local`` is kept until
+the signal is seen at a distant site (which makes it ``uplink``), so that a site
+dropping out of view does not flip the verdict back and forth. One exception: when the
+evidence alone has said ``local`` for ``LOCAL_OVERRIDE_S`` without a fresh
+cross-satellite measurement, the uplink signal has stopped and a local one occupies its
+frequency, so the verdict becomes ``local`` and the uplink position is set aside
+(``EventBook.set_aside``).
 
 Expiry. A window that delivers no frame for ``max(stale_frames, release_frames)``
 frame periods releases its detections (its node went away); ``tick()`` checks this and
@@ -70,6 +73,8 @@ from petal_locate.server.pipeline.detection import WindowKey, WindowReport, Wind
 from petal_locate.server.pipeline.events import EventBook, EventRecord, Unit, UnitKey
 
 __all__ = [
+    "CAF_EVIDENCE_S",
+    "LOCAL_OVERRIDE_S",
     "REOPEN_WINDOW_S",
     "SPLIT_HOLD_S",
     "STALE_FRAMES",
@@ -90,6 +95,14 @@ SPLIT_HOLD_S: Final[float] = 5.0
 
 STALE_FRAMES: Final[int] = 3
 """A window whose newest frame is older than this many frame periods is stale."""
+
+CAF_EVIDENCE_S: Final[float] = 30.0
+"""A cross-satellite CAF measurement proves an uplink for this long, s (six capture
+rounds at the default ``capture.interval_s``; tasking renews it every round it measures)."""
+
+LOCAL_OVERRIDE_S: Final[float] = 15.0
+"""How long the evidence alone must say ``local``, without a fresh cross-satellite
+measurement, before an ``uplink`` verdict gives way to it, s."""
 
 _NS: Final[int] = 1_000_000_000
 
@@ -188,14 +201,17 @@ def decide_verdict(
     previous_reason: str = "",
     site_name: Callable[[str], str] = lambda s: s,
     sat_name: Callable[[str | None], str] = lambda s: s or "no satellite",
+    local_override: bool = False,
 ) -> VerdictDecision:
     """The verdict of MATH.md section 7 from evidence rows (pure; see the module
     docstring for the rules and the hysteresis).
 
     rows: the event's evidence rows. distance_km: geodesic distance between two site
     ids, km. min_separation_km: ``detection.min_site_separation_km``. caf_uplink:
-    tasking reported a cross-satellite CAF detection. previous, previous_reason: the
-    verdict in force and its reason. site_name, sat_name: display names.
+    tasking reported a (fresh) cross-satellite CAF detection. previous,
+    previous_reason: the verdict in force and its reason. site_name, sat_name: display
+    names. local_override: the evidence has said ``local`` long enough to end an
+    ``uplink`` verdict (``LOCAL_OVERRIDE_S``); the hysteresis then does not keep it.
     """
     seen_sites: list[str] = []
     for row in rows:
@@ -223,7 +239,7 @@ def decide_verdict(
             "The copies of the signal relayed by two satellites match each other, so one transmitter "
             "reaches both satellites.",
         )
-    if previous == "uplink":
+    if previous == "uplink" and not local_override:
         kept = previous_reason.replace("It is seen at", "It was seen at", 1) if previous_reason else ""
         return VerdictDecision("uplink", "kept", kept or "It was judged uplink earlier.")
 
@@ -349,17 +365,21 @@ class Correlator:
         reopen_window_s: float = REOPEN_WINDOW_S,
         split_hold_s: float = SPLIT_HOLD_S,
         stale_frames: int = STALE_FRAMES,
+        caf_evidence_s: float = CAF_EVIDENCE_S,
+        local_override_s: float = LOCAL_OVERRIDE_S,
     ) -> None:
         """
         config: the ``SystemConfig``. book: the ``EventBook`` events live in.
         windows: window specs (``build_window_specs``). quality: ``QualityTable``.
         is_online: whether the node of a site is connected. clock: server time,
-        integer UTC ns. reopen_window_s, split_hold_s, stale_frames: see the module
-        docstring.
+        integer UTC ns. reopen_window_s, split_hold_s, stale_frames, caf_evidence_s,
+        local_override_s: see the module docstring.
         """
         self._book = book
         self._is_online = is_online
         self._clock = clock
+        self._caf_evidence_ns = int(caf_evidence_s * _NS)
+        self._local_override_ns = int(local_override_s * _NS)
         self._reopen_ns = int(reopen_window_s * _NS)
         self._split_hold_ns = int(split_hold_s * _NS)
         self._stale_frames = int(stale_frames)
@@ -889,6 +909,9 @@ class Correlator:
             else:
                 row_state = "not_capable"
             seen = row_state == "seen" and unit is not None
+            row_key = (ctx.channel_id, ctx.sat_id)
+            if unit is not None:
+                record.channel_seen_ns[row_key] = max(record.channel_seen_ns.get(row_key, 0), int(unit.last_seen_ns))
             rows.append(
                 schemas.EvidenceRow(
                     channel_id=ctx.channel_id,
@@ -898,7 +921,7 @@ class Correlator:
                     snr_db=_finite(unit.snr_db) if seen and unit is not None else None,
                     cn0_dbhz=_finite(unit.cn0_dbhz) if seen and unit is not None else None,
                     predicted_margin_db=margin,
-                    last_seen_ns=unit.last_seen_ns if unit is not None else None,
+                    last_seen_ns=unit.last_seen_ns if unit is not None else record.channel_seen_ns.get(row_key),
                     monitor_id=ctx.window.monitor_id,
                     downlink_lo_hz=unit.down_lo_hz if seen and unit is not None else ctx.down_lo,
                     downlink_hi_hz=unit.down_hi_hz if seen and unit is not None else ctx.down_hi,
@@ -954,24 +977,56 @@ class Correlator:
                 record.verdict_basis = "settling"
                 record.verdict_gaps = [{"kind": "settling"}]
             return
+        names = dict(
+            site_name=lambda s: self._site_names.get(s, s),
+            sat_name=lambda s: self._sat_names.get(s, s) if s is not None else "no satellite",
+        )
+        caf_fresh = (
+            record.caf_uplink
+            and record.caf_uplink_ns is not None
+            and now - record.caf_uplink_ns <= self._caf_evidence_ns
+        )
+        # What the evidence says on its own (no hysteresis): how long it has said local.
+        alone = decide_verdict(record.evidence, self._distance, self._min_sep_km, caf_uplink=caf_fresh, **names)
+        if alone.verdict == "local":
+            if record.local_since_ns is None:
+                record.local_since_ns = now
+        else:
+            record.local_since_ns = None
+        override = (
+            record.verdict == "uplink"
+            and record.local_since_ns is not None
+            and now - record.local_since_ns >= self._local_override_ns
+        )
         decision = decide_verdict(
             record.evidence,
             self._distance,
             self._min_sep_km,
-            caf_uplink=record.caf_uplink,
+            caf_uplink=caf_fresh,
             previous=record.verdict,
             previous_reason=record.verdict_reason,
-            site_name=lambda s: self._site_names.get(s, s),
-            sat_name=lambda s: self._sat_names.get(s, s) if s is not None else "no satellite",
+            local_override=override,
+            **names,
         )
-        changed = decision.verdict != record.verdict
+        previous = record.verdict
+        changed = decision.verdict != previous
+        reason = decision.reason
+        if changed and previous == "uplink" and decision.verdict == "local":
+            reason = (
+                f"{decision.reason} The uplink signal seen earlier has stopped; this is a local signal on "
+                "the same frequency."
+            )
+            record.caf_uplink, record.caf_uplink_pair, record.caf_uplink_ns = False, None, None
+            self._counters["uplink_to_local"] += 1
         record.verdict = decision.verdict
         record.verdict_basis = decision.basis
-        record.verdict_reason = decision.reason
+        record.verdict_reason = reason
         record.verdict_gaps = [dict(g) for g in decision.gaps]
         if changed:
-            self._book.note_transition(record, now, f"verdict: {decision.reason}")
+            self._book.note_transition(record, now, f"verdict: {reason}")
             self._book.touch(record, "verdict")
+            if previous == "uplink" and decision.verdict == "local":
+                self._book.set_aside(record, "the uplink signal they belong to has stopped", now=now)
 
     def _distance(self, a: str, b: str) -> float:
         d = self._distances.get((a, b))

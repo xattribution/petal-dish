@@ -23,9 +23,11 @@ from petal_locate.core.linkbudget import downlink_quality_db
 from petal_locate.core.signals import key128
 from petal_locate.core.timebase import ns_from_iso, sec
 from petal_locate.sim import Scenario, SimWorld, load_scenario
+from petal_locate.sim import montecarlo as mc
 from petal_locate.sim.montecarlo import (
     DEFAULT_T_NS,
     draw_truth_errors,
+    ephemeris_allowance,
     format_summary,
     plan_event,
     run_trials,
@@ -256,24 +258,72 @@ def test_drawn_errors_scatter_as_p_total_predicts(bare: SystemConfig, clean: Sce
 @pytest.fixture(scope="module")
 def ephemeris_cfg(cfg: SystemConfig) -> SystemConfig:
     """pacific-uhf with ephemeris errors dominating (5 km in-track and cross-track) and the
-    Guam reference 20 dB stronger than configured (its own noise then matters little)."""
+    configured Guam reference (20 dBW omni: its own noise, about 0.1 us, matters little)."""
     data = cfg.export_dict()
     for sat in data["satellites"]:
         sat["ephemeris_sigma"] = {"pos_m": [500.0, 5000.0, 5000.0], "vel_mps": [0.001, 0.001, 0.001]}
     data.setdefault("processing", {})["uncertainty"] = {"sat_osc_frac": 1e-8, "site_osc_frac": 1e-12, "tdoa_bias_ns": 5.0}
     for site in data["sites"]:
         site["clock"] = {"sigma_ns": 5.0}
-    next(c for c in data["carriers"] if c["id"] == "ref-guam")["emitter"]["eirp_dbw"] = 33.0
     return SystemConfig.model_validate(data)
+
+
+@pytest.fixture(scope="module")
+def tle_cfg(cfg: SystemConfig) -> SystemConfig:
+    """pacific-uhf with every satellite at the TLE-grade one-sigma ephemeris."""
+    data = cfg.export_dict()
+    tle = cfg.processing.uncertainty.ephemeris.tle
+    for sat in data["satellites"]:
+        sat["ephemeris_sigma"] = {"pos_m": list(tle.pos_m), "vel_mps": list(tle.vel_mps)}
+    return SystemConfig.model_validate(data)
+
+
+def test_ephemeris_allowance_matches_tasking(cfg: SystemConfig, tle_cfg: SystemConfig, demo: Scenario) -> None:
+    """Uncalibrated windows (and every reference window) are widened by 6 |sigma_pos| / c per
+    satellite in delay and 6 f |sigma_vel| / c in Doppler, as server/pipeline/tasking.py
+    does. Without it a reference carrier, searched in a box around its prediction, is lost
+    when the satellites are off by TLE-class errors (seed 1: the second pair's reference
+    falls 'below threshold' and that pair goes uncalibrated)."""
+    c = 299_792_458.0
+    pos = math.sqrt(100.0**2 + 1000.0**2 + 1000.0**2)  # the configured operator sigmas, written out
+    vel = math.sqrt(0.02**2 + 0.02**2 + 0.05**2)
+    t, f = ephemeris_allowance(cfg.resolved_uncertainty(), "muos-pac", "uhf-172e", 301.005e6)
+    assert t == pytest.approx(6.0 * 2.0 * pos / c, rel=1e-12) and f == pytest.approx(6.0 * 301.005e6 * 2.0 * vel / c, rel=1e-12)
+    assert ephemeris_allowance(None, "muos-pac", "uhf-172e", 301.005e6) == (0.0, 0.0)
+    kw: dict[str, Any] = dict(seed=1, draw_errors=True, use_calibration=True, capture_s=0.5)
+    with_pad = run_trials(tle_cfg, demo, "jammer-philsea", 1, **kw)
+    assert all(p["calibrated"] == ["tdoa", "fdoa"] for p in with_pad["trials"][0]["pairs"])
+    original = mc._with_allowance
+    try:
+        mc._with_allowance = lambda search, uncertainty, correction: search  # type: ignore[assignment]
+        without = run_trials(tle_cfg, demo, "jammer-philsea", 1, **kw)
+    finally:
+        mc._with_allowance = original
+    assert [p["calibrated"] for p in without["trials"][0]["pairs"]] == [["tdoa", "fdoa"], []]
+    assert without["trials"][0]["pairs"][1]["reference"]["reason"] == "below threshold"
+
+
+def test_cw_is_band_limited_like_tasking(cfg: SystemConfig) -> None:
+    """A CW has no occupied band; tasking still filters to max(detected width, 10 Hz) plus the
+    Doppler reach, and so does the driver. Unfiltered, the 8 kHz Sapporo reference, whose
+    upper edge (301.1215 MHz) lies inside the CW's 20 kHz capture, correlated too and every
+    pair came back 'ambiguous'; filtered, every pair gives FDOA only ('narrowband')."""
+    sc = load_scenario(ROOT / "config" / "scenarios" / "uplink-cw.yaml")
+    res = run_trials(cfg, sc, "jammer-cw", 1, seed=31, use_calibration=False, t_ns=ns_from_iso("2026-01-01T03:00:00Z"))
+    pairs = res["trials"][0]["pairs"]
+    assert len(pairs) == 2
+    for p in pairs:
+        assert p["reason"] == "narrowband" and p["tdoa_s"] is None and p["fdoa_hz"] is not None
+        assert abs(p["fdoa_hz"] - p["truth_fdoa_hz"]) < 4.0 * p["sigma_fdoa_hz"]
+        assert p["noise_bandwidth_hz"] < 2_000.0  # filtered (unfiltered it is the 20 kHz capture rate)
 
 
 @pytest.mark.slow
 def test_calibration_reduces_the_miss_when_ephemeris_errors_are_drawn(ephemeris_cfg: SystemConfig, demo: Scenario) -> None:
     """The same drawn errors and noise (same seed), with and without the reference
     calibration: calibration cancels the ephemeris error common to target and reference.
-    On this geometry the predicted CEP50 drops from about 9.5 km to about 0.3 km (measured
-    median miss 7.0 km against 0.34 km); the test asks for less than half the miss and
-    less than 0.3 of the predicted CEP50."""
+    The test asks for less than half the miss and less than 0.3 of the predicted CEP50
+    (the reference carrier is the configured omni design)."""
     n = 8
     kw: dict[str, Any] = dict(seed=5, draw_errors=True, capture_s=0.5)
     cal = run_trials(ephemeris_cfg, demo, "jammer-philsea", n, use_calibration=True, **kw)

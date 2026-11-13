@@ -1499,6 +1499,8 @@ class ServerRuntime:
             self._sim_effective_ns = self._clock() + SIM_UPDATE_LEAD_NS
             self._truth_cache = None
             self._backplane_cache = None
+            if self._tasking is not None:  # calibrations of the old world must not correct the new one
+                self._tasking.world_changed(self._sim_effective_ns)
             logger.info(
                 "scenario replaced (%s): %r, version %d",
                 source,

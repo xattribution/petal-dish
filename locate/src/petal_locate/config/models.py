@@ -35,7 +35,10 @@ Rules enforced here:
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import math
+import re
+import zoneinfo
 from collections.abc import Iterable, Sequence
 from typing import Annotated, Any, Literal, Union
 
@@ -173,6 +176,30 @@ LatDeg = Annotated[float, Field(ge=-90, le=90)]
 LonDeg = Annotated[float, Field(ge=-180, le=180)]
 Vector3 = Annotated[list[float], Field(min_length=3, max_length=3)]
 Sigma3 = Annotated[list[NonNegativeFloat], Field(min_length=3, max_length=3)]
+
+
+_TIME_ZONE = re.compile(r"^[A-Za-z][A-Za-z0-9_+-]{0,29}(/[A-Za-z0-9_+-]{1,30}){0,2}$")
+
+
+def check_time_zone(value: str) -> str:
+    """An IANA time zone name such as ``Asia/Tokyo`` or ``UTC``, else ValueError.
+
+    Checked against the tz database Python finds (``zoneinfo``); when the host has no
+    tz database at all, a well-formed name is accepted (it is only displayed).
+    """
+    if not isinstance(value, str) or not _TIME_ZONE.match(value) or ".." in value:
+        raise ValueError(f"must be an IANA time zone name such as Asia/Tokyo, got {value!r}")
+    try:
+        zoneinfo.ZoneInfo(value)
+    except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+        if _tz_database_present():
+            raise ValueError(f"unknown IANA time zone {value!r} (for example Asia/Tokyo or Pacific/Honolulu)") from None
+    return value
+
+
+@functools.lru_cache(maxsize=1)
+def _tz_database_present() -> bool:
+    return bool(zoneinfo.available_timezones())
 
 
 class _Model(BaseModel):
@@ -714,7 +741,12 @@ class SiteClock(_Model):
 class Site(_Model):
     """A ground site. The antenna phase centre is at ``alt_m + antenna_height_m`` above
     the WGS84 ellipsoid (``xyz()``); ``antenna_height_m`` (above ground) also sets the
-    radio horizon of direct paths."""
+    radio horizon of direct paths.
+
+    time_zone: optional IANA time zone of the site (for example ``Asia/Tokyo``), used
+    only for display (the console's clock strip); absent, the console infers one from
+    the position. Every computation uses UTC.
+    """
 
     id: Ident
     name: str
@@ -724,6 +756,14 @@ class Site(_Model):
     antenna_height_m: NonNegativeFloat = 10.0
     clock: SiteClock = Field(default_factory=SiteClock)
     channels: list[ReceiveChannel]
+    time_zone: str | None = None
+
+    @field_validator("time_zone")
+    @classmethod
+    def _check_time_zone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return check_time_zone(value)
 
     def xyz(self) -> np.ndarray:
         """Antenna phase centre, ECEF m, ``ndarray[3]``."""

@@ -53,7 +53,11 @@ async function saveFromElsewhere(page: Page): Promise<void> {
   const token = process.env.PETAL_TOKEN;
   const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const g = await page.request.get('/api/v1/config', { headers: auth });
-  const env = (await g.json()) as { version: number; config: unknown };
+  type Channel = { id: string; monitors?: unknown[] };
+  const env = (await g.json()) as { version: number; config: { sites: Array<{ channels: Channel[] }> }; derived_monitors?: string[] };
+  // save it unchanged, as a client should: derived windows go back as monitors: [] so they stay derived
+  const derived = new Set(env.derived_monitors ?? []);
+  for (const site of env.config.sites) for (const ch of site.channels) if (derived.has(ch.id)) ch.monitors = [];
   const etag = g.headers()['etag'] ?? `"${env.version}"`;
   const p = await page.request.put('/api/v1/config', { data: env.config, headers: { ...auth, 'If-Match': etag } });
   expect(p.ok(), `saving the unchanged configuration answered ${p.status()}`).toBeTruthy();
@@ -138,10 +142,30 @@ for (const theme of ['dark', 'light'] as const) {
       await open(page, 'spectrum?cols=4&dense=1');
       await expect(page.locator('.specpanel').first()).toBeVisible();
       await expect(page.locator('.specpanel[data-state="live"]').first()).toBeVisible({ timeout: 10_000 });
-      const live = page.locator('.specpanel[data-state="live"] canvas.trace').first();
-      const box = await live.boundingBox();
-      if (box) await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.5);
-      await expect(page.locator('.specpanel[data-state="live"] .readout').first()).toContainText('MHz');
+      // hover one live panel and read that panel's readout (against a real server the
+      // windows go live in arrival order, so "the first live panel" can change meanwhile).
+      // The panel is held by its label (data-key holds a NUL, which no CSS selector matches)
+      // and hovered again until the readout follows: hover() waits until the trace is
+      // visible, stable and receives the pointer, and the point moves by a pixel or so each
+      // time so every attempt is a fresh pointer move.
+      const label = await page.locator('.specpanel[data-state="live"]').first().getAttribute('aria-label');
+      if (!label) throw new Error('no live spectrum panel');
+      const live = page.locator(`.specpanel[aria-label="${label}"]`);
+      const trace = live.locator('canvas.trace');
+      let attempt = 0;
+      await expect
+        .poll(
+          async () => {
+            const b = await trace.boundingBox();
+            if (b) {
+              const x = b.width * (0.55 + 0.005 * (attempt++ % 2));
+              await trace.hover({ position: { x, y: b.height * 0.5 }, timeout: 2000 }).catch(() => undefined);
+            }
+            return (await live.locator('.readout').textContent()) ?? '';
+          },
+          { timeout: 5000 },
+        )
+        .toContain('MHz');
       const slow = await page.evaluate(
         () =>
           new Promise<number>((resolve) => {

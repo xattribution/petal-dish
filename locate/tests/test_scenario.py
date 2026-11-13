@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "pacific-uhf.yaml"
 SCENARIO_DIR = ROOT / "config" / "scenarios"
 SCENARIO_FILES = sorted(SCENARIO_DIR.glob("*.yaml"))
-REQUIRED = {"pacific-demo", "uplink-cw", "uplink-swept", "local-interferer", "two-jammers", "clock-fault", "quiet"}
+REQUIRED = {"pacific-demo", "uplink-cw", "uplink-swept", "local-interferer", "two-jammers", "clock-fault", "quiet",
+            "ephemeris-error"}
 
 
 @pytest.fixture(scope="module")
@@ -114,6 +115,24 @@ def test_scenario_specifics(cfg: SystemConfig) -> None:
     assert local.kind == "local"
     assert not any(tp.relays(local.freq_hz) for s in cfg.satellites for tp in s.transponders)
     assert any(tp.downlink_lo_hz <= local.freq_hz <= tp.downlink_hi_hz for tp in cfg.satellite("muos-pac").transponders)
+    # ephemeris-error: two satellites kilometres off in-track, far beyond the operator sigma the solver
+    # assumes (TLE-class); everything else as pacific-demo; the jammer stays clear of every place
+    eph = sc["ephemeris-error"]
+    (je,) = eph.emitters
+    assert (je.lat_deg, je.lon_deg) == (17.0, 141.0) and je.freq_hz == j.freq_hz and je.waveform == j.waveform
+    big = {sat: err for sat, err in eph.errors.ephemeris.items() if abs(err.ric_pos_m[1]) > 3.0 * sigma[1]}
+    assert set(big) == {"muos-pac", "uhf-172e"}
+    for sat, err in eph.errors.ephemeris.items():
+        assert err.ric_vel_mps == [0.0, 0.0, 0.0]
+        if sat in big:  # kilometres in-track (TLE-class: 20 km in-track sigma), small radially and cross-track
+            assert 5000.0 <= abs(err.ric_pos_m[1]) <= 10000.0 and abs(err.ric_pos_m[0]) <= sigma[0] * 3
+            assert abs(err.ric_pos_m[2]) <= sigma[2]
+        else:
+            assert all(abs(v) <= s for v, s in zip(err.ric_pos_m, sigma))
+    assert eph.errors.sat_osc_frac == demo.errors.sat_osc_frac
+    assert eph.errors.site_clock_offset_ns == demo.errors.site_clock_offset_ns
+    assert 500e3 < float(geodesic_distance_m(je.lat_deg, je.lon_deg, *(lambda c: (c.location.lat_deg, c.location.lon_deg))(
+        cfg.carrier("ref-guam")))) < 600e3  # close to the Guam reference, where calibration removes most
     # no jammer overlaps a reference carrier's band
     for name, s in sc.items():
         for e in s.emitters:

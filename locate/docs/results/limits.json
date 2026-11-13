@@ -1,0 +1,946 @@
+{
+ "section": "limits",
+ "simulated": true,
+ "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
+ "config": "config/pacific-uhf.yaml",
+ "config_sha256_16": "8e6a50618265b5ab",
+ "script": "scripts/capability_study.py",
+ "mirror": {
+  "point": [
+   20.0,
+   132.0
+  ],
+  "method": "Noise-free truth TDOA/FDOA (sigmas 0.1 us, 1 mHz) of the tasking rule's pairs, no truth errors, solved with the configured uncertainty; 'zero_inclination' sets every satellite's inclination to 0 in both truth and solver.",
+  "epochs": [
+   {
+    "epoch": "2026-01-01T03:00:00Z",
+    "inclined": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99995436544134,
+       "lon_deg": 132.0000086856429,
+       "chi2": 2.1324311639469916e-12,
+       "miss_m": 5.133055615864884
+      }
+     ],
+     "ambiguity_resolved_by": "region"
+    },
+    "zero_inclination": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 2.4726191573795987e-21,
+       "miss_m": 26.79860074379114
+      },
+      {
+       "lat_deg": -19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 3.1297126611062223e-21,
+       "miss_m": 4424705.709745781
+      }
+     ],
+     "ambiguity_resolved_by": "unresolved"
+    }
+   },
+   {
+    "epoch": "2026-01-01T09:00:00Z",
+    "inclined": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99987410790945,
+       "lon_deg": 131.9999946794071,
+       "chi2": 1.4361449986656253e-11,
+       "miss_m": 13.947911700966865
+      },
+      {
+       "lat_deg": -49.8625262198674,
+       "lon_deg": 128.68975216426946,
+       "chi2": 2.4269227131152453,
+       "miss_m": 7744828.366614002
+      }
+     ],
+     "ambiguity_resolved_by": "unresolved"
+    },
+    "zero_inclination": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 2.4726191573795987e-21,
+       "miss_m": 26.79860074379114
+      },
+      {
+       "lat_deg": -19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 3.1297126611062223e-21,
+       "miss_m": 4424705.709745781
+      }
+     ],
+     "ambiguity_resolved_by": "unresolved"
+    }
+   },
+   {
+    "epoch": "2026-01-01T15:00:00Z",
+    "inclined": {
+     "pairs": [
+      [
+       "naha-172e",
+       "honolulu-pac"
+      ],
+      [
+       "naha-172e",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 20.00023286875401,
+       "lon_deg": 132.00002089384873,
+       "chi2": 1.2400094839165327e-11,
+       "miss_m": 25.8721262602913
+      }
+     ],
+     "ambiguity_resolved_by": "region"
+    },
+    "zero_inclination": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 2.4726191573795987e-21,
+       "miss_m": 26.79860074379114
+      },
+      {
+       "lat_deg": -19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 3.1297126611062223e-21,
+       "miss_m": 4424705.709745781
+      }
+     ],
+     "ambiguity_resolved_by": "unresolved"
+    }
+   },
+   {
+    "epoch": "2026-01-01T21:00:00Z",
+    "inclined": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99912771790933,
+       "lon_deg": 132.00003062090605,
+       "chi2": 4.516289765460498e-10,
+       "miss_m": 96.61851540041997
+      },
+      {
+       "lat_deg": 8.463747159245727,
+       "lon_deg": 132.38200647297526,
+       "chi2": 0.07890877794976223,
+       "miss_m": 1277088.4504918242
+      }
+     ],
+     "ambiguity_resolved_by": "unresolved"
+    },
+    "zero_inclination": {
+     "pairs": [
+      [
+       "honolulu-pac",
+       "naha-172e"
+      ],
+      [
+       "honolulu-pac",
+       "seoul-io"
+      ]
+     ],
+     "candidates": [
+      {
+       "lat_deg": 19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 2.4726191573795987e-21,
+       "miss_m": 26.79860074379114
+      },
+      {
+       "lat_deg": -19.99975792625952,
+       "lon_deg": 132.0000000020309,
+       "chi2": 3.1297126611062223e-21,
+       "miss_m": 4424705.709745781
+      }
+     ],
+     "ambiguity_resolved_by": "unresolved"
+    }
+   }
+  ]
+ },
+ "band_overlap": {
+  "solo-pac (muos-pac only)": {
+   "freq_hz": 301500000.0,
+   "channels_receiving": 7,
+   "cn0_dbhz_range": [
+    51.9256268369754,
+    55.901011161497735
+   ],
+   "locate": "emitter_id 'j': no channel pair can correlate it at t_ns (no satellite other than muos-pac relays 301495000..301505000 Hz into a channel)"
+  },
+  "solo-172e (uhf-172e only)": {
+   "freq_hz": 301750000.0,
+   "channels_receiving": 7,
+   "cn0_dbhz_range": [
+    52.13385506237833,
+    55.68598671229233
+   ],
+   "locate": "emitter_id 'j': no channel pair can correlate it at t_ns (no satellite other than uhf-172e relays 301745000..301755000 Hz into a channel)"
+  },
+  "solo-io (muos-io only)": {
+   "freq_hz": 302000000.0,
+   "channels_receiving": 5,
+   "cn0_dbhz_range": [
+    51.68406770735186,
+    55.24945985022674
+   ],
+   "locate": "emitter_id 'j': no channel pair can correlate it at t_ns (no satellite other than muos-io relays 301995000..302005000 Hz into a channel)"
+  }
+ },
+ "visibility_deg": {
+  "honolulu": {
+   "muos-pac": [
+    52.40202813159042,
+    61.119202691024675
+   ],
+   "uhf-172e": [
+    44.97734285193633,
+    50.49183168356557
+   ],
+   "muos-io": [
+    -42.69115023416935,
+    -38.68508116060163
+   ]
+  },
+  "hilo": {
+   "muos-pac": [
+    51.86259972781439,
+    59.72985178651698
+   ],
+   "uhf-172e": [
+    43.61381111545181,
+    48.54612372915981
+   ],
+   "muos-io": [
+    -45.254647503314644,
+    -41.415582367301226
+   ]
+  },
+  "tokyo": {
+   "muos-pac": [
+    24.711123734711503,
+    32.51068361414153
+   ],
+   "uhf-172e": [
+    32.86500434317218,
+    39.91858177393691
+   ],
+   "muos-io": [
+    8.507865033181288,
+    14.92646146971083
+   ]
+  },
+  "naha": {
+   "muos-pac": [
+    19.85965961081388,
+    25.318635214578325
+   ],
+   "uhf-172e": [
+    30.035874503808994,
+    35.05184116429827
+   ],
+   "muos-io": [
+    22.174257765338613,
+    27.801019465227835
+   ]
+  },
+  "seoul": {
+   "muos-pac": [
+    14.426860389789772,
+    21.563119720655894
+   ],
+   "uhf-172e": [
+    23.107401586232676,
+    29.419068652089145
+   ],
+   "muos-io": [
+    17.38526939520618,
+    24.774936826683483
+   ]
+  },
+  "busan": {
+   "muos-pac": [
+    17.116472549596644,
+    24.06062811056125
+   ],
+   "uhf-172e": [
+    26.04144319910674,
+    32.25262044488625
+   ],
+   "muos-io": [
+    17.00198698349025,
+    23.93662302746203
+   ]
+  },
+  "manila": {
+   "muos-pac": [
+    17.171633554502684,
+    20.171523250005603
+   ],
+   "uhf-172e": [
+    28.49568080823938,
+    31.254862476811244
+   ],
+   "muos-io": [
+    33.09765730952047,
+    36.84039297588383
+   ]
+  }
+ },
+ "cw_predicted": {
+  "emitter": "CW, 5 dBW isotropic, 301.130 MHz (shared-2)",
+  "points": [
+   {
+    "key": "philippine-sea",
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": 40840.0925204143,
+     "semi_minor_95_m": 3027.8616899646922,
+     "cep50_m": 11322.09541299124,
+     "dominant": "noise",
+     "n_rows": 2,
+     "reason": null,
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08235127813327,
+       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.00950683779509,
+       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   },
+   {
+    "key": "south-china-sea",
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "seoul-io/seoul-pac",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "seoul-io/seoul-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": 85276.94579491553,
+     "semi_minor_95_m": 2134.329664199751,
+     "cep50_m": 23514.707660293858,
+     "dominant": "noise",
+     "n_rows": 2,
+     "reason": null,
+     "pairs": [
+      {
+       "pair": "seoul-io/seoul-pac",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08355565156239,
+       "reference_sigma_tdoa_ns": 127.39556855105283,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "seoul-io/seoul-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.10367319263719,
+       "reference_sigma_tdoa_ns": 123.75164657615882,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   },
+   {
+    "key": "sea-of-japan",
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": 24833.124721673077,
+     "semi_minor_95_m": 3734.959180500213,
+     "cep50_m": 7017.71453069875,
+     "dominant": "noise",
+     "n_rows": 2,
+     "reason": null,
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08235127813327,
+       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.00950683779509,
+       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   },
+   {
+    "key": "near-guam",
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": 48267.911405503335,
+     "semi_minor_95_m": 3138.1304579039956,
+     "cep50_m": 13362.551019053877,
+     "dominant": "noise",
+     "n_rows": 2,
+     "reason": null,
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08235127813327,
+       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.00950683779509,
+       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   },
+   {
+    "key": "near-hawaii",
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08235127813327,
+       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.00950683779509,
+       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   },
+   {
+    "key": "korean-peninsula",
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": 26441.800790289457,
+     "semi_minor_95_m": 3545.998777944263,
+     "cep50_m": 7433.234178120967,
+     "dominant": "noise",
+     "n_rows": 2,
+     "reason": null,
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08235127813327,
+       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.00950683779509,
+       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   },
+   {
+    "key": "east-of-japan",
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "note": "",
+    "uncalibrated": {
+     "semi_major_95_m": null,
+     "semi_minor_95_m": null,
+     "cep50_m": null,
+     "dominant": null,
+     "n_rows": null,
+     "reason": "unobservable",
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [],
+       "reference_snr_db": null,
+       "reference_sigma_tdoa_ns": null,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    },
+    "calibrated-sapporo": {
+     "semi_major_95_m": 27448.596733750477,
+     "semi_minor_95_m": 3545.519208599934,
+     "cep50_m": 7704.992455166208,
+     "dominant": "noise",
+     "n_rows": 2,
+     "reason": null,
+     "pairs": [
+      {
+       "pair": "honolulu-pac/naha-172e",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.08235127813327,
+       "reference_sigma_tdoa_ns": 116.34675713946017,
+       "reference_reason": null,
+       "reason": null
+      },
+      {
+       "pair": "honolulu-pac/seoul-io",
+       "calibrated": [
+        "tdoa",
+        "fdoa"
+       ],
+       "reference_snr_db": 39.00950683779509,
+       "reference_sigma_tdoa_ns": 122.0359780916466,
+       "reference_reason": null,
+       "reason": null
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "uplink-cw/uncalibrated": {
+  "n_trials": 10,
+  "n_solved": 0,
+  "failures": {
+   "unobservable": 10
+  },
+  "median_miss_m": null,
+  "p95_miss_m": null,
+  "mean_nees_total": null,
+  "containment_95_total": null,
+  "cep50_predicted_m": null,
+  "pair_reasons": {
+   "narrowband": 20
+  },
+  "pairs": [
+   "honolulu-pac/naha-172e",
+   "honolulu-pac/seoul-io"
+  ]
+ },
+ "uplink-cw/calibrated": {
+  "n_trials": 10,
+  "n_solved": 10,
+  "failures": {},
+  "median_miss_m": 18595.604691651286,
+  "p95_miss_m": 30007.641197881087,
+  "mean_nees_total": 1.6615422885753168,
+  "containment_95_total": 1.0,
+  "cep50_predicted_m": 13587.327701191796,
+  "pair_reasons": {
+   "narrowband": 20
+  },
+  "pairs": [
+   "honolulu-pac/naha-172e",
+   "honolulu-pac/seoul-io"
+  ]
+ },
+ "uplink-swept/uncalibrated": {
+  "n_trials": 10,
+  "n_solved": 0,
+  "failures": {
+   "fewer than 2 measurements (0)": 10
+  },
+  "median_miss_m": null,
+  "p95_miss_m": null,
+  "mean_nees_total": null,
+  "containment_95_total": null,
+  "cep50_predicted_m": null,
+  "pair_reasons": {
+   "ambiguous": 20
+  },
+  "pairs": [
+   "honolulu-pac/naha-172e",
+   "honolulu-pac/seoul-io"
+  ]
+ },
+ "uplink-swept/calibrated": {
+  "n_trials": 10,
+  "n_solved": 0,
+  "failures": {
+   "fewer than 2 measurements (0)": 10
+  },
+  "median_miss_m": null,
+  "p95_miss_m": null,
+  "mean_nees_total": null,
+  "containment_95_total": null,
+  "cep50_predicted_m": null,
+  "pair_reasons": {
+   "ambiguous": 20
+  },
+  "pairs": [
+   "honolulu-pac/naha-172e",
+   "honolulu-pac/seoul-io"
+  ]
+ },
+ "elapsed_s": 43.940579652786255
+}

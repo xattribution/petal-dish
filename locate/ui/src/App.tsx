@@ -10,7 +10,7 @@ import { configResource } from './state/resources';
 import { getState, hasToken, serverNowMs, setToken, useLive } from './state/store';
 import { setTheme, useTheme, type ThemeSetting } from './styles/theme';
 import { formatAge, zoneClock, zuluClock, dtg } from './time/dtg';
-import { siteZone } from './time/zones';
+import { knownZone, siteZone } from './time/zones';
 import { WatchView } from './views/Watch';
 
 const SpectrumView = lazy(() => import('./spectrum/SpectrumView').then((m) => ({ default: m.SpectrumView })));
@@ -135,6 +135,10 @@ function useSiteZones(sites: Site[] | undefined): Map<string, string> {
     const m = new Map<string, string>();
     const world = worldIfLoaded();
     for (const s of sites ?? []) {
+      if (knownZone(s.time_zone)) {
+        m.set(s.id, s.time_zone); // configured: authoritative
+        continue;
+      }
       const country = world ? countryAt(world, s.lat_deg, s.lon_deg) : null;
       m.set(s.id, siteZone(s.lat_deg, s.lon_deg, country));
     }
@@ -156,11 +160,12 @@ function ClockStrip() {
     const c = zoneClock(now, tz);
     const key = `${c.hhmm}${c.letter ?? ''}${c.offset}${c.day}`;
     const name = s.name.replace(/\s*\(.*\)$/, '');
+    const label = `${name}: ${tz}${knownZone(s.time_zone) ? ' (configured)' : ' (inferred from the position)'}`;
     const g = groups.find((x) => x.key === key);
     if (g) {
       g.names.push(name);
-      if (!g.zones.includes(tz)) g.zones += `, ${tz}`;
-    } else groups.push({ key, names: [name], zones: tz, c });
+      g.zones += `; ${label}`;
+    } else groups.push({ key, names: [name], zones: label, c });
   }
   return (
     <div className="clockstrip" aria-label="Clocks">

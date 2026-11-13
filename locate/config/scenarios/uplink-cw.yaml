@@ -16,9 +16,9 @@ description: >-
   carry the uncalibrated satellite-oscillator uncertainty (up to 40 Hz): without
   calibration the solver reports the event unobservable. Calibrated against the
   Sapporo reference carrier, which shares shared-2, the oscillator terms cancel and a
-  coarse FDOA-only fix appears, tens of kilometres from the truth inside a very long
-  95 % ellipse (hundreds of kilometres by a few kilometres) that contains it. Truth
-  errors are the small ones of pacific-demo.
+  coarse FDOA-only fix appears, 10 to 65 km from the truth inside a very long 95 % ellipse
+  (60 to 650 km by 2 to 3 km) that contains it. Truth errors are the small ones of
+  pacific-demo.
 emitters:
   - id: jammer-cw
     name: Uplink CW jammer (simulated, open ocean)

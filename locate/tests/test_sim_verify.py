@@ -661,35 +661,41 @@ def test_pacific_demo_end_to_end_matches_its_description(cfg: SystemConfig) -> N
     assert len({ch for ch, _ in found}) == 19  # every channel's shared-1 window
     assert all(51.5 <= d.cn0_dbhz <= 56.5 and 12.0 <= d.snr_db <= 16.5 for _, d in found)
     (event,) = _events(cfg, dets)
-    # transponders about 6 dB below saturation: hand budget of shared-1 on every satellite
+    # transponders about 3.5 dB below saturation (the 20 dBW jammer plus the 20 dBW omni Guam
+    # reference): hand budget of shared-1 on every satellite
     t_s = sec(T_DET)
     jam, ref = world.emitter("jammer-philsea"), world.emitter("ref-guam")
+    assert ref.pointing == "omni"
     for sat in cfg.satellites:
         tp = sat.transponder("shared-1")
         r = np.asarray(world.truth_orbit(sat.id).state_ecef(t_s)[0], dtype=np.float64)
         pfd_j = jam.eirp_dbw - 10 * math.log10(4 * math.pi * float(np.sum((r - jam.xyz) ** 2)))
-        bore = cfg.orbits()[ref.pointing.satellite_id].state_ecef(t_s)[0] - ref.xyz
-        off = math.degrees(math.acos(float(np.dot(bore, r - ref.xyz) / np.linalg.norm(bore) / np.linalg.norm(r - ref.xyz))))
-        pfd_r = ref.eirp_dbw + float(gain_dbi(ref.antenna, off, ref.freq_hz)) - float(gain_dbi(ref.antenna, 0.0, ref.freq_hz)) \
+        pfd_r = ref.eirp_dbw + float(gain_dbi(ref.antenna, 90.0, ref.freq_hz)) - float(gain_dbi(ref.antenna, 0.0, ref.freq_hz)) \
             - 10 * math.log10(4 * math.pi * float(np.sum((r - ref.xyz) ** 2)))
         n0 = tp.eirp_sat_dbw - tp.sfd_dbw_m2 + 10 * math.log10(4 * math.pi * (tp.uplink_center_hz / C_LIGHT) ** 2) \
             - tp.g_over_t_dbk + _K_DBW
         total = sum(10 ** ((tp.eirp_sat_dbw - tp.sfd_dbw_m2 + p) / 10) for p in (pfd_j, pfd_r)) + 10 ** (n0 / 10) * tp.bandwidth_hz
-        assert 5.0 < tp.eirp_sat_dbw - 10 * math.log10(total) < 8.0
+        assert 2.5 < tp.eirp_sat_dbw - 10 * math.log10(total) < 4.5
     t_start = T_DET + 12 * NS
     cal = _run_event(cfg, world, event, t_start, "jammer-philsea", calibrate=True)
     assert len(cal.pairs) == 2 and {p["b"].split("-")[1] for p in cal.pairs} | {cal.pairs[0]["a"].split("-")[1]} == {"pac", "172e", "io"}
     assert all(38.0 <= p["result"].snr_db <= 41.5 for p in cal.pairs)  # "about 40 dB"
     assert all(abs(e) < 3.5 for e in _caf_errors(cal))
     assert all(p["calibrated"] == ["fdoa", "tdoa"] for p in cal.pairs)
+    # the omni reference is relayed well by every satellite: about 38 to 39 dB, 110 to 160 ns of TDOA noise
+    for p in cal.pairs:
+        rres = p["reference"]["result"]
+        assert rres.snr_db > 35.0 and rres.sigma_tdoa_s is not None and rres.sigma_tdoa_s < 0.2e-6
     assert cal.solution is not None
     miss, nees = _score(cal.solution, 20.0, 132.0)
-    assert 300.0 < miss < 3000.0 and nees < CHI2_999 and cal.solution.dominant_error == "reference"
-    assert 2000.0 < cal.solution.ellipse["semi_major_m"] < 4500.0
+    assert miss < 1000.0 and nees < CHI2_999 and cal.solution.dominant_error != "ephemeris_position"
+    assert 250.0 < cal.solution.ellipse["semi_major_m"] < 1000.0  # measured 412 to 611 m over a day
     unc = _run_event(cfg, world, event, t_start, "jammer-philsea", calibrate=False)
     assert unc.solution is not None
     miss_u, nees_u = _nearest(unc.solution, 20.0, 132.0)
     assert miss_u < 3000.0 and nees_u < CHI2_999 and unc.solution.dominant_error == "ephemeris_position"
+    # calibration now sharpens the fix: the ellipse shrinks by more than five times (4.6 km to 0.5 km at 03 UTC)
+    assert cal.solution.ellipse["semi_major_m"] < 0.2 * unc.solution.ellipse["semi_major_m"]
 
 
 def test_clock_fault_is_removed_by_reference_calibration(cfg: SystemConfig) -> None:
@@ -711,7 +717,31 @@ def test_clock_fault_is_removed_by_reference_calibration(cfg: SystemConfig) -> N
     cal = _run_event(cfg, world, event, t_start, "jammer-philsea", calibrate=True, primary="honolulu-pac")
     assert cal.solution is not None
     miss_c, nees_c = _score(cal.solution, 20.0, 132.0)
-    assert miss_c < 3000.0 and nees_c < CHI2_999
+    assert miss_c < 1000.0 and nees_c < CHI2_999  # measured 75 to 195 m over a day
+
+
+def test_ephemeris_error_is_removed_by_reference_calibration(cfg: SystemConfig) -> None:
+    """Two satellites 8 and 6 km off in-track (TLE-class) while the solver assumes 1 km:
+    uncalibrated the fix is tens of km off, outside its ellipse, with a reduced
+    chi-square below 1 (no warning); calibrated against Guam (560 km away) it is back
+    within a few hundred metres and inside its ellipse."""
+    world = _scenario_world(cfg, "ephemeris-error")
+    dets = _detect(world, cfg, T_DET)
+    found = [d for ds in dets.values() for d in ds]
+    assert len(found) == 19 and all(51.5 <= d.cn0_dbhz <= 56.5 for d in found)
+    (event,) = _events(cfg, dets)
+    t_start = T_DET + 12 * NS
+    unc = _run_event(cfg, world, event, t_start, "jammer-philsea", calibrate=False)
+    assert all(abs(e) < 3.5 for e in _caf_errors(unc))  # the CAF measures the truth; the model is what is wrong
+    assert unc.solution is not None
+    miss_u, nees_u = _nearest(unc.solution, 17.0, 141.0)
+    assert miss_u > 10_000.0 and nees_u > CHI2_999  # measured 12.0 km, NEES 45 at 03 UTC
+    assert unc.solution.reduced_chi2 is not None and unc.solution.reduced_chi2 < 1.0
+    cal = _run_event(cfg, world, event, t_start, "jammer-philsea", calibrate=True)
+    assert all(p["calibrated"] == ["fdoa", "tdoa"] for p in cal.pairs)
+    assert cal.solution is not None
+    miss_c, nees_c = _score(cal.solution, 17.0, 141.0)
+    assert miss_c < 1000.0 and nees_c < CHI2_999 and miss_c < miss_u / 20.0  # measured 273 m, NEES 4.5
 
 
 def test_uplink_cw_gives_fdoa_only_and_needs_calibration_for_a_fix(cfg: SystemConfig) -> None:
@@ -792,20 +822,23 @@ def test_scenario_claims_hold_over_a_day(cfg: SystemConfig) -> None:
         t = ns_from_iso(f"2026-01-01T{hour:02d}:00:00Z")
         t_start = t + 12 * NS
         for name, eid, lat, lon in (("pacific-demo", "jammer-philsea", 20.0, 132.0),
-                                    ("clock-fault", "jammer-philsea", 20.0, 132.0)):
+                                    ("clock-fault", "jammer-philsea", 20.0, 132.0),
+                                    ("ephemeris-error", "jammer-philsea", 17.0, 141.0)):
             world = _scenario_world(cfg, name, t)
             (event,) = _events(cfg, _detect(world, cfg, t))
             cal = _run_event(cfg, world, event, t_start, eid, calibrate=True)
             assert cal.solution is not None
             miss, nees = _score(cal.solution, lat, lon)
-            assert miss < 3000.0
+            assert miss < 1000.0  # calibrated: 73 to 301 m measured at these four epochs
             inside.append(nees <= CHI2_95)
             unc = _run_event(cfg, world, event, t_start, eid, calibrate=False)
             assert unc.solution is not None
             miss_u, _ = _nearest(unc.solution, lat, lon)
             cross_naha = any(p["a_path"].site_id != p["b_path"].site_id and "naha" in (p["a_path"].site_id, p["b_path"].site_id)
                              for p in unc.pairs)
-            if name == "clock-fault" and cross_naha:
+            if name == "ephemeris-error":  # 12 to 37 km, or an ambiguity / degenerate fix farther off
+                assert miss_u > 10_000.0
+            elif name == "clock-fault" and cross_naha:
                 assert miss_u > 8000.0
             elif name == "clock-fault":  # every pair at one site: clocks cancel
                 assert all(p["a_path"].site_id == p["b_path"].site_id for p in unc.pairs) and miss_u < 5000.0
@@ -876,8 +909,12 @@ def test_accuracy_map_agrees_with_the_full_chain_monte_carlo(cfg: SystemConfig) 
     res = run_trials(cfg, sc, "j", 30, pairs=pairs, seed=11, draw_errors=True, use_calibration=True)
     solved = [t for t in res["trials"] if "miss_m" in t]
     assert len(solved) == 30
-    # deterministic: the solver's covariance at its fix equals the map's at the cell
-    assert abs(float(np.median([t["cep50_m"] for t in solved])) / cep - 1.0) < 0.02
+    # deterministic: the solver's covariance at its fix equals the map's at the cell, up to
+    # one modelling gap of the map: seoul-io also hears the omni Guam reference through
+    # MUOS Pacific (co-channel), which the correlator counts as noise and the map does not
+    # (reference sigma_tdoa on honolulu-pac/seoul-io: 155 to 162 ns measured, 121 ns
+    # predicted), so the solver's CEP50 is 2.6 % and its semi-major 0.8 % above the map's
+    assert abs(float(np.median([t["cep50_m"] for t in solved])) / cep - 1.0) < 0.04
     assert abs(float(np.median([t["semi_major_m"] for t in solved])) / a95 - 1.0) < 0.02
     # statistical: the actual misses follow the map's covariance (3-sigma bounds for n = 30)
     e = np.array([t["error_en_m"] for t in solved])

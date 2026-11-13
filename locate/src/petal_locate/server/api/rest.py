@@ -76,6 +76,7 @@ __all__ = [
     "ApiState",
     "CatchAllMiddleware",
     "accuracy_bands",
+    "accuracy_config",
     "accuracy_problems",
     "api_router",
     "backplane_router",
@@ -730,10 +731,20 @@ def compute_accuracy(
     return _merge_accuracy(t_ns, lat, lon, bands, request.step_deg, parts)
 
 
+def accuracy_config(cfg: SystemConfig, request: schemas.AccuracyRequest) -> SystemConfig:
+    """The configuration an accuracy map is computed with: ``cfg`` itself, or a copy
+    whose ``processing.uncertainty`` is the request's override (the configuration in
+    force is never changed)."""
+    if request.uncertainty is None:
+        return cfg
+    processing = cfg.processing.model_copy(update={"uncertainty": request.uncertainty})
+    return cfg.model_copy(update={"processing": processing})
+
+
 def _accuracy_call(accuracy_map: Callable[..., Mapping[str, Any]], cfg: SystemConfig,
                    request: schemas.AccuracyRequest, t_ns: int, band: Region) -> Mapping[str, Any]:
     return accuracy_map(
-        cfg,
+        accuracy_config(cfg, request),
         [tuple(p) for p in request.pairs],
         request.emitter,
         float(request.f_e_hz),
@@ -1089,10 +1100,18 @@ async def get_status(request: Request) -> Response:
 @api_router.get("/events", tags=["events"], response_model=list[schemas.EventSummary], responses=_ERRORS_422)
 async def list_events(
     request: Request,
-    state: str | None = Query(None, description="an event state, or 'active' for every active state"),
+    state: str | None = Query(
+        None,
+        description=(
+            "one value: detected, characterizing, locating, located, lost, closed, or active "
+            "(detected, characterizing, locating and located together); absent for every event. "
+            "Any other value is a 422."
+        ),
+    ),
     limit: int = Query(100, ge=1, le=1000),
 ) -> Response:
-    """Events, newest first."""
+    """Events, newest first (by when they were raised). ``state`` filters on one
+    lifecycle state or on ``active``; ``limit`` caps the list (default 100)."""
     runtime = get_runtime(request)
     try:
         summaries = runtime.list_events(state=state, limit=limit)

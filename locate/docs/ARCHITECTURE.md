@@ -7,17 +7,22 @@ Nothing is specific to one satellite, band or site: satellites, transponders, si
 antennas, frequency plans and processing settings are all configuration.
 
 Read `MATH.md` first. It fixes every sign, unit and algorithmic requirement.
-Revision 3: matches the implementation as built and verified, including the optional
-arguments and helpers other modules use.
+Revision 4: matches the implementation as built, verified and integrated, including the
+optional arguments and helpers other modules use, the server pipeline's rules
+(section 7) and the simulator's and Monte Carlo driver's (section 4). What the proof of
+concept does not show is in `LIMITATIONS.md`; how to deploy it in `OPERATIONS.md`.
 
 ## 1. Layout
 
 ```
 locate/
-  pyproject.toml            Python package (venv at locate/.venv)
-  config/                   example system configs and simulation scenarios (YAML)
+  README.md                 what it is, quick start, map of the documents
+  pyproject.toml setup.py   Python package (venv at locate/.venv); setup.py copies config/ into a built wheel
+  config/                   example system configs; config/scenarios/ the simulation scenarios (presets)
   docs/                     MATH.md ARCHITECTURE.md PROTOCOL.md UI-BRIEF.md CONTRIBUTING.md
-                            (later: API notes, RESULTS.md, LIMITATIONS.md, OPERATIONS.md)
+                            RESULTS.md (simulated capability study) LIMITATIONS.md OPERATIONS.md
+                            results/*.json (the study's raw numbers), images/ (console screenshots)
+  scripts/                  capability_study.py (reproduces docs/results)
   src/petal_locate/
     core/                   pure numerics: no I/O, no asyncio, no globals, never imports config/
       constants.py types.py (PathSpec, CalRef, Measurement, Uncertainty; re-exported by geometry.py and solver.py)
@@ -30,15 +35,19 @@ locate/
     sim/                    scenario.py, world.py (truth + IQ/PSD synthesis), montecarlo.py
     protocol/               messages.py (pydantic), framing.py (binary frames)
     node/                   agent.py monitor.py clock.py drivers/{base,noise,sim,sigmf,soapy}.py
-    server/                 app.py settings.py hub.py store.py pipeline/ api/ static/
+    server/                 app.py settings.py hub.py runtime.py store.py static/
+      pipeline/             detection.py correlator.py events.py tasking.py advisory.py
+      api/                  schemas.py (console contract) rest.py ws.py deps.py
     cli.py
   ui/                       React + TypeScript + Vite source; build output goes to
-                            src/petal_locate/server/static/
+                            src/petal_locate/server/static/ (committed, so the server needs no Node.js)
   tests/                    pytest; test_<module>.py per module, tests/e2e/ for system tests
+                            (test_node_hub.py, test_system.py: the real demo, test_console.py: Playwright)
 ```
 
-Run tests with `cd locate && .venv/bin/python -m pytest -q`. Long statistical tests are
-marked `@pytest.mark.slow` but must still pass.
+Run tests with `cd locate && .venv/bin/python -m pytest -q`. Long statistical tests and
+the end-to-end tests are marked `@pytest.mark.slow` but must still pass
+(`-m "not slow"` skips them).
 
 ## 2. Coding rules
 
@@ -54,8 +63,11 @@ marked `@pytest.mark.slow` but must still pass.
   an API payload.
 - The asyncio event loop is never blocked for more than 50 ms: `render_iq`,
   `welch_psd_db`, `classify`, `caf_estimate`, `solve`, `lop_geojson`, `accuracy_map`
-  and SQLite writes run through `asyncio.to_thread` behind a semaphore (3 on the
-  server, 2 per node).
+  run in worker threads (the server's `WorkPool` of 3 threads, 2 per node); the
+  server's tracker updates run on one dedicated spectrum thread and its SQLite writes
+  on the store's own writer thread (section 7). The GIL still lets worker threads delay
+  the loop: measured worst lag 40 to 66 ms with the seven-node demo on a shared 4-core
+  machine (the runtime's loop probe, section 7).
 - Dependencies beyond pyproject.toml only when needed (`contourpy` is expected for
   lines of position). Optional hardware libraries are imported lazily.
 - Every module ships tests, including the relevant MATH.md section 12 checks, each
@@ -85,7 +97,9 @@ Orbit            discriminated on `type`:
 Transponder      id, uplink_center_hz, bandwidth_hz, translation_hz (signed; downlink = uplink + translation),
                  g_over_t_dbk, sfd_dbw_m2, eirp_sat_dbw, group_delay_s=0
 Site             id, name, lat_deg, lon_deg, alt_m=0, antenna_height_m=10, clock: {sigma_ns=30},
-                 channels: list[ReceiveChannel]
+                 channels: list[ReceiveChannel], time_zone?: str
+                 # time_zone: IANA name (checked with zoneinfo; a well-formed name is accepted when the host
+                 # has no tz database), display only (the console's clock strip), left out of exports when unset
 ReceiveChannel   id, name="", antenna: Antenna, pointing: Pointing, system_noise_temp_k=400,
                  polarization_loss_db=0, max_sample_rate_hz=2e6, monitors: list[Monitor] = []
 Pointing         {satellite_id}                                  # tracks that satellite; boresight recomputed from its orbit
@@ -225,10 +239,18 @@ generic city-centre coordinates with neutral names; nothing is a real facility.
   -136 dBW/m^2, saturated EIRP 26 dBW per channel. Seven sites: Honolulu, Hilo, Tokyo,
   Naha, Seoul, Busan, Manila; each has one channel per visible satellite, with a mix
   of antennas (0.72 m and 1.2 m parabolic, and a 10 dBi beam antenna) so the
-  electrically-small case appears. Two reference carriers at known locations (Guam
-  and Sapporo city centres), each with an `emitter`. Slots, inclinations, channel
+  electrically-small case appears (both dish sizes are under 3 wavelengths at the
+  260 to 268 MHz downlinks; `warnings()` gives 13 notes). Two reference carriers at
+  known locations, `ref-guam` (shared-1, 300.9925 MHz) and `ref-sapporo` (shared-2,
+  301.1175 MHz) at the Guam and Sapporo city centres, each 8 kHz of noise at 20 dBW from
+  an omnidirectional antenna parked at the low edge of its shared channel, so that all
+  three satellites relay them at full EIRP (the YAML comments give the design and its
+  measured numbers; an earlier design with a 10 dBi beam aimed at one satellite gave 2
+  to 4 us of reference TDOA noise). Three channels (`solo-*`) are relayed by one
+  satellite each: detectable, never locatable. Slots, inclinations, channel
   frequencies and link parameters are illustrative and say so in
-  `description`/`notes`. Region lat -60..60, lon 60..-120 (wraps).
+  `description`/`notes`. No site sets `time_zone`. Region lat -60..60, lon 60..-120
+  (wraps).
 - `ku-adjacent.yaml`: three generic Ku-band GEO satellites 2 to 3 degrees apart with
   36 MHz transponders (14 GHz up, about 11.7 to 12.2 GHz down, G/T +3 dB/K, SFD -85
   dBW/m^2, saturated EIRP 50 dBW), two sites with 1.2 m and 2.4 m parabolic channels,
@@ -262,9 +284,34 @@ For an `EmitterSpec` with `carrier_id`, the fields `lat_deg`, `lon_deg`, `alt_m`
 to the Carrier's values; explicit values override (for example to simulate a
 mis-surveyed reference). `SimWorld` creates an emitter for every config Carrier that
 has `location` and `emitter` and that no scenario emitter names.
-`Scenario.validate_against(config)` raises on unknown ids.
+`Scenario.validate_against(config)` raises on unknown ids, on an emitter id that
+collides with such an automatic carrier emitter, and on 8-PSK (`core.signals` makes
+BPSK and QPSK only; the field allows 8), naming the field. `EmitterSpec` rejects
+`t_stop <= t_start`. Ephemeris truth errors with a non-zero `ric_vel_mps` need `t_ref`
+or a `SimWorld` built with `epoch_ns`. Also `Scenario.emitter(id)`,
+`load_scenario(path)`, `loads_scenario(text)`, `dump_scenario(scenario)` and
+`ScenarioError` (a `ValueError`).
 
-`SimWorld(config, scenario)`:
+Shipped scenarios (`config/scenarios/`, for `pacific-uhf.yaml`; the server lists them
+as presets by file stem; each `description` says what the operator should see, with
+numbers measured through the server's chain as re-implemented in
+`tests/test_sim_verify.py`):
+
+```
+pacific-demo      noise jammer 10 kHz at 301.005 MHz (shared-1), 20 dBW omni, 20 N 132 E; small truth errors; references on
+clock-fault       pacific-demo plus the Naha site clock 10 us late
+ephemeris-error   the same jammer at 17 N 141 E while muos-pac is 8 km ahead and uhf-172e 6 km behind in-track
+                  (the solver assumes 1 km)
+two-jammers       pacific-demo's jammer plus an 8 kHz, 18 dBW jammer at 301.130 MHz (shared-2), 30 N 135 E
+uplink-cw         CW jammer, 5 dBW at 301.130 MHz, 15 N 130 E: FDOA only
+uplink-swept      sawtooth chirp, 10 kHz every 40 ms around 301.005 MHz, 21 N 127 E: every correlation ambiguous
+local-interferer  terrestrial noise, -40 dBW at 260.005 MHz (a MUOS shared-1 downlink), 4 km from Busan: local
+quiet             only the reference carriers: no event
+```
+
+`SimWorld(config, scenario, *, epoch_ns=None)` (`epoch_ns`: reference time of ephemeris
+errors that grow without a `t_ref`; the sim driver passes the backplane document's
+`effective_ns`, the Monte Carlo driver its epoch):
 
 - `render_iq(channel_id, t_start_ns, n, fs, fc) -> complex64[n]` implements MATH.md
   section 4 exactly (paths, visibility, channel filter, in-band slices, relayed noise,
@@ -274,28 +321,94 @@ has `location` and `emitter` and that no scenario emitter names.
   `W` is `Waveform.bandwidth_hz`; a decimated path is rendered with
   `decimate_margin(m)` extra samples at each end, which are dropped; direct paths
   point the emitter with `linkbudget.emitter_boresight`.
-- `render_psd(channel_id, t_start_ns, fc, span_hz, nfft, navg) -> float32[nfft]`:
-  the expected Welch PSD without synthesising IQ. Linear power in bin k =
-  1 (thermal, 0 dB) + sum over transponders of `N0_relay / N0_site` on their passband
-  bins + sum over paths of `(C_rx / (N0_site * span_hz)) * nfft * S_p[k]`, where
-  `S_p[k] = waveform.spectral_shape(f_k - f_bb, resolution_hz=bin_hz) * bin_hz` (sum
-  over k = 1 when the band is inside the span: flat over the bandwidth for noise and
-  chirp, RRC squared for psk, the full Hann-window kernel of `welch_psd_db`, main lobe
-  and sidelobes, for cw), scaled by `waveform.gate_fraction` over the snippet; then
-  multiplied per bin by a
-  `Gamma(shape=navg, scale=1/navg)` draw keyed by (channel, centre, `t_start_ns`).
-  A test requires `render_psd` and `welch_psd_db(render_iq(...))` to agree within
-  1 dB (mean over occupied bins and over empty bins).
+- `render_psd(channel_id, t_start_ns, fc, span_hz, nfft, navg, *, expected=False) ->
+  float32[nfft]`: the expected Welch PSD without synthesising IQ. Linear power in bin
+  k = 1 (thermal, 0 dB) + sum over transponders of `N0_relay / N0_site` on their
+  passband bins + sum over paths of `(C_rx / (N0_site * span_hz)) * nfft * S_p[k]`,
+  where `S_p[k] = waveform.spectral_shape(f_k - f_bb, resolution_hz=bin_hz) * bin_hz`
+  (sum over k = 1 when the band is inside the span: flat over the bandwidth for noise
+  and in-band slices, RRC squared for psk, the full Hann-window kernel of
+  `welch_psd_db`, main lobe and sidelobes, for cw). A chirp uses instead the exact
+  Fourier line spectrum of the sawtooth (Fresnel integrals, lines `1/P` apart, about
+  1 % of the power beyond `+/- W/2`), each line spread over the bins by the Hann
+  kernel and, for a path rendered directly at `fs`, lines beyond `+/- fs/2` folded in
+  as `render_iq` aliases them (a flat band read up to 9 dB low just beyond the sweep
+  edges). Decimated paths and slices are multiplied by the decimation filter's
+  `|H(f)|^2`. Each path is scaled by the fraction of the snippet the emitter radiates
+  (`gate_fraction`, on/off times); then every bin is multiplied by a
+  `Gamma(shape=navg, scale=1/navg)` draw keyed by (scenario seed, channel, centre,
+  `t_start_ns`), left out with `expected=True`. Measured against
+  `welch_psd_db(render_iq(...))` on every window of every scenario: occupied bins within
+  0.33 dB, empty bins within 0.19 dB (the test requires 1 dB). The per-realisation
+  ripple of a chirp against the Welch segments (about +/- 1.5 dB) is not modelled.
+- Budgets, Doppler and power robbing are evaluated on a node grid aligned to absolute
+  time, 10 s apart when every satellite stays above 20 000 km and 1 s otherwise, and
+  interpolated linearly between nodes (power and received frequency). Robbing uses the
+  emitters active at the node instant, a gated emitter at its on-power; an emitter that
+  switches on between nodes robs from the next node.
 - `truth_measurement(emitter_id, a: PathSpec, b: PathSpec, t_ns) -> (tdoa, fdoa)` with
-  all truth errors applied; `path_budget(emitter_id, sat_id, transponder_id,
-  channel_id, t_s) -> PathBudget | None`; `truth_orbit(sat_id)`;
-  `emitters_at(t_ns)`.
-- `SimWorld` is cheap to rebuild when the scenario changes.
+  all truth errors applied (the TDOA fixed point iterated to convergence; computed
+  whatever the visibility); `path_budget(emitter_id, sat_id, transponder_id,
+  channel_id, t_s) -> PathBudget | None` (also None when the emitter is not radiating);
+  `truth_orbit(sat_id)`, `truth_orbits()`; `emitters`, `emitter(id)`,
+  `emitters_at(t_ns)` (`ResolvedEmitter` records, `as_dict()` for `/sim/truth`);
+  `truth_summary(t_ns)` (JSON-ready truth for display); `channel_paths(channel_id,
+  t_ns, fc, fs) -> [PathInfo]` (every path into a channel and how a capture treats it);
+  `direct_power_ratio_dbhz(emitter_id, channel_id, t_s)` (C/N0 of a direct path, None
+  outside the radio horizon); `site_clock_offset_s`, `site_osc_frac`, `sat_osc_frac`,
+  `true_translation_hz`.
+- `rebuild(config=None, scenario=None, *, epoch_ns=None) -> SimWorld` carries
+  unchanged waveforms and their caches over (1 to 2 ms against 36 to 43 ms for a new
+  world). Methods are thread-safe. Grid waveforms cache at most 8 MiB each.
+- Measured cost on the shared 4-core machine: `render_iq` of 20 000 samples at 20 kHz,
+  68 to 76 ms median; 262 144 samples at 250 kHz, 0.5 to 1.5 s; a Ku-band slice capture
+  (262 144 samples, six slice paths), 4 to 6 s; `render_psd` of 1024 bins, 0.2 to
+  0.4 ms median, about 6 ms once per 10 s per channel when a new budget node is built.
 
-`montecarlo.py`: `run_trials(config, scenario, emitter_id, n_trials, ...) -> dict`
-driving render_iq -> caf_estimate -> solve directly (no network), drawing truth errors
-from the configured uncertainty when asked, and reporting miss distance statistics,
-NEES and ellipse containment.
+`montecarlo.py`: `run_trials(config, scenario, emitter_id, n_trials, *, pairs=None,
+seed=0, draw_errors=False, use_calibration=True, capture_s=None, fs=None, t_ns=None,
+progress=None, reference_carrier_id=None) -> dict` drives render_iq -> caf_estimate ->
+solve directly (no network) and follows tasking (section 7) where it matters:
+
+- Primary channel by link-budget C/N0 (standing in for the detector's `snr_db`);
+  partners by `downlink_quality_db` with the 3 dB same-site preference; or the caller's
+  `pairs`. Captures and windows from `core.accuracy.capture_plan` and `pair_search`,
+  self-peak exclusions and mirror windows as in tasking.
+- The band filter is `max(occupied band, 10 Hz)` wide, so a CW is band-limited too and
+  a reference carrier a few kHz away does not correlate with it.
+- A kind without a valid calibration, and every mirror window, is first widened by
+  `ephemeris_allowance(uncertainty, sat_a, sat_b, f_hz) -> (delay_s, doppler_hz)`
+  (public): `6 (|sigma_pos,a| + |sigma_pos,b|) / c` and `6 f (|sigma_vel,a| +
+  |sigma_vel,b|) / c` with the RIC one-sigma vectors, the same allowance as tasking.
+- Calibration: the first reference carrier in configuration order relayed by both of
+  the pair's transponders (or `reference_carrier_id`), captured through the same
+  channels at the same start time as the targets (tasking uses a later time slot),
+  turned into corrections with `solver.calibration_correction`.
+- CAF results that are undetected, ambiguous, coupled or mirror-ambiguous are recorded
+  with their reason (`REASON_MIRROR_AMBIGUOUS = "mirror ambiguous"`) and not solved; a
+  mirror-ambiguous reference gives no calibration (as tasking).
+- There is no 2.2 x Doppler sample-rate rule, no window-driven capture lengthening and no
+  repeat-detection gate; none of these changes a GEO result.
+- Each trial is a pure function of `(seed, trial index)`. With `draw_errors` it replaces
+  the scenario's ephemeris, oscillator and clock errors by a draw from the configured
+  one-sigma uncertainties (ionosphere kept), velocity errors referred to the
+  measurement epoch, plus a per-pair TDOA bias, which the simulator has no model for,
+  applied by rendering channel B that much later than its label (its reference capture
+  carries the same bias, so it cancels under calibration as the solver assumes).
+- The base world's `epoch_ns` and the capture start are `t_ns`, else `DEFAULT_T_NS`
+  (2026-01-01T00:00:00Z) or the emitter's `t_start` when later.
+- Returns a JSON-ready dict marked `simulated: True`: the plan (`primary_channel`,
+  `pairs`, `skipped`), `truth`, per-trial results (CAF per pair, `miss_m`, `error_en_m`,
+  `nees_total`, `nees_noise`, `inside_95_total`, `inside_95_noise`, `cep50_m`,
+  `semi_major_m`, `chi2`, `dominant_error`, `ambiguity_resolved_by`, `n_ambiguities`, or
+  a `reason`) and `summary` (`n_solved`, `failures`, `median_miss_m`, `p95_miss_m`,
+  `mean_error_en_m` with its standard error, mean NEES and 95 % containment with
+  `P_total` and `P_noise`, predicted and empirical CEP50, per-pair rejection counts).
+  `format_summary(result)` prints a few lines; `plan_event(...)` is the pair choice
+  alone. The truth position is the emitter's latitude and longitude while the solver
+  works at `solver.height_m`, so an emitter antenna 10 m up carries a small geometric
+  bias that is part of the result. Cost: about 1 s per trial at 1 s captures with
+  references.
 
 ## 5. Core API (signatures other modules rely on)
 
@@ -495,8 +608,29 @@ lop_geojson(measurement, orbits, sites_xyz, region, height_m=0.0, min_elevation_
 accuracy_map(config, pairs: list[tuple[str, str]] (channel ids A, B), emitter: EmitterModel, f_e_hz, t_ns, region, step_deg,
              kinds=("tdoa", "fdoa"), reference_carrier_id: str | None = None, integration_s: float | None = None) -> dict
     # keys lat_deg[n_lat], lon_deg[n_lon] (unwrapped), semi_major_95_m[n_lat][n_lon], cep50_m[n_lat][n_lon],
-    # dominant[n_lat][n_lon]; null where not admissible or unobservable
+    # dominant[n_lat][n_lon]; null where not admissible or unobservable. Also semi_minor_95_m, azimuth_deg, n_rows,
+    # reason ("not admissible" | "unobservable" | null) grids, confidence (always 0.95, whatever solver.confidence),
+    # t_ns, f_e_hz, step_deg, kinds, reference_carrier_id and pairs (per pair: channels, satellites, transponders,
+    # sample_rate_hz, n_samples, noise_bandwidth_hz, calibrated kinds, the reference's predicted sigmas and SNR, and a
+    # reason when the pair contributes nothing anywhere). The API returns only the AccuracyGrid keys (PROTOCOL.md B).
+# Shared with the Monte Carlo driver, which plans captures as the map does. Tasking implements the same rules
+# itself (section 7) and adds the ones listed there (ephemeris allowance, Doppler sample rate, capture lengthening);
+# the map has none of those and, for a CW, no band filter (B = fs: pessimistic, MATH section 10).
+capture_plan(config, channel_ids, f_lo_hz, f_hi_hz, *, duration_s=None, sample_rate_hz=None)
+    -> CapturePlan(sample_rate_hz, n_samples, f_e_nom_hz, occupied_bw_hz)   # .signal_bw_hz is None for zero width (no filter)
+pair_search(config, a, b, t_mid_s, sample_rate_hz, occupied_bw_hz, *, point_xyz=None) -> PairSearch | None
+PairSearch.windows(caf_cfg, uncertainty, correction=None) -> (delay_window, doppler_window, mirror_window | None)
+    # exclusions in PairSearch.exclude; point_xyz (a reference carrier) gives point windows at its prediction
+correlation_bandwidth_hz(sample_rate_hz, signal_bw_hz, doppler_reach_hz, n_samples) -> (B, n_taps)   # caf_estimate's filter
+integration_time_s(n_samples, n_taps, sample_rate_hz, tdoa_s, t0_offset_s=0.0)        # T at a predicted TDOA
+covariance_batch(...), cep50_batch(cov)                                               # the solver's covariance, vectorised
+    # B equals CafResult.noise_bandwidth_hz and T CafResult.integration_s to 1e-12 (tested); accuracy.py imports the
+    # private caf._band_filter for that. Default Pacific region at 2 degrees, two pairs: 0.25 s, 0.42 s with a reference.
 ```
+
+`server/api/rest.py` also exports `accuracy_config(cfg, request)`: the configuration
+with `AccuracyRequest.uncertainty` in place of `processing.uncertainty` (satellite
+`ephemeris_sigma` and site clocks keep theirs).
 
 ## 6. Node agent (`node/`)
 
@@ -505,7 +639,8 @@ One process per site. `drivers/base.py`:
 ```python
 @dataclass Capture: iq: complex64[n], t_first_ns: int, fs, fc, overflow: bool, clock_locked: bool
 @dataclass Capabilities: min_hz, max_hz, max_sample_rate_hz, lookback_s, concurrent_reads
-@dataclass DriverContext: site_id, server_http_url, token, simulation: dict | None
+@dataclass DriverContext: site_id, server_http_url, token, simulation: dict | None,
+                          clock: ClockSource | None = None, workers: WorkerPool | None = None   # the node's clock and 2-thread pool
 
 class SdrDriver(Protocol):
     capabilities: Capabilities
@@ -516,112 +651,366 @@ class SdrDriver(Protocol):
     async def psd(self, t_start_ns: int, fc: float, span_hz: float, nfft: int, navg: int) -> ndarray | None
         # float32[nfft] in welch_psd_db units; None when the driver has no fast path
     async def close(self) -> None
+    # optional hooks: async on_assign(channel, ctx) (an unchanged channel after an assign, before the ack) and
+    # async on_sim_update(version, effective_ns) (a sim_update arrived)
 ```
 
 Monitor loop: call `driver.psd(...)`; if it returns `None`,
-`read(t_start_ns, nfft * navg, span_hz, fc)` and apply `welch_psd_db`.
+`read(t_start_ns, nfft * navg, span_hz, fc)` and apply `welch_psd_db`. Frame start
+times are the node clock at each tick; frames carry what the driver measured.
 
-Drivers: `noise` (unit noise; protocol tests), `sim` (a `SimWorld` shared by all sim
-drivers of the node, built from the world fetched over the simulation backplane;
-`read` returns only when wall-clock time has passed `t_start_ns + n/fs`; lookback 30
-s; implements `psd` with `render_psd`), `sigmf` (replays a SigMF recording with its
-timestamps), `soapy` (SoapySDR; written against the API but untested on hardware, and
-documented as such).
+`get_driver(name, **options)` builds a driver and refuses unknown options; one driver
+is built per assigned channel, **all with the same options** (`petal-locate node` has
+no per-channel options; a site whose channels need different device arguments needs
+`NodeAgent(driver_factory=...)` in a small launcher of its own).
+
+Drivers:
+
+- `noise`: unit noise; protocol and plumbing tests.
+- `sim`: one `SimWorldSource` per node (a registry keyed by event loop, server origin,
+  backplane path, site and token), fetched from the backplane with httpx (decoding and
+  world building in the node's worker pool), refetched on `open`, `on_assign` and
+  `on_sim_update` (concurrent requests share one fetch; failures retried with backoff).
+  A capture is served whole from the world in force at its first sample; at most two
+  worlds are kept, the first one fetched also serves earlier times, an interval only a
+  dropped world could serve gets `too_late`, and a version announced but superseded
+  before this node fetched it gets `driver`. A read waits for an announced, not yet
+  fetched version at most `world_wait_s`. `read` returns exactly `render_iq` and `psd`
+  exactly `render_psd`, each only after the node clock has passed the end of its
+  interval; lookback 30 s; `concurrent_reads` 8; capabilities cover every downlink of
+  every watched satellite and every monitor window. Captures report `clock_locked`;
+  `sim_clock()` would report source `sim`, but `petal-locate node` does not pass it, so
+  demo nodes report `ntp`, locked.
+- `sigmf`: replays a `cf32_le` SigMF recording with its timestamps
+  (`core:datetime` of the first capture segment, read to the nanosecond, or the
+  `t0_ns` option); later segments are taken to follow without a gap. A request for the
+  recording's own rate and centre returns its samples bit for bit; others inside the
+  recorded band are mixed and resampled (`scipy.signal.resample_poly`, about -6 dB at
+  the new band edge), others fail `out_of_range`. Without `loop` an interval outside
+  the recording fails `too_late`; with `loop=true` the recording repeats (the join is
+  an unhidden discontinuity). Options `path`, `loop`, `t0_ns`, `realtime`,
+  `clock_locked`, `concurrent_reads`.
+- `soapy`: SoapySDR with hardware timestamps and a lookback ring (`buffer_s`, 4 s);
+  one stream per channel tuned to cover its monitor windows, digital down-conversion
+  per read, a new segment at every overflow or timestamp jump so that no capture spans
+  lost samples. `time_sync` is `pps` (latch UTC on the next PPS edge; needs a PPS input
+  aligned to UTC), `host` (set the device clock from the node clock; milliseconds) or
+  `device` (leave it; already UTC); `lock_sensor` names the device sensor that says the
+  reference is locked. Options `device`, `rf_channel`, `center_hz`, `sample_rate_hz`,
+  `bandwidth_hz`, `gain_db`, `antenna`, `clock_source`, `time_source`, `time_sync`,
+  `lock_sensor`, `buffer_s`, `concurrent_reads`. **Untested on hardware and against the
+  real SoapySDR library** (tested against a software stand-in only); the bindings are
+  the `sdr` extra or the system package `python3-soapysdr`, imported when a channel
+  opens.
+
+Clocks (`node/clock.py`): `SystemClock(source="ntp", locked=True)` by default, which
+does not ask the operating system whether NTP is synchronised; `ManualClock` for tests;
+`DisciplinedClock`, the extension point for a GPSDO (implement `read_reference()`
+returning the lock state and the receiver's offset estimate; it reports source `gpsdo`
+and the holdover). No `DisciplinedClock` is shipped; the CLI's `--clock gpsdo` only
+changes the reported source.
 
 The agent connects (PROTOCOL.md), heartbeats, runs one monitor loop per assigned
-window, serves capture requests concurrently, keeps at most one unsent PSD frame per
-window, reconnects with exponential backoff and jitter and never crashes on a server
-error.
+window, serves capture requests concurrently (at most 8; more get `busy`), keeps at
+most one unsent PSD frame per window, reconnects with exponential backoff and jitter
+and never crashes on a server error. Its writer sends, before each capture chunk, any
+waiting control message and the waiting frame of every window. `NodeAgent` options not
+exposed by the CLI: `chunk_payload_bytes` (32 KiB; the uplink must carry one chunk well
+within three heartbeat periods, so about 44 kbit/s at the default heartbeat),
+`send_buffer_bytes` (`SO_SNDBUF`; bounds how long control messages wait behind samples
+already in the kernel), `server_silence_timeout_s`, `connect_options` (for example
+`ssl=` with a private CA), `proxy`, `driver_factory`. Without `node_id` or
+`state_path` the node id is kept in `$XDG_STATE_HOME/petal-locate/node-<site>.json`
+(else `~/.local/state/...`).
 
 ## 7. Server (`server/`)
 
-FastAPI application created by `create_app(settings) -> FastAPI`.
+FastAPI application created by `create_app(settings, *, hub_providers=None,
+presets_dir=None, static_dir=None) -> FastAPI` and served by `run(settings)` or
+`build_server(app, settings)` (a uvicorn server that closes the hub before uvicorn
+closes sockets, so nodes see 1001; `ws_per_message_deflate=False`; `ws_max_size`
+1 MiB; log filters that drop inbound text-frame traces (the node `hello` carries its
+token) and rewrite `?token=` as `?token=[redacted]`). The lifespan starts the hub,
+builds the `ServerRuntime` on the serving event loop, freezes the start-up heap for
+the garbage collector (`gc.freeze`: generation-2 collections of 80 to 150 ms broke the
+50 ms budget) and sets Python's thread switch interval to 1 ms; both are undone at
+shutdown. `GET /healthz` is a liveness probe without authentication.
 
-`Settings`: config path, optional scenario path, data directory, host (default
-127.0.0.1), port, `node_tokens: dict[site_id, token]` (from `--node-tokens FILE`, a
-YAML map, or environment `PETAL_NODE_TOKEN_<SITE_ID>`; a site with no token cannot
-connect; `demo` generates random per-run tokens), optional `api_token` (when set,
-every `/api` request and the `/ws/ui` handshake must carry it), and optional
-`marking: {level, line}` for the console banner (deployment configuration, never
-inferred).
+`Settings` (frozen pydantic): `config_path`, optional `scenario_path` (without it the
+server does not simulate), `data_dir` (default `data`), `host` (default 127.0.0.1),
+`port` (default 8080; 0 lets the OS choose), `node_tokens: dict[site_id, token]` (from
+`--node-tokens FILE`, a YAML map; a site absent there falls back to the environment
+variable `PETAL_NODE_TOKEN_<SITE_ID>`, the site id upper-cased with every character
+outside `A-Z 0-9` replaced by `_`, read at lookup time; two sites mapping to one variable
+are refused at start-up; a site with no token cannot connect; `demo` generates random
+per-run tokens), optional `api_token` (when set, every `/api` request except `/meta`
+and the `/ws/ui` handshake must carry it), optional `marking: {level, line}` for the
+console banner (deployment configuration, never inferred), `heartbeat_s` (2),
+`hello_timeout_s` (10) and `capture_grace_s` (1). Tokens are compared in constant time
+over SHA-256 digests and kept out of every `repr` and log line.
 
-- `hub.py`: node sessions, authentication, heartbeats and latency, PSD fan-out,
-  `await hub.capture(channel_id, t_start_ns, n, fs, fc, deadline_ns) -> Capture`
-  (raises `CaptureFailed(code, message)`), `hub.assign(...)`, per-channel
-  capabilities from `assign_ack`, liveness.
-- `store.py`: SQLite (stdlib `sqlite3`, WAL). Tables: config versions, events,
-  evidence, measurements, solutions, calibrations, node sessions. IQ captures on disk
-  under the data directory with a retention limit.
-- `pipeline/detection.py`: PSD frames to detections per monitor (`core.detect`).
-- `pipeline/correlator.py`: event identity, evidence rows, capability, verdict (MATH
-  section 7), raising and closing events.
-- `pipeline/tasking.py`: for each active event whose verdict is `uplink` or
-  `undetermined`:
-  - uplink range `[f_lo, f_hi]`; `f_e_nom = round((f_lo + f_hi) / 2)` Hz;
-    `sample_rate_hz = min(max(capture.min_sample_rate_hz, capture.oversample * (f_hi -
-    f_lo)), the lower usable maximum of the two channels)`, identical in both
-    requests; `center_hz = f_e_nom + translation_hz` of each channel's transponder;
-    `n_samples = min(round(capture.duration_s * fs), capture.max_samples)`;
-    `t_start_ns = server now + max(capture.lead_s, 3 x the worst heartbeat round trip
-    of the nodes involved)`, identical in both requests;
-    `deadline_ns = t_start_ns + (n / fs + capture.timeout_s) * 1e9`.
-  - Primary channel: the event's detection with the highest `snr_db`. For each other
-    satellite whose transponder overlaps the uplink range: the channel watching it
-    with the highest `downlink_quality_db`, preferring a channel at the primary's site
-    when within 3 dB (common clock). `capture.interval_s` is per event: all its pairs
-    share one `t_start` and the primary capture.
-  - Windows from `measurement_windows` + `search_windows`; `exclude` from `self_peak`
-    for every satellite heard by both channels (and the direct-path point when both
-    channels are at one site with equal translations); `mirror_window` when the two
-    satellites are co-channel.
-  - A pair is rejected (reason recorded) if a returned `sample_rate_hz` differs from
-    the request; centre-frequency differences are corrected per MATH section 5. A
-    capture whose clock is unlocked yields no TDOA (reason `clock_unlocked`) unless
-    both channels are at the same site; its FDOA is still used.
-  - Classification from the primary capture. CAF results that are ambiguous, coupled
-    or undetected are recorded with their reason and not passed to the solver; a
-    periodic waveform is retried with a capture at least 5 sweep periods long.
-  - Reference calibrations run only for pairs of active events, every
-    `calibration.interval_s`, on the reference carrier's own frequency; a calibration
-    is keyed by `(a.sat_id, a.site_id, b.sat_id, b.site_id, kind)`, sign-flipped for
-    the reversed pair, valid for `calibration.max_age_s`.
-  - Accumulates measurements (newest `solver.max_measurements`), solves (warm start
-    and global-search schedule of MATH section 9), stores and publishes.
-- `pipeline/advisory.py`: plain-language guidance from the event (uplink: change
+- `hub.py`: PROTOCOL.md section A from the server side, independent of the
+  configuration models (it reads `HubProviders`: assignments, version, simulation
+  object). One writer task per socket owns sending, so the receive loop never waits on
+  a slow node; the receive loop yields one event-loop turn per frame. `await
+  hub.capture(channel_id, t_start_ns, n_samples, sample_rate_hz, center_hz,
+  deadline_ns) -> AssembledCapture` (`iq`, `t_first_ns`, `sample_rate_hz` / `fs`,
+  `center_hz` / `fc`, `overflow`, `clock`, `clock_locked`), raising
+  `CaptureFailed(code, message)` with codes `not_ready`, `limit`, `offline`,
+  `disconnected`, `replaced`, `reassigned`, `deadline`, `bad_data`, `shutdown` (all
+  retryable) and the node's `capture_error` codes; `await hub.reassign(site_ids=None)`
+  after every configuration change; `announce_sim_update(version, effective_ns)`;
+  `channel_capabilities(channel_id)` (None while the channel is not ready);
+  `subscribe_psd` (newest-wins mailbox per (channel, monitor)) and `subscribe_status`
+  (every event in order; beyond 64 waiting for one subscriber, thinned to the newest per
+  site); `node_status(site_ids)`; `online_sites()`. Event-loop hold per binary frame:
+  median 0.19 ms, worst 7.7 ms during a 64 MiB capture.
+- `runtime.py`: `ServerRuntime` owns the configuration and its integer version (the
+  ETag), the scenario and its version, the store, the hub providers, the pipeline and
+  `WorkPool` (3 threads for CAF, solves, classification, accuracy maps, lines of
+  position, validation and large serialisations). `replace_config` checks `If-Match`
+  (`*` matches any version; a value that is not a version is a conflict), validates
+  with field errors, refuses a configuration the running scenario no longer fits (loc
+  `(scenario)`), persists, calls `hub.reassign()`, rebuilds the pipeline, tells the
+  console and, when simulating, raises the scenario version and sends `sim_update`.
+  `ConsoleBus` delivers `status` once a second (the newest at once to a new client),
+  events, `config`, `sim` and spectrum frames, newest wins per kind and key per client.
+  A loop probe every 100 ms logs any lag over 100 ms and reports its statistics at stop
+  (`runtime stopped (event loop lag: worst ... ms, n of N probes over 50 ms)`); measured
+  worst 40 to 66 ms with the seven-node demo. The backplane document is served at
+  `SIM_BACKPLANE_PATH = "/node/v1/sim"`. A restart on the same data directory resumes:
+  the newest configuration saved through the API wins over the command-line file
+  (logged), and up to 500 events of earlier runs load as `lost` history ("server
+  restarted: kept as history") that never takes part in identity. Event ids are
+  `EV-000001`, sequential across runs.
+- `store.py`: one SQLite file (`petal-locate.sqlite3`, WAL) in the data directory, one
+  connection on its own writer thread, every operation a short transaction in submission
+  order; the event loop never waits on the disk. Tables: config versions (source `file`
+  or `api`), scenario versions, events (the whole console document), transitions,
+  evidence snapshots, measurements, solutions, calibrations, node sessions, captures,
+  runs. Pipeline writes are fire-and-forget (failures logged and counted); beyond 4096
+  waiting writes a write is refused with `StoreError`. Every completed IQ capture is
+  written as a SigMF pair (`cf32_le`) under `data_dir/captures`; the oldest are deleted
+  beyond 512 MiB of data files (`DEFAULT_CAPTURE_LIMIT_BYTES`, a `Store` argument with no
+  setting or command-line flag).
+- `pipeline/detection.py`: one `SignalTracker` per (channel, monitor), built by
+  `build_window_specs` (in a worker thread): passbands of every watched satellite's
+  transponders overlapping the window with their `relay_rise_db` (evaluated when the
+  configuration is installed; 0 dB for a satellite below the horizon then, and not
+  updated as satellites move), and the authorised carriers mapped through **every**
+  watched satellite whose transponder relays the carrier's centre, each widened by
+  `downlink_spread_hz` (MATH section 7) and rounded outward to whole bins. A tracker is
+  rebuilt only when its inputs change (it then relearns its baseline; the old tracker's
+  detections are carried for `confirm_n` frames so the event is not lost meanwhile;
+  track ids are namespaced by tracker generation). Every tracker update runs on one
+  dedicated spectrum thread (on the loop's own thread each update waited for the GIL
+  behind the CAF and solver threads and held the loop up to 251 ms); without that thread
+  (tests, tools) a window whose median update cost exceeds 3 ms, or with `nfft >=
+  16384`, is updated in the worker pool. Each accepted frame gives a `WindowReport` to
+  the correlator and, for streamed windows, the console spectrum frame.
+- `pipeline/correlator.py`: uplink mapping, event identity with merge, split and
+  re-open, evidence rows with predicted margins, capability, the verdict with settle
+  time, hysteresis and the uplink-to-local override, and expiry of silent windows (MATH
+  section 7, which states the rules and constants). `tick()` runs once a second.
+- `pipeline/events.py`: `EventRecord` and `EventBook` (lifecycle below, transitions,
+  publication, the mutation API for tasking: `mark_characterizing`,
+  `set_classification`, `add_measurement`, `set_caf`, `set_solution`,
+  `report_cross_satellite_detection`, `set_tasking`, `set_aside`), conversion to
+  `schemas.Event`, simulation truth matching. Mutations never block and never raise for
+  an event that has moved on, and follow merges. Publication: material changes at the
+  next flush, numeric drift at most every 5 s. Caps: 1000 measurement rows, the first
+  and newest 500 solution-history rows and 200 transitions per document (the store
+  keeps all); `prune()`, called from the runtime's 1 Hz loop, drops the oldest inactive
+  events beyond 1000 from memory (closed with no detections, lost longer than the
+  re-open window, or history), after which `GET /events/{id}` answers 404 although the
+  store still holds them.
+- `pipeline/tasking.py`: one *round* per taskable event (active, in a transponder
+  passband, verdict `uplink` or `undetermined`) every `capture.interval_s`; at most 4
+  rounds in flight; scheduling tick 0.5 s; rounds are cancelled on event close,
+  configuration change and stop.
+  - Channels. Primary: the event's sighting with the highest `snr_db`; the previous
+    round's primary stays while within `PRIMARY_HOLD_DB = 3` dB of the strongest (a new
+    primary makes every pair new and unconfirmed). For each other satellite whose
+    transponder overlaps the uplink range: the channel watching it with the highest
+    `downlink_quality_db` (table refreshed every 30 s), preferring a channel at the
+    primary's site within 3 dB (common clock). A channel must be online, acknowledged,
+    able to tune the centre, not excluded by an earlier non-retryable failure, and its
+    pair must have an admissible emitter position (`measurement_windows` not None).
+    Partner rotation: in the 4th, 6th, 8th ... rounds of an event each partner slot is
+    handed, in turn, to another candidate within `ROTATE_WITHIN_DB = 1` dB of the best
+    quality (ordered by channel id); the other rounds keep the documented choice, so
+    the time to first fix is unchanged. Channel qualities typically differ by fractions
+    of a dB, so without rotation the same sites were always used and a fault at an
+    unused site (a late clock) never showed. Alternates need their own repeat detection
+    and calibration and are first used after about 35 s.
+  - Capture plan. `f_e_nom = round((f_lo + f_hi) / 2)` Hz; `sample_rate_hz =
+    min(max(capture.min_sample_rate_hz, capture.oversample * (f_hi - f_lo), 2.2 x the
+    largest |Doppler| searched), the lowest usable maximum)`, identical in every request
+    of the round; `center_hz = f_e_nom + translation_hz` of each channel's transponder;
+    `n = min(round(capture.duration_s * fs), capture.max_samples)`, shortened when the
+    bounded dynamics would break the CAF drift assumption (MATH section 6), lengthened
+    when a delay window plus the estimator's guard (24 lags + 8 main lobes) needs it
+    (capped at `max_samples`, with a note), and at least 1024 (what `classify` needs);
+    `t_start_ns = server now + max(capture.lead_s, min(3 x the worst heartbeat round
+    trip, MAX_LEAD_S = 4 s))` (the round trip includes time queued behind sample
+    uploads, hence the cap); `deadline_ns = t_start_ns + (n / fs + capture.timeout_s) *
+    1e9`. Every capture of the round is requested at once.
+  - Calibration plan (`calibration.enabled`). A pair not calibrated for
+    `calibration.interval_s` also captures a reference carrier in a later time slot of
+    the same channels (one radio, one tuning; slots 50 ms apart): one slot per reference
+    carrier, all its channels at `min(max(min_sample_rate_hz, oversample x carrier
+    bandwidth), lowest usable maximum)` and `capture.duration_s` (lengthened for the
+    window). Eligible references: relayed by both of the pair's transponders, not
+    overlapping the event's uplink range, above the elevation mask from both
+    satellites; the nearest in frequency is used. The correction from
+    `core.solver.calibration_correction` is keyed by `(a.sat_id, a.site_id, b.sat_id,
+    b.site_id, kind)`, sign-flipped for the reversed pair, valid for
+    `calibration.max_age_s`, each with its own `cal_id`, stored; it is applied to a
+    target row only when its carrier is relayed by that row's transponders. Reference
+    results get no repeat check (their window is a small box around the prediction). A
+    reference capture that fails is retried only after `calibration.interval_s`.
+    Calibrations, confirmation tracks and channel exclusions live in memory: a restart or
+    a configuration change starts them afresh (calibrations are stored, not reloaded).
+  - Correlation (`caf_estimate` in the worker pool): windows from
+    `measurement_windows` + `search_windows`, shifted by a valid calibration (fixed
+    margins only), otherwise widened by the systematics and the ephemeris allowance
+    `6 (|sigma_pos,a| + |sigma_pos,b|) / c` in delay and `6 f (|sigma_vel,a| +
+    |sigma_vel,b|) / c` in Doppler (MATH section 6); `exclude` from `self_peak` for every
+    satellite heard by both channels (above both horizons, relaying `f_e`, downlink band
+    overlapping both capture bands; the antenna pattern is ignored) and the direct-path
+    point when both channels are at one site with equal translations; `mirror_window`
+    for the swapped pairing when the two satellites are co-channel, both are seen from
+    the other site and both cross copies fall in the other channel's band;
+    `signal_bw_hz = max(f_hi - f_lo, 10 Hz)`; `t0_offset_s` from the integer difference of
+    the first-sample times; centre differences corrected per MATH section 5.
+  - Rejection. A pair is rejected (two rows with null values and the reason) for a
+    returned rate other than the request (relative 1e-9), lost samples (`overflow`), a
+    window the correlator refuses, or a non-retryable capture failure (`unknown_channel`,
+    `too_large`, `out_of_range`, `invalid_request`, which also exclude that channel for
+    the event). Retryable failures add no rows; they show in `Event.tasking.message`. An
+    unlocked clock drops the TDOA between different sites (`clock_unlocked`) and keeps
+    the FDOA. CAF results that are undetected, ambiguous, coupled, outside the window or
+    mirror-ambiguous are recorded with their reason and never solved.
+  - Confirmation. A pair's rows enter the solver, and the cross-satellite detection is
+    reported to the verdict, only once a detection is repeated at a consistent
+    TDOA/FDOA (MATH section 6); until then they carry the `unconfirmed: ...` reason, and
+    after a confirmed track a disagreeing detection is refused as `inconsistent ...`.
+  - Rows. Every correlated pair gives a TDOA row and an FDOA row; `value` is `z - c`
+    when calibrated (with `correction` and `reference_carrier_id`), otherwise `z`.
+  - Classification of the primary capture: on the first round, 15 s after an
+    `unknown`, every 60 s otherwise. A swept class with fewer than 5 sweep periods in
+    the capture sets the event's capture length to 5.25 periods (capped by
+    `max_samples`) and schedules the next round at once.
+  - Solve: the newest `solver.max_measurements` accepted rows; the global search on the
+    first solve, every 10th and whenever a warm start fails or has `reduced_chi2 > 3`;
+    warm starts from the previous solution and its ambiguities. Rows naming a satellite
+    or site that no longer exists are left out; rows measured under an older
+    configuration are re-solved with the new orbits. The strongest detected
+    correlation surface of the round (else the latest) goes to `set_caf`.
+  - Status (`Event.tasking`): a plain sentence when every correlated pair of a round
+    failed for one reason of the signal (no TDOA on a narrowband signal, ambiguous
+    correlations of a periodic waveform, coupling, no copy found), kept while the next
+    round runs; `idle` with a message for an event judged `local`.
+  - Known limits, measured against `SimWorld`: a CW has no delay to separate copies by,
+    so when a channel also hears a second copy a few Doppler bins away (a co-channel
+    satellite, or a self-peak ridge) the FDOA scatters up to about 5 reported sigma; and
+    when one uplink emitter is replaced by another on the same frequency with no loss
+    in between, the event continues and the solver mixes rows of both.
+- `pipeline/advisory.py`: plain-language headline, detail and actions (uplink: change
   channel, transponder or satellite, moving the terminal will not help; local: only
   that site is affected, relocate, shield or filter; undetermined: what evidence is
-  missing).
-- `api/`: the console interface of PROTOCOL.md (REST under `/api/v1`, `/ws/ui`).
-  FastAPI serves OpenAPI at `/openapi.json`.
-- Serves the built UI from `server/static/` at `/`.
+  missing; also lost, closed and merged events). Terms are explained on first use;
+  simulated events have a headline starting `Simulation: `.
+- `api/`: the console interface of PROTOCOL.md section B (`schemas.py` the contract,
+  `rest.py` the routes and error mapping, `ws.py` `/ws/ui`, `deps.py` authentication).
+  FastAPI serves OpenAPI at `/openapi.json`. `python -m petal_locate.server.api.schemas`
+  prints the console JSON Schema the console's TypeScript types are generated from.
+- Serves the built console from `server/static/` at `/` (hashed assets cached as
+  immutable; a placeholder page when no build exists).
 
-Event lifecycle: `detected` (raised) -> `characterizing` (first capture requested) ->
-`locating` (first CAF measurement accepted) -> `located` (a converged solution
-exists); `lost` (all detections released); `closed` (operator). Every transition is
-stored and pushed.
+Event lifecycle. `state` is derived: `closed` once the operator closed it (or it was
+merged into another event); otherwise `lost` while no detection holds it; otherwise its
+progress: `detected` (raised) -> `characterizing` (first capture requested) ->
+`locating` (first CAF measurement accepted) -> `located` (a converged solution exists).
+Progress is kept while an event is lost, so an event detected again within
+`REACQUIRE_KEEP_S = 30` s resumes with its measurements, solution and verdict. After a
+longer loss (a re-open, up to 900 s) the solution, accepted measurements, class and
+correlation surface are **set aside** (`EventBook.set_aside`): rows stay listed with
+`used = false` and the reason `set aside: ...`, the ellipses stay in the history,
+progress returns to `characterizing`, the verdict re-settles from `undetermined`, and
+a solve that started before the set-aside cannot attach its result. The same happens
+when the correlator turns an `uplink` verdict to `local` (MATH section 7). A local
+event reads `characterizing` because tasking captures once before the verdict settles.
+Every transition is stored and pushed with a reason.
 
 ## 8. CLI (`cli.py`)
 
 ```
-petal-locate serve   --config C [--scenario S] [--host --port --data-dir --node-tokens FILE --api-token T --marking-level L --marking-line TEXT]
-petal-locate node    --server URL --site ID --token T --driver sim|sigmf|soapy|noise [--node-id ID] [driver options]
-petal-locate demo    [--config C --scenario S --port P]     server plus one `petal-locate node` subprocess per site, over real WebSockets; terminates them on exit
-petal-locate check   --config C                            validate, print look angles, monitors and link budgets
-petal-locate accuracy --config C ...                        accuracy map to JSON
-petal-locate montecarlo --config C --scenario S --trials N  full IQ -> CAF -> solve statistics
+petal-locate serve      --config C [--scenario S] [--host H] [--port P] [--data-dir D] [--node-tokens FILE] [--api-token T]
+                        [--marking-level L] [--marking-line TEXT] [--presets-dir DIR] [--access-log]
+petal-locate node       --server URL --site ID [--token T] --driver sim|sigmf|soapy|noise [--node-id ID] [--state-path F]
+                        [--driver-option KEY=VALUE ...] [--sigmf-path F] [--soapy-device ARGS] [--clock ntp|gpsdo|free|sim]
+                        [--clock-unlocked]
+petal-locate demo       [--config C] [--scenario S] [--host H] [--port P] [--data-dir D] [--presets-dir DIR] [--driver sim|noise]
+                        [--node-log-level L]
+petal-locate check      --config C [--scenario S] [--time ISO]
+petal-locate accuracy   --config C (--request FILE | --pair A,B ... --f-e-hz F [--eirp-dbw --bandwidth-hz --waveform])
+                        [--step-deg] [--region LAT_MIN,LAT_MAX,LON_MIN,LON_MAX] [--kinds tdoa,fdoa] [--reference-carrier ID]
+                        [--integration-s] [--time ISO] [--max-cells N (200 000)] [--out FILE]
+petal-locate montecarlo --config C --scenario S --trials N [--emitter ID] [--seed N] [--draw-errors] [--param KEY=VALUE ...]
+                        [--out FILE]
+every command: [--log-level debug|info|warning|error] [--log-format text|json]
 ```
+
+- Exit codes: 0 success, 2 usage or configuration error (a file that does not load or
+  validate, an unknown driver option, a missing token), 1 runtime failure. Logs are
+  structured (`key=value` after the message, or one JSON object per line) on standard
+  error.
+- `serve` validates the configuration and scenario before starting, warns about sites
+  without a node token, takes the API token from `--api-token` or `PETAL_API_TOKEN`, and
+  exits 0 after SIGINT or SIGTERM. `--presets-dir` defaults to the shipped
+  `config/scenarios`.
+- `node` takes the token from `--token`, `PETAL_NODE_TOKEN_<SITE_ID>` or
+  `PETAL_NODE_TOKEN` (the environment keeps it out of the process list). Driver options
+  are YAML scalars; `--sigmf-path` and `--soapy-device` are shorthands for the `path`
+  and `device` options. Options and driver modules are checked before connecting
+  (exit 2), except the SoapySDR bindings, which are imported when a channel opens (the
+  channel is then reported failed in `assign_ack`). `--clock` replaces the reported
+  clock source (`SystemClock(source, locked=not --clock-unlocked)`); nothing
+  disciplines the clock. A hidden `--exit-with-parent PID` stops the node when that
+  process is gone.
+- `demo` runs the server in-process on the example configuration and scenario (or
+  `--config`, `--scenario`), with random per-run node tokens, no API token, the marking
+  `UNCLASSIFIED // DEMONSTRATION // SIMULATED DATA`, a temporary data directory removed
+  on exit (unless `--data-dir`), presets from the scenario's directory, and one
+  `petal-locate node` subprocess per site over real WebSockets (each in its own
+  session, given its token in the environment and the demo's pid; restarted up to 3
+  times if it exits). It prints the console URL and `All N nodes are online.`, and stops
+  every child on SIGINT or SIGTERM.
+- `check` prints the satellites with their sub-points, look angles of every channel to
+  every satellite (gain, electrically-small flag, below-horizon note), monitor windows
+  (derived or configured), the link budget of every carrier into every channel, and the
+  configuration warnings at `--time`.
+- `accuracy` calls `core.accuracy.accuracy_map` (in latitude bands, with progress) and
+  writes the `AccuracyGrid` keys as JSON.
+- `montecarlo` calls `sim.montecarlo.run_trials` (default emitter: the scenario's only
+  jammer; `--param` checked against `run_trials`' signature), prints the summary, and
+  with `--out` writes the whole result.
 
 ## 9. What is and is not proven here
 
 Everything runs against a physics simulator. The simulator and the solver share the
 geometry code, so the tests prove the signal processing, estimation, protocol and
 system logic, and they prove self-consistency of the model, not agreement with real
-satellites. `docs/LIMITATIONS.md` must list: illustrative link and frequency-plan
-numbers, nominal orbital slots, no real-hardware validation of drivers,
-UT1/polar-motion simplifications, linear transponder model, no terrain model,
-stationary-emitter assumption, CAF dynamics limits for low orbits, order-of-magnitude
-ephemeris sigmas for TLEs, the requirement that the reference satellite's
-transponder overlaps the interferer's uplink band, and that the parabolic pattern of
-section 5 is an envelope, not a physical pattern: it integrates to more than isotropic
-power for dishes of about 1.6 to 3 wavelengths (1.36 for 2.4 m at 260 MHz) and for
-large dishes (1.10 to 1.24 at Ku band), which is conservative for interference.
+satellites (an independent from-scratch implementation of MATH.md sections 2 to 5, built
+without `core.geometry`, `core.orbits` or `core.linkbudget`, agrees with `render_iq`).
+`docs/LIMITATIONS.md` lists what is not proven or not done, including everything this
+section required in revision 3: illustrative link and frequency-plan numbers, nominal
+orbital slots, no real-hardware validation of drivers, UT1/polar-motion
+simplifications, linear transponder model, no terrain model, stationary-emitter
+assumption, CAF dynamics limits for low orbits, order-of-magnitude ephemeris sigmas for
+TLEs, the requirement that the reference satellite's transponder overlaps the
+interferer's uplink band, and that the parabolic pattern of section 5 is an envelope,
+not a physical pattern (it integrates to more than isotropic power for dishes of about
+1.6 to 3 wavelengths, 1.36 for 2.4 m at 260 MHz, and for large dishes, 1.10 to 1.24 at
+Ku band, which is conservative for interference).

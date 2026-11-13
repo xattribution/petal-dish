@@ -1142,8 +1142,10 @@ def build_parser() -> argparse.ArgumentParser:
     demo = sub.add_parser("demo", parents=[common], help="server plus one simulated node per site",
                           description="Run the server with the example configuration and scenario and one "
                                       "'petal-locate node' process per site over real WebSockets (SIMULATED).")
-    demo.add_argument("--config", help=f"configuration (default config/{DEFAULT_CONFIG})")
-    demo.add_argument("--scenario", help=f"scenario (default config/{DEFAULT_SCENARIO})")
+    # The shipped files resolve to the source tree's config/ or the installed package's data/config/.
+    demo.add_argument("--config", help=f"configuration (default {data_path(DEFAULT_CONFIG) or 'config/' + DEFAULT_CONFIG})")
+    demo.add_argument("--scenario",
+                      help=f"scenario (default {data_path(DEFAULT_SCENARIO) or 'config/' + DEFAULT_SCENARIO})")
     demo.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1)")
     demo.add_argument("--port", type=int, default=8080, help="TCP port (default 8080; 0 = any free port)")
     demo.add_argument("--data-dir", help="keep the store here (default: a temporary directory removed on exit)")
@@ -1156,7 +1158,8 @@ def build_parser() -> argparse.ArgumentParser:
     check = sub.add_parser("check", parents=[common], help="validate and describe a configuration",
                            description="Validate a configuration and print look angles, monitor windows, "
                                        "carrier link budgets and warnings.")
-    check.add_argument("--config", required=True)
+    check.add_argument("--config", required=True,
+                       help=f"system configuration (examples in {data_path('.') or 'config/'})")
     check.add_argument("--scenario", help="also check a scenario against the configuration")
     check.add_argument("--time", help="ISO 8601 UTC time of the geometry (default now)")
     check.set_defaults(handler=cmd_check)

@@ -107,7 +107,9 @@ function QueueRow({ e, current }: { e: EventSummary; current: boolean }) {
               {formatLat(sol.lat_deg, 2)} {formatLon(sol.lon_deg, 2)}
             </span>{' '}
             95 % {km(sol.semi_major_m)} {'×'} {km(sol.semi_minor_m)} km
-            {sol.ambiguous ? <span className="amb">, ambiguous: a mirror position fits as well</span> : null}
+            {sol.ambiguous ? (
+              <span className="amb">, ambiguous: {(sol.ambiguities?.length ?? 1) > 1 ? `${sol.ambiguities?.length} other positions fit` : 'a mirror position fits'} as well</span>
+            ) : null}
           </>
         ) : (
           e.headline
@@ -193,6 +195,10 @@ function OverviewMap() {
       if (!isActive(e) || !e.solution) continue;
       const s = e.solution;
       solutions.push({ id: e.id, eventId: e.id, lat: s.lat_deg, lon: s.lon_deg, semiMajorM: s.semi_major_m, semiMinorM: s.semi_minor_m, azimuthDeg: s.azimuth_deg, role: 'fix', selected: false, label: `${e.id}${s.ambiguous ? ' (ambiguous)' : ''}` });
+      // an unresolved ambiguity: every other position that fits as well, dashed
+      (s.ambiguities ?? []).forEach((a, i) =>
+        solutions.push({ id: `${e.id}-mirror-${i}`, eventId: e.id, lat: a.lat_deg, lon: a.lon_deg, semiMajorM: a.semi_major_m, semiMinorM: a.semi_minor_m, azimuthDeg: a.azimuth_deg, role: 'mirror', selected: false, label: `${e.id} mirror ${i + 1}` }),
+      );
     }
     return {
       sites: cfg.data?.envelope.config.sites.map((s) => ({ id: s.id, name: s.name, lat: s.lat_deg, lon: s.lon_deg })) ?? [],

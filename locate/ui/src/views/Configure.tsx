@@ -15,6 +15,7 @@ import { href, navigate, useRoute } from '../router';
 import { configResource } from '../state/resources';
 import { api, useLive } from '../state/store';
 import { dtg, isoFileStamp } from '../time/dtg';
+import { knownZone } from '../time/zones';
 import { BoolF, ContainerProblems, diffPaths, EditorContext, FreqF, NumF, SelectF, setIn, TextF, Vec3F, type Path } from './configEditor';
 
 type Section = { kind: 'general' } | { kind: 'sat'; i: number } | { kind: 'site'; i: number } | { kind: 'carriers' } | { kind: 'processing' } | { kind: 'yaml' };
@@ -501,6 +502,13 @@ function SiteEditor({ cfg, i }: { cfg: SystemConfig; i: number }) {
           <NumF path={[...base, 'alt_m']} label="Altitude" unit="m above WGS 84" optional />
           <NumF path={[...base, 'antenna_height_m']} label="Antenna height" unit="m above ground" optional />
           <NumF path={[...base, 'clock', 'sigma_ns']} label="Clock 1-sigma" unit="ns" optional />
+          <TextF
+            path={[...base, 'time_zone']}
+            label="Time zone (IANA)"
+            mono
+            optional
+            hint={site.time_zone ? (knownZone(site.time_zone) ? 'shown in the clock strip' : 'this browser does not know this zone') : 'empty: inferred from the position'}
+          />
         </div>
         {Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? (
           <p className="mono ink2">

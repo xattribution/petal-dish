@@ -1,13 +1,13 @@
 // Event dossier: what the operator must decide first (verdict and advisory), the evidence
 // for it (the evidence matrix), where the emitter is and how sure the system is (fix,
 // ellipse, ambiguity, lines of position, measurements, correlation surface, history).
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import type { Event, EvidenceRow, LopCollection, MeasurementRow, NodeStatus, SolutionOut, SystemConfig, TaskingStatus } from '../api/types.gen';
 import { ErrorNote, Info, Loading, SimTag, Status, useTick } from '../components/common';
 import { Heatmap, LinePlot } from '../components/plots';
 import { eventLevel, isActive, STATE_WORD, VERDICT_WORD } from '../domain/status';
 import { DATUM, distanceM, formatLat, formatLatLon, formatLon, formatMgrs } from '../format/geo';
-import { db, deg, fixed, hz3, km, mhz, micros, millihertz, percent, plural } from '../format/units';
+import { DASH, db, deg, fixed, hz3, km, mhz, micros, millihertz, percent, plural } from '../format/units';
 import { DOMINANT_WORD, MapView, type MapData, type MapFocus, type MapSolution } from '../map/MapView';
 import { href, navigate } from '../router';
 import { configResource, subpointsResource } from '../state/resources';
@@ -36,10 +36,14 @@ function evidenceNumbers(r: EvidenceRow, nowMs: number, node: NodeStatus | undef
   switch (r.state) {
     case 'seen':
       return `SNR ${db(r.snr_db)} dB, C/N0 ${db(r.cn0_dbhz)} dBHz`;
-    case 'not_seen_capable':
-      return r.predicted_margin_db !== null ? `expected +${db(r.predicted_margin_db)} dB margin` : 'expected to see it';
+    case 'not_seen_capable': {
+      const base = r.predicted_margin_db !== null ? `expected +${db(r.predicted_margin_db)} dB margin` : 'expected to see it';
+      // a channel that saw the event earlier and no longer does
+      return r.last_seen_ns ? `${base}, last saw it ${formatAge(Math.max(0, (nowMs - nsToMs(r.last_seen_ns)) / 1000))} ago` : base;
+    }
     case 'not_capable':
-      return r.predicted_margin_db !== null ? `margin ${db(r.predicted_margin_db)} dB` : 'no path';
+      // null margin: no sighting through this satellite to predict from (MATH.md section 7)
+      return r.predicted_margin_db !== null ? `margin ${db(r.predicted_margin_db)} dB` : 'not seen through this satellite anywhere';
     case 'stale': {
       // how old the evidence is: the channel's newest spectrum frame (status), and when it last saw the signal
       const parts: string[] = [];
@@ -112,7 +116,9 @@ function EvidenceMatrix({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
                     </td>
                   );
                 })}
-                {noSat.length ? (
+                {noSat.length && !noSat.some((r) => r.site_id === site) ? (
+                  <td className="none">no window on this frequency</td>
+                ) : noSat.length ? (
                   <td>
                     {noSat
                       .filter((r) => r.site_id === site)
@@ -146,56 +152,130 @@ function pairText(m: { pair: { a: { sat_id: string; site_id: string }; b: { sat_
 
 const zuluTime = (ns: string) => zuluClock(nsToDate(ns)).slice(0, 8);
 
+// Short words for the reasons tasking gives a row it did not use (the full text is in the
+// key under the table). Server codes from pipeline/tasking.py; anything else is shown as is.
 const REASON_WORD: Record<string, string> = {
-  clock_unlocked: 'clock unlocked',
-  ambiguous: 'ambiguous peak',
-  narrowband: 'too narrow to time',
   not_detected: 'not detected',
-  'below threshold': 'below threshold',
-  'delay-doppler coupled': 'delay and Doppler coupled',
+  ambiguous: 'ambiguous',
+  delay_doppler_coupled: 'delay–Doppler coupled',
+  narrowband: 'too narrow to time',
+  outside_window: 'peak outside window',
+  mirror_ambiguous: 'mirror copy',
+  clock_unlocked: 'clock unlocked',
+  rate_mismatch: 'rate mismatch',
+  overflow: 'overflow',
+  unconfirmed: 'unconfirmed',
+  inconsistent: 'inconsistent',
+  window_exceeds_capture: 'window too wide',
+  capture_failed: 'capture failed',
+  'set aside': 'set aside',
+  'correlation error': 'correlation error',
+  // core.caf reason strings, should a row carry one
+  'below threshold': 'not detected',
+  'delay-doppler coupled': 'delay–Doppler coupled',
   'peak outside window': 'peak outside window',
 };
 
+/** What each reason means, for the key under the table. */
+const REASON_TEXT: Record<string, string> = {
+  not_detected: 'the copy relayed by the other satellite was not found above the detection threshold',
+  ambiguous: 'several correlation peaks of almost equal height (a periodic waveform matches itself one period later)',
+  delay_doppler_coupled: 'delay and Doppler cannot be told apart (a single sweep)',
+  narrowband: 'the signal is too narrow for a time difference to be measured; its frequency difference may still be used',
+  outside_window: 'the strongest peak lies outside the window the geometry allows',
+  mirror_ambiguous: 'a co-channel satellite’s copy correlates almost as strongly',
+  clock_unlocked: 'a node clock was unlocked, so its timing cannot be trusted for a time difference',
+  rate_mismatch: 'the nodes captured at different sample rates',
+  overflow: 'the receiver overflowed during the capture',
+  window_exceeds_capture: 'the search window is wider than the capture can cover',
+  capture_failed: 'a node could not deliver the capture',
+  inconsistent: 'does not repeat the time and frequency difference this pair confirmed earlier',
+};
+
+/** "unconfirmed: awaiting ..." -> "unconfirmed"; "capture_failed: too_late: ..." -> "capture_failed". */
+function reasonKey(reason: string | null): string {
+  if (!reason) return '';
+  if (reason.startsWith('inconsistent')) return 'inconsistent';
+  if (reason.startsWith('tdoa:')) return reason; // "tdoa: x; fdoa: y" is already specific
+  return reason.split(':')[0]?.trim() ?? reason;
+}
+
+function reasonWord(reason: string | null): string {
+  if (!reason) return 'not used';
+  const key = reasonKey(reason);
+  return REASON_WORD[key] ?? reason;
+}
+
+/** Value and sigma of a row in its own unit: TDOA in µs (ns resolution), FDOA in Hz (mHz). */
+function valueText(r: MeasurementRow, v: number | null | undefined): string {
+  if (v === null || v === undefined) return '';
+  return r.kind === 'tdoa' ? `${micros(v)} µs` : `${hz3(v)} Hz`;
+}
+
+function sigmaText(r: MeasurementRow): string {
+  if (r.sigma === null || r.sigma === undefined) return '';
+  return r.kind === 'tdoa' ? `${micros(r.sigma)} µs` : `${millihertz(r.sigma)} mHz`;
+}
+
+/** Rows the table renders before "Show all" (an event keeps up to 1000; each update re-renders them). */
+const TABLE_ROWS = 120;
+
 function MeasurementTable({ rows }: { rows: MeasurementRow[] }) {
   const [usedOnly, setUsedOnly] = useState(false);
+  const [all, setAll] = useState(false);
   const sorted = useMemo(() => [...rows].sort((a, b) => (BigInt(b.t_ns) > BigInt(a.t_ns) ? 1 : BigInt(b.t_ns) < BigInt(a.t_ns) ? -1 : a.kind.localeCompare(b.kind))), [rows]);
-  const shown = usedOnly ? sorted.filter((r) => r.used) : sorted;
+  const matching = usedOnly ? sorted.filter((r) => r.used) : sorted;
+  const shown = all ? matching : matching.slice(0, TABLE_ROWS);
   const used = rows.filter((r) => r.used).length;
+  const calibrated = rows.filter((r) => r.used && r.calibrated);
+  const refs = [...new Set(calibrated.map((r) => r.reference_carrier_id).filter((x): x is string => !!x))];
+  // one reference (the usual case) is named above the table; a column only when they differ
+  const refColumn = new Set(rows.filter((r) => r.calibrated).map((r) => r.reference_carrier_id ?? '')).size > 1;
+  // why the other rows were not used: each full reason once, with its count
+  const why = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) if (!r.used) m.set(r.reason ?? 'not used', (m.get(r.reason ?? 'not used') ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [rows]);
   return (
     <>
-      <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 6 }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <span className="ink2">
           {used} of {rows.length} used by the solver
+          {used ? `, ${calibrated.length} of them calibrated${refs.length ? ` against ${refs.join(', ')}` : ''}` : ''}
         </span>
         <label>
           <input type="checkbox" checked={usedOnly} onChange={(e) => setUsedOnly(e.target.checked)} /> Used only
         </label>
+        {matching.length > TABLE_ROWS ? (
+          <button type="button" className="btn small" onClick={() => setAll(!all)}>
+            {all ? `Newest ${TABLE_ROWS} only` : `Show all ${matching.length} rows`}
+          </button>
+        ) : null}
       </div>
       <div className="tablewrap" style={{ maxHeight: 340 }}>
-        <table className="grid compact">
+        <table className="grid compact meas">
           <thead>
             <tr>
               <th>Time (Z)</th>
               <th>Pair (A − B)</th>
-              <th className="num">
-                TDOA <span className="unit">µs</span>
+              <th>Kind</th>
+              <th className="num" title="Measured difference A − B, after the calibration correction when calibrated">
+                Value
               </th>
-              <th className="num">
-                <span className="unit">σ µs</span>
+              <th className="num" title="One-sigma measurement noise of this row">
+                <span className="unit">σ</span>
               </th>
-              <th className="num">
-                FDOA <span className="unit">Hz</span>
+              <th className="num" title="Reference-carrier correction already subtracted from the value (raw = value + correction)">
+                Correction
               </th>
-              <th className="num">
-                <span className="unit">σ mHz</span>
-              </th>
+              {refColumn ? <th title="Reference carrier the correction was measured on">Reference</th> : null}
               <th className="num" title="Correlation (post-integration) SNR">
                 SNR <span className="unit">dB</span>
               </th>
               <th className="num" title="Whitened residual against the current solution">
                 Resid. <span className="unit">σ</span>
               </th>
-              <th title="Reference-emitter calibration applied">Cal.</th>
               <th>Used</th>
             </tr>
           </thead>
@@ -204,19 +284,39 @@ function MeasurementTable({ rows }: { rows: MeasurementRow[] }) {
               <tr key={`${r.t_ns}-${r.kind}-${pairText(r)}-${i}`} className={r.used ? undefined : 'muted'}>
                 <td className="mono">{zuluTime(r.t_ns)}</td>
                 <td className="mono">{pairText(r)}</td>
-                <td className="num">{r.kind === 'tdoa' ? micros(r.value) : ''}</td>
-                <td className="num">{r.kind === 'tdoa' ? micros(r.sigma) : ''}</td>
-                <td className="num">{r.kind === 'fdoa' ? hz3(r.value) : ''}</td>
-                <td className="num">{r.kind === 'fdoa' ? millihertz(r.sigma) : ''}</td>
+                <td>{r.kind === 'tdoa' ? 'TDOA' : 'FDOA'}</td>
+                <td className="num">{r.value === null ? DASH : valueText(r, r.value)}</td>
+                <td className="num">{r.value === null ? DASH : sigmaText(r) || DASH}</td>
+                <td className="num" title={r.calibrated && r.reference_carrier_id ? `measured on ${r.reference_carrier_id}; raw value = value + correction` : undefined}>
+                  {r.calibrated ? (r.correction !== null && r.correction !== undefined ? valueText(r, r.correction) : 'yes') : ''}
+                </td>
+                {refColumn ? <td className="mono">{r.calibrated ? (r.reference_carrier_id ?? '') : ''}</td> : null}
                 <td className="num">{db(r.snr_db)}</td>
                 <td className="num">{fixed(r.residual, 2)}</td>
-                <td>{r.calibrated ? 'yes' : 'no'}</td>
-                <td className="wrap">{r.used ? 'yes' : `no: ${REASON_WORD[r.reason ?? ''] ?? r.reason ?? 'not used'}`}</td>
+                <td title={r.used ? undefined : (r.reason ?? undefined)}>{r.used ? 'yes' : `no: ${reasonWord(r.reason)}`}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {why.length ? (
+        <dl className="whykey" aria-label="Why rows were not used">
+          {why.map(([reason, n]) => {
+            const key = reasonKey(reason);
+            const word = REASON_WORD[key];
+            const rest = reason.includes(':') ? reason.slice(reason.indexOf(':') + 1).trim() : '';
+            const explain = REASON_TEXT[key] ?? (rest || null);
+            return (
+              <div key={reason}>
+                <dt>
+                  {word ?? reason} <span className="ink2">({plural(n, 'row')})</span>
+                </dt>
+                {explain && word ? <dd>{explain}{rest && REASON_TEXT[key] ? ` (${rest})` : ''}</dd> : null}
+              </div>
+            );
+          })}
+        </dl>
+      ) : null}
     </>
   );
 }
@@ -238,10 +338,13 @@ function Location({ ev }: { ev: Event }) {
   const sol = ev.solution;
   if (!sol) {
     const t = ev.tasking;
+    const setAside = ev.measurements.some((m) => m.reason?.startsWith('set aside')) && !ev.measurements.some((m) => m.used);
     const why =
       ev.verdict === 'local'
         ? 'Local interference enters at one site, not through the satellites, so it is not located by time and frequency differences.'
-        : t?.solve_reason
+        : setAside
+          ? 'The earlier position and its measurements were set aside (see Transitions): the signal was lost for a while or changed, so it is located again from new measurements only.'
+          : t?.solve_reason
           ? `The last solve gave no position: ${t.solve_reason}.`
           : t?.state === 'idle' && t.message
             ? t.message
@@ -338,6 +441,8 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
     };
   }, [ev.id, ev.solution_t_ns]);
   const sol = ev.solution;
+  // redraw the map only when what it shows changes, not on every event update
+  const truthKey = ev.truth ? `${ev.truth.emitter_id}|${ev.truth.lat_deg}|${ev.truth.lon_deg}` : '';
   const data: MapData = useMemo(() => {
     const solutions: MapSolution[] = [];
     if (sol) {
@@ -353,7 +458,8 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
       lops: lop,
       truth: ev.truth ? [{ id: ev.truth.emitter_id, lat: ev.truth.lat_deg, lon: ev.truth.lon_deg, label: 'truth (SIMULATION)' }] : [],
     };
-  }, [ev, cfg, subs.data, lop, sol]);
+    // keyed on what is drawn (ev and sol change identity on every update)
+  }, [ev.id, ev.solution_t_ns, truthKey, cfg, subs.data, lop]);
   const focus = useMemo((): MapFocus | null => {
     // the fix with room for its ellipse, every mirror and (in simulation) the truth
     const pts: Array<{ lat: number; lon: number; r: number }> = [];
@@ -398,10 +504,20 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
   );
 }
 
+/** Tick decimals that keep neighbouring labels distinct over a span of values. */
+function spanDigits(values: number[]): number {
+  const finite = values.filter(Number.isFinite);
+  const span = finite.length ? Math.max(...finite) - Math.min(...finite) : 0;
+  return span >= 4 ? 0 : span >= 0.4 ? 1 : 2;
+}
+
 function Correlation({ ev }: { ev: Event }) {
   const caf = ev.caf;
   if (!caf) return <p className="ink2">No correlation yet.</p>;
   const us = (s: number) => `${fixed(s * 1e6, 1)}`;
+  const candidates = caf.candidates ?? [];
+  const delayDigits = spanDigits(caf.delay_cut.db);
+  const dopplerDigits = spanDigits(caf.doppler_cut.db);
   return (
     <>
       <p className="ink2">
@@ -425,6 +541,7 @@ function Correlation({ ev }: { ev: Event }) {
             }}
             zFormat={(v) => `${fixed(v, 1)} dB`}
             peak={caf.peak_tdoa_s !== null && caf.peak_fdoa_hz !== null ? { x: caf.peak_fdoa_hz, y: caf.peak_tdoa_s } : null}
+            others={candidates.length > 1 ? candidates.filter((c) => c.tdoa_s !== null).map((c) => ({ x: c.fdoa_hz, y: c.tdoa_s ?? 0 })) : []}
             ariaLabel="Correlation surface, delay against Doppler, dB above the noise floor"
           />
         </div>
@@ -435,7 +552,7 @@ function Correlation({ ev }: { ev: Event }) {
             xLabel="delay µs (whole window)"
             yLabel="dB"
             xFormat={(v) => fixed(v, 0)}
-            yFormat={(v) => fixed(v, 0)}
+            yFormat={(v) => fixed(v, delayDigits)}
             marker={caf.peak_tdoa_s !== null ? caf.peak_tdoa_s * 1e6 : null}
             readout={(x) => `delay ${fixed(x, 2)} µs`}
             ariaLabel="Delay cut through the peak"
@@ -447,14 +564,56 @@ function Correlation({ ev }: { ev: Event }) {
             series={[{ x: caf.doppler_cut.x, y: caf.doppler_cut.db, token: '--ink', label: 'Doppler cut' }]}
             xLabel="Doppler Hz (whole window)"
             yLabel="dB"
-            xFormat={(v) => fixed(v, 1)}
-            yFormat={(v) => fixed(v, 0)}
+            xFormat={(v) => fixed(v, Math.abs((caf.doppler_cut.x.at(-1) ?? 0) - (caf.doppler_cut.x[0] ?? 0)) > 20 ? 0 : 1)}
+            yFormat={(v) => fixed(v, dopplerDigits)}
             marker={caf.peak_fdoa_hz}
             readout={(x) => `Doppler ${fixed(x, 3)} Hz`}
             ariaLabel="Doppler cut through the peak"
           />
         </div>
       </div>
+      {candidates.length > 1 ? (
+        <div style={{ marginTop: 10 }}>
+          <h3>
+            {candidates.length} peaks found{caf.reason === 'ambiguous' ? ', too close in height to choose one' : ''}
+          </h3>
+          <p className="ink2">
+            {caf.reason === 'ambiguous'
+              ? 'No time or frequency difference is taken from this correlation. Squares mark the peaks that fall inside the patch above; the strongest is circled when it was measured.'
+              : 'The strongest peak is the measurement; the others are listed for reference (squares on the surface).'}
+          </p>
+          <table className="grid compact" style={{ maxWidth: 520 }}>
+            <thead>
+              <tr>
+                <th className="num">#</th>
+                <th className="num">
+                  Delay <span className="unit">µs</span>
+                </th>
+                <th className="num">
+                  Doppler <span className="unit">Hz</span>
+                </th>
+                <th className="num">
+                  SNR <span className="unit">dB</span>
+                </th>
+                <th className="num">
+                  Below the first <span className="unit">dB</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((c, i) => (
+                <tr key={i}>
+                  <td className="num">{i + 1}</td>
+                  <td className="num">{c.tdoa_s === null ? 'none (ridge)' : micros(c.tdoa_s)}</td>
+                  <td className="num">{hz3(c.fdoa_hz)}</td>
+                  <td className="num">{db(c.snr_db)}</td>
+                  <td className="num">{db((candidates[0]?.snr_db ?? c.snr_db) - c.snr_db)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <span className="sr-only">Delay axis in microseconds: {us(caf.delay_axis_s[0] ?? 0)} to {us(caf.delay_axis_s.at(-1) ?? 0)}</span>
     </>
   );
@@ -466,7 +625,7 @@ function History({ ev }: { ev: Event }) {
   const t0 = h[0]?.t_ns ?? '0';
   const x = h.map((r) => nsDiffSeconds(r.t_ns, t0));
   return (
-    <div className="plots" style={{ gridTemplateColumns: '2fr 1fr' }}>
+    <div className="plots" style={{ gridTemplateColumns: '2fr 1fr', alignItems: 'start' }}>
       <div className="plot">
         <LinePlot
           series={[
@@ -514,6 +673,14 @@ function History({ ev }: { ev: Event }) {
     </div>
   );
 }
+
+// The plots redraw their canvases on every render; an event update (several a round)
+// re-renders the dossier, so these re-render only when what they show changed.
+const CorrelationView = memo(Correlation, (a, b) => a.ev.id === b.ev.id && a.ev.caf?.t_ns === b.ev.caf?.t_ns);
+const HistoryView = memo(
+  History,
+  (a, b) => a.ev.id === b.ev.id && a.ev.solution_history.length === b.ev.solution_history.length && a.ev.solution_history.at(-1)?.t_ns === b.ev.solution_history.at(-1)?.t_ns,
+);
 
 const TASKING_WORD: Record<TaskingStatus['state'], string> = {
   waiting: 'waiting for the next round',
@@ -728,12 +895,12 @@ export function EventDossier({ id }: { id: string }) {
 
       <section className="dsec" aria-label="Correlation">
         <h2>Correlation</h2>
-        <Correlation ev={ev} />
+        <CorrelationView ev={ev} />
       </section>
 
       <section className="dsec" aria-label="Ellipse history">
         <h2>Ellipse against time</h2>
-        <History ev={ev} />
+        <HistoryView ev={ev} />
       </section>
 
       <section className="dsec" aria-label="Transitions">

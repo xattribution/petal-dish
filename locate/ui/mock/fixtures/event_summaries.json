@@ -15,13 +15,14 @@
     "label": "noise",
     "headline": "Uplink interference on shared-1: change channel, not terminal",
     "solution": {
-      "lat_deg": 20.347691409949547,
-      "lon_deg": 132.42198086689916,
-      "semi_major_m": 10570.938898218272,
-      "semi_minor_m": 599.9809995999136,
-      "azimuth_deg": 3.1776765545028827,
-      "cep50_m": 2923.2274173226533,
-      "ambiguous": false
+      "lat_deg": 20.315866953630916,
+      "lon_deg": 132.41955026352275,
+      "semi_major_m": 1287.7144936272593,
+      "semi_minor_m": 529.2643783392934,
+      "azimuth_deg": 12.188491266613205,
+      "cep50_m": 428.5579473337776,
+      "ambiguous": false,
+      "ambiguities": []
     },
     "simulated": true
   },
@@ -47,7 +48,16 @@
       "semi_minor_m": 670.5532716627217,
       "azimuth_deg": 10.379675191925234,
       "cep50_m": 7835.7984142734995,
-      "ambiguous": true
+      "ambiguous": true,
+      "ambiguities": [
+        {
+          "lat_deg": 29.814700181592926,
+          "lon_deg": 134.90131596299472,
+          "semi_major_m": 27408.904503884838,
+          "semi_minor_m": 652.5325840131965,
+          "azimuth_deg": 5.373251775217305
+        }
+      ]
     },
     "simulated": true
   },

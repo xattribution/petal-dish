@@ -158,12 +158,12 @@ function regionBounds(r: Region | null | undefined): { lonMin: number; lonMax: n
   return { lonMin, lonMax: lonMin + span, latMin: r.lat_min ?? -70, latMax: r.lat_max ?? 70 };
 }
 
-function makeProjection(v: ViewState): GeoProjection {
+function makeProjection(v: ViewState, precision = 0.4): GeoProjection {
   return geoMercator()
     .rotate([-v.lon0, 0])
     .scale(v.k)
     .translate([v.w / 2, v.h / 2 + mercY(v.lat0) * v.k])
-    .precision(0.4);
+    .precision(precision);
 }
 
 /** d3 wants clockwise exterior rings; GeoJSON (RFC 7946) gives counter-clockwise. Fix up polygons. */
@@ -213,11 +213,14 @@ class Labeler {
     const ctx = this.ctx;
     const w = ctx.measureText(text).width;
     const h = 13;
+    // above-right, below-right, above-left, below-left; the above and below boxes do not
+    // touch, so two marks at almost the same point (a fix on its truth) both get a label
+    const dy = r + h / 2 - 1;
     const tries: Array<[number, number]> = [
-      [x + r + 3, y - r - 1],
-      [x + r + 3, y + r + 1],
-      [x - r - 3 - w, y - r - 1],
-      [x - r - 3 - w, y + r + 1],
+      [x + r + 3, y - dy],
+      [x + r + 3, y + dy],
+      [x - r - 3 - w, y - dy],
+      [x - r - 3 - w, y + dy],
     ];
     const free = (b: Box) => !this.boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
     let pick: [number, number] | null = null;
@@ -225,6 +228,20 @@ class Labeler {
       if (free({ x0: lx - 1, y0: ly - h / 2, x1: lx + w + 1, y1: ly + h / 2 })) {
         pick = [lx, ly];
         break;
+      }
+    }
+    if (!pick && force) {
+      // a label that must be shown: further out above and below before overlapping
+      for (let k = 1; k <= 4 && !pick; k++) {
+        for (const [lx, ly] of [
+          [x + r + 3, y + dy + k * h],
+          [x + r + 3, y - dy - k * h],
+        ] as Array<[number, number]>) {
+          if (free({ x0: lx - 1, y0: ly - h / 2, x1: lx + w + 1, y1: ly + h / 2 })) {
+            pick = [lx, ly];
+            break;
+          }
+        }
       }
     }
     if (!pick) {
@@ -255,6 +272,10 @@ export function MapView(props: MapProps) {
   const frame = useRef(0);
   const footprintFeatures = useRef<WeakMap<Footprint[], Feature<Geometry>[]>>(new WeakMap());
   const lopFeatures = useRef<WeakMap<LopCollection, LopFeature[]>>(new WeakMap());
+  // The base layers (water, graticule, land, borders) only change with the view, the size
+  // and the theme: they are drawn once into this canvas and copied on every data redraw,
+  // which keeps a busy event (an update every few seconds) from re-projecting 1:50m land.
+  const baseCache = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
 
   useEffect(() => {
     if (!world) loadWorld().then(setWorld, (e: Error) => setWorldError(e.message));
@@ -294,42 +315,78 @@ export function MapView(props: MapProps) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const proj = makeProjection(v);
     const path = geoPath(proj, ctx);
+    // dense vertex data (Natural Earth, lines of position): no adaptive resampling, whose
+    // cost dominated every redraw and changes nothing visible at these vertex spacings
+    const densePath = geoPath(makeProjection(v, 0), ctx);
     const on = (id: LayerId) => p.layers[id] === true;
 
-    ctx.fillStyle = color('--surface-2');
-    ctx.fillRect(0, 0, v.w, v.h);
-    ctx.beginPath();
-    path({ type: 'Sphere' });
-    ctx.fillStyle = color('--water');
-    ctx.fill();
-
-    // graticule, coarser when zoomed out
-    const degPerPx = 1 / (v.k * RAD);
-    const step = [0.1, 0.25, 0.5, 1, 2, 5, 10, 30].find((s) => s / degPerPx >= 70) ?? 30;
-    ctx.beginPath();
-    path(geoGraticule().step([step, step]).extentMajor([[-180, -MAX_LAT], [180, MAX_LAT]])());
-    ctx.strokeStyle = color('--graticule');
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // land and borders
     const moving = performance.now() < interactingUntil.current;
-    if (world) {
-      ctx.beginPath();
-      path(moving ? world.land110 : world.land50);
-      ctx.fillStyle = color('--land');
-      ctx.fill();
-      ctx.strokeStyle = color('--coast');
-      ctx.lineWidth = 0.7;
-      ctx.stroke();
-      if (!moving) {
-        ctx.beginPath();
-        path(world.borders50);
-        ctx.strokeStyle = color('--border');
-        ctx.lineWidth = 0.6;
-        ctx.stroke();
+    const palette = ['--surface-2', '--water', '--graticule', '--land', '--coast', '--border'].map(color).join();
+    const baseKey = [v.lon0, v.lat0, v.k, v.w, v.h, dpr, palette, world ? 1 : 0, moving ? 1 : 0].join('|');
+    let base = baseCache.current;
+    if (!base || base.key !== baseKey) {
+      const bc = base?.canvas ?? document.createElement('canvas');
+      bc.width = canvas.width;
+      bc.height = canvas.height;
+      const b = bc.getContext('2d');
+      if (b) {
+        b.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const bpath = geoPath(proj, b);
+        const bdense = geoPath(makeProjection(v, 0), b);
+        b.fillStyle = color('--surface-2');
+        b.fillRect(0, 0, v.w, v.h);
+        b.beginPath();
+        bpath({ type: 'Sphere' });
+        b.fillStyle = color('--water');
+        b.fill();
+
+        // graticule, coarser when zoomed out, over the visible area only (zoomed in to a
+        // kilometre, a whole-globe graticule at 0.1 degree had 5 000 lines to project);
+        // meridians and parallels are straight in Mercator, so no resampling either
+        const degPerPx = 1 / (v.k * RAD);
+        const step = [0.1, 0.25, 0.5, 1, 2, 5, 10, 30].find((s) => s / degPerPx >= 70) ?? 30;
+        const lonHalf = Math.min(180, (v.w / 2) * degPerPx + step);
+        const yc = mercY(v.lat0);
+        const latTop = Math.min(MAX_LAT, invMercY(yc + v.h / 2 / v.k) + step);
+        const latBottom = Math.max(-MAX_LAT, invMercY(yc - v.h / 2 / v.k) - step);
+        b.beginPath();
+        bdense(
+          geoGraticule()
+            .step([step, step])
+            .extent([
+              // both the major and the minor extent: step() sets both steps
+              [v.lon0 - lonHalf, latBottom],
+              [v.lon0 + lonHalf, latTop],
+            ])(),
+        );
+        b.strokeStyle = color('--graticule');
+        b.lineWidth = 1;
+        b.stroke();
+
+        // land and borders
+        if (world) {
+          b.beginPath();
+          bdense(moving ? world.land110 : world.land50);
+          b.fillStyle = color('--land');
+          b.fill();
+          b.strokeStyle = color('--coast');
+          b.lineWidth = 0.7;
+          b.stroke();
+          if (!moving) {
+            b.beginPath();
+            bdense(world.borders50);
+            b.strokeStyle = color('--border');
+            b.lineWidth = 0.6;
+            b.stroke();
+          }
+        }
       }
+      base = { key: baseKey, canvas: bc };
+      baseCache.current = base;
     }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(base.canvas, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const cx = v.w / 2;
     const cy = v.h / 2;
@@ -417,14 +474,14 @@ export function MapView(props: MapProps) {
       for (const f of feats) {
         if (f.properties.role !== 'band') continue;
         ctx.beginPath();
-        path(f as unknown as Feature<Geometry>);
+        densePath(f as unknown as Feature<Geometry>);
         ctx.fillStyle = color('--lop-fill');
         ctx.fill();
       }
       for (const f of feats) {
         if (f.properties.role !== 'line') continue;
         ctx.beginPath();
-        path(f as unknown as Feature<Geometry>);
+        densePath(f as unknown as Feature<Geometry>);
         ctx.setLineDash(f.properties.kind === 'fdoa' ? [7, 4] : []);
         ctx.strokeStyle = color('--lop');
         ctx.lineWidth = 1.6;

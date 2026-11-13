@@ -27,7 +27,9 @@ export interface AccuracyGrid {
  * repeated request is answered from the server's cache), ``region`` to the configured
  * region. ``kinds`` chooses the measurement types assumed. ``reference_carrier_id``
  * assumes calibration against that reference carrier. ``integration_s`` defaults to
- * the configured capture.
+ * the configured capture. ``uncertainty`` replaces ``processing.uncertainty`` for this
+ * map only (what-if planning; the configuration is not changed): satellites with their
+ * own ``ephemeris_sigma`` keep it, and site clocks keep ``Site.clock.sigma_ns``.
  *
  * The server refuses (422) a grid of more than 20 000 cells (choose a coarser
  * ``step_deg`` or a smaller ``region``) and gives up (504) after 120 s.
@@ -42,6 +44,7 @@ export interface AccuracyRequest {
   region?: Region | null;
   step_deg?: number;
   t?: string | null;
+  uncertainty?: UncertaintyConfig | null;
 }
 
 /**
@@ -51,6 +54,18 @@ export interface Advisory {
   actions: string[];
   detail: string;
   headline: string;
+}
+
+/**
+ * Another position that fits the measurements as well as the fix (an unresolved
+ * ambiguity, for example the mirror across the equator), with its 95 % ellipse.
+ */
+export interface AmbiguitySummary {
+  azimuth_deg: number;
+  lat_deg: number;
+  lon_deg: number;
+  semi_major_m: number;
+  semi_minor_m: number;
 }
 
 /**
@@ -71,6 +86,16 @@ export interface BeamAntenna {
   gain_dbi: number;
   hpbw_deg: number;
   type: "beam";
+}
+
+/**
+ * One distinct correlation peak: delay (s; null when meaningless, as on the
+ * Doppler ridge of a CW carrier), Doppler (Hz) and post-correlation SNR (dB).
+ */
+export interface CafCandidate {
+  fdoa_hz: number;
+  snr_db: number;
+  tdoa_s: number | null;
 }
 
 /**
@@ -97,9 +122,13 @@ export interface CafCut {
  *
  * surface: dB relative to the noise floor, ``surface[i][j]`` at ``delay_axis_s[i]``,
  * ``doppler_axis_hz[j]`` (at most 65 x 65). peak_tdoa_s / peak_fdoa_hz: the
- * measured peak (null when not detected).
+ * measured peak (null when not detected). candidates: the distinct peaks the
+ * correlator found, strongest first (up to 8; ``core.caf.CafResult.candidates``):
+ * several of almost equal height make the result ``ambiguous``, and they may lie
+ * outside the displayed patch.
  */
 export interface CafDisplay {
+  candidates?: CafCandidate[];
   delay_axis_s: number[];
   delay_cut: CafCut;
   detected: boolean;
@@ -446,7 +475,10 @@ export interface EventTruth {
  * predicted_margin_db: how far above this channel's detection threshold the signal
  * is expected to be, given the strongest sighting (null when it cannot be
  * predicted). Negative means the channel could not see it.
- * last_seen_ns: newest frame in which this channel's detection was above threshold.
+ * last_seen_ns: newest frame in which this channel's detection of the event was above
+ * threshold, also after the detection ended (for ``stale`` and ``not_seen_capable``
+ * rows it says how old the channel's last sighting is); null when the channel never
+ * saw it.
  * monitor_id: the monitor window of the channel that covers the event.
  * downlink_lo_hz, downlink_hi_hz: where the channel sees the signal (its detection,
  * when seen) or would see it (the event's range through ``sat_id``), Hz.
@@ -704,13 +736,21 @@ export interface Marking {
  * residual: whitened residual against the current solution; null when the
  * measurement is not in the current solution.
  * used: whether the solver was given it. reason: why not, when ``used`` is false
- * (for example ``not_detected``, ``ambiguous``, ``clock_unlocked``).
+ * (for example ``not_detected``, ``ambiguous``, ``narrowband`` (a signal too narrow
+ * for a time difference: TDOA only), ``clock_unlocked``).
+ * correction: when ``calibrated``, the reference-carrier correction already
+ * subtracted from ``value`` (s or Hz; the raw measurement is ``value + correction``),
+ * else null. It holds everything the reference measured on the same pair: clock
+ * offsets between the two sites, ephemeris and oscillator errors.
+ * reference_carrier_id: the reference carrier of that correction, else null.
  */
 export interface MeasurementRow {
   calibrated: boolean;
+  correction?: number | null;
   kind: "tdoa" | "fdoa";
   pair: PairRef;
   reason: string | null;
+  reference_carrier_id?: string | null;
   residual: number | null;
   sigma: number | null;
   snr_db: number | null;
@@ -917,6 +957,10 @@ export interface SimTruthEvent {
  * A ground site. The antenna phase centre is at ``alt_m + antenna_height_m`` above
  * the WGS84 ellipsoid (``xyz()``); ``antenna_height_m`` (above ground) also sets the
  * radio horizon of direct paths.
+ *
+ * time_zone: optional IANA time zone of the site (for example ``Asia/Tokyo``), used
+ * only for display (the console's clock strip); absent, the console infers one from
+ * the position. Every computation uses UTC.
  */
 export interface Site {
   alt_m?: number;
@@ -927,6 +971,7 @@ export interface Site {
   lat_deg: number;
   lon_deg: number;
   name: string;
+  time_zone?: string | null;
 }
 
 /**
@@ -977,9 +1022,12 @@ export interface SolutionOut {
 }
 
 /**
- * Enough of a solution to draw it on the map and list it.
+ * Enough of a solution to draw it on the map and list it. ``ambiguous``: the
+ * ambiguity is unresolved; ``ambiguities`` then lists every other position that fits
+ * as well (``SolutionOut.ambiguities``), so a map can draw all of them.
  */
 export interface SolutionSummary {
+  ambiguities?: AmbiguitySummary[];
   ambiguous: boolean;
   azimuth_deg: number;
   cep50_m: number;
@@ -1068,13 +1116,17 @@ export interface TableSample {
  *
  * state: ``waiting`` (the next round is scheduled), ``capturing`` (IQ captures
  * requested from the nodes), ``processing`` (correlating, calibrating, solving) or
- * ``idle`` (nothing to capture: no usable channel sees the event, or no second
- * satellite with a usable channel relays it, so it cannot be located).
+ * ``idle`` (nothing to capture: no usable channel sees the event, no second
+ * satellite with a usable channel relays it, or the event was judged ``local``, so it
+ * cannot be located by satellite; ``message`` says which).
  * rounds: capture rounds started for the event. last_round_ns / next_round_ns: server
  * time of the last round's start and of the next one (null when none is planned).
  * channels: the receive channels of the last round, primary first.
- * message: one plain sentence about the last round (what failed and is being
- * retried, what is awaited), or null when all went well.
+ * message: plain sentences about the last completed round, kept while the next one
+ * runs: what failed and is being retried, what is awaited, and why the signal itself
+ * gives no usable measurement when every pair failed for one reason (for example
+ * "No TDOA: the signal is too narrow ..." for a CW carrier, or "The correlations are
+ * ambiguous ..." for a repeating sweep); null when all went well.
  * solve_reason: why the last solve gave no position (for example ``unobservable``
  * or ``fewer than two accepted measurements``); null after a successful solve.
  */

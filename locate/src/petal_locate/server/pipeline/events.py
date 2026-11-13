@@ -22,9 +22,18 @@ Lifecycle. ``state`` is derived: ``closed`` once the operator closed it (or it w
 merged into another event); otherwise ``lost`` while no detection holds it; otherwise
 its *progress*: ``detected`` (raised) < ``characterizing`` (first capture requested) <
 ``locating`` (first CAF measurement accepted) < ``located`` (a converged solution
-exists). Progress only moves forward and is kept while the event is lost, so an event
-that is detected again returns to where it was. Every change of state or verdict is a
-``Transition`` with a reason; transitions are stored and pushed.
+exists). Progress moves forward and is kept while the event is lost, so an event that
+is detected again within ``REACQUIRE_KEEP_S`` returns to where it was. Every change of
+state or verdict is a ``Transition`` with a reason; transitions are stored and pushed.
+
+Setting aside (``set_aside``). A position is only shown while it belongs to the signal
+on the air. When an event is detected again after a longer loss (``reopen``), or the
+correlator judges an uplink event local after all (the uplink signal stopped and a
+local one took its frequency), the solution and every accepted measurement are set
+aside: the rows stay listed with ``used = false`` and a ``set aside: ...`` reason, the
+solution, class and correlation surface are withdrawn (the ellipses stay in the
+history), progress returns to ``characterizing`` and the next solve uses new
+measurements only.
 
 Publication. Mutations mark a record dirty; ``EventBook.flush`` builds the console
 document once and hands it to the publisher (console and store). A *material* change
@@ -58,6 +67,8 @@ __all__ = [
     "MAX_INACTIVE_RECORDS",
     "MAX_MEASUREMENT_ROWS",
     "MAX_TRANSITION_ROWS",
+    "REACQUIRE_KEEP_S",
+    "SET_ASIDE_REASON",
     "EventBook",
     "EventNotFound",
     "EventRecord",
@@ -102,6 +113,14 @@ MAX_TRANSITION_ROWS: Final[int] = 200
 MAX_INACTIVE_RECORDS: Final[int] = 1000
 """Inactive events (closed, lost beyond the re-open window, or history) kept in memory;
 older ones are dropped from memory only (they stay in the store)."""
+
+REACQUIRE_KEEP_S: Final[float] = 30.0
+"""A lost event detected again within this time resumes with its measurements,
+solution and verdict (a fade or a short break of the same transmission); after a
+longer loss they are set aside and the event is characterised and located afresh, s."""
+
+SET_ASIDE_REASON: Final[str] = "set aside"
+"""Prefix of the ``MeasurementRow.reason`` of rows withdrawn by ``set_aside``."""
 
 Space = Literal["up", "down"]
 """Frequency space of an event: ``up`` for uplink ranges (mapped through a
@@ -214,6 +233,9 @@ class EventRecord:
     verdict_gaps: list[dict[str, Any]] = field(default_factory=list)
     caf_uplink: bool = False
     caf_uplink_pair: schemas.PairRef | None = None
+    caf_uplink_ns: int | None = None  # server time of the newest cross-satellite proof
+    local_since_ns: int | None = None  # correlator: since when the evidence alone says local
+    channel_seen_ns: dict[tuple[str, str | None], int] = field(default_factory=dict)
     members: dict[UnitKey, Unit] = field(default_factory=dict)
     evidence: list[schemas.EvidenceRow] = field(default_factory=list)
     transponders: list[schemas.EventTransponder] = field(default_factory=list)
@@ -325,6 +347,22 @@ def _finite_or_none(value: Any) -> float | None:
         return None
     out = float(value)
     return out if math.isfinite(out) else None
+
+
+def _clock_text(t_ns: int) -> str:
+    """``HH:MM:SSZ`` of a UTC ns time (for transition reasons)."""
+    seconds = (int(t_ns) // 1_000_000_000) % 86_400
+    return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}Z"
+
+
+def _duration_text(seconds: float) -> str:
+    """``45 s``, ``3 min 20 s`` or ``2 h 5 min``."""
+    s = int(round(max(float(seconds), 0.0)))
+    if s < 60:
+        return f"{s} s"
+    if s < 3600:
+        return f"{s // 60} min {s % 60} s" if s % 60 else f"{s // 60} min"
+    return f"{s // 3600} h {s // 60 % 60} min" if s // 60 % 60 else f"{s // 3600} h"
 
 
 def _default_advisor(record: EventRecord) -> schemas.Advisory:
@@ -532,16 +570,82 @@ class EventBook:
         self.touch(record, "state")
 
     def reopen(self, record: EventRecord, reason: str = "detected again") -> None:
-        """A lost event is detected again: it returns to its progress and its verdict
-        is held while the evidence settles anew."""
+        """A lost event is detected again. Lost for at most ``REACQUIRE_KEEP_S``, it
+        returns to its progress and its verdict is held while the evidence settles anew.
+        Lost for longer, the signal may not be the one measured before: its solution
+        and measurements are set aside (``set_aside``) and the verdict is formed again
+        from new evidence after the settle time."""
         if not record.lost or record.closed or record.historic:
             return
         now = self._clock()
+        lost_ns = record.lost_ns
         record.lost = False
         record.lost_ns = None
         record.settle_from_ns = now
+        gap_s = (now - lost_ns) / 1e9 if lost_ns is not None else 0.0
+        if gap_s > REACQUIRE_KEEP_S:
+            record.verdict = "undetermined"
+            record.verdict_basis = "settling"
+            record.verdict_reason = self._settling_reason()
+            record.verdict_gaps = [{"kind": "settling"}]
+            record.caf_uplink, record.caf_uplink_pair, record.caf_uplink_ns = False, None, None
+            record.local_since_ns = None
+            lost_at = _clock_text(lost_ns) if lost_ns is not None else "earlier"
+            reason = f"{reason} after a break of {_duration_text(gap_s)}"
+            if record.solution_out is not None:
+                reason += "; the earlier position and measurements are set aside until it is located again"
+            elif any(e.row.used for e in record.measurements):
+                reason += "; the earlier measurements are set aside"
+            self.set_aside(record, f"measured before the signal was lost at {lost_at}", transition=reason, now=now)
+            return
         self.note_transition(record, now, reason)
         self.touch(record, "state")
+
+    def set_aside(self, record: EventRecord, why: str, *, transition: str | None = None, now: int | None = None) -> bool:
+        """Withdraw the event's solution and every accepted measurement (see the module
+        docstring): rows keep their values with ``used = false`` and the reason
+        ``set aside: <why>``; the solution, the classification and the correlation
+        surface leave the document (the history keeps the ellipses); progress returns to
+        ``characterizing`` when it was further. A transition is noted with
+        ``transition`` (or a sentence built from ``why``). Returns whether anything
+        changed."""
+        if record.closed or record.historic:
+            return False
+        now = self._clock() if now is None else int(now)
+        changed = False
+        text = f"{SET_ASIDE_REASON}: {why}"
+        for i, entry in enumerate(record.measurements):
+            if entry.row.used:
+                record.measurements[i] = MeasurementEntry(
+                    entry.seq,
+                    entry.row.model_copy(update={"used": False, "reason": text, "residual": None}),
+                    entry.measurement,
+                )
+                changed = True
+            elif entry.row.residual is not None:
+                record.measurements[i] = MeasurementEntry(
+                    entry.seq, entry.row.model_copy(update={"residual": None}), entry.measurement
+                )
+        if record.solution is not None or record.solution_out is not None:
+            changed = True
+        # the class and the correlation surface describe the signal measured before too
+        record.classification = None
+        record.caf = None
+        record.solution = None
+        record.solution_out = None
+        record.solution_t_ns = None
+        record.solution_used = ()
+        record.last_solve_reason = None
+        if _PROGRESS[record.progress] > _PROGRESS["characterizing"]:
+            record.progress = "characterizing"
+            changed = True
+        if changed or transition is not None:
+            self.note_transition(record, now, transition or f"position set aside: {why}", force=True)
+            self.touch(record, "solution", "measurement", "state")
+            logger.info(
+                "event %s: solution and measurements set aside (%s)", record.id, why, extra={"event_id": record.id}
+            )
+        return changed
 
     def merge(self, source: EventRecord, target: EventRecord) -> None:
         """Fold ``source`` into ``target`` (the correlator moves the detections). The
@@ -554,6 +658,8 @@ class EventBook:
             target.progress = source.progress
         if source.caf_uplink and not target.caf_uplink:
             target.caf_uplink, target.caf_uplink_pair = True, source.caf_uplink_pair
+        if source.caf_uplink_ns is not None:
+            target.caf_uplink_ns = max(target.caf_uplink_ns or 0, source.caf_uplink_ns)
         if target.classification is None and source.classification is not None:
             target.classification = source.classification
         if source.verdict == "uplink" and target.verdict != "uplink":
@@ -663,6 +769,11 @@ class EventBook:
         if len(record.measurements) > MAX_MEASUREMENT_ROWS:
             del record.measurements[: len(record.measurements) - MAX_MEASUREMENT_ROWS]
         if row.used:
+            # every pair correlates two satellites' copies: an accepted row renews the
+            # cross-satellite proof of an uplink (MATH.md section 7)
+            record.caf_uplink_ns = self._clock()
+            if not record.caf_uplink:
+                record.caf_uplink, record.caf_uplink_pair = True, row.pair
             self._advance(record, "locating", "first measurement accepted")
         self.touch(record, "measurement")
         return entry.seq
@@ -709,6 +820,12 @@ class EventBook:
         used_seqs = tuple(int(s) for s in used)
         if used_seqs and len(used_seqs) != len(residuals):
             raise ValueError(f"used: {len(used_seqs)} entries for {len(residuals)} residuals")
+        withdrawn = {e.seq for e in record.measurements if not e.row.used}
+        if any(seq in withdrawn for seq in used_seqs):
+            # solved from rows set aside meanwhile (set_aside while the solve ran)
+            self.counters["rejected"] += 1
+            logger.info("event %s: solution from set-aside rows discarded", record.id, extra={"event_id": record.id})
+            return False
         try:
             data = solution.as_dict()
             out = schemas.SolutionOut.model_validate(data)
@@ -769,6 +886,7 @@ class EventBook:
         record = self._target(event_id, "report_cross_satellite_detection")
         if record is None:
             return False
+        record.caf_uplink_ns = self._clock()
         if not record.caf_uplink:
             record.caf_uplink = True
             record.caf_uplink_pair = pair
@@ -985,6 +1103,16 @@ class EventBook:
                 azimuth_deg=solution.ellipse.azimuth_deg,
                 cep50_m=solution.cep50_m,
                 ambiguous=bool(solution.ambiguities),
+                ambiguities=[
+                    schemas.AmbiguitySummary(
+                        lat_deg=a.lat_deg,
+                        lon_deg=a.lon_deg,
+                        semi_major_m=a.ellipse.semi_major_m,
+                        semi_minor_m=a.ellipse.semi_minor_m,
+                        azimuth_deg=a.ellipse.azimuth_deg,
+                    )
+                    for a in solution.ambiguities
+                ],
             )
         if doc is not None:
             return schemas.EventSummary(
@@ -1150,7 +1278,26 @@ def caf_display(result: Any, pair: schemas.PairRef, t_ns: int) -> schemas.CafDis
         snr_db=_finite_or_none(result.snr_db) if _finite_or_none(result.snr_db) is not None else 0.0,
         detected=bool(result.detected),
         reason=result.reason,
+        candidates=_candidates(getattr(result, "candidates", ()) or (), result.reason),
     )
+
+
+def _candidates(raw: Iterable[Any], reason: str | None) -> list[schemas.CafCandidate]:
+    """``CafResult.candidates`` as console rows; finite values only. A CW ridge
+    (``narrowband``) has no meaningful delay, so its candidates carry none."""
+    out: list[schemas.CafCandidate] = []
+    for entry in raw:
+        try:
+            tdoa, fdoa, snr = (float(v) for v in entry)
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(fdoa) and math.isfinite(snr)):
+            continue
+        delay = tdoa if math.isfinite(tdoa) and reason != "narrowband" else None
+        out.append(schemas.CafCandidate(tdoa_s=delay, fdoa_hz=fdoa, snr_db=snr))
+        if len(out) >= 8:
+            break
+    return out
 
 
 def event_truth(

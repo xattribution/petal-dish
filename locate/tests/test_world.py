@@ -471,7 +471,11 @@ MON_172E = 301.0e6 - 33.6e6  # the shared-1 monitor centre of a channel on uhf-1
          "seoul-172e", MON_172E, 31250.0, 1024, 0.0),
         ("slice", [jammer(freq_hz=301.0e6, eirp_dbw=25.0, waveform={"type": "noise", "bandwidth_hz": 200e3})],
          "seoul-172e", MON_172E, 31250.0, 1024, 0.0),
-        ("decimated", [jammer(freq_hz=301.011e6)], "seoul-172e", MON_172E, 20000.0, 512, 0.0),
+        # ref-guam (8 kHz at 300.9925 MHz) would fill the left of this 20 kHz window, leaving too few
+        # empty bins to compare; it is switched off here (a scenario entry naming its carrier)
+        ("decimated", [jammer(freq_hz=301.011e6), {"id": "guam-off", "kind": "carrier", "carrier_id": "ref-guam",
+                                                   "enabled": False}],
+         "seoul-172e", MON_172E, 20000.0, 512, 0.0),
         ("co-channel", [jammer()], "tokyo-pac", 301.0e6 - 41.0e6, 31250.0, 1024, 0.0),
         ("direct", [jammer(kind="local", freq_hz=260.005e6, eirp_dbw=-40.0, lat_deg=35.198, lon_deg=129.113)],
          "busan-pac", 260.0e6, 31250.0, 1024, 0.0),
@@ -570,9 +574,10 @@ def test_local_interferer_heard_only_inside_its_radio_horizon(cfg: SystemConfig)
     band = np.abs(freqs - 5000.0) < 4000.0
     excess = 10 * math.log10(float(np.mean(lin(with_local[band]) - lin(without[band]))))
     assert excess == pytest.approx(cn0 - 10 * math.log10(10e3), abs=0.1)
-    # another site watching the same satellite and frequency sees nothing of it
+    # another site watching the same satellite and frequency sees nothing of it (the two scenarios'
+    # truth errors move the reference carrier's level in this window by about 2e-4 dB, nothing more)
     assert np.allclose(world.render_psd("seoul-pac", T0, 260.0e6, 31250.0, 1024, 8, expected=True),
-                       quiet.render_psd("seoul-pac", T0, 260.0e6, 31250.0, 1024, 8, expected=True), atol=1e-5)
+                       quiet.render_psd("seoul-pac", T0, 260.0e6, 31250.0, 1024, 8, expected=True), atol=1e-3)
     # a copy just inside / just outside the horizon distance
     for frac, heard in ((0.95, True), (1.05, False)):
         lat, lon = destination(35.180, 129.075, 60.0, frac * horizon)

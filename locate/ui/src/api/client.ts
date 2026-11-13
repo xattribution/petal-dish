@@ -91,12 +91,21 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Field problems from a ValidateResult body or from FastAPI's {detail: [{loc, msg}]}. */
+/** A validation message as an operator reads it: pydantic's "Value error, " prefix removed. */
+export function plainMessage(msg: string): string {
+  return msg.replace(/^(Value|Assertion) error, /, '');
+}
+
+function plainProblems(list: FieldProblem[]): FieldProblem[] {
+  return list.map((p) => ({ loc: p.loc, msg: plainMessage(p.msg) }));
+}
+
+/** Field problems from a FieldErrorResponse / ValidateResult body or from FastAPI's {detail: [{loc, msg}]}. */
 export function fieldProblems(body: unknown): { errors: FieldProblem[]; warnings: FieldProblem[] } {
   if (isRecord(body) && Array.isArray(body.errors)) {
     const pick = (list: unknown): FieldProblem[] =>
       Array.isArray(list)
-        ? list.filter(isRecord).map((p) => ({ loc: String(p.loc ?? ''), msg: String(p.msg ?? '') }))
+        ? list.filter(isRecord).map((p) => ({ loc: String(p.loc ?? ''), msg: plainMessage(String(p.msg ?? '')) }))
         : [];
     return { errors: pick(body.errors), warnings: pick(body.warnings) };
   }
@@ -106,7 +115,7 @@ export function fieldProblems(body: unknown): { errors: FieldProblem[]; warnings
       // FastAPI prefixes request-body locations with "body"; the configuration editor
       // addresses fields from the document root.
       const path = loc[0] === 'body' ? loc.slice(1) : loc;
-      return { loc: path.join('.'), msg: String(d.msg ?? '') };
+      return { loc: path.join('.'), msg: plainMessage(String(d.msg ?? '')) };
     });
     return { errors, warnings: [] };
   }
@@ -208,7 +217,11 @@ export class ApiClient {
   }
 
   validateConfig(config: SystemConfig): Promise<ValidateResult> {
-    return this.request<ValidateResult>('POST', '/config/validate', { body: config }).then((r) => r.data);
+    return this.request<ValidateResult>('POST', '/config/validate', { body: config }).then((r) => ({
+      ...r.data,
+      errors: plainProblems(r.data.errors),
+      warnings: plainProblems(r.data.warnings),
+    }));
   }
 
   configSchema(): Promise<Record<string, unknown>> {

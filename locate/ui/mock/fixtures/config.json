@@ -242,7 +242,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       },
       {
         "id": "hilo",
@@ -339,7 +340,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       },
       {
         "id": "tokyo",
@@ -476,7 +478,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       },
       {
         "id": "naha",
@@ -612,7 +615,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       },
       {
         "id": "seoul",
@@ -749,7 +753,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       },
       {
         "id": "busan",
@@ -886,7 +891,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       },
       {
         "id": "manila",
@@ -1023,7 +1029,8 @@
               }
             ]
           }
-        ]
+        ],
+        "time_zone": null
       }
     ],
     "carriers": [
@@ -1033,7 +1040,7 @@
         "satellite_id": "muos-io",
         "transponder_id": "shared-1",
         "uplink_center_hz": 300992500.0,
-        "bandwidth_hz": 5000.0,
+        "bandwidth_hz": 8000.0,
         "location": {
           "lat_deg": 13.476,
           "lon_deg": 144.749,
@@ -1041,17 +1048,13 @@
           "antenna_height_m": 10.0
         },
         "emitter": {
-          "eirp_dbw": 13.0,
+          "eirp_dbw": 20.0,
           "antenna": {
-            "type": "beam",
-            "gain_dbi": 10.0,
-            "hpbw_deg": 52.0,
-            "front_to_back_db": 15.0
+            "type": "isotropic",
+            "gain_dbi": 0.0
           },
-          "pointing": {
-            "satellite_id": "muos-io"
-          },
-          "bandwidth_hz": 5000.0,
+          "pointing": "omni",
+          "bandwidth_hz": 8000.0,
           "waveform": "noise"
         },
         "use_as_reference": true
@@ -1062,7 +1065,7 @@
         "satellite_id": "uhf-172e",
         "transponder_id": "shared-2",
         "uplink_center_hz": 301117500.0,
-        "bandwidth_hz": 5000.0,
+        "bandwidth_hz": 8000.0,
         "location": {
           "lat_deg": 43.062,
           "lon_deg": 141.354,
@@ -1070,17 +1073,13 @@
           "antenna_height_m": 10.0
         },
         "emitter": {
-          "eirp_dbw": 13.0,
+          "eirp_dbw": 20.0,
           "antenna": {
-            "type": "beam",
-            "gain_dbi": 10.0,
-            "hpbw_deg": 52.0,
-            "front_to_back_db": 15.0
+            "type": "isotropic",
+            "gain_dbi": 0.0
           },
-          "pointing": {
-            "satellite_id": "uhf-172e"
-          },
-          "bandwidth_hz": 5000.0,
+          "pointing": "omni",
+          "bandwidth_hz": 8000.0,
           "waveform": "noise"
         },
         "use_as_reference": true

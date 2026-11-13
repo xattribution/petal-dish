@@ -27,6 +27,7 @@ from scipy import integrate, interpolate, optimize
 
 from petal_locate.config import (
     ConfigError,
+    EmitterModel,
     Region,
     SystemConfig,
     config_json_schema,
@@ -815,15 +816,33 @@ def assert_budget_matches(got: lb.PathBudget, want: dict[str, float]) -> None:
     assert float(got.cn0_total_dbhz) == pytest.approx(want["cn0_total_dbhz"], abs=1e-8)
 
 
+# A test emitter at the ref-guam location: 13 dBW from a 10 dBi beam (15 dB front-to-back)
+# aimed at muos-io, on ref-guam's frequency. It is the reference design shipped before the
+# references became omnidirectional, kept here because its beam exercises the emitter's
+# off-axis gain toward the other satellites, which an omni reference no longer does.
+BEAM_EMITTER: dict[str, Any] = {
+    "eirp_dbw": 13.0,
+    "antenna": {"type": "beam", "gain_dbi": 10.0, "hpbw_deg": 52.0, "front_to_back_db": 15.0},
+    "pointing": {"satellite_id": "muos-io"},
+    "bandwidth_hz": 5.0e3,
+    "waveform": "noise",
+}
+
+
+def beam_emitter() -> EmitterModel:
+    return EmitterModel.model_validate(BEAM_EMITTER)
+
+
 def guam(doc: dict[str, Any]) -> tuple[dict[str, Any], np.ndarray, tuple[float, float, float]]:
-    carrier = by_id(doc["carriers"], "ref-guam")
+    """ref-guam's carrier (location, frequency) with the test beam emitter in place of its own."""
+    carrier = dict(by_id(doc["carriers"], "ref-guam"), emitter=copy.deepcopy(BEAM_EMITTER))
     loc = carrier["location"]
     lla = (loc["lat_deg"], loc["lon_deg"], loc.get("alt_m", 0.0) + loc.get("antenna_height_m", 10.0))
     return carrier, ecef(*lla), lla
 
 
 def test_pacific_full_budget_by_hand_on_axis(pacific: SystemConfig, pacific_raw: dict[str, Any]) -> None:
-    """ref-guam (13 dBW, 10 dBi beam aimed at muos-io) -> muos-io shared-1 -> tokyo-io."""
+    """The test beam emitter at ref-guam (13 dBW, 10 dBi beam aimed at muos-io) -> muos-io shared-1 -> tokyo-io."""
     carrier, x_e, lla = guam(pacific_raw)
     f_e = carrier["uplink_center_hz"]
     want = hand_path_budget(pacific_raw, carrier["emitter"], x_e, lla, f_e, "muos-io", "shared-1", "tokyo-io", T_EVAL)
@@ -846,7 +865,7 @@ def test_pacific_full_budget_by_hand_on_axis(pacific: SystemConfig, pacific_raw:
     assert want["cn0_cascade_dbhz"] == pytest.approx(want["cn0_total_dbhz"], abs=1e-3)
 
     got = lb.path_budget(
-        pacific, pacific.carrier("ref-guam").emitter, f_e, pacific.carrier_xyz("ref-guam"), "muos-io", "shared-1", "tokyo-io", T_EVAL
+        pacific, beam_emitter(), f_e, pacific.carrier_xyz("ref-guam"), "muos-io", "shared-1", "tokyo-io", T_EVAL
     )
     assert got is not None
     assert_budget_matches(got, want)
@@ -869,7 +888,7 @@ def test_pacific_full_budget_by_hand_off_axis(pacific: SystemConfig, pacific_raw
     assert want is not None
     assert want["off_emitter_deg"] > 30.0  # the uplink really is off the emitter's boresight
     got = lb.path_budget(
-        pacific, pacific.carrier("ref-guam").emitter, f_e, pacific.carrier_xyz("ref-guam"), sat_id, "shared-1", channel_id, T_EVAL
+        pacific, beam_emitter(), f_e, pacific.carrier_xyz("ref-guam"), sat_id, "shared-1", channel_id, T_EVAL
     )
     assert got is not None
     assert_budget_matches(got, want)
@@ -887,7 +906,7 @@ def test_pacific_budget_with_power_robbing_by_hand(pacific: SystemConfig, pacifi
     assert want is not None and quiet is not None
     assert want["backoff_db"] < -2.0
     assert want["transponder_eirp_dbw"] == pytest.approx(quiet["transponder_eirp_dbw"] + want["backoff_db"], abs=1e-9)
-    emitter = pacific.carrier("ref-guam").emitter
+    emitter = beam_emitter()
     got = lb.path_budget(pacific, emitter, f_e, pacific.carrier_xyz("ref-guam"), "muos-io", "shared-1", "naha-io", T_EVAL, other_pfd_dbw_m2=others_db)
     assert got is not None
     assert_budget_matches(got, want)
@@ -898,7 +917,7 @@ def test_pacific_budget_with_power_robbing_by_hand(pacific: SystemConfig, pacifi
 
 def test_pacific_paths_that_do_not_exist(pacific: SystemConfig, pacific_raw: dict[str, Any]) -> None:
     carrier, x_e, lla = guam(pacific_raw)
-    emitter = pacific.carrier("ref-guam").emitter
+    emitter = beam_emitter()
     x = pacific.carrier_xyz("ref-guam")
     f_e = carrier["uplink_center_hz"]
     # centre frequency outside the 25 kHz uplink passband of shared-1 (301.000 MHz +/- 12.5 kHz)
@@ -1970,7 +1989,8 @@ def test_load_config_file_errors(tmp_path: Path) -> None:
 
 
 def test_pacific_worked_budget_in_decibels() -> None:
-    """ref-guam -> muos-io shared-1 -> tokyo-io at 2026-01-01T03:00:00Z, worked out once in decibels.
+    """The test beam emitter at ref-guam (BEAM_EMITTER) -> muos-io shared-1 -> tokyo-io at 2026-01-01T03:00:00Z,
+    worked out once in decibels.
 
     The numbers below came from a separate scratch derivation (Friis in dB, the geo orbit
     written with explicit trigonometry, no project code):
@@ -1987,7 +2007,7 @@ def test_pacific_worked_budget_in_decibels() -> None:
         C/N0               -154.0156 - 10 log10(10^-20.25794 + 10^-20.74529) = 47.3398 dBHz
     """
     cfg = load_config(CONFIG_DIR / "pacific-uhf.yaml")
-    got = lb.path_budget(cfg, cfg.carrier("ref-guam").emitter, 300.9925e6, cfg.carrier_xyz("ref-guam"), "muos-io", "shared-1", "tokyo-io", T_EVAL)
+    got = lb.path_budget(cfg, beam_emitter(), 300.9925e6, cfg.carrier_xyz("ref-guam"), "muos-io", "shared-1", "tokyo-io", T_EVAL)
     assert got is not None
     assert float(got.uplink.elevation_deg) == pytest.approx(11.046084, abs=1e-5)
     assert float(got.uplink.eirp_toward_sat_dbw) == pytest.approx(13.0, abs=1e-9)

@@ -1365,7 +1365,17 @@ def test_pacific_uhf_antenna_mix_includes_the_electrically_small_case(pacific: S
 
 
 def test_pacific_uhf_reference_carriers(pacific: SystemConfig) -> None:
-    from petal_locate.core.linkbudget import path_budget
+    """The references are designed to be relayed well by every satellite they calibrate.
+
+    A reference's own TDOA noise enters every calibrated row, so it must be small next to
+    the satellite-position error calibration removes (MATH.md section 9). An omni antenna
+    gives every satellite above the horizon the full EIRP (a beam aimed at one satellite
+    gave the others 15 dB less and 2 to 4 microseconds of reference noise). Checked here
+    with the link budget and the Stein bound of MATH.md section 8 in the weakest channel
+    of each satellite: under 0.3 microseconds for every pair of satellites.
+    """
+    from petal_locate.core.crlb import stein_sigmas
+    from petal_locate.core.linkbudget import path_budget, transponder_outputs
 
     references = pacific.reference_carriers()
     assert [c.id for c in references] == ["ref-guam", "ref-sapporo"] and len(pacific.carriers) == 2
@@ -1374,38 +1384,40 @@ def test_pacific_uhf_reference_carriers(pacific: SystemConfig) -> None:
     for carrier in references:
         assert (carrier.location.lat_deg, carrier.location.lon_deg) == places[carrier.id]
         emitter = carrier.emitter
-        assert emitter.antenna.type == "beam" and emitter.antenna.gain_dbi <= 12.0  # a modest beam antenna
-        assert emitter.pointing.satellite_id == carrier.satellite_id  # aimed at its assigned satellite
-        assert emitter.bandwidth_hz <= carrier.bandwidth_hz and emitter.eirp_dbw <= 13.0  # 2 W into 10 dBi
+        assert emitter.antenna.type == "isotropic" and emitter.pointing == "omni"  # seen equally by every satellite
+        assert emitter.bandwidth_hz == carrier.bandwidth_hz == 8.0e3 and emitter.eirp_dbw == 20.0  # 100 W into an omni
         xyz = pacific.carrier_xyz(carrier.id)
-        assert geo_elevations(pacific, carrier.satellite_id, xyz, DAY).min() > 5.0
         # it sits in a channel that all three satellites relay, so any pair can be calibrated
         covering = pacific.transponders_covering(carrier.uplink_lo_hz, carrier.uplink_hi_hz)
         assert [sat.id for sat, _ in covering] == ["muos-pac", "uhf-172e", "muos-io"]
         assert all(t.uplink_lo_hz <= carrier.uplink_lo_hz and carrier.uplink_hi_hz <= t.uplink_hi_hz for _, t in covering)
+        # parked at the low edge of its channel, leaving the upper two thirds to users
+        assert carrier.uplink_hi_hz <= covering[0][1].uplink_center_hz - 3.0e3
         used.add(carrier.transponder_id)
-        # usable: clearly above the noise where its assigned satellite is watched, not saturating it,
-        # and correlating well between ANY two satellites even in their weakest channels
         worst_snr: dict[str, float] = {}
         for satellite, transponder in covering:
+            # every satellite is above this site's horizon all day (muos-io is the lowest: 5 to 12 deg from Sapporo)
+            assert geo_elevations(pacific, satellite.id, xyz, DAY).min() > 4.0, (carrier.id, satellite.id)
             for site, channel in pacific.channels_watching(satellite.id):
                 budget = path_budget(pacific, emitter, carrier.uplink_center_hz, xyz, satellite.id,
                                      transponder.id, channel.id, T0)  # fmt: skip
                 assert budget is not None
+                assert budget.uplink.eirp_toward_sat_dbw == pytest.approx(emitter.eirp_dbw, abs=1e-9)
+                # alone it leaves the transponder well below saturation (room for users and interferers)
+                backoff = transponder_outputs([float(budget.uplink.pfd_dbw_m2)], transponder).backoff_db
+                assert 6.0 < backoff < 7.5, (carrier.id, satellite.id, backoff)
                 snr = float(budget.snr_db(emitter.bandwidth_hz))
+                assert 11.0 < snr < 18.0, (carrier.id, channel.id, snr)  # clearly visible, like the demo jammer
                 worst_snr[satellite.id] = min(worst_snr.get(satellite.id, math.inf), snr)
-                assert budget.transponder_eirp_dbw < 26.0 - 10.0
-                if satellite.id == carrier.satellite_id:
-                    assert snr > 3.0, (carrier.id, channel.id)
-                    assert budget.uplink.eirp_toward_sat_dbw == pytest.approx(emitter.eirp_dbw, abs=1e-9)
-                else:  # through the side or back of the beam
-                    assert emitter.eirp_dbw - 15.0 - 1e-9 <= budget.uplink.eirp_toward_sat_dbw < emitter.eirp_dbw
         integration = pacific.processing.capture.duration_s
+        bandwidth = emitter.bandwidth_hz
         for sat_a, sat_b in (("muos-pac", "uhf-172e"), ("muos-pac", "muos-io"), ("uhf-172e", "muos-io")):
             g1, g2 = 10.0 ** (worst_snr[sat_a] / 10.0), 10.0 ** (worst_snr[sat_b] / 10.0)
             coherence = g1 * g2 / ((1.0 + g1) * (1.0 + g2))  # MATH section 8
-            rho_db = 10.0 * math.log10(emitter.bandwidth_hz * integration * coherence)
-            assert rho_db > pacific.processing.caf.min_snr_db + 6.0, (carrier.id, sat_a, sat_b, rho_db)
+            rho_db = 10.0 * math.log10(bandwidth * integration * coherence)
+            assert rho_db > pacific.processing.caf.min_snr_db + 20.0, (carrier.id, sat_a, sat_b, rho_db)
+            sigma_tdoa, _ = stein_sigmas(bandwidth, bandwidth / math.sqrt(12.0), integration, g1, g2)
+            assert sigma_tdoa < 0.3e-6, (carrier.id, sat_a, sat_b, sigma_tdoa)
     assert used == {"shared-1", "shared-2"}  # one reference in each shared channel
 
 
@@ -1465,3 +1477,41 @@ def test_leo_example_matches_its_description(leo: SystemConfig) -> None:
         assert elevation.max() > 50.0
     late = [note["loc"] for note in leo.warnings(T0 + 3600.0)]
     assert late == ["sites.0.channels.0.pointing"] * 2  # long gone an hour later
+
+
+# --------------------------------------------------------------------------- site time zone
+
+
+def test_site_time_zone_is_optional_checked_and_round_trips() -> None:
+    """``Site.time_zone`` (display only) takes IANA names from the tz database, is left
+    out of exports when unset, and survives YAML and JSON round trips."""
+    import zoneinfo
+    from datetime import datetime, timezone
+
+    from petal_locate.config import config_json_schema
+
+    plain = SystemConfig.model_validate(base())
+    assert all(site.time_zone is None for site in plain.sites)
+    assert all("time_zone" not in site for site in plain.export_dict()["sites"])
+
+    data = base()
+    data["sites"][0]["time_zone"] = "Asia/Tokyo"
+    data["sites"][1]["time_zone"] = "UTC"
+    model = SystemConfig.model_validate(data)
+    assert [s.time_zone for s in model.sites[:2]] == ["Asia/Tokyo", "UTC"]
+    assert loads_config(dump_config(model)) == model
+    assert loads_config(json.dumps(model.export_dict()), fmt="json") == model
+    # What the accepted name means, independently: Tokyo is nine hours east of UTC.
+    offset = datetime(2026, 11, 13, tzinfo=timezone.utc).astimezone(zoneinfo.ZoneInfo("Asia/Tokyo")).utcoffset()
+    assert offset is not None and offset.total_seconds() == 9 * 3600
+
+    for bad, fragment in (("Mars/Olympus_Mons", "unknown IANA time zone"), ("Asia/Tokyo/../x", "IANA time zone name"),
+                          ("", "IANA time zone name"), ("Asia Tokyo", "IANA time zone name"), (9, "string")):
+        data["sites"][0]["time_zone"] = bad
+        with pytest.raises(ValidationError) as excinfo:
+            SystemConfig.model_validate(data)
+        problems = field_errors(excinfo.value)
+        assert [p["loc"] for p in problems] == ["sites.0.time_zone"], problems
+        assert fragment in problems[0]["msg"], problems
+    schema = config_json_schema()
+    assert "time_zone" in json.dumps(schema["$defs"]["Site"])

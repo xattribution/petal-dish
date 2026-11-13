@@ -1,6 +1,6 @@
 // Planning: who sees which satellite (look angles, footprints) and how well an emitter
 // anywhere in the region would be located (accuracy map, MATH.md section 10).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ValidationError } from '../api/client';
 import type { AccuracyGrid, AccuracyRequest, LookAngle, SystemConfig } from '../api/types.gen';
 import { Empty, ErrorNote, Info, Loading, StatusSymbol } from '../components/common';
@@ -202,6 +202,7 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
     step: '3',
   });
   const [grid, setGrid] = useState<AccuracyGrid | null>(null);
+  const [gridWhatIf, setGridWhatIf] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
@@ -210,6 +211,22 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
   const [layers, setLayers] = useLayers('plan-acc', { sites: true, satellites: true, accuracy: true });
   const subs = subpointsResource.use();
   const u = cfg.processing?.uncertainty;
+  // what-if uncertainty for this map only (AccuracyRequest.uncertainty); starts from the configured values
+  const configuredU = useMemo(
+    () => ({
+      op: (u?.ephemeris?.operator?.pos_m ?? [100, 1000, 1000]).map(String),
+      tle: (u?.ephemeris?.tle?.pos_m ?? [2000, 20000, 10000]).map(String),
+      satOsc: String(u?.sat_osc_frac ?? 1e-6),
+      siteOsc: String(u?.site_osc_frac ?? 1e-11),
+      bias: String(u?.tdoa_bias_ns ?? 50),
+    }),
+    [u],
+  );
+  const [whatIf, setWhatIf] = useState(false);
+  const [wu, setWu] = useState(configuredU);
+  useEffect(() => {
+    if (!whatIf) setWu(configuredU);
+  }, [configuredU, whatIf]);
 
   const feHz = parseMhzToHz(form.feMhz);
   const relaying = feHz ? transpondersRelaying(cfg, feHz) : [];
@@ -225,8 +242,21 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
     if (!form.tdoa && !form.fdoa) errs.kinds = 'Choose TDOA, FDOA or both.';
     const bw = Number(form.bwKhz) * 1000;
     if (form.waveform !== 'cw' && !(bw > 0)) errs['emitter.bandwidth_hz'] = 'A bandwidth above 0 kHz is needed unless the waveform is a carrier (cw).';
+    const num = (t: string) => (t.trim() === '' ? NaN : Number(t));
+    if (whatIf && [...wu.op, ...wu.tle, wu.satOsc, wu.siteOsc, wu.bias].some((t) => !(num(t) >= 0))) errs.uncertainty = 'Every uncertainty must be a number of 0 or more.';
     setFieldErr(errs);
     if (Object.keys(errs).length) return;
+    const uncertainty = whatIf
+      ? {
+          ephemeris: {
+            operator: { pos_m: wu.op.map(num), vel_mps: u?.ephemeris?.operator?.vel_mps ?? [0.02, 0.02, 0.05] },
+            tle: { pos_m: wu.tle.map(num), vel_mps: u?.ephemeris?.tle?.vel_mps ?? [0.3, 0.3, 0.7] },
+          },
+          sat_osc_frac: num(wu.satOsc),
+          site_osc_frac: num(wu.siteOsc),
+          tdoa_bias_ns: num(wu.bias),
+        }
+      : null;
     const req: AccuracyRequest = {
       pairs: form.pairs,
       emitter: { eirp_dbw: Number(form.eirp), bandwidth_hz: form.waveform === 'cw' ? 0 : bw, waveform: form.waveform },
@@ -235,11 +265,13 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
       kinds: [...(form.tdoa ? (['tdoa'] as const) : []), ...(form.fdoa ? (['fdoa'] as const) : [])],
       reference_carrier_id: form.reference || null,
       integration_s: form.integration ? Number(form.integration) : null,
+      uncertainty,
     };
     setBusy(true);
     setError(null);
     try {
       setGrid(await api.accuracy(req));
+      setGridWhatIf(uncertainty !== null);
     } catch (e) {
       if (e instanceof ValidationError) {
         const fe: Record<string, string> = {};
@@ -395,22 +427,77 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
         <div className="region">
           <h2>
             Uncertainty assumed{' '}
-            <Info label="uncertainty assumptions">The prediction uses the configured one-sigma systematic errors. Change them under Configure, Processing, Uncertainty.</Info>
+            <Info label="uncertainty assumptions">
+              One-sigma systematic errors the prediction assumes. By default the configured values (Configure, Processing, Uncertainty); a what-if changes them for this map
+              only. Satellites with their own ephemeris sigma and the site clocks keep their configured values.
+            </Info>
           </h2>
-          <dl className="facts">
-            <dt>Ephemeris, operator</dt>
-            <dd className="mono">{(u?.ephemeris?.operator?.pos_m ?? [100, 1000, 1000]).join(' / ')} m RIC</dd>
-            <dt>Ephemeris, TLE</dt>
-            <dd className="mono">{(u?.ephemeris?.tle?.pos_m ?? [2000, 20000, 10000]).join(' / ')} m RIC</dd>
-            <dt>Satellite oscillator</dt>
-            <dd className="mono">{u?.sat_osc_frac ?? 1e-6}</dd>
-            <dt>Site oscillator</dt>
-            <dd className="mono">{u?.site_osc_frac ?? 1e-11}</dd>
-            <dt>TDOA bias</dt>
-            <dd className="mono">{u?.tdoa_bias_ns ?? 50} ns</dd>
-          </dl>
+          <label style={{ display: 'block', marginBottom: 6 }}>
+            <input type="checkbox" checked={whatIf} onChange={(e) => setWhatIf(e.target.checked)} /> What-if: change them for this map only
+          </label>
+          {whatIf ? (
+            <div className="whatif">
+              {(
+                [
+                  ['op', 'Ephemeris, operator', 'm R / I / C'],
+                  ['tle', 'Ephemeris, TLE', 'm R / I / C'],
+                ] as const
+              ).map(([key, label, unit]) => (
+                <div className="field" key={key}>
+                  <span className="label">
+                    {label} <span className="unit">{unit}</span>
+                  </span>
+                  <span className="vec3">
+                    {wu[key].map((v, k) => (
+                      <input
+                        key={k}
+                        className="mono"
+                        inputMode="decimal"
+                        aria-label={`${label}, ${['radial', 'in-track', 'cross-track'][k]}, m`}
+                        value={v}
+                        onChange={(e) => setWu((w) => ({ ...w, [key]: w[key].map((x, j) => (j === k ? e.target.value : x)) }))}
+                      />
+                    ))}
+                  </span>
+                </div>
+              ))}
+              <div className="fieldrow">
+                {(
+                  [
+                    ['satOsc', 'Satellite oscillator', 'fraction'],
+                    ['siteOsc', 'Site oscillator', 'fraction'],
+                    ['bias', 'TDOA bias', 'ns'],
+                  ] as const
+                ).map(([key, label, unit]) => (
+                  <div className="field" key={key}>
+                    <label htmlFor={`acc-u-${key}`}>
+                      {label} <span className="unit">{unit}</span>
+                    </label>
+                    <input id={`acc-u-${key}`} className="mono" inputMode="decimal" value={wu[key]} onChange={(e) => setWu((w) => ({ ...w, [key]: e.target.value }))} />
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="btn small" onClick={() => setWu(configuredU)}>
+                Back to the configured values
+              </button>
+              {fieldErr.uncertainty ? <span className="err">{fieldErr.uncertainty}</span> : null}
+            </div>
+          ) : (
+            <dl className="facts">
+              <dt>Ephemeris, operator</dt>
+              <dd className="mono">{configuredU.op.join(' / ')} m RIC</dd>
+              <dt>Ephemeris, TLE</dt>
+              <dd className="mono">{configuredU.tle.join(' / ')} m RIC</dd>
+              <dt>Satellite oscillator</dt>
+              <dd className="mono">{configuredU.satOsc}</dd>
+              <dt>Site oscillator</dt>
+              <dd className="mono">{configuredU.siteOsc}</dd>
+              <dt>TDOA bias</dt>
+              <dd className="mono">{configuredU.bias} ns</dd>
+            </dl>
+          )}
           <p style={{ marginTop: 6 }}>
-            <a href={href('configure', 'processing')}>Edit in Configure</a>
+            <a href={href('configure', 'processing')}>Edit the configured values in Configure</a>
           </p>
         </div>
         <div className="region" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -423,6 +510,7 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
         {grid && stats ? (
           <div className="region" aria-live="polite">
             <h2>Result</h2>
+            {gridWhatIf ? <p className="notice">Computed with the what-if uncertainty above, not the configured values.</p> : null}
             {stats.n === 0 ? (
               <p>
                 No cell can be located with these assumptions. One TDOA alone gives a line, not a position: add a pair through a third satellite, use FDOA, or a reference

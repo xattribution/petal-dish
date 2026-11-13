@@ -141,12 +141,13 @@ def hand_rows(cfg: SystemConfig, em: EmitterModel, lat: float, lon: float, ref_i
                 ma, mb = PathSpec(sat_b, site_a, f_ref, tr_b), PathSpec(sat_a, site_b, f_ref, tr_a)
                 mt, mf = predict_pair(x_ref, ma, mb, t_s, orbits, sites)
                 ref_mirror = search_windows(((float(mt), float(mt)), (float(mf), float(mf))), ma, mb, caf_cfg, unc)
-            b_ref, t_ref = caf_band_and_time(fs, n, 5e3, float(pt), (*ref_win, ref_mirror))
+            w_ref = float(carrier.emitter.bandwidth_hz)  # 8 kHz; the reference capture rule still gives 20 kHz, 1 s
+            b_ref, t_ref = caf_band_and_time(fs, n, w_ref, float(pt), (*ref_win, ref_mirror))
             cn0 = [float(path_budget(cfg, carrier.emitter, f_ref, x_ref, s, "shared-1", ch, t_s).cn0_total_dbhz)
                    for s, ch in ((sat_a, ch_a), (sat_b, ch_b))]
             g1, g2 = (10 ** ((c - 10 * math.log10(b_ref)) / 10) for c in cn0)
             assert 10 * math.log10(post_correlation_snr(b_ref, t_ref, g1, g2)) >= caf_cfg.min_snr_db
-            rms_ref = waveform_from_spec({"type": "noise", "bandwidth_hz": 5e3}, "x").rms_bandwidth_hz
+            rms_ref = waveform_from_spec({"type": "noise", "bandwidth_hz": w_ref}, "x").rms_bandwidth_hz
             s_t, s_f = stein_sigmas(b_ref, rms_ref, t_ref, g1, g2)
             cal = {kind: CalRef(f"{ref_id}|{k}|{kind}", x_ref, ra, rb, T0, sig)
                    for kind, sig in (("tdoa", s_t), ("fdoa", s_f))}
@@ -296,17 +297,22 @@ def ephemeris_dominated(cfg: SystemConfig, reference_eirp_dbw: float) -> SystemC
 
 @pytest.fixture(scope="module")
 def ephemeris_cfg(cfg: SystemConfig) -> SystemConfig:
-    return ephemeris_dominated(cfg, 13.0)  # the configured reference
+    return ephemeris_dominated(cfg, 20.0)  # the configured reference
 
 
-@pytest.mark.parametrize("reference_eirp_dbw, ratio, dominant", [(13.0, 0.9, "reference"), (33.0, 0.2, "noise")])
+@pytest.mark.parametrize("reference_eirp_dbw, ratio, dominant", [
+    (13.0, 0.3, {"reference"}),  # a weaker omni: its own noise is what is left
+    (20.0, 0.2, {"reference", "noise", "ephemeris_position"}),  # as configured: a mix of what is left
+    (30.0, 0.2, {"noise"}),  # 10 dB stronger: the target's own noise is what is left
+])
 def test_reference_shrinks_the_ellipse_when_ephemeris_dominates(cfg: SystemConfig, jammer: EmitterModel,
                                                                reference_eirp_dbw: float, ratio: float,
-                                                               dominant: str) -> None:
+                                                               dominant: set[str]) -> None:
     """Near the Guam reference the common ephemeris error cancels (MATH.md section 9): the
-    ellipse shrinks and the dominant source moves from the ephemeris to what is left,
-    the reference measurement's own noise (the configured 13 dBW carrier) or the target's
-    noise (a reference 20 dB stronger)."""
+    ellipse shrinks and the dominant source moves from the ephemeris to what is left: the
+    reference measurement's own noise (a 13 dBW omni), the target's noise (30 dBW), or a
+    mix of those and the uncancelled ephemeris residual far from Guam (the configured
+    20 dBW). Measured ratios of calibrated to plain semi-major: at most 0.23, 0.15, 0.15."""
     config = ephemeris_dominated(cfg, reference_eirp_dbw)
     region = Region(lat_min=8.0, lat_max=20.0, lon_min=138.0, lon_max=150.0)
     plain = accuracy_map(config, PAIRS, jammer, F_J, T0, region, 3.0)
@@ -314,7 +320,7 @@ def test_reference_shrinks_the_ellipse_when_ephemeris_dominates(cfg: SystemConfi
     s_plain, s_cal = grid(plain, "semi_major_95_m"), grid(cal, "semi_major_95_m")
     assert np.all(np.isfinite(s_plain)) and np.all(np.isfinite(s_cal))
     assert set(np.array(plain["dominant"], dtype=object).ravel().tolist()) == {"ephemeris_position"}
-    assert set(np.array(cal["dominant"], dtype=object).ravel().tolist()) == {dominant}
+    assert set(np.array(cal["dominant"], dtype=object).ravel().tolist()) <= dominant
     assert np.all(s_cal < ratio * s_plain)
     assert [p["calibrated"] for p in cal["pairs"]] == [["tdoa", "fdoa"], ["tdoa", "fdoa"]]
 

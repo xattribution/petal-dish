@@ -1,0 +1,64 @@
+# SIMULATED scenario for config/pacific-uhf.yaml. The position is a fictional open-ocean
+# point in the Philippine Sea, west of the Mariana Islands; nothing here describes a real
+# emitter, platform, facility or satellite ephemeris.
+#
+# What it shows: two satellites are where a TLE-grade ephemeris would put them, kilometres
+# off in-track, while the server keeps assuming the operator-grade sigmas of
+# processing.uncertainty (100 m radial, 1 km in-track and cross-track). The uncalibrated
+# fix then moves tens of kilometres, outside its own ellipse, with no warning from the
+# fit. A reference carrier measured through the same pair at the same time carries
+# almost the same satellite errors and removes them: calibration works best close to the
+# reference, which is why the jammer sits 560 km from the Guam reference. Numbers in the
+# description come from the server's chain (tests/test_sim_verify.py) at eight epochs
+# through 2026-01-01 and from the live demo.
+name: ephemeris-error
+seed: 1
+description: >-
+  Simulated scenario (not real data): the same uplink noise jammer as pacific-demo (10 kHz
+  of noise at 301.005 MHz in shared-1, 20 dBW, omnidirectional) at a fictional open-ocean
+  point in the Philippine Sea (17 N, 141 E), 560 km from the Guam reference carrier, while
+  two satellites are kilometres from where the server believes them: MUOS Pacific 8 km
+  ahead in-track and the 172 E satellite 6 km behind (TLE-class errors, against the 1 km
+  operator-grade sigma the solver assumes). Oscillator and clock errors are the small ones
+  of pacific-demo. The operator should see the event detected on all 19 channels (52 to
+  56 dB-Hz) and judged uplink as in pacific-demo. Without calibration the fix lands 12 to
+  37 km from the truth, outside its own 95 % ellipse (4.4 to 11 km by 0.6 km; NEES 42 to
+  74), and the fit gives no warning (reduced chi-square 0.14); near 12 UTC the two TDOA
+  hyperbolas cross twice and the nearer candidate is 130 km off, and near 21 UTC the
+  geometry degenerates (an ellipse thousands of kilometres long) and the fix is 300 km
+  off. Calibrated against the Guam reference, which the server does by default, the
+  satellite errors cancel: the fix is 30 to 300 m from the truth inside a 95 % ellipse of
+  280 to 580 m by 90 m (at one of eight epochs just outside it, NEES 6.5, inside the 99 %
+  ellipse). As rounds accumulate the noise averages down but the uncancelled part of the
+  8 km and 6 km errors does not (the solver budgets for 1 km), so after a couple of
+  minutes the ellipse has shrunk by about half and the truth sits at its edge at some
+  times of day (noise-free, 24 rounds: 200 m off, NEES up to 6). Calibration removes what
+  the jammer and the reference have in common, so it
+  helps less with distance: with the same errors at the pacific-demo position, 1,500 km
+  from Guam, the calibrated fix is 60 to 880 m off and outside its ellipse at four of
+  eight epochs, though the fit then flags it (reduced chi-square 4 to 15). Every number is
+  from the simulator with illustrative link parameters.
+emitters:
+  - id: jammer-philsea
+    name: Uplink noise jammer (simulated, open ocean)
+    kind: jammer
+    lat_deg: 17.0
+    lon_deg: 141.0
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    freq_hz: 301.005e+6
+    eirp_dbw: 20.0
+    antenna: {type: isotropic}
+    pointing: omni
+    waveform: {type: noise, bandwidth_hz: 10.0e+3, seed: 0}
+errors:
+  ephemeris:
+    # TLE-class in-track errors on two satellites (RIC metres), constant over the capture
+    muos-pac: {ric_pos_m: [300.0, 8000.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    uhf-172e: {ric_pos_m: [-200.0, -6000.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    # the third satellite as in pacific-demo (inside the operator-grade sigmas)
+    muos-io: {ric_pos_m: [80.0, 900.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}
+  site_clock_offset_ns: {tokyo: 40.0}
+  site_osc_frac: {honolulu: 5.0e-12, manila: -8.0e-12}
+  iono: {enabled: false, vtec_tecu: 30.0}

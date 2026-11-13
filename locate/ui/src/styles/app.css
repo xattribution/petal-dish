@@ -106,6 +106,10 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--ink); width: 1
 .field .err { color: var(--error-text); font-size: 12px; }
 .field .hint { color: var(--ink-3); font-size: 12px; }
 .fieldrow { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; }
+.vec3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.vec3 input { min-width: 0; }
+.whatif { display: grid; gap: 8px; }
+.whatif > .btn { justify-self: start; }
 
 .info {
   inline-size: 15px; block-size: 15px; padding: 0; border: 1px solid currentColor; border-radius: 50%; /* ledger: the (i) help control is round by convention */
@@ -173,6 +177,13 @@ table.grid.compact th, table.grid.compact td { padding-left: 6px; padding-right:
 dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; }
 dl.facts dt { color: var(--ink-2); }
 dl.facts dd { margin: 0; }
+dl.whykey { margin: 8px 0 0; display: grid; gap: 2px; font-size: 13px; }
+dl.whykey > div { display: flex; gap: 8px; flex-wrap: wrap; }
+dl.whykey dt { font-weight: 700; }
+dl.whykey dt::before { content: 'no: '; font-weight: 400; color: var(--ink-2); }
+dl.whykey dd { margin: 0; color: var(--ink-2); }
+table.meas { font-size: 12px; }
+table.meas td:last-child { white-space: normal; min-width: 80px; max-width: 150px; line-height: 1.2; }
 .notice { padding: 8px 12px; border-left: 3px solid var(--rule-strong); /* ledger: the bar takes the status color of the notice (caution, serious, critical) */ background: var(--surface-2); margin: 8px 0; }
 .notice.caution { border-left-color: var(--st-caution); }
 .notice.serious { border-left-color: var(--st-serious); }

@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from petal_locate.config.models import EmitterModel, Region, SystemConfig
+from petal_locate.config.models import EmitterModel, Region, SystemConfig, UncertaintyConfig
 from petal_locate.protocol.messages import ClockStatus, ConsoleTimeNs
 from petal_locate.sim.scenario import Scenario
 
@@ -33,6 +33,8 @@ __all__ = [
     "AccuracyGrid",
     "AccuracyRequest",
     "Advisory",
+    "AmbiguitySummary",
+    "CafCandidate",
     "CafCut",
     "CafDisplay",
     "ChannelRef",
@@ -283,8 +285,21 @@ class SolutionOut(_Out):
     n_measurements: int
 
 
+class AmbiguitySummary(_Out):
+    """Another position that fits the measurements as well as the fix (an unresolved
+    ambiguity, for example the mirror across the equator), with its 95 % ellipse."""
+
+    lat_deg: float
+    lon_deg: float
+    semi_major_m: float
+    semi_minor_m: float
+    azimuth_deg: float
+
+
 class SolutionSummary(_Out):
-    """Enough of a solution to draw it on the map and list it."""
+    """Enough of a solution to draw it on the map and list it. ``ambiguous``: the
+    ambiguity is unresolved; ``ambiguities`` then lists every other position that fits
+    as well (``SolutionOut.ambiguities``), so a map can draw all of them."""
 
     lat_deg: float
     lon_deg: float
@@ -293,6 +308,7 @@ class SolutionSummary(_Out):
     azimuth_deg: float
     cep50_m: float
     ambiguous: bool
+    ambiguities: list[AmbiguitySummary] = Field(default_factory=list)
 
 
 class SolutionHistoryRow(_Out):
@@ -331,7 +347,10 @@ class EvidenceRow(_Out):
     predicted_margin_db: how far above this channel's detection threshold the signal
     is expected to be, given the strongest sighting (null when it cannot be
     predicted). Negative means the channel could not see it.
-    last_seen_ns: newest frame in which this channel's detection was above threshold.
+    last_seen_ns: newest frame in which this channel's detection of the event was above
+    threshold, also after the detection ended (for ``stale`` and ``not_seen_capable``
+    rows it says how old the channel's last sighting is); null when the channel never
+    saw it.
     monitor_id: the monitor window of the channel that covers the event.
     downlink_lo_hz, downlink_hi_hz: where the channel sees the signal (its detection,
     when seen) or would see it (the event's range through ``sat_id``), Hz.
@@ -400,12 +419,24 @@ class CafCut(_Out):
     db: list[float]
 
 
+class CafCandidate(_Out):
+    """One distinct correlation peak: delay (s; null when meaningless, as on the
+    Doppler ridge of a CW carrier), Doppler (Hz) and post-correlation SNR (dB)."""
+
+    tdoa_s: float | None
+    fdoa_hz: float
+    snr_db: float
+
+
 class CafDisplay(_Out):
     """The latest correlation surface of an event, for display.
 
     surface: dB relative to the noise floor, ``surface[i][j]`` at ``delay_axis_s[i]``,
     ``doppler_axis_hz[j]`` (at most 65 x 65). peak_tdoa_s / peak_fdoa_hz: the
-    measured peak (null when not detected).
+    measured peak (null when not detected). candidates: the distinct peaks the
+    correlator found, strongest first (up to 8; ``core.caf.CafResult.candidates``):
+    several of almost equal height make the result ``ambiguous``, and they may lie
+    outside the displayed patch.
     """
 
     t_ns: ConsoleTimeNs
@@ -420,6 +451,7 @@ class CafDisplay(_Out):
     snr_db: float
     detected: bool
     reason: str | None
+    candidates: list[CafCandidate] = Field(default_factory=list)
 
 
 class EventTransponder(_Out):
@@ -637,7 +669,9 @@ class AccuracyRequest(_Out):
     repeated request is answered from the server's cache), ``region`` to the configured
     region. ``kinds`` chooses the measurement types assumed. ``reference_carrier_id``
     assumes calibration against that reference carrier. ``integration_s`` defaults to
-    the configured capture.
+    the configured capture. ``uncertainty`` replaces ``processing.uncertainty`` for this
+    map only (what-if planning; the configuration is not changed): satellites with their
+    own ``ephemeris_sigma`` keep it, and site clocks keep ``Site.clock.sigma_ns``.
 
     The server refuses (422) a grid of more than 20 000 cells (choose a coarser
     ``step_deg`` or a smaller ``region``) and gives up (504) after 120 s."""
@@ -651,6 +685,7 @@ class AccuracyRequest(_Out):
     kinds: list[Literal["tdoa", "fdoa"]] = Field(default_factory=lambda: ["tdoa", "fdoa"], min_length=1)
     reference_carrier_id: str | None = None
     integration_s: float | None = Field(default=None, gt=0)
+    uncertainty: UncertaintyConfig | None = None
 
 
 class AccuracyGrid(_Out):

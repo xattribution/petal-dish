@@ -11,9 +11,11 @@ description: >-
   54 dB-Hz on every channel), each with an uplink verdict, its own correlations far above
   threshold (about 40 and 39 dB post-correlation SNR) and its own located position near
   the true one, without the two being merged: calibrated (jammer A against the Guam
-  reference, jammer B against the Sapporo reference, which is stronger on these pairs)
-  the fixes land a few hundred metres to about 1.5 km from the truth inside their 95 %
-  ellipses. Truth errors are the small ones of pacific-demo.
+  reference in shared-1, jammer B against the Sapporo reference in shared-2) a single
+  round's fixes land 40 to 500 m (A) and 60 to 160 m (B) from the truth inside their 95 %
+  ellipses (0.4 to 0.6 km and 0.6 to 1.1 km long, 0.1 km wide). Without calibration they
+  are about 1 km off, or an unresolved two-candidate ambiguity at some times of day.
+  Truth errors are the small ones of pacific-demo.
 emitters:
   - id: jammer-a
     name: Uplink noise jammer A (simulated, open ocean)

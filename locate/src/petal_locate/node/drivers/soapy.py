@@ -396,7 +396,7 @@ def _load_soapy() -> Any:
         raise CaptureError(
             "driver",
             "the SoapySDR Python bindings are not installed (system package "
-            "python3-soapysdr, or the 'sdr' extra of petal-locate); the soapy driver "
+            "python3-soapysdr, or SoapySDR built from source; they are not on PyPI); the soapy driver "
             f"cannot open ({exc})",
         ) from exc
     return SoapySDR

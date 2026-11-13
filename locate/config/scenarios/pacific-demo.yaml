@@ -7,24 +7,25 @@ description: >-
   point in the Philippine Sea (20 N, 132 E) radiates 10 kHz of noise at 301.005 MHz,
   inside the shared-1 channel that all three satellites relay, 20 dBW from an
   omnidirectional antenna. The two reference carriers of the configuration (Guam and
-  Sapporo) radiate as configured. The operator should see a strong new signal on every
-  channel's shared-1 window (52 to 56 dB-Hz, 12 to 16 dB above the floor in its 10 kHz),
-  an uplink verdict within seconds, cross-satellite correlations far above threshold
-  (about 40 dB post-correlation SNR in a 1 s capture for every satellite pair, against
-  a 13 dB threshold) and a located event near 20 N 132 E. The transponders stay about
-  6 dB below saturation. Small truth errors are applied (satellite positions off by up
-  to a kilometre, inside the configured operator sigmas; translation oscillators off
-  by 2.5e-7 to 4e-7, 10 to 16 Hz of FDOA; the Tokyo clock 40 ns late). Calibrated
-  against the Guam reference carrier, which the server does by default, the fix lands
-  1 to 2.5 km from the truth inside a 95 % ellipse of about 2.5 to 4 km by 0.8 km:
-  calibration removes the satellite and oscillator errors, but the reference carrier's
-  own measurement noise then dominates (it reaches MUOS Pacific and 172 E through the
-  back of its antenna, 26 to 32 dB post-correlation SNR, 2 to 4 microseconds of TDOA
-  noise), so the fix does not get sharper than about a kilometre. Without calibration
-  the fix is typically 0.5 to 2.5 km off inside a long ellipse (5 to 11 km by 0.6 km);
-  at some times of day the two TDOA hyperbolas cross twice inside the region, the
-  uncalibrated FDOA (dominated by the oscillator offsets) cannot tell the crossings
-  apart, and the system shows both as an unresolved ambiguity.
+  Sapporo, 8 kHz each, 20 dBW from omnidirectional antennas) radiate as configured. The
+  operator should see a strong new signal on every channel's shared-1 window (52 to
+  56 dB-Hz, 12 to 16 dB above the floor in its 10 kHz), an uplink verdict within seconds,
+  cross-satellite correlations far above threshold (about 40 dB post-correlation SNR in a
+  1 s capture for every satellite pair, against a 13 dB threshold) and a located event near
+  20 N 132 E. The shared-1 transponders run about 3.5 dB below saturation (the jammer and
+  the Guam reference together). Small truth errors are applied (satellite positions off by
+  up to a kilometre, inside the configured operator sigmas; translation oscillators off by
+  2.5e-7 to 4e-7, 10 to 16 Hz of FDOA; the Tokyo clock 40 ns late). Calibrated against the
+  Guam reference carrier, which the server does by default, a single round's fix lands 70
+  to 190 m from the truth inside a 95 % ellipse of 0.4 to 0.6 km by 0.1 km: the reference
+  reaches every satellite through its omnidirectional antenna (about 39 dB
+  post-correlation SNR, 0.11 to 0.16 microseconds of TDOA noise), so calibration removes
+  the satellite and oscillator errors without adding much of its own. Without calibration
+  the fix is 0.6 to 2.6 km off inside a long ellipse (4.6 to 11 km by 0.6 km), and at some
+  times of day (near 09 and 21 UTC) the two TDOA hyperbolas cross twice inside the region,
+  the uncalibrated FDOA (dominated by the oscillator offsets) cannot tell the crossings
+  apart, and the system shows both as an unresolved ambiguity (near 21 UTC the first
+  candidate is 1,300 km away and the second 3 km from the truth).
 emitters:
   - id: jammer-philsea
     name: Uplink noise jammer (simulated, open ocean)

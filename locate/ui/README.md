@@ -21,6 +21,10 @@ npm run gen:fixtures        # mock/fixtures/*.json from the numeric core (minute
 npm run preview:mock        # the built bundle + mock API on http://127.0.0.1:4173 (no Vite)
 ```
 
+The Python suite runs the same walk against a live `petal-locate demo`
+(`tests/e2e/test_console.py`, marked slow, about a minute; skipped with the reason when
+Node, these dependencies, the Playwright browser or the build are missing).
+
 Smoke-test options: `PETAL_TOKEN` (API token of the server), `PETAL_SHOTS` (screenshot
 directory, default `test-results/screens`), `PW_CHROMIUM` (Chromium executable when the
 Playwright browsers are not installed). `MOCK_TOKEN=secret npm run preview:mock` makes the
@@ -38,7 +42,8 @@ src/time/       ns-string arithmetic, DTG, zone letters and offsets, site zones
 src/format/     units (MHz, kHz, us, Hz/mHz, km, dB), positions (DD + datum, MGRS)
 src/domain/     Astro status mapping, monitor derivation, electrically-small dish caution
 src/map/        canvas world map (d3-geo Mercator: conformal, so ellipse azimuths read true;
-                antimeridian-safe), legend strip, scale bar, Natural Earth loader
+                antimeridian-safe; land and graticule drawn once per view into a cached layer, so
+                an event update redraws only the overlays), legend strip, scale bar, Natural Earth loader
 src/spectrum/   SpectrumEngine (trace + waterfall on canvas, outside React), the view
 src/views/      Watch + event dossier, Network, Plan, Configure, Simulation
 mock/           generate_fixtures.py (real core), fixtures/, server.mjs (REST + /ws/ui),

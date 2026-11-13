@@ -364,8 +364,9 @@ def test_lost_then_reopened_keeps_the_event_and_its_progress() -> None:
     h.run(0.5, {})
     assert record.state == "lost" and record.lost_ns == h.clock()
     assert record.transitions[-1].reason == "all detections released"
-    # It comes back on another track id: the same event re-opens.
-    h.run(60.0, {})
+    # It comes back on another track id within REACQUIRE_KEEP_S: the same event re-opens
+    # where it was.
+    h.run(20.0, {})
     h.run(0.5, {A1: [det(9, UP - 4e3, UP + 4e3)]})
     assert h.only() is record
     assert record.state == "characterizing"
@@ -685,6 +686,173 @@ def test_cross_satellite_detection_makes_the_verdict_uplink() -> None:
     h.run(6.0, sightings)
     assert record.verdict == "uplink" and record.verdict_basis == "caf"
     assert "two satellites" in record.verdict_reason
+
+
+def _locate(h: Harness, record: Any) -> tuple[int, int]:
+    """Give the event two accepted rows and a converged solution; return their seqs."""
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    h.book.mark_characterizing(record.id)
+    s1 = h.book.add_measurement(record.id, _row("tdoa"), Measurement("tdoa", 1e-3, 1e-6, T0, path, other))
+    s2 = h.book.add_measurement(record.id, _row("fdoa", value=0.5), Measurement("fdoa", 0.5, 1e-3, T0, path, other))
+    assert s1 is not None and s2 is not None
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), h.clock(), used=[s1, s2])
+    assert record.state == "located"
+    return s1, s2
+
+
+def test_detected_again_after_a_long_break_sets_the_old_position_aside() -> None:
+    """A signal back after more than REACQUIRE_KEEP_S may be another transmitter on the
+    same frequency: the event keeps its identity, but its position, accepted rows and
+    verdict are not carried over (a mixed solve or a stale fix would mislead)."""
+    from petal_locate.server.pipeline.events import REACQUIRE_KEEP_S, SET_ASIDE_REASON
+
+    h = Harness(make_config())
+    sightings = {A1: [det(1, UP - 5e3, UP + 5e3)], FB: [det(1, UP - 5e3, UP + 5e3, SAT_B_SHIFT)]}
+    h.frame(sightings)
+    record = h.only()
+    h.run(6.0, sightings)
+    assert record.verdict == "uplink"
+    s1, s2 = _locate(h, record)
+    assert h.book.set_classification(record.id, type("C", (), {"label": "noise", "confidence": 0.9, "features": {}})())
+    assert h.book.set_caf(record.id, caf_display(type("Caf", (), {
+        "surface": [[0.0]], "delay_axis_s": [0.0], "doppler_axis_hz": [0.0], "delay_cut": ([0.0], [0.0]),
+        "doppler_cut": ([0.0], [0.0]), "tdoa_s": 0.0, "fdoa_hz": 0.0, "snr_db": 20.0, "detected": True,
+        "reason": None})(), _row().pair, T0))
+    h.run(0.5, {})
+    assert record.state == "lost"
+    h.run(REACQUIRE_KEEP_S + 30.0, {})
+    h.run(0.5, sightings)
+    assert h.only() is record
+    assert record.state == "characterizing" and record.verdict == "undetermined"
+    assert record.solution is None and record.solution_out is None and record.solution_t_ns is None
+    assert record.classification is None and record.caf is None  # they described the earlier signal
+    assert h.book.solver_measurements(record.id) == []
+    rows = {e.seq: e.row for e in record.measurements}
+    assert not rows[s1].used and rows[s1].reason.startswith(f"{SET_ASIDE_REASON}: measured before the signal was lost at")
+    assert rows[s1].value == 1e-3 and rows[s1].residual is None  # kept for the record
+    assert "after a break of 1 min" in record.transitions[-1].reason
+    assert "position and measurements are set aside" in record.transitions[-1].reason
+    assert len(record.solution_history) == 1  # the old ellipse stays in the history
+    document = h.book.to_schema(record)
+    assert document.solution is None and document.state == "characterizing"
+    assert h.book.summary(record).solution is None
+    # A solve that started before the set-aside cannot bring the old position back.
+    assert not h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), h.clock(), used=[s1, s2])
+    assert record.solution is None
+    # The verdict is formed again from the new evidence once it has settled.
+    h.run(5.5, sightings)
+    assert record.verdict == "uplink" and record.verdict_basis == "two_sites"
+    # New rows locate it again.
+    t1, t2 = _locate(h, record)
+    assert [e.seq for e in record.used_measurements()] == [t1, t2]
+
+
+def test_uplink_verdict_gives_way_when_only_a_local_signal_remains() -> None:
+    """The uplink transmitter stops and a local one takes its frequency at Alpha (no
+    loss in between, so the event carries on): once the evidence alone has said local
+    for LOCAL_OVERRIDE_S without a fresh cross-satellite measurement, the verdict
+    becomes local and the uplink position is set aside."""
+    from petal_locate.server.pipeline.correlator import CAF_EVIDENCE_S, LOCAL_OVERRIDE_S
+
+    h = Harness(make_config())
+    both = {A1: [det(1, UP - 5e3, UP + 5e3)], FB: [det(1, UP - 5e3, UP + 5e3, SAT_B_SHIFT)]}
+    h.frame(both)
+    record = h.only()
+    h.run(6.0, both)
+    _locate(h, record)  # its accepted rows are cross-satellite proof (CAF_EVIDENCE_S)
+    alone = {A1: both[A1]}
+    h.run(LOCAL_OVERRIDE_S + 5.0, alone)
+    assert record.verdict == "uplink"  # the cross-satellite proof is still fresh
+    h.run(CAF_EVIDENCE_S - LOCAL_OVERRIDE_S - 5.0 + LOCAL_OVERRIDE_S - 1.0, alone)
+    assert record.verdict == "uplink" and record.local_since_ns is not None
+    h.run(2.0, alone)
+    assert record.verdict == "local" and record.verdict_basis == "capable_not_seen"
+    assert record.verdict_reason.startswith("Far, 1,994 km away")
+    assert record.solution is None and record.state == "characterizing"
+    assert not record.caf_uplink
+    assert all(not e.row.used for e in record.measurements)
+    reasons = [t.reason or "" for t in record.transitions[-2:]]
+    assert reasons[0].startswith("verdict: Far") and "uplink signal seen earlier has stopped" in reasons[0]
+    assert reasons[1].startswith("position set aside")
+    assert "Local interference" in h.book.to_schema(record).advisory.headline
+    # It stays local while only Alpha sees it.
+    h.run(5.0, alone)
+    assert record.verdict == "local"
+
+
+def test_fresh_cross_satellite_measurements_keep_an_uplink_verdict() -> None:
+    from petal_locate.server.pipeline.correlator import LOCAL_OVERRIDE_S
+
+    h = Harness(make_config())
+    both = {A1: [det(1, UP - 5e3, UP + 5e3)], FB: [det(1, UP - 5e3, UP + 5e3, SAT_B_SHIFT)]}
+    h.frame(both)
+    record = h.only()
+    h.run(6.0, both)
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    for _ in range(int(4 * LOCAL_OVERRIDE_S / 5)):  # a capture round every 5 s
+        h.book.add_measurement(record.id, _row("fdoa", value=0.5), Measurement("fdoa", 0.5, 1e-3, T0, path, other))
+        h.run(5.0, {A1: both[A1]})
+    assert record.verdict == "uplink" and record.verdict_basis == "caf"
+
+
+def test_evidence_rows_remember_when_a_channel_last_saw_the_event() -> None:
+    h = Harness(make_config(("alpha", "far")))
+    sightings = {A1: [det(1, UP - 5e3, UP + 5e3, last_ns=T0 + 7 * 10**9)], FB: [det(1, UP - 5e3, UP + 5e3, SAT_B_SHIFT)]}
+    h.frame(sightings)
+    record = h.only()
+    h.run(6.0, sightings)
+    assert h.rows(record)[("alpha-a", "sat-a")].last_seen_ns == T0 + 7 * 10**9
+    # Alpha's node goes away: its row is stale and still says when it last saw the signal.
+    h.online["alpha"] = False
+    h.run(2.0, {FB: sightings[FB]}, skip=("alpha-a", "alpha-b"))
+    row = h.rows(record)[("alpha-a", "sat-a")]
+    assert row.state == "stale" and row.last_seen_ns == T0 + 7 * 10**9
+    never = h.rows(record)[("far-a", "sat-a")]
+    assert never.last_seen_ns is None
+
+
+def test_correlation_candidates_and_mirror_positions_reach_the_console() -> None:
+    class Caf:
+        surface = [[0.0, 1.0], [2.0, 3.0]]
+        delay_axis_s = [0.0, 1e-6]
+        doppler_axis_hz = [-1.0, 1.0]
+        delay_cut = ([0.0, 1e-6], [0.0, 3.0])
+        doppler_cut = ([-1.0, 1.0], [0.0, 3.0])
+        tdoa_s = None
+        fdoa_hz = None
+        snr_db = 30.0
+        detected = True
+        reason = "ambiguous"
+        candidates = [(1e-4, 25.0, 30.0), (2e-4, 50.0, 29.5), (math.nan, 0.0, 29.0), (3e-4, math.inf, 1.0)]
+
+    display = caf_display(Caf(), _row().pair, T0)
+    assert [(c.tdoa_s, c.fdoa_hz, c.snr_db) for c in display.candidates] == [
+        (1e-4, 25.0, 30.0), (2e-4, 50.0, 29.5), (None, 0.0, 29.0)]
+    Caf.reason = "narrowband"
+    assert all(c.tdoa_s is None for c in caf_display(Caf(), _row().pair, T0).candidates)
+
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    seqs = [h.book.add_measurement(record.id, _row("tdoa"), Measurement("tdoa", 1e-3, 1e-6, T0, path, other)) for _ in range(2)]
+
+    class Ambiguous(FakeSolution):
+        def as_dict(self) -> dict[str, Any]:
+            data = super().as_dict()
+            mirror = FakeSolution(list(self.residuals), lat_deg=-20.0).as_dict()
+            mirror["ambiguity_resolved_by"] = "unresolved"
+            data["ambiguities"] = [mirror]
+            data["ambiguity_resolved_by"] = "unresolved"
+            return data
+
+    assert h.book.set_solution(record.id, Ambiguous([0.1, 0.2]), T0, used=seqs)
+    summary = h.book.summary(record).solution
+    assert summary is not None and summary.ambiguous
+    assert [(a.lat_deg, a.lon_deg, a.semi_major_m) for a in summary.ambiguities] == [(-20.0, 140.0, 4895.0)]
 
 
 # --------------------------------------------------------------------- publication

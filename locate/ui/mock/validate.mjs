@@ -147,6 +147,18 @@ function modelChecks(cfg, out) {
     });
   });
   (cfg.sites ?? []).forEach((site, s) => {
+    const tz = site?.time_zone;
+    if (typeof tz === 'string') {
+      const known = /^[A-Za-z][A-Za-z0-9_+-]{0,29}(\/[A-Za-z0-9_+-]{1,30}){0,2}$/.test(tz) && !tz.includes('..');
+      if (!known) ve(['sites', s, 'time_zone'], `must be an IANA time zone name such as Asia/Tokyo, got '${tz}'`);
+      else {
+        try {
+          new Intl.DateTimeFormat('en-US', { timeZone: tz });
+        } catch {
+          ve(['sites', s, 'time_zone'], `unknown IANA time zone '${tz}' (for example Asia/Tokyo or Pacific/Honolulu)`);
+        }
+      }
+    }
     (site?.channels ?? []).forEach((ch, c) => {
       const rate = ch?.max_sample_rate_hz ?? 2e6;
       (ch?.monitors ?? []).forEach((mon, mi) => {

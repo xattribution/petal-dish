@@ -142,7 +142,10 @@ export function createMock(options = {}) {
       uplink_lo_hz: e.uplink_lo_hz, uplink_hi_hz: e.uplink_hi_hz, satellite_ids: e.satellite_ids,
       label: e.classification ? e.classification.label : null, headline: e.advisory.headline,
       solution: sol ? { lat_deg: sol.lat_deg, lon_deg: sol.lon_deg, semi_major_m: sol.ellipse.semi_major_m, semi_minor_m: sol.ellipse.semi_minor_m,
-        azimuth_deg: sol.ellipse.azimuth_deg, cep50_m: sol.cep50_m, ambiguous: sol.ambiguities.length > 0 } : null,
+        azimuth_deg: sol.ellipse.azimuth_deg, cep50_m: sol.cep50_m, ambiguous: sol.ambiguities.length > 0,
+        // as server/pipeline/events.EventBook.summary: every other position that fits as well
+        ambiguities: sol.ambiguities.map((a) => ({ lat_deg: a.lat_deg, lon_deg: a.lon_deg, semi_major_m: a.ellipse.semi_major_m,
+          semi_minor_m: a.ellipse.semi_minor_m, azimuth_deg: a.ellipse.azimuth_deg })) } : null,
       simulated: e.simulated ?? false,
     };
   }
@@ -284,6 +287,14 @@ export function createMock(options = {}) {
     return best.subpoints;
   }
 
+  /** The server's 422 body (schemas.FieldErrorResponse): {detail, errors: [{loc, msg}], warnings}. */
+  function fieldError(what, errors, warnings = []) {
+    const first = errors[0];
+    const more = errors.length > 1 ? ` (and ${errors.length - 1} more)` : '';
+    const where = first && first.loc && first.loc !== '(root)' ? `${first.loc}: ` : '';
+    return { detail: first ? `the ${what} does not validate: ${where}${first.msg}${more}` : `the ${what} does not validate`, errors, warnings };
+  }
+
   function accuracyFor(body) {
     const key = (pairs, kinds, ref) => JSON.stringify([pairs.map((p) => p.join('|')).sort(), [...kinds].sort(), ref ?? null]);
     const want = key(body.pairs ?? [], body.kinds ?? ['tdoa', 'fdoa'], body.reference_carrier_id);
@@ -292,8 +303,7 @@ export function createMock(options = {}) {
     const have = fx.accuracy.variants.map((v) => `${v.pairs.map((p) => p.join(' / ')).join(' + ')} (${v.kinds.join('+')}${v.reference_carrier_id ? `, ref ${v.reference_carrier_id}` : ''})`);
     return {
       ok: false,
-      body: { detail: [{ loc: ['body', 'pairs'], type: 'value_error',
-        msg: `The mock server has precomputed grids only for: ${[...new Set(have)].join('; ') || 'none (run mock/generate_fixtures.py)'}` }] },
+      body: fieldError('accuracy request', [{ loc: 'pairs', msg: `The mock server has precomputed grids only for: ${[...new Set(have)].join('; ') || 'none (run mock/generate_fixtures.py)'}` }]),
     };
   }
 
@@ -389,10 +399,18 @@ export function createMock(options = {}) {
       if (p.startsWith('/events') && m === 'GET') touchActive(false);
       if (p === '/events' && m === 'GET') {
         const st = url.searchParams.get('state');
-        const limit = Number(url.searchParams.get('limit') ?? 200);
+        const limit = Number(url.searchParams.get('limit') ?? 100);
+        const states = ['active', 'characterizing', 'closed', 'detected', 'located', 'locating', 'lost'];
+        if (st !== null && !states.includes(st)) {
+          const msg = `state: must be one of ${JSON.stringify(states).replace(/"/g, "'").replace(/,/g, ', ')}, got '${st}'`;
+          return send(res, 422, { detail: msg, errors: [{ loc: 'state', msg }], warnings: [] }), true;
+        }
+        if (!(Number.isInteger(limit) && limit >= 1 && limit <= 1000)) {
+          return send(res, 422, fieldError('request', [{ loc: 'limit', msg: 'Input should be less than or equal to 1000' }])), true;
+        }
         let list = [...state.events.values()];
         if (st === 'active') list = list.filter((e) => !['lost', 'closed'].includes(e.state));
-        else if (st) list = list.filter((e) => st.split(',').includes(e.state));
+        else if (st) list = list.filter((e) => e.state === st);
         list.sort((a, b) => (BigInt(b.last_seen_ns) > BigInt(a.last_seen_ns) ? 1 : -1));
         return send(res, 200, shift(list.slice(0, limit).map(summary))), true;
       }
@@ -426,7 +444,11 @@ export function createMock(options = {}) {
       if (p === '/analysis/accuracy' && m === 'POST') {
         const body = await readBody(req);
         if (!body || typeof body !== 'object' || !Array.isArray(body.pairs) || body.pairs.length === 0) {
-          return send(res, 422, { detail: [{ loc: ['body', 'pairs'], msg: 'List should have at least 1 item after validation, not 0', type: 'too_short' }] }), true;
+          return send(res, 422, fieldError('request', [{ loc: 'pairs', msg: 'List should have at least 1 item after validation, not 0' }])), true;
+        }
+        if (body.uncertainty) {
+          // the real server recomputes the map with the what-if uncertainty; the mock only has fixed grids
+          return send(res, 422, fieldError('accuracy request', [{ loc: 'uncertainty', msg: 'The mock server has no grids for a what-if uncertainty; the real server computes them' }])), true;
         }
         const r = accuracyFor(body);
         await new Promise((ok) => setTimeout(ok, 600)); // the real computation takes a while
@@ -439,7 +461,7 @@ export function createMock(options = {}) {
           return e && body && Math.abs(e.lat_deg - body.lat_deg) < 0.05 && Math.abs(e.lon_deg - body.lon_deg) < 0.05 && Math.abs(e.freq_hz - body.f_e_hz) < 1000;
         });
         if (!hit) {
-          return send(res, 422, { detail: [{ loc: ['body'], type: 'value_error', msg: 'The mock server has link budgets only for the scenario emitters at their original positions and frequencies' }] }), true;
+          return send(res, 422, fieldError('request', [{ loc: '(root)', msg: 'The mock server has link budgets only for the scenario emitters at their original positions and frequencies' }])), true;
         }
         return send(res, 200, shift(hit[1])), true;
       }
@@ -448,7 +470,7 @@ export function createMock(options = {}) {
         const body = await readBody(req);
         if (typeof body === 'symbol' || !body) return send(res, 400, { detail: 'the body is not JSON' }), true;
         const problems = validateScenario(body, state.config);
-        if (problems.length) return send(res, 422, { detail: problems.map((pr) => ({ loc: ['body', ...pr.loc.split('.')], msg: pr.msg, type: 'value_error' })) }), true;
+        if (problems.length) return send(res, 422, fieldError('scenario', problems)), true;
         return send(res, 200, setScenario(body)), true;
       }
       if (p === '/sim/presets' && m === 'GET') return send(res, 200, fx.presets.list), true;

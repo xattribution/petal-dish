@@ -1,8 +1,9 @@
-// Site time zones. SystemConfig carries no zone (noted as an API need), so a site takes
-// the IANA zone of the nearest tz principal location among the zones of the country it
-// stands in (country from the Natural Earth borders the map already loads), or of the
-// nearest principal location overall when the country is not known yet or has no zone.
-// Example: Naha's nearest principal location is Taipei, but Naha is in Japan.
+// Site time zones. A site's configured IANA zone (Site.time_zone) is used when the browser
+// knows it. Otherwise the site takes the IANA zone of the nearest tz principal location
+// among the zones of the country it stands in (country from the Natural Earth borders the
+// map already loads), or of the nearest principal location overall when the country is
+// not known yet or has no zone. Example: Naha's nearest principal location is Taipei, but
+// Naha is in Japan.
 import { ZONES } from './zones.gen';
 
 const RAD = Math.PI / 180;
@@ -41,4 +42,15 @@ export function siteZone(latDeg: number, lonDeg: number, countryId: string | nul
 /** Zone of the nearest principal location, ignoring borders. */
 export function nearestZone(latDeg: number, lonDeg: number): string {
   return siteZone(latDeg, lonDeg, null);
+}
+
+/** Whether the browser's time zone data knows an IANA zone name. */
+export function knownZone(tz: string | null | undefined): tz is string {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }

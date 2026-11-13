@@ -457,6 +457,94 @@ async def test_cw_emitter_gives_fdoa_rows_only_with_the_narrowband_reason() -> N
         assert message is not None and message.startswith(tasking_module.EXPLAIN_NARROWBAND)
 
 
+async def test_cw_beside_a_reference_carrier_is_classified_from_the_event_band() -> None:
+    """A narrow event's primary capture runs at the 20 kHz minimum rate, so it also holds
+    the top 1.5 kHz of the 8 kHz Sapporo reference, 8.5 kHz below the tone. Classified
+    as captured, that sliver is taken for the signal and the tone comes out ``noise``
+    (tokyo-pac at 03 UTC, SIMULATED); classified from the event's own band it is ``cw``."""
+    f_cw = 301.130e6
+    async with environment(NO_CAL, CW) as env:
+        record = make_event(
+            env, f_cw - 50.0, f_cw + 50.0, "shared-2",
+            (("tokyo-pac", 25.0), ("naha-io", 22.0), ("seoul-172e", 20.0)), NO_CAL,
+        )
+        reports = await rounds(env, record, 1)
+        assert reports[0].primary_channel_id == "tokyo-pac"
+        assert reports[0].classification == "cw"
+        features = env.book.to_schema(record).classification.features
+        assert abs(features["center_offset_hz"]) < 100.0  # the tone, not the reference 8.7 kHz away
+
+
+async def test_a_new_simulated_world_drops_the_calibrations_of_the_old_one() -> None:
+    """Calibrations made in the clock-fault world (Naha 10 us late, small ephemeris errors)
+    must not correct rows measured once ephemeris-error is loaded (two satellites 6 and
+    8 km off in-track). Before ``world_changed`` existed they did for up to
+    ``calibration.interval_s``: every row of the next event carried them and its fix
+    was 1.7 km off, outside a 0.38 km ellipse (SIMULATED)."""
+    clock_fault = load_scenario(ROOT / "config" / "scenarios" / "clock-fault.yaml")
+    ephemeris_error = load_scenario(ROOT / "config" / "scenarios" / "ephemeris-error.yaml")
+    async with environment(CONFIG, clock_fault) as env:
+        first = make_event(env)
+        await rounds(env, first, 1)
+        old = {c.cal.cal_id for c in env.tasking.calibrations()}
+        assert old
+        env.clock.advance(10.0)  # well inside calibration.interval_s
+        env.hub.world = world_for(ephemeris_error)  # the preset load
+        env.tasking.world_changed(env.clock())
+        assert env.tasking.calibrations() == []
+        second = make_event(env)
+        reports = await rounds(env, second, 2)
+        used = second.used_measurements()
+        assert used and all(e.measurement.cal is not None for e in used)
+        assert not [e for e in used if e.measurement.cal.cal_id in old]
+        solution = reports[-1].solution
+        assert solution is not None
+        miss = geodesic_distance_m(solution.lat_deg, solution.lon_deg, 17.0, 141.0)
+        assert miss < solution.ellipse["semi_major_m"], (miss, solution.ellipse)
+
+
+async def test_events_on_two_reference_carriers_through_the_same_channels_are_both_calibrated() -> None:
+    """two-jammers: jammer A in shared-1 (calibrated by ref-guam) and jammer B in shared-2
+    (ref-sapporo) are tasked through the same channel pairs, rounds alternating. When the
+    calibration schedule and the calibrations held were keyed by pair alone, A's Guam
+    attempts held B's calibration back and every B row stayed uncalibrated (0 of 16);
+    keyed by pair only for what is held, B's Sapporo calibration replaced A's and half
+    of A's rows lost theirs (SIMULATED)."""
+    two = load_scenario(ROOT / "config" / "scenarios" / "two-jammers.yaml")
+    async with environment(CONFIG, two) as env:
+        a = make_event(env, 301.000e6, 301.010e6, "shared-1")
+        b = make_event(env, 301.126e6, 301.134e6, "shared-2")
+        for _ in range(4):
+            ra = await env.tasking.run_round(a.id)
+            rb = await env.tasking.run_round(b.id)
+            assert ra.partner_channel_ids == rb.partner_channel_ids  # the same channel pairs
+            env.clock.advance(5.0)
+        env.book.flush(force=True)
+        for record, carrier in ((a, "ref-guam"), (b, "ref-sapporo")):
+            rows = env.book.to_schema(record).measurements
+            assert rows and all(r.calibrated and r.reference_carrier_id == carrier for r in rows), (
+                carrier, [(r.calibrated, r.reference_carrier_id) for r in rows])
+
+
+def test_classification_band_keeps_the_event_and_drops_its_neighbours() -> None:
+    """Against a closed form: two tones on exact bins of a 20 kHz capture, one 300 Hz
+    from the event centre and one 8.6 kHz away. The kept band is centred on the event
+    (offset 1 kHz from the capture centre); the near tone comes out as the same complex
+    exponential at the reduced rate, the far one is gone."""
+    fs, n = 20e3, 20000
+    t = np.arange(n) / fs
+    near, far, offset = 1300.0, -7600.0, 1000.0  # Hz from the capture centre
+    iq = 2.0 * np.exp(2j * np.pi * near * t + 0.3j) + 5.0 * np.exp(2j * np.pi * far * t)
+    out, rate = tasking_module._classification_band(iq, fs, offset, 100.0)
+    # 4 x 100 Hz is below the 2 x 1024-sample floor, which sets the kept band
+    assert rate == pytest.approx(2.0 * 1024 * fs / n, abs=fs / n) and out.size == round(n * rate / fs)
+    expected = 2.0 * np.exp(2j * np.pi * (near - offset) * np.arange(out.size) / rate + 0.3j)
+    assert np.max(np.abs(out - expected)) < 1e-9
+    # wide events and offsets of zero width keep the capture as it is
+    same, same_rate = tasking_module._classification_band(iq, fs, 0.0, 10e3)
+    assert same_rate == fs and same is iq
+
+
 def test_round_explanation_names_a_cause_every_pair_shares() -> None:
     from types import SimpleNamespace
 

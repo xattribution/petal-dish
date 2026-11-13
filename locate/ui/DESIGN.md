@@ -142,3 +142,9 @@ charts, a "Welcome back". Changes made against it:
 | Bracket in the strip above the spectrum trace | Authorized carrier allocation and its id, clear of the trace | Frequency plan (Carrier) |
 | "Captures" line in the dossier header | What tasking is doing (`Event.tasking`): next round, rounds, channels, the server's message | schemas.py TaskingStatus |
 | Clock strip grouped by shared local time | One entry per zone in use, so every site's letter and offset fit at 1024 px | mil conventions, Time |
+| Small squares on the correlation surface, and a peak table | The other peaks the correlator found (`CafDisplay.candidates`); "ambiguous" when they are too close in height | MATH.md section 6 |
+| Dashed cross and ellipse on the watch map | Every other position of an unresolved ambiguity (`SolutionSummary.ambiguities`) | MATH.md section 9 |
+| Correction column in the measurement table, reference named above it | `MeasurementRow.correction` (already subtracted; raw = value + correction) and `reference_carrier_id` | schemas.py MeasurementRow |
+| Key of the reasons under the measurement table | Each full reason a row was not used, once, with its count; the row shows the short word | pipeline/tasking.py reasons |
+| "What-if" uncertainty in the accuracy form | `AccuracyRequest.uncertainty`: this map only, the configuration is not changed | UI-BRIEF capability 6 |
+| Configured site time zone in the clock strip | `Site.time_zone` when set (the tooltip says configured or inferred) | mil conventions, Time |

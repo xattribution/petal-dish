@@ -9,10 +9,17 @@ runs it (ARCHITECTURE.md section 7), against a ``SimWorld`` instead of radios:
   range, the channel watching it with the highest ``downlink_quality_db``, preferring a
   channel at the primary's site when within 3 dB. Or the caller lists the pairs.
 - **Captures.** ``core.accuracy.capture_plan``: identical sample rate and first-sample
-  time in both requests, each channel tuned to ``f_e_nom + translation_hz``.
+  time in both requests, each channel tuned to ``f_e_nom + translation_hz``. As in
+  tasking, the estimator's band filter is ``max(occupied band, 10 Hz)`` wide (plus the
+  Doppler reach), so a CW is band-limited too and other carriers that share its capture
+  (a reference carrier a few kHz away) do not correlate with it.
 - **Windows.** ``core.accuracy.pair_search``: ``measurement_windows`` +
   ``search_windows``, self-peaks of satellites heard by both channels excluded, a
-  mirror window for co-channel satellites.
+  mirror window for co-channel satellites. As in tasking, a kind without a valid
+  calibration (and every mirror window) is first widened by the 3-sigma ephemeris
+  allowance, ``6 |sigma_pos| / c`` per satellite in delay and ``6 f |sigma_vel| / c``
+  in Doppler, so that a reference carrier (a single predicted point) is still found
+  when the satellites are off by several of their configured sigmas.
 - **Calibration.** For each pair, the first reference carrier of the configuration
   relayed by the pair's two transponders is captured on its own frequency through the
   same channels at the same time, estimated with windows around its predicted values,
@@ -38,6 +45,7 @@ Everything returned is simulated and labelled so.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import math
 from collections.abc import Callable, Sequence
@@ -56,7 +64,7 @@ from petal_locate.core.accuracy import (
     relaying_transponder,
 )
 from petal_locate.core.caf import CafResult, caf_estimate
-from petal_locate.core.constants import T_REF_S
+from petal_locate.core.constants import C, T_REF_S
 from petal_locate.core.geodesy import geodesic_distance_m, radii_of_curvature, wrap_lon_deg
 from petal_locate.core.linkbudget import downlink_quality_db
 from petal_locate.core.signals import key128
@@ -75,6 +83,7 @@ __all__ = [
     "plan_event",
     "trial_seed",
     "draw_truth_errors",
+    "ephemeris_allowance",
     "run_trials",
     "format_summary",
 ]
@@ -86,6 +95,8 @@ REASON_MIRROR_AMBIGUOUS = "mirror ambiguous"
 """Reason recorded for a CAF result flagged ``mirror_ambiguous`` (never solved, as in tasking)."""
 
 _SAME_SITE_PREFERENCE_DB = 3.0  # a channel at the primary's site is preferred within this of the best
+_EPHEMERIS_SIGMAS = 6.0  # uncalibrated windows widened by this many |sigma| per satellite (as tasking)
+_MIN_SIGNAL_BW_HZ = 10.0  # the band filter is never narrower than this (as tasking): a CW is filtered too
 _CHI2_2_95 = -2.0 * math.log(0.05)  # 5.991: the 95 % ellipse of a 2-D Gaussian
 
 
@@ -326,6 +337,44 @@ def _reference_task(
     return None, "no reference carrier is relayed by both of the pair's transponders"
 
 
+def ephemeris_allowance(uncertainty: Uncertainty | None, sat_a: str, sat_b: str, f_hz: float) -> tuple[float, float]:
+    """Tasking's ephemeris allowance of a pair: ``(delay_s, doppler_hz)``.
+
+    ``6 (|sigma_pos,a| + |sigma_pos,b|) / c`` and ``6 f (|sigma_vel,a| + |sigma_vel,b|) / c``
+    with the one-sigma RIC vectors of ``uncertainty`` (m, m/s) and the carrier ``f_hz``
+    (Hz); zero without an uncertainty. ``server/pipeline/tasking.py`` widens every
+    uncalibrated window by it (MATH.md section 6 lists no ephemeris term, so a point
+    window around a reference's prediction would otherwise miss a satellite that is off
+    by a few sigma).
+    """
+    if uncertainty is None:
+        return 0.0, 0.0
+    zero = np.zeros(3)
+    pos = sum(float(np.linalg.norm(uncertainty.sat_pos_ric_m.get(s, zero))) for s in {sat_a, sat_b})
+    vel = sum(float(np.linalg.norm(uncertainty.sat_vel_ric_mps.get(s, zero))) for s in {sat_a, sat_b})
+    return _EPHEMERIS_SIGMAS * pos / C, _EPHEMERIS_SIGMAS * abs(float(f_hz)) * vel / C
+
+
+def _with_allowance(search: PairSearch, uncertainty: Uncertainty | None, correction: Any) -> PairSearch:
+    """``search`` with its geometric windows widened by the ephemeris allowance: a kind
+    only when it has no calibration (``correction`` None or its entry None), the mirror
+    window always (no calibration applies to the swapped pairing)."""
+    pad_t, pad_f = ephemeris_allowance(uncertainty, search.a.sat_id, search.b.sat_id, search.a.f_e_hz)
+    if pad_t == 0.0 and pad_f == 0.0:
+        return search
+    corr_t, corr_f = (None, None) if correction is None else correction
+    (t_lo, t_hi), (f_lo, f_hi) = search.geo_windows
+    if corr_t is None:
+        t_lo, t_hi = t_lo - pad_t, t_hi + pad_t
+    if corr_f is None:
+        f_lo, f_hi = f_lo - pad_f, f_hi + pad_f
+    mirror = search.mirror_geo_windows
+    if mirror is not None:
+        (m_t_lo, m_t_hi), (m_f_lo, m_f_hi) = mirror
+        mirror = ((m_t_lo - pad_t, m_t_hi + pad_t), (m_f_lo - pad_f, m_f_hi + pad_f))
+    return dataclasses.replace(search, geo_windows=((t_lo, t_hi), (f_lo, f_hi)), mirror_geo_windows=mirror)
+
+
 # --------------------------------------------------------------------------- truth draws
 
 
@@ -528,11 +577,12 @@ def _run_trial(
                  bias_ns: int, correction: Any) -> tuple[CafResult | None, str | None]:
         ya = capture(task_a, plan.t_start_ns, cp, a.f_tune_hz)
         yb = capture(task_b, plan.t_start_ns + bias_ns, cp, b.f_tune_hz)
-        delay_w, doppler_w, mirror_w = search.windows(caf_cfg, uncertainty, correction)
+        delay_w, doppler_w, mirror_w = _with_allowance(search, uncertainty, correction).windows(caf_cfg, uncertainty, correction)
         try:
             result = caf_estimate(
                 ya, yb, cp.sample_rate_hz, delay_window=delay_w, doppler_window=doppler_w,
-                signal_bw_hz=cp.signal_bw_hz, t0_offset_s=0.0, exclude=search.exclude, mirror_window=mirror_w,
+                signal_bw_hz=max(cp.occupied_bw_hz, _MIN_SIGNAL_BW_HZ), t0_offset_s=0.0, exclude=search.exclude,
+                mirror_window=mirror_w,
                 min_snr_db=float(caf_cfg.min_snr_db), max_tdoa_sigma_s=float(caf_cfg.max_tdoa_sigma_s),
             )
         except ValueError as exc:

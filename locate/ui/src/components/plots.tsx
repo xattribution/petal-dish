@@ -216,6 +216,8 @@ export interface HeatmapProps {
   yFormat: (v: number) => string;
   zFormat: (v: number) => string;
   peak?: { x: number; y: number } | null;
+  /** other candidate peaks, drawn as small squares where they fall inside the patch */
+  others?: Array<{ x: number; y: number }>;
   ariaLabel: string;
 }
 
@@ -292,6 +294,14 @@ export function Heatmap(p: HeatmapProps) {
     ctx.textBaseline = 'middle';
     ctx.fillText(p.yLabel, 0, 0);
     ctx.restore();
+    ctx.strokeStyle = color('--fix');
+    ctx.lineWidth = 1.2;
+    for (const o of p.others ?? []) {
+      const ox = X(o.x);
+      const oy = Y(o.y);
+      if (ox < left || ox > left + pw || oy < top || oy > top + ph) continue;
+      ctx.strokeRect(ox - 4, oy - 4, 8, 8);
+    }
     if (p.peak) {
       const px = X(p.peak.x);
       const py = Y(p.peak.y);

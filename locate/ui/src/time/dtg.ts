@@ -4,9 +4,22 @@ import { nsToDate } from './ns';
 
 const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] as const;
 
+// Intl.DateTimeFormat construction costs far more than formatting: one formatter per
+// (kind, zone), reused (a 500-row measurement table formats 500 times per update).
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function formatter(kind: string, timeZone: string, make: () => Intl.DateTimeFormat): Intl.DateTimeFormat {
+  const key = `${kind}|${timeZone}`;
+  let f = formatters.get(key);
+  if (!f) {
+    f = make();
+    formatters.set(key, f);
+  }
+  return f;
+}
+
 /** Minutes east of UTC for an IANA zone at an instant. */
 export function offsetMinutes(date: Date, timeZone = 'UTC'): number {
-  const part = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
+  const part = formatter('offset', timeZone, () => new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' }))
     .formatToParts(date)
     .find((p) => p.type === 'timeZoneName');
   const m = part?.value.match(/GMT([+-])(\d{2}):?(\d{2})?/);
@@ -43,16 +56,22 @@ interface Parts {
 
 function parts(date: Date, timeZone: string): Parts {
   const p: Record<string, string> = {};
-  for (const x of new Intl.DateTimeFormat('en-US', {
+  const f = formatter(
+    'parts',
     timeZone,
-    year: '2-digit',
-    month: 'numeric',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date)) {
+    () =>
+      new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: '2-digit',
+        month: 'numeric',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      }),
+  );
+  for (const x of f.formatToParts(date)) {
     p[x.type] = x.value;
   }
   return {
@@ -103,7 +122,7 @@ export function localHhmm(date: Date, timeZone: string): string {
 /** Day marker against Zulu: "+1", "-1" or "" on the same calendar date. */
 export function dayMarker(date: Date, timeZone: string): string {
   const ymd = (tz: string) =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+    formatter('ymd', tz, () => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })).format(date);
   const d = Math.round((Date.parse(ymd(timeZone)) - Date.parse(ymd('UTC'))) / 864e5);
   return d > 0 ? `+${d}` : d < 0 ? `−${-d}` : '';
 }

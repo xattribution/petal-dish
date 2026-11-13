@@ -1,0 +1,136 @@
+{
+ "section": "live",
+ "simulated": true,
+ "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
+ "config": "config/pacific-uhf.yaml",
+ "config_sha256_16": "cddfa8e4de45f202",
+ "script": "scripts/capability_study.py",
+ "method": "petal-locate demo (server plus seven node subprocesses with the simulated radio driver, real WebSockets, 127.0.0.1) started on the quiet preset; each preset loaded through POST /api/v1/sim/presets/{name}/load and the event read through GET /api/v1/events/{id} until its solution used 16 rows (about 4 to 8 rounds); 'uncorrected_rows' re-solves the very rows the server used without their reference-carrier corrections. The epoch is the wall-clock time of the run, so the geometry differs from the fixed epochs of the other sections.",
+ "pacific-demo": {
+  "loaded_t_ns": 1794579619921583806,
+  "history": [
+   {
+    "t_ns": 1794579632061503696,
+    "n_measurements": 4,
+    "miss_m": 94.09097068972638,
+    "inside_ellipse": true,
+    "semi_major_m": 418.284598242153,
+    "semi_minor_m": 92.77996729739463,
+    "dominant_error": "ephemeris_velocity"
+   },
+   {
+    "t_ns": 1794579636154940914,
+    "n_measurements": 8,
+    "miss_m": 66.21789392067966,
+    "inside_ellipse": true,
+    "semi_major_m": 392.1321303108987,
+    "semi_minor_m": 86.19291542146237,
+    "dominant_error": "ephemeris_velocity"
+   },
+   {
+    "t_ns": 1794579646251081685,
+    "n_measurements": 12,
+    "miss_m": 24.455681810865002,
+    "inside_ellipse": true,
+    "semi_major_m": 383.08584655982565,
+    "semi_minor_m": 83.90414486709915,
+    "dominant_error": "ephemeris_velocity"
+   },
+   {
+    "t_ns": 1794579656371615442,
+    "n_measurements": 16,
+    "miss_m": 32.099809722743224,
+    "inside_ellipse": true,
+    "semi_major_m": 378.50946755076956,
+    "semi_minor_m": 82.74500540200157,
+    "dominant_error": "ephemeris_velocity"
+   }
+  ],
+  "event_id": "EV-000001",
+  "verdict": "uplink",
+  "seconds_to_verdict": 5.000431108,
+  "seconds_to_located": 7.154776727,
+  "rows_used": 16,
+  "rows_calibrated": 16,
+  "final": {
+   "t_ns": 1794579656371615442,
+   "n_measurements": 16,
+   "miss_m": 32.099809722743224,
+   "inside_ellipse": true,
+   "semi_major_m": 378.50946755076956,
+   "semi_minor_m": 82.74500540200157,
+   "dominant_error": "ephemeris_velocity"
+  },
+  "uncorrected_rows": {
+   "miss_m": 13282.869586913972,
+   "nees_total": 0.648243541494207,
+   "semi_major_m": 46688.98950072763,
+   "reduced_chi2": 0.722355910158475,
+   "n_ambiguities": 0
+  }
+ },
+ "ephemeris-error": {
+  "loaded_t_ns": 1794579662077131226,
+  "history": [
+   {
+    "t_ns": 1794579674194452013,
+    "n_measurements": 4,
+    "miss_m": 92.4224384279038,
+    "inside_ellipse": true,
+    "semi_major_m": 391.94093360377656,
+    "semi_minor_m": 90.13424975409987,
+    "dominant_error": "reference"
+   },
+   {
+    "t_ns": 1794579678219077182,
+    "n_measurements": 8,
+    "miss_m": 94.66993986806067,
+    "inside_ellipse": false,
+    "semi_major_m": 349.1503591412096,
+    "semi_minor_m": 81.76359020658771,
+    "dominant_error": "reference"
+   },
+   {
+    "t_ns": 1794579688258975168,
+    "n_measurements": 12,
+    "miss_m": 71.3327459680292,
+    "inside_ellipse": true,
+    "semi_major_m": 334.10456023891896,
+    "semi_minor_m": 78.76682098335607,
+    "dominant_error": "reference"
+   },
+   {
+    "t_ns": 1794579698343461276,
+    "n_measurements": 16,
+    "miss_m": 69.29261314165342,
+    "inside_ellipse": true,
+    "semi_major_m": 326.3573385658233,
+    "semi_minor_m": 77.26109776307095,
+    "dominant_error": "reference"
+   }
+  ],
+  "event_id": "EV-000002",
+  "verdict": "uplink",
+  "seconds_to_verdict": 5.013157023,
+  "seconds_to_located": 7.368760673,
+  "rows_used": 16,
+  "rows_calibrated": 16,
+  "final": {
+   "t_ns": 1794579698343461276,
+   "n_measurements": 16,
+   "miss_m": 69.29261314165342,
+   "inside_ellipse": true,
+   "semi_major_m": 326.3573385658233,
+   "semi_minor_m": 77.26109776307095,
+   "dominant_error": "reference"
+  },
+  "uncorrected_rows": {
+   "miss_m": 225890.284694695,
+   "nees_total": 53.36021471269624,
+   "semi_major_m": 129029.18716816822,
+   "reduced_chi2": 3.6410425827984545,
+   "n_ambiguities": 0
+  }
+ },
+ "elapsed_s": 104.5688226222992
+}

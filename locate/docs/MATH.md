@@ -4,11 +4,15 @@ This document is the single source of truth for conventions. Code, tests and the
 simulator must agree with it. Where code and this document disagree, the bug is in
 whichever one fails the physical sanity tests in section 12.
 
-Revision 3: describes the implementation as built and verified. Where the code departs
-from revision 2 the text states the rule the code follows, with the reason when it was
-a judgement call, and section 12 states tolerances that hold. Numbers quoted as
-"measured" come from the review of revision 1 or from the build and verification
-scripts of revision 3.
+Revision 4: describes the implementation as built, verified and integrated. Where the
+code departs from revision 2 the text states the rule the code follows, with the reason
+when it was a judgement call, and section 12 states tolerances that hold. Revision 4
+adds rules the server pipeline and the simulator follow (section 4 simulator details,
+the ephemeris allowance and repeat-detection gate of section 6, the server's carrier
+ranges, identity, evidence and verdict rules of section 7, the accuracy map's choices in
+section 10). Numbers quoted as "measured" come from the review of revision 1, from the
+build and verification scripts of revision 3 or from the integration runs of revision 4,
+all on the simulator.
 
 ## 1. Units, frames, time
 
@@ -167,8 +171,10 @@ y(t)    = a * s(t_sat - tau_u(t_sat))
 
 Implementation: the first phase term is evaluated as
 `(f_e + T_i - f_tune (1 + eps_g)) * (n / fs + delta_g)` with `n / fs` the float64 time
-since the labelled first sample. The omitted product with the first-sample time is a
-per-path, per-capture constant phase on which no measurement depends.
+since the labelled first sample. The product with the first-sample time is a per-path,
+per-capture constant phase on which no measurement depends; the simulator nevertheless
+includes it exactly (`frac(f_off * t0_ns / 1e9)` with Python `Fraction`s), so a path is a
+pure function of absolute time and overlapping captures agree.
 
 Baseband frequency of that path (dots as defined in section 3):
 
@@ -201,10 +207,15 @@ copes.
   exactly; `decimate` takes its input as zero outside the array, so
   `decimate_margin(m)` (26) extra output samples are rendered at each end and dropped.
   `noise` and `psk` are treated the same way up to `m = 4`. Wider ones are replaced,
-  for that capture, by their **in-band slice**: a `noise` waveform of bandwidth `fs`
-  centred on `fc`, power `C_rx fs / W`, rendered at `2 fs` and decimated, keyed by
-  `(source key, round(fc - T_i) in Hz, round(fs))` so both channels of a pair (same
-  uplink centre and rate) see the same slice.
+  for that capture, by their **in-band slice**: a `noise` waveform covering the
+  intersection of the capture band and the source band (in the source frame, through
+  the nominal translation; this is bandwidth `fs` centred on `fc` whenever the source
+  covers the whole capture band), power `C_rx` times the waveform's in-band fraction
+  (`spectral_shape`; `C_rx fs / W` for a flat source), rendered at `2 fs` and decimated,
+  keeping the parent's gate, keyed by `(source key, round(fc - T_nom,i) in Hz,
+  round(fs))` so both channels of a pair (same uplink centre and rate) see the same
+  slice. The key uses the nominal translation: with the true `T_i` a satellite
+  oscillator error would give the two channels different slices and decorrelate them.
 
 ### Amplitudes
 
@@ -239,7 +250,15 @@ Link budget in dB, per path (`linkbudget.py`):
   `a_n^2 = N0_relay B_x / (N0_site fs)`, under the same channel-filter rule (so wide
   transponders use the in-band slice, power `N0_relay / N0_site` per sample). It is
   therefore correlated between sites watching the same satellite and independent
-  between satellites. Site thermal noise is independent per channel.
+  between satellites. Site thermal noise is independent per channel. With the
+  ionosphere enabled, relayed noise also gets the downlink group delay.
+- The simulator evaluates amplitudes, received frequencies and power robbing on a node
+  grid aligned to absolute time (every 10 s when every satellite stays above 20 000 km,
+  every 1 s otherwise) and interpolates power and frequency linearly between nodes;
+  delay and phase come from the exact light-time functions (Chebyshev fits checked to
+  1e-4 cycle). Robbing counts the emitters active at the node instant (a gated emitter
+  at its on-power), so an emitter that switches on between nodes robs from the next
+  node.
 
 ### Deterministic waveforms
 
@@ -455,7 +474,12 @@ Required behaviour of the estimator:
    window, distinct from the primary (outside its main lobe) and reaching the
    threshold, is not more than 6 dB below the primary peak (a stronger one included),
    the result is flagged `mirror_ambiguous`; `tdoa` and `fdoa` are still returned and
-   the mirror peak is appended to `candidates`.
+   the mirror peak is appended to `candidates`. Tasking and the Monte Carlo driver
+   never solve a mirror-ambiguous result and never calibrate from a mirror-ambiguous
+   reference measurement. The swapped pairing's Doppler window is shifted by
+   `2 (T_b - T_a)`, the retune between the swapped paths' nominal tunings and the
+   channels' actual ones (zero for exactly co-channel satellites), and is always widened
+   in full, never calibrated.
 7. Returns a patch of the surface around the peak (float32 dB over the noise floor,
    floored at -30 dB, at most 65 x 65) and the two 1-D cuts spanning the full windows,
    for display; a cut longer than 4096 points is reduced to the maximum of each group.
@@ -504,9 +528,43 @@ is shifted by its correction and gets only its fixed margin (`search_windows(...
 correction=(tdoa_corr | None, fdoa_corr | None))` or `{"tdoa": ..., "fdoa": ...}`); a
 kind without one keeps the full widening.
 
+Ephemeris allowance (server tasking and the Monte Carlo driver, not `search_windows`).
+Before that widening, the geometric window of every kind without a valid calibration,
+and every mirror window, is widened by
+
+```
+delay:    6 (|sigma_pos,i| + |sigma_pos,j|) / C                 (once when i = j)
+Doppler:  6 f_e (|sigma_vel,i| + |sigma_vel,j|) / C
+```
+
+with `|sigma|` the norm of a satellite's RIC one-sigma vector (`ephemeris_allowance`):
+three sigma of a range error on two legs. The terms above list only clocks, bias and
+oscillators, so a reference carrier, whose geometric window is a single predicted point,
+would otherwise be searched in a window narrower than the ephemeris error (with
+TLE-grade draws a reference was lost "below threshold"). The planning map of section 10
+does not add it.
+
 The CAF assumes the differential delay drifts by less than `0.5 / B` and the
-differential Doppler by less than `1 / T` over the capture. The caller checks this
-from predicted dynamics and shortens the capture or flags the result.
+differential Doppler by less than `1 / T` over the capture. Tasking checks this from
+bounds on the satellites' speed and acceleration (`2 (|v_i| + |v_j|) / C` for the TDOA
+rate and `2 f_e (|a_i| + |a_j|) / C` for the FDOA rate, times 1.5) and shortens the
+capture; a swept-waveform retry is not shortened. It also keeps `fs >= 2.2` times the
+largest Doppler magnitude searched, which `caf_estimate` requires (it matters in low
+orbit).
+
+**Repeat-detection gate** (tasking). The estimator gives about 1.6 to 2 % false alarms
+per capture at the default 13 dB in a large UHF window (about 4e5 cells), so a pair's
+rows enter the solver, and a cross-satellite detection is reported to the verdict, only
+when a detection is repeated consistently: every kind two detections share agrees
+within `5 sqrt(sigma_1^2 + sigma_2^2)` plus the largest change the satellites' motion
+allows over the interval (the rate bounds above times the time between them) plus
+100 ns or 1 mHz, and they share at least one kind. A consistency test in sigmas alone
+fails because a GEO pair's TDOA moves by microseconds in 5 s against sigmas of about
+0.1 us. The first detection's rows
+stay unused (reason `unconfirmed: ...`); after a confirmed track a detection that
+disagrees is refused (`inconsistent ...`); the 3 most recent unconfirmed detections are
+kept per pair, so a new track is accepted once it repeats. Reference measurements are
+not gated (their window is a small box around the prediction).
 
 ## 7. Detection and classification
 
@@ -575,28 +633,75 @@ from predicted dynamics and shortens the capture or flags the result.
   carrier would otherwise read +0.18 dB at `navg = 8`, +1.6 dB at `navg = 1`); "more
   than" carries a 1e-5 dB tolerance (float32 resolution), and the anomaly clears after
   `release_frames` consecutive frames at or below the limit.
+- Carrier ranges given to the trackers (server, `pipeline/detection.py`). An
+  authorised carrier is mapped to downlink frequencies through every watched satellite
+  whose transponder relays its centre (an authorised uplink appears on every satellite
+  that hears it), and each range is widened by `downlink_spread_hz`: the envelope of
+  `baseband_frequency` (both legs, section 4) over 24 h while the satellite is above the
+  site's (and, when known, the carrier's) horizon, sampled 64 times per orbital period
+  and at most every 15 min, plus `3 (sat_osc_frac |T_nom| + site_osc_frac f_down)` on
+  each side; then rounded outward to whole bins. Without it the Doppler of the inclined
+  geostationary satellites (20 to 66 Hz here) plus the translation-oscillator error
+  pushed a carrier's edge 2 to 3 bins outside its nominal range, beyond the tracker's
+  2-bin widening, and raised it as an unauthorised uplink signal. The cost: with the
+  default `sat_osc_frac` of 1e-6 an interferer within about 150 to 250 Hz of an
+  authorised carrier at UHF is attributed to the carrier unless it raises its power
+  (anomaly); in low orbit the band is several kHz.
 - Uplink mapping: a detection maps to the uplink through the transponder (of a
   satellite the channel watches) whose downlink passband contains the detection
-  centre, `f_up = f_down - translation_hz`. A detection outside every such passband
-  has no mapping and forms a single-channel event that can only be local or
-  undetermined.
+  centre (`uplink_for`), `f_up = f_down - translation_hz`; one mapping per watched
+  satellite whose passband contains it. Nominal translations are used, so the mapped
+  ranges of a narrowband signal through different satellites differ by their Doppler
+  and oscillator offsets (tens of Hz at GEO, kHz in low orbit). A detection outside
+  every such passband has no mapping: it lives in a downlink-frequency space shared by
+  all channels and forms an event that can only be local or undetermined (its evidence
+  rows have no satellite). A detection on an authorised carrier counts only while it is
+  anomalous.
 - Event identity: detections on any channels and any satellites whose mapped uplink
-  ranges overlap are one event. The event keeps one evidence row per channel whose
-  monitor covers the mapped downlink: `seen`, `not_seen_capable`, `not_capable` or
-  `stale`.
-- Capability: a channel B is `not_seen_capable` for an event seen on channel A of the
-  same satellite when its monitor covers the mapped downlink, its node is online with
-  a PSD frame newer than 3 frame periods, it has no detection overlapping the range,
-  and `cn0_A + q_B - q_A - 10 log10(max(f_hi - f_lo, bin_hz_B)) >= threshold_db + sensitivity_margin_db`,
-  with `q = downlink_quality_db = G_site(off-axis toward the satellite) - FSPL(f_d, rho_d) - L_pol - 10 log10(N0_site + N0_relay)` (linear sum inside the log).
-  Otherwise it is `not_capable` (or `stale` when the node is offline or its frame is
-  old).
-- Verdict, evaluated once `verdict_settle_s` has passed since the event's first
-  confirmed detection, then on every change. `uplink`: seen at two sites farther apart
-  than `min_site_separation_km` (same or different satellites), or tasking reports a
-  cross-satellite CAF detection inside the primary window. `local`: all `seen` rows
-  lie within `min_site_separation_km` of one site and some row at a farther site is
-  `not_seen_capable`. `undetermined`: otherwise.
+  ranges overlap (edges touching included) are one event. A new detection joins the
+  oldest overlapping active event; one that overlaps several merges them into the
+  oldest (the others are closed, `merged into ...`). When an event's detections fall
+  into groups that no longer overlap and stay apart for 5 s, the largest group keeps
+  the event and every other group becomes a new one (`split from ...`). A detection that
+  overlaps no active event re-opens the most recent `lost` event with an overlapping
+  range lost less than 900 s ago, else raises a new event. A closed event absorbs
+  detections of its range while it still holds detections, so closing an event that is
+  still on the air does not raise it again at once. A window that delivers no frame for
+  `max(3, release_frames)` frame periods releases its detections (its node went away).
+- Evidence: one row per receive channel watching a satellite whose transponder relays
+  the event's range and whose monitor window contains the centre of the mapped
+  downlink range (for an event outside every passband: every channel whose window
+  contains it), plus a row for every member detection: `stale` when the node is
+  offline or the window's newest frame is older than 3 frame periods; `seen` when the
+  channel has a detection of the event; `not_capable` when another event's detection
+  overlaps the range on that window; otherwise `not_seen_capable` or `not_capable` by
+  the capability rule.
+- Capability: a channel B is `not_seen_capable` when
+  `cn0_A + q_B - q_A - 10 log10(max(f_hi - f_lo, bin_hz_B)) >= T_B + sensitivity_margin_db`,
+  with A the sighting with the highest C/N0 on the same satellite,
+  `q = downlink_quality_db = G_site(off-axis toward the satellite) - FSPL(f_d, rho_d) - L_pol - 10 log10(N0_site + N0_relay)`
+  (linear sum inside the log; the table is refreshed every 30 s) and `T_B` the
+  tracker's `effective_threshold_db` when known, else `threshold_db`. Otherwise it is
+  `not_capable`; rows on a satellite nobody sees the event through are `not_capable`
+  with a null margin. `predicted_margin_db` is the left side minus `T_B`. For an event
+  outside every passband `q_B - q_A` is replaced by `10 log10(T_sys,A / T_sys,B)`
+  (receiver sensitivity only).
+- Verdict, evaluated once `verdict_settle_s` has passed since the event was raised (or
+  re-opened), then on every change. `uplink`: seen at two sites farther apart than
+  `min_site_separation_km` (same or different satellites), or tasking accepted a
+  cross-satellite CAF measurement (a confirmed pair, section 6) within the last
+  `CAF_EVIDENCE_S` = 30 s (each accepted measurement renews it). `local`: all `seen` rows
+  lie within `min_site_separation_km` of one site, and a `not_seen_capable` row lies at a
+  site farther than that from **every** seen site. `undetermined`: otherwise, with the
+  missing evidence named. Hysteresis: `uplink` is kept once established and `local` is
+  kept until the signal is seen at a distant site (which makes it `uplink`), so a site
+  dropping out of view does not flip the verdict; the reason text then speaks in the
+  past tense. One exception: when the evidence alone has said `local` for
+  `LOCAL_OVERRIDE_S` = 15 s with no fresh cross-satellite measurement, the uplink signal
+  has stopped and a local one occupies its frequency; the verdict becomes `local` and
+  the uplink position is set aside (ARCHITECTURE.md section 7). An event detected again
+  after a loss longer than 30 s has its measurements set aside and its verdict formed
+  again from `undetermined`.
 - Classification from a short IQ capture: occupied bandwidth, spectral flatness,
   kurtosis of the envelope, linearity of instantaneous frequency (sweep rate),
   cyclostationary symbol-rate line, on/off duty cycle. Classes: `cw`, `swept`,
@@ -790,6 +895,38 @@ Predicted sigmas and SNRs use the `B` and `T` the estimator would use
 ellipse, CEP50, the dominant term and the per-source budget at a given position with
 the `J`, `S` and observability rule of `solve` (row values unused), or `None` when
 unobservable.
+
+As implemented in `core.accuracy.accuracy_map`:
+
+- A cell is `"not admissible"` when it is outside the region or no listed pair has both
+  satellites at or above `solver.min_elevation_deg` with both paths existing;
+  `"unobservable"` as above. The reported semi-major axis is always at 95 %, whatever
+  `solver.confidence`.
+- Captures, windows, exclusions and mirror windows follow the tasking rules
+  (`capture_plan`, `pair_search`), the sample rate per pair (the lower maximum of its two
+  channels). `integration_s` replaces `capture.duration_s` without the `max_samples`
+  cap. `T` is evaluated at each cell's predicted TDOA.
+- Target budgets include power robbing by the configured carriers that have a location
+  and an emitter model and share the transponder; the reference's budget does not
+  include robbing by the target (whose flux varies per cell). Below saturation neither
+  matters.
+- Calibration is per pair: a pair whose two transponders do not both relay the
+  reference, or whose predicted reference SNR is below `caf.min_snr_db`, stays
+  uncalibrated (the pair entry says why); a reference whose predicted TDOA sigma
+  exceeds `caf.max_tdoa_sigma_s` leaves that pair's TDOA row uncalibrated.
+- Not modelled: the ephemeris allowance and Doppler sample-rate rule of section 6 (they
+  change windows, not sigmas, at GEO); a band filter for a carrier of zero width (a CW is
+  predicted with `B = fs`, and the estimator measures about 10 dB more post-correlation
+  SNR on a CW than `B T C` predicts, so CW predictions are pessimistic); waveform
+  coupling (`rho_tf = 0`) and the periodic peaks of a chirp; a co-channel copy of the
+  signal in a channel as noise (on pairs whose channel also hears the co-channel
+  satellite the correlator reports up to a third more reference TDOA noise than
+  predicted, 155 to 162 ns against 121 ns); multi-epoch fusion (one TDOA and one FDOA per
+  pair at `t_ns`).
+- Checked against the solver's own covariance (within 0.3 %) and against full-chain
+  Monte Carlo misses (empirical over predicted 95 % semi-major 0.99 to 1.09 at three
+  cells, 120 solves each; mean NEES under the map's covariance 1.94 to 2.27 at three
+  cells, 40 trials each).
 
 ## 11. Lines of position
 

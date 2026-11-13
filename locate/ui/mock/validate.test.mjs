@@ -31,6 +31,16 @@ describe('mock validator', () => {
     expect(validateConfig(cfg2, schema).errors).toEqual(sample.carrier.errors);
   });
 
+  it('checks site time zones as Site.time_zone does', () => {
+    const cfg = structuredClone(env.config);
+    cfg.sites[0].time_zone = 'Pacific/Atlantis';
+    cfg.sites[1].time_zone = 'Asia Tokyo';
+    expect(validateConfig(cfg, schema).errors).toEqual(sample.time_zone.errors);
+    const ok = structuredClone(env.config);
+    ok.sites[0].time_zone = 'Pacific/Honolulu';
+    expect(validateConfig(ok, schema)).toMatchObject({ ok: true, errors: [] });
+  });
+
   it('warns about electrically small dishes like SystemConfig.warnings', () => {
     const real = env.warnings.filter((w) => w.msg.includes('reflector') || w.msg.includes('navg'));
     const mine = configWarnings(env.config).filter((w) => w.msg.includes('reflector') || w.msg.includes('navg'));

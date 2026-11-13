@@ -23,8 +23,11 @@ What the scenarios must show (config/scenarios/*.yaml):
 - uplink-cw: FDOA only, and the operator is told in words why there is no TDOA.
 - local-interferer: a local verdict at one site; never located; tasking stands down.
 - clock-fault: calibration at work: every solved row carries a reference-carrier
-  correction, pairs through the late Manila clock are used, and the same rows solved
-  without their corrections fit far worse.
+  correction, pairs through the late Naha clock and a rotated partner (Manila) are used,
+  and the same rows solved without their corrections land far from the truth.
+- ephemeris-error: two satellites kilometres off in-track (TLE-class) while the solver
+  assumes 1 km: the calibrated fix holds the truth inside its ellipse, and the same rows
+  solved without their corrections land more than 10 km off.
 - uplink-swept: ambiguous correlations and no false position.
 - two-jammers: two separate events, each located near its own jammer.
 
@@ -532,9 +535,11 @@ async def test_local_interferer_is_judged_local_and_never_located(demo: Demo) ->
 
 @pytest.mark.slow
 async def test_clock_fault_shows_the_calibration_at_work(demo: Demo) -> None:
-    """Manila's clock runs 2 us late. Pairs through Manila carry it in their TDOA;
-    the reference carrier, measured through the same two sites, carries it too, so the
-    calibrated rows agree with the others while the raw ones do not."""
+    """Naha's clock runs 10 us late. Pairs through Naha carry it in their TDOA; the
+    reference carrier, measured through the same two sites, carries it too, so the
+    calibrated rows agree with the others while the raw ones do not. The test waits for
+    a located event that also uses a rotated partner (a pair through Manila), so rows of
+    several site pairs are mixed."""
     async with _scenario(demo, "clock-fault") as (client, console, known):
 
         async def through_manila() -> dict[str, Any] | None:
@@ -580,7 +585,64 @@ async def test_clock_fault_shows_the_calibration_at_work(demo: Demo) -> None:
         raw_miss, raw_fit = miss_and_fit(False)
         print(f"[clock-fault] calibrated miss {truth['miss_m']:.0f} m; same rows uncorrected: miss {raw_miss:.0f} m, "
               f"reduced chi2 {raw_fit:.1f}")
-        assert raw_miss > 2.0 * truth["miss_m"] and raw_miss > 2_000.0
+        # How far the uncorrected rows land depends on how many of the mixed rows go
+        # through Naha (time of day, partner rotation): 1.6 km and more has been seen live.
+        # Whatever the mix, they must land well outside the calibrated fix's 95 % ellipse.
+        semi_major = event["solution"]["ellipse"]["semi_major_m"]
+        assert raw_miss > 2.0 * truth["miss_m"] and raw_miss > 2.0 * semi_major, (raw_miss, semi_major)
+
+
+def _solve_used_rows(config_text: str, event: dict[str, Any], calibrated: bool) -> tuple[float, float, Any]:
+    """Solve the rows the server used, with or without their reference corrections:
+    (miss from the truth m, reduced chi-square, solution)."""
+    cfg = loads_config(config_text, fmt="yaml", source="GET /config")
+    f_e = float(round(0.5 * (event["uplink_lo_hz"] + event["uplink_hi_hz"])))
+    truth = event["truth"]
+    rows = []
+    for m in (m for m in event["measurements"] if m["used"]):
+        ends = []
+        for end in (m["pair"]["a"], m["pair"]["b"]):
+            transponder = next(t for t in cfg.satellite(end["sat_id"]).transponders if t.relays(f_e))
+            ends.append(PathSpec(end["sat_id"], end["site_id"], f_e, transponder.translation_hz))
+        value = m["value"] if calibrated else m["value"] + m["correction"]
+        rows.append(Measurement(m["kind"], value, m["sigma"], int(m["t_ns"]), ends[0], ends[1]))
+    solution, reason = solve(rows, cfg.orbits(), cfg.sites_xyz(), cfg.processing.solver, cfg.processing.region,
+                             cfg.resolved_uncertainty())
+    assert solution is not None, reason
+    miss = float(geodesic_distance_m(solution.lat_deg, solution.lon_deg, truth["lat_deg"], truth["lon_deg"]))
+    return miss, float(solution.chi2) / max(solution.dof, 1), solution
+
+
+@pytest.mark.slow
+async def test_ephemeris_error_is_removed_by_the_reference_calibration(demo: Demo) -> None:
+    """MUOS Pacific is 8 km ahead and the 172 E satellite 6 km behind in-track while the
+    server assumes the operator-grade 1 km. The Guam reference, 560 km from the jammer,
+    carries nearly the same satellite errors: calibrated, the truth is inside the
+    ellipse; the very same rows without their corrections land more than 10 km off."""
+    async with _scenario(demo, "ephemeris-error") as (client, console, known):
+
+        async def located() -> dict[str, Any] | None:
+            for summary in await _new_events(client, known):
+                if summary["state"] != "located":
+                    continue
+                event = await _event(client, summary["id"])
+                if (event["solution"] or {}).get("n_measurements", 0) >= 8:
+                    return event
+            return None
+
+        event = await _wait_for(located, 150.0, "a located event with 8 accepted measurements")
+        config_text = (await client.get(f"{API}/config", params={"format": "yaml"})).text
+        _report("ephemeris-error", event)
+        assert event["verdict"] == "uplink"
+        truth = event["truth"]
+        assert truth["emitter_id"] == "jammer-philsea" and truth["inside_ellipse"] is True
+        assert truth["miss_m"] < 2_000.0
+        used = [m for m in event["measurements"] if m["used"]]
+        assert used and all(m["calibrated"] and m["reference_carrier_id"] == "ref-guam" for m in used)
+        raw_miss, raw_fit, _ = _solve_used_rows(config_text, event, calibrated=False)
+        print(f"[ephemeris-error] calibrated miss {truth['miss_m']:.0f} m; same rows uncorrected: miss {raw_miss:.0f} m, "
+              f"reduced chi2 {raw_fit:.2f}")
+        assert raw_miss > 10_000.0 and raw_miss > 5.0 * truth["miss_m"]
 
 
 @pytest.mark.slow

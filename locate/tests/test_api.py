@@ -609,6 +609,75 @@ async def test_accuracy_map_is_banded_cached_and_bounded(
         assert reply.status_code == 422 and reply.json()["errors"][0]["loc"] == "pairs"
 
 
+async def test_accuracy_map_uncertainty_override_is_used_for_that_map_only(
+    files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``AccuracyRequest.uncertainty`` replaces ``processing.uncertainty`` for one map
+    (what-if planning) without touching the configuration in force."""
+    seen: list[tuple[float, float]] = []
+
+    def accuracy_map(config: Any, pairs: Any, emitter: Any, f_e_hz: float, t_ns: int, region: Any, step_deg: float,
+                     **_: Any) -> dict[str, Any]:
+        unc = config.resolved_uncertainty()
+        seen.append((unc.tdoa_bias_s, float(unc.sat_pos_ric_m["sat-a"][1])))
+        lat, lon = region.grid(step_deg)
+        value = unc.tdoa_bias_s * 1e9 + float(unc.sat_pos_ric_m["sat-a"][1])
+        return {"lat_deg": lat, "lon_deg": lon, "semi_major_95_m": [[value for _ in lon] for _ in lat],
+                "cep50_m": [[value / 2 for _ in lon] for _ in lat], "dominant": [["noise" for _ in lon] for _ in lat]}
+
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: accuracy_map)
+    async with serving(settings_for(files), files["presets"]) as (app, client):
+        body = {"pairs": [["alpha-a", "bravo-b"]], "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
+                "f_e_hz": 300.0e6, "step_deg": 10.0, "t": T_FIXED}
+        configured = (await client.post(f"{API}/analysis/accuracy", json=body)).json()
+        assert configured["semi_major_95_m"][0][0] == pytest.approx(50.0 + 1000.0)  # defaults: 50 ns, 1000 m in-track
+        what_if = dict(body, uncertainty={"ephemeris": {"operator": {"pos_m": [10, 20, 30], "vel_mps": [0, 0, 0]}},
+                                          "tdoa_bias_ns": 5.0})
+        reply = await client.post(f"{API}/analysis/accuracy", json=what_if)
+        assert reply.status_code == 200, reply.text
+        assert reply.json()["semi_major_95_m"][0][0] == pytest.approx(5.0 + 20.0)
+        assert seen[-1] == (pytest.approx(5e-9), 20.0)
+        runtime = runtime_of(app)
+        assert runtime.config.processing.uncertainty.tdoa_bias_ns == 50.0  # the configuration is untouched
+        assert (await client.post(f"{API}/analysis/accuracy", json=body)).json() == configured  # cache keyed apart
+        bad = dict(body, uncertainty={"tdoa_bias_ns": -1.0})
+        reply = await client.post(f"{API}/analysis/accuracy", json=bad)
+        assert reply.status_code == 422 and reply.json()["errors"][0]["loc"] == "uncertainty.tdoa_bias_ns"
+
+
+def test_accuracy_override_against_the_real_engine() -> None:
+    """With the real ``core.accuracy`` on the example configuration: removing the
+    ephemeris and oscillator uncertainty can only shrink every predicted ellipse, and it
+    does shrink an uncalibrated two-pair map dominated by ephemeris error."""
+    from petal_locate.config import load_config
+    from petal_locate.config.models import UncertaintyConfig
+    from petal_locate.core.accuracy import accuracy_map
+
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "pacific-uhf.yaml")
+    request = schemas.AccuracyRequest(
+        pairs=[("naha-pac", "naha-172e"), ("naha-io", "naha-172e")],
+        emitter={"eirp_dbw": 25.0, "bandwidth_hz": 8e3},
+        f_e_hz=301.005e6,
+        step_deg=5.0,
+        region={"lat_min": 10.0, "lat_max": 30.0, "lon_min": 120.0, "lon_max": 140.0},
+    )
+    exact = UncertaintyConfig.model_validate({
+        "ephemeris": {"operator": {"pos_m": [0, 0, 0], "vel_mps": [0, 0, 0]}, "tle": {"pos_m": [0, 0, 0], "vel_mps": [0, 0, 0]}},
+        "sat_osc_frac": 0.0, "site_osc_frac": 0.0, "tdoa_bias_ns": 0.0})
+    t_ns = 1_794_571_200_000_000_000  # 2026-11-13T12:00:00Z
+    assert request.region is not None
+    base = rest.compute_accuracy(accuracy_map, cfg, request, t_ns)
+    ideal = rest.compute_accuracy(accuracy_map, cfg, request.model_copy(update={"uncertainty": exact}), t_ns)
+    assert rest.accuracy_config(cfg, request) is cfg
+    assert cfg.processing.uncertainty.tdoa_bias_ns == 50.0
+    pairs = [(b, i) for rb, ri in zip(base.semi_major_95_m, ideal.semi_major_95_m) for b, i in zip(rb, ri)
+             if b is not None and i is not None]
+    assert len(pairs) >= 10
+    assert all(i <= b * (1 + 1e-9) for b, i in pairs)
+    assert sum(i < 0.5 * b for b, i in pairs) >= len(pairs) // 2
+    assert {d for row in ideal.dominant for d in row if d is not None} == {"noise"}
+
+
 async def test_accuracy_map_failures(files: dict[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
     body = {"pairs": [["alpha-a", "bravo-b"]], "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
             "f_e_hz": 300.0e6, "step_deg": 5.0, "t": T_FIXED}

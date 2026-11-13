@@ -358,9 +358,16 @@ async def test_scenario_replacement_presets_and_reset(running: Running) -> None:
     subscription = runtime.console.subscribe()
     envelope = runtime.scenario_envelope()
     assert envelope.version == 1 and envelope.scenario.name == "base"
+    tasking = runtime.tasking
+    assert tasking is not None
+    world_changes: list[int] = []
+    tasking.world_changed = world_changes.append  # type: ignore[method-assign]
     moved = make_scenario("moved", lat=25.0).model_dump(mode="json")
+    before = time.time_ns()
     result = await runtime.replace_scenario(moved)
     assert result.version == 2 and runtime.scenario.name == "moved"
+    # tasking drops the old world's calibrations from the moment the new one takes effect
+    assert len(world_changes) == 1 and isinstance(world_changes[0], int) and world_changes[0] > before
     assert running.announced[-1][0] == 2
     assert {"type": "sim", "version": 2} in drain(subscription)
     latest = await runtime.store.latest_scenario()
@@ -390,6 +397,7 @@ async def test_scenario_replacement_presets_and_reset(running: Running) -> None:
     reset = await runtime.reset_scenario()
     assert reset.scenario.name == "base" and reset.version == 4
     assert runtime.scenario_version == 4 and len(running.announced) == 3
+    assert len(world_changes) == 3  # replace, preset, reset; refused loads change nothing
 
 
 async def test_a_server_without_scenario_is_not_simulating(files: dict[str, Path]) -> None:

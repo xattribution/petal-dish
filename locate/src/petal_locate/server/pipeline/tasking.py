@@ -28,8 +28,12 @@ every ``capture.interval_s``:
    exclude that channel for this event.
 4. **Calibrate.** ``core.solver.calibration_correction`` turns each reference
    measurement into a correction keyed by ``(a.sat_id, a.site_id, b.sat_id,
-   b.site_id, kind)`` (sign-flipped for the reversed pair), valid for
+   b.site_id, kind)`` and reference carrier (sign-flipped for the reversed pair; events
+   on different reference carriers through the same channels each keep theirs and
+   are scheduled separately, every ``calibration.interval_s``), valid for
    ``calibration.max_age_s``, each with its own ``cal_id``; stored in the store.
+   All are dropped when the configuration changes (``reconfigure``) or the
+   simulated world is replaced (``world_changed``).
 5. **Correlate** each pair (``core.caf.caf_estimate`` in a worker thread): windows
    from ``measurement_windows`` + ``search_windows`` (shifted by a valid
    calibration), self-peaks excluded for every satellite heard by both channels (and
@@ -47,7 +51,9 @@ every ``capture.interval_s``:
    repeated at a consistent TDOA/FDOA: within ``CONFIRM_SIGMAS`` combined sigmas plus
    the largest change the satellites' motion allows over the interval. Until then
    the rows carry ``REASON_UNCONFIRMED``.
-7. **Classify** the primary capture (``core.detect.classify`` in a worker thread);
+7. **Classify** the primary capture (``core.detect.classify`` in a worker thread)
+   over the event's own band (``CLASSIFY_BAND_FACTOR`` times its width, so that a
+   neighbouring carrier inside a minimum-rate capture is not classified in its place);
    a swept waveform is captured again over at least ``SWEEP_PERIODS`` sweep periods.
 8. **Solve** the newest ``solver.max_measurements`` accepted rows (worker thread):
    the global search on the first solve, every ``GLOBAL_SEARCH_EVERY``-th solve and
@@ -121,7 +127,7 @@ from petal_locate.core.caf import (
     caf_estimate,
 )
 from petal_locate.core.constants import C
-from petal_locate.core.detect import classify
+from petal_locate.core.detect import MIN_CLASSIFY_SAMPLES, classify
 from petal_locate.core.geometry import elevation_deg, measurement_windows, predict_pair, search_windows, self_peak
 from petal_locate.core.solver import Solution, calibration_correction, solve
 from petal_locate.core.types import CalRef, Measurement, PathSpec, Uncertainty
@@ -200,6 +206,10 @@ WARM_RCHI2_LIMIT: Final[float] = 3.0
 SWEEP_PERIODS: Final[int] = 5
 """A swept waveform is captured again over at least this many sweep periods."""
 
+CLASSIFY_BAND_FACTOR: Final[float] = 4.0
+"""The primary capture is classified over this many times the event's width, centred on
+the event (at least ``2 x MIN_CLASSIFY_SAMPLES`` samples, at most the whole capture)."""
+
 PREFER_SAME_SITE_DB: Final[float] = 3.0
 
 PRIMARY_HOLD_DB: Final[float] = 3.0
@@ -232,7 +242,7 @@ MAX_CONCURRENT_ROUNDS: Final[int] = 4
 _GUARD_LAGS: Final[int] = 24  # core.caf searches 24 lags + 8 main lobes beyond each window edge
 _DOPPLER_FS_FACTOR: Final[float] = 2.2  # fs must exceed this times the largest |Doppler| searched
 _MIN_SIGNAL_BW_HZ: Final[float] = 10.0
-_MIN_SAMPLES: Final[int] = 1024  # classify() needs this many
+_MIN_SAMPLES: Final[int] = MIN_CLASSIFY_SAMPLES  # classify() needs this many
 _TDOA_FLOOR_S: Final[float] = 1e-7  # smallest confirmation gate, s
 _FDOA_FLOOR_HZ: Final[float] = 1e-3  # smallest confirmation gate, Hz
 _CANDIDATES_KEPT: Final[int] = 3  # unconfirmed detections remembered per pair
@@ -639,6 +649,38 @@ def _in_band(f_centre: float, width_hz: float, fc: float, fs: float) -> bool:
     return _overlaps(f_centre - half, f_centre + half + 1e-9, fc - 0.5 * fs, fc + 0.5 * fs)
 
 
+def _classification_band(iq: Any, fs: float, offset_hz: float, width_hz: float) -> tuple[Any, float]:
+    """The part of a capture that classification looks at, as ``(iq, fs)``.
+
+    iq, fs: the capture (complex baseband) and its sample rate, Hz.
+    offset_hz: centre of the event relative to the capture centre, Hz.
+    width_hz: the event's width, Hz.
+    The band of ``CLASSIFY_BAND_FACTOR x width_hz`` (at least ``2 x
+    MIN_CLASSIFY_SAMPLES`` samples) around the event is cut out of the spectrum and
+    returned at baseband at the reduced rate, with the amplitude of signals inside it
+    unchanged; the frequency resolution (the capture length) is kept. Returns the
+    capture itself when that band is the whole capture. A capture at the minimum rate
+    is much wider than a narrow event, and ``core.detect.classify`` classifies the
+    strongest signal it sees: without this a neighbouring carrier can take the event's
+    place."""
+    x = np.asarray(iq)
+    n = int(x.shape[0])
+    keep_hz = max(CLASSIFY_BAND_FACTOR * max(width_hz, _MIN_SIGNAL_BW_HZ), 2.0 * MIN_CLASSIFY_SAMPLES * fs / n)
+    m = int(round(n * keep_hz / fs))
+    if m >= n:
+        return iq, fs
+    spectrum = np.roll(np.fft.fft(x.astype(np.complex128)), -int(round(offset_hz * n / fs)))
+    half = m // 2
+    kept = np.concatenate((spectrum[: m - half], spectrum[n - half :]))
+    return np.fft.ifft(kept) * (m / n), fs * m / n
+
+
+def _classify_event(iq: Any, fs: float, offset_hz: float, width_hz: float) -> Any:
+    """Worker job: ``core.detect.classify`` over the event's band (``_classification_band``)."""
+    band, rate = _classification_band(iq, fs, offset_hz, width_hz)
+    return classify(band, rate)
+
+
 def _channel_ref(pick: _Pick) -> schemas.ChannelRef:
     return schemas.ChannelRef(sat_id=pick.sat_id, site_id=pick.site_id, channel_id=pick.channel_id)
 
@@ -986,8 +1028,12 @@ class Tasking:
         self._tick_s = float(tick_s)
         self._max_rounds = int(max_rounds)
         self._states: dict[str, _EventState] = {}
-        self._calibrations: dict[tuple[str, str, str, str, str], Calibration] = {}
-        self._cal_attempts: dict[tuple[tuple[str, str], tuple[str, str]], int] = {}
+        # calibrations in force by (Calibration.key, carrier_id): one per pair, kind and carrier
+        self._calibrations: dict[tuple[tuple[str, str, str, str, str], str], Calibration] = {}
+        # last reference attempt per (pair group, carrier): two events on different reference
+        # carriers through the same channels must not hold back each other's calibration
+        self._cal_attempts: dict[tuple[tuple[tuple[str, str], tuple[str, str]], str], int] = {}
+        self._world_since_ns: int | None = None  # calibrations measured before this are not kept
         self._cal_seq = itertools.count(1)
         self._loop_task: asyncio.Task[None] | None = None
         self._background: set[asyncio.Task[Any]] = set()
@@ -1040,6 +1086,18 @@ class Tasking:
             state.next_due_ns = 0
         self._count("reconfigured")
         logger.info("tasking reconfigured (generation %d)", self._generation, extra={"generation": self._generation})
+
+    def world_changed(self, effective_ns: int) -> None:
+        """The simulated world was replaced (a scenario load), taking effect at
+        ``effective_ns`` (server time, integer ns). A reference calibration describes the
+        world it was measured in (its satellites' errors, its sites' clocks), so the
+        calibrations held are dropped, any measured before ``effective_ns`` by a round
+        still in flight are not kept, and every pair is calibrated again at its next
+        round."""
+        self._world_since_ns = int(effective_ns)
+        self._calibrations.clear()
+        self._cal_attempts.clear()
+        logger.info("simulated world replaced: calibrations dropped", extra={"effective_ns": str(int(effective_ns))})
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -1477,13 +1535,13 @@ class Tasking:
         now = self._clock()
         plans: list[_RefPlan] = []
         for b in partners:
-            last = self._cal_attempts.get(self._cal_group(primary, b))
-            if last is not None and now - last < interval_ns:
-                continue
             carriers = self._references_for(primary, b, lo, hi, f_e)
             if not carriers:
                 continue
             carrier = carriers[0]
+            last = self._cal_attempts.get((self._cal_group(primary, b), carrier.id))
+            if last is not None and now - last < interval_ns:
+                continue
             bandwidth = float(carrier.emitter.bandwidth_hz) if carrier.emitter.bandwidth_hz > 0 else float(carrier.bandwidth_hz)
             plans.append(
                 _RefPlan(
@@ -1517,18 +1575,18 @@ class Tasking:
             ((a.sat_id, a.site_id, b.sat_id, b.site_id, kind), 1.0, (a_tp, b_tp)),
             ((b.sat_id, b.site_id, a.sat_id, a.site_id, kind), -1.0, (b_tp, a_tp)),
         ):
-            entry = self._calibrations.get(key)
-            if entry is None or abs(t_ns - entry.t_ns) > max_age_ns:
-                continue
             try:
                 first = self._config.satellite(key[0]).transponder(tps[0])
                 second = self._config.satellite(key[2]).transponder(tps[1])
             except ValueError:
                 continue
-            if not (first.relays(entry.f_ref_hz) and second.relays(entry.f_ref_hz)):
-                continue
-            if best is None or entry.t_ns > best[0]:
-                best = (entry.t_ns, sign * entry.correction, entry.cal)
+            for (held, _carrier), entry in self._calibrations.items():
+                if held != key or abs(t_ns - entry.t_ns) > max_age_ns:
+                    continue
+                if not (first.relays(entry.f_ref_hz) and second.relays(entry.f_ref_hz)):
+                    continue
+                if best is None or entry.t_ns > best[0]:
+                    best = (entry.t_ns, sign * entry.correction, entry.cal)
         return None if best is None else (best[1], best[2])
 
     # ------------------------------------------------------------------ windows
@@ -1891,7 +1949,7 @@ class Tasking:
         self._book.mark_characterizing(event_id, self._clock())
         now = self._clock()
         for plan in ref_plans:
-            self._cal_attempts[self._cal_group(plan.a, plan.b)] = now
+            self._cal_attempts[(self._cal_group(plan.a, plan.b), plan.carrier_id)] = now
         state.rounds += 1
         state.last_round_ns = started
         state.channels = tuple([primary.channel_id] + [p.channel_id for p in partners])
@@ -1929,7 +1987,9 @@ class Tasking:
         # ---- classification and references ----------------------------------------------------
         jobs: list[Any] = []
         if need_class and primary_out.capture is not None:
-            jobs.append(self._pool.run(classify, primary_out.capture.iq, float(primary_out.capture.sample_rate_hz)))
+            cap = primary_out.capture
+            offset = f_e + primary.translation_hz - float(cap.center_hz)  # the event within the capture
+            jobs.append(self._pool.run(_classify_event, cap.iq, float(cap.sample_rate_hz), offset, signal_bw))
         ref_jobs: list[tuple[_RefPlan, _RefJob]] = []
         for plan in ref_plans:
             job = self._reference_job(plan, outcomes, geo.elevation, report)
@@ -2136,6 +2196,9 @@ class Tasking:
             report.notes.append(f"calibration with {plan.carrier_id}: {problem}")
         snr = _finite(outcome.result.snr_db) or 0.0
         for kind, correction, cal in outcome.corrections:
+            if self._world_since_ns is not None and int(cal.t_ns) < self._world_since_ns:
+                report.notes.append(f"calibration with {plan.carrier_id} measured before the simulated world changed")
+                continue
             key = (cal.a.sat_id, cal.a.site_id, cal.b.sat_id, cal.b.site_id, kind)
             entry = Calibration(
                 key=key,
@@ -2148,7 +2211,7 @@ class Tasking:
                 f_ref_hz=plan.f_ref_hz,
                 snr_db=snr,
             )
-            self._calibrations[key] = entry
+            self._calibrations[(key, plan.carrier_id)] = entry
             report.calibrations.append(entry)
             self._count("calibrations")
             logger.info(

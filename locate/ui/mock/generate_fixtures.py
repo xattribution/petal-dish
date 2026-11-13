@@ -408,6 +408,10 @@ def caf_display(pr: PairResult) -> dict[str, Any]:
         "snr_db": float(r.snr_db),
         "detected": bool(r.detected),
         "reason": r.reason,
+        # as server/pipeline/events.caf_display builds them (a CW ridge has no delay)
+        "candidates": [{"tdoa_s": None if (r.reason == "narrowband" or not np.isfinite(c[0])) else float(c[0]),
+                        "fdoa_hz": float(c[1]), "snr_db": float(c[2])}
+                       for c in (r.candidates or [])[:8] if np.isfinite(c[1]) and np.isfinite(c[2])],
     }
 
 
@@ -470,6 +474,9 @@ def measurement_rows(rows: list[Row], solution: Any) -> list[dict[str, Any]]:
             "calibrated": bool(calibrated),
             "used": row.used,
             "reason": row.reason,
+            # as server/pipeline/tasking.py fills them: the correction already subtracted and its carrier
+            "correction": float(row.m.correction) if calibrated else None,
+            "reference_carrier_id": row.m.cal.cal_id.split("|")[0] if calibrated else None,
         })
     return out
 
@@ -988,7 +995,9 @@ def solution_summary(sol: Any) -> dict[str, Any] | None:
     if sol is None:
         return None
     return {"lat_deg": sol.lat_deg, "lon_deg": sol.lon_deg, "semi_major_m": sol.ellipse["semi_major_m"], "semi_minor_m": sol.ellipse["semi_minor_m"],
-            "azimuth_deg": sol.ellipse["azimuth_deg"], "cep50_m": sol.cep50_m, "ambiguous": len(sol.ambiguities) > 0}
+            "azimuth_deg": sol.ellipse["azimuth_deg"], "cep50_m": sol.cep50_m, "ambiguous": len(sol.ambiguities) > 0,
+            "ambiguities": [{"lat_deg": a.lat_deg, "lon_deg": a.lon_deg, "semi_major_m": a.ellipse["semi_major_m"],
+                             "semi_minor_m": a.ellipse["semi_minor_m"], "azimuth_deg": a.ellipse["azimuth_deg"]} for a in sol.ambiguities]}
 
 
 def downlink_ranges(f_lo_up: float, f_hi_up: float) -> list[dict[str, Any]]:
@@ -1023,10 +1032,13 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                 bad["sites"][1]["channels"][0]["pointing"] = {"satellite_id": "muos-atl"}
             elif name == "carrier":
                 bad["carriers"][0]["uplink_center_hz"] = 301.2e6
+            elif name == "time_zone":
+                bad["sites"][0]["time_zone"] = "Pacific/Atlantis"
+                bad["sites"][1]["time_zone"] = "Asia Tokyo"
             return bad
 
         samples = {}
-        for name in ("field", "xref", "carrier"):
+        for name in ("field", "xref", "carrier", "time_zone"):
             try:
                 SystemConfig.model_validate(mutate(name))
                 raise AssertionError(f"expected validation errors for {name}")

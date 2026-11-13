@@ -80,6 +80,8 @@ describe('ApiClient', () => {
     expect(e).toBeInstanceOf(ValidationError);
     expect((e as ValidationError).message).toBe('1 field problem');
     expect((e as ValidationError).errors[0]!.loc).toBe('satellites.0.orbit.line1');
+    // pydantic's "Value error, " prefix is not shown to the operator
+    expect((e as ValidationError).errors[0]!.msg).toBe('TLE checksum mismatch: expected 7, found 3');
   });
 
   it('turns FastAPI 422 detail lists into dotted locations without the body prefix', async () => {
