@@ -28,6 +28,10 @@ bytes 8..8+H  header, UTF-8 JSON object with a "type" field
 remainder     payload, little-endian
 ```
 
+Senders pad the header JSON with trailing spaces so the payload starts on an 8-byte
+boundary (`H` includes the padding); receivers accept unpadded frames. Payloads never
+contain NaN or infinities.
+
 Receivers reject frames with a wrong magic, an oversized header (> 64 KiB), or a
 payload whose length does not match the header.
 
@@ -39,30 +43,41 @@ payload whose length does not match the header.
 2. Server -> `welcome`
    `{type, protocol: 1, server_t_ns, heartbeat_s (default 2), config_version,
    channels: [ChannelAssignment], simulation: {enabled, scenario_url?, version?}}`
-   or `reject {type, reason}` followed by close. Reasons: `bad_token` (wrong token, or
-   the server holds no token for the site), `unknown_site`, `protocol_mismatch`,
-   `duplicate_node` (a *different* node_id holds the site).
+   or `reject {type, reason}` followed by close (code 1008). Reasons, checked in this
+   order: `protocol_mismatch`, `bad_token` (wrong token, or the server holds no token
+   for the site, so only a token holder can learn which sites exist), `unknown_site`,
+   `duplicate_node` (a *different* node_id holds the site). `simulation` may be
+   absent (= not simulating).
    A hello whose node_id equals that of the live session for the site **replaces** it:
    the server closes the old socket with code 4001, fails its pending captures and
    continues with `welcome`.
 3. After `welcome` and after every `assign` the node opens one driver per channel and
    sends `assign_ack {type, config_version, ok, channels: [{channel_id, ok, error?,
-   capabilities: {min_hz, max_hz, max_sample_rate_hz, lookback_s, concurrent_reads}}]}`.
-   The server does not task a channel before its ack; tasking uses
-   `min(config max_sample_rate_hz, capabilities.max_sample_rate_hz)`.
+   capabilities: {min_hz, max_hz, max_sample_rate_hz, lookback_s, concurrent_reads}}]}`
+   (`capabilities` is required when `ok`). A channel whose assignment is unchanged
+   keeps its driver, monitors and captures through an `assign`; only removed or
+   changed channels are reopened. An ack counts only for the `config_version` last
+   sent, and a node skips an assign that was superseded before it was applied.
+   The server does not task a channel, or accept its spectrum frames, before its ack;
+   tasking uses `min(config max_sample_rate_hz, capabilities.max_sample_rate_hz)`.
 4. Node -> `heartbeat {type, seq, t_ns, rtt_ms, clock: ClockStatus, load: {cpu, queue}}`
    every `heartbeat_s` (`rtt_ms` = node-measured round trip of the previous
-   heartbeat); server -> `heartbeat_ack {type, seq, server_t_ns}`. Any frame received
-   from a node counts as liveness. Three heartbeat periods of silence mark the node
-   offline and fail its pending captures.
+   heartbeat, omitted until one has been measured); server -> `heartbeat_ack {type,
+   seq, server_t_ns}`. Any frame received from a node counts as liveness. Three
+   heartbeat periods of silence mark the node offline, fail its pending captures and
+   close the socket (code 4002). A node that hears nothing from the server for
+   `max(10 s, 5 heartbeat_s)` closes and reconnects.
 5. Server -> `assign {type, config_version, channels: [ChannelAssignment]}` whenever
    configuration changes. An assign fails pending captures on removed or changed
-   channels.
+   channels. A site removed from the configuration is closed with code 1008.
 
 ```
 ChannelAssignment  {channel_id, antenna_summary, monitors: [{monitor_id, center_hz, span_hz, nfft, navg, frame_rate_hz}]}
 ClockStatus        {source: "gpsdo" | "ntp" | "sim" | "free", locked: bool, est_offset_ns: number, holdover_s: number}
 ```
+
+Limits: identifiers are 1 to 256 characters; `nfft` is 2 to 131072; a capture is 1 to
+8,388,608 samples (64 MiB).
 
 `est_offset_ns` is the node's estimate of `delta_g` of MATH.md section 4 (true time
 minus labelled time). It is displayed and never applied to measurements. A capture
@@ -76,7 +91,10 @@ seq, units: "dB"}`; payload `float32[nfft]`, fft-shifted so bin `k` is at
 `center_hz + (k - nfft/2) * span_hz / nfft`; `t_ns` is the first-sample time.
 
 PSD frames are droppable: the node keeps at most one unsent frame per monitor (newest
-wins), so gaps in `seq` are normal.
+wins), so gaps in `seq` are normal. `center_hz`, `span_hz` and `t_ns` are what the
+driver actually measured. `seq` restarts at 0 when a channel is reopened. The server
+drops frames for channels that are not acknowledged, windows that are not assigned,
+or a different `nfft`.
 
 ## Captures
 
@@ -92,15 +110,23 @@ Node -> one or more binary frames, header
 `{type: "capture_data", capture_id, channel_id, seq, last: bool, t_first_ns,
 sample_rate_hz, center_hz, n_samples_total, offset, n, overflow: bool, clock:
 ClockStatus}`; payload `complex64[n]` (interleaved float32 I, Q). Chunks are at most
-256 KiB of payload and arrive in order; `offset` is the index of the chunk's first
-sample. The node yields between chunks so heartbeats and PSD frames interleave.
+256 KiB of payload (32 KiB by default, so that heartbeats still get through a
+44 kbit/s uplink) and arrive in order; `offset` is the index of the chunk's first
+sample. Between chunks the node sends any waiting control message and the waiting
+spectrum frame of every window. Across the chunks of one capture `capture_id`,
+`channel_id`, `t_first_ns`, `sample_rate_hz`, `center_hz` and `n_samples_total` are
+constant, and `n_samples_total` equals the requested `n_samples`; `overflow` is OR-ed
+and an unlocked clock in any chunk marks the capture unlocked.
 
 Node -> `capture_error {type, capture_id, channel_id, code, message}` with codes
 `out_of_range` (frequency or rate), `too_late` (interval no longer buffered),
 `overflow`, `driver`, `busy`, `cancelled`. A `capture_error` after partial data voids
-the capture.
+the capture. `too_late` also covers a `deadline_ns` that passes before the last chunk
+is sent.
 
-Server -> `capture_cancel {type, capture_id}` is advisory.
+Server -> `capture_cancel {type, capture_id}` is advisory; the node answers with
+`capture_error {code: "cancelled"}`. The server gives up on a capture when its own
+clock passes `deadline_ns` plus a grace period (1 s by default).
 
 The node reports the true labelled time of its first sample in `t_first_ns` and the
 rate and centre actually used; they need not equal the request. The correlator
@@ -120,13 +146,20 @@ retryable.
 - Server enforces per-node limits: at most 8 concurrent captures, 64 MiB per capture.
 - Either side may close with code 1001 for shutdown; nodes reconnect with exponential
   backoff (1 s doubling to 30 s, plus up to 20 % jitter) and resume from `hello`.
+  After a reject or a 4001 close the node waits the longest backoff;
+  `protocol_mismatch` stops it.
+- Other close codes: 1002 three malformed messages in a row, 1008 rejected or site
+  removed, 1011 internal error, 1013 peer not reading, 4001 replaced, 4002 silent.
+- Unknown `reject.reason` and `capture_error.code` values are accepted on receive.
 
 ## Simulation backplane
 
 When the server runs with a scenario, `welcome.simulation.enabled` is true.
 `scenario_url` is a path on the server origin (the node maps `ws` to `http` and `wss`
 to `https`). `GET` with `Authorization: Bearer <node token>` returns
-`{version: int, effective_ns: string, config: SystemConfig, scenario: Scenario}`.
+`{version: int, effective_ns: string, config: SystemConfig, scenario: Scenario}`
+(a decimal string here because the body is also read by the console; `sim_update`
+on the node socket carries the same instant as a JSON integer).
 The server announces every scenario or config change on the node socket with
 `sim_update {type, version, effective_ns}`, `effective_ns` = server time + 2 s. The
 node fetches immediately and uses the new world for samples at or after

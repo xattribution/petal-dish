@@ -11,6 +11,7 @@ dependencies = [
   "numpy>=1.26",
   "scipy>=1.11",
   "sgp4>=2.22",
+  "contourpy>=1.2",
   "pydantic>=2.6",
   "pyyaml>=6",
   "fastapi>=0.110",
@@ -35,4 +36,5 @@ petal_locate = ["server/static/**/*", "data/**/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = ["slow: long-running statistical or end-to-end tests"]
