@@ -1,0 +1,135 @@
+/* PETAL Locate console tokens. Every color is defined here once; rules use var().
+   Dark is the default (dim ops floor); light is the same roles re-valued.
+   See DESIGN.md for what each token encodes. */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  /* tinted neutrals (toward the map's water) */
+  --paper: #0e1417;
+  --surface: #141b1f;
+  --surface-2: #1b2429;
+  --surface-3: #2a363e;
+  --rule: #2c3840;
+  --rule-strong: #46555f;
+  --ink: #e4eaee;
+  --ink-2: #aab6be;
+  --ink-3: #8795a0;
+  /* the interactive accent is ink itself: inverse video for selection and primary actions */
+  --accent: #e4eaee;
+  --on-accent: #0e1417;
+  --hatch: #222d33;
+
+  /* Astro status ladder (dark theme values) */
+  --st-off: #a4abb6;
+  --st-standby: #2dccff;
+  --st-normal: #56f000;
+  --st-caution: #fce83a;
+  --st-serious: #ffb302;
+  --st-critical: #ff3838;
+  --st-off-edge: #0e1417;
+  --st-standby-edge: #0e1417;
+  --st-normal-edge: #0e1417;
+  --st-caution-edge: #0e1417;
+  --st-serious-edge: #0e1417;
+  --st-critical-edge: #0e1417;
+  --error-text: #ff8a80;
+
+  /* marking banner levels (Astro UXDS) */
+  --mark-unclassified: #007a33;
+  --mark-cui: #502b85; /* ledger: Astro CUI banner color, a marking standard */
+  --mark-confidential: #0033a0;
+  --mark-secret: #c8102e;
+  --mark-top-secret: #ff8c00;
+  --mark-ts-sci: #fce83a;
+  --mark-on-dark: #ffffff;
+  --mark-on-light: #000000;
+
+  /* map */
+  --water: #0e1417;
+  --land: #1d272d;
+  --coast: #3a4952;
+  --border: #33414a;
+  --graticule: #1b252b;
+  --site: #e4eaee;
+  --sat: #aab6be;
+
+  /* data colors (map and plots only) */
+  --fix: #ff7bd8;
+  --fix-fill: #ff7bd833;
+  --lop: #5fd0c0;
+  --lop-fill: #5fd0c026;
+  --det-fill: #ff7bd840;
+  --heat-0: #e3f2ff;
+  --heat-1: #b6daf7;
+  --heat-2: #86bdeb;
+  --heat-3: #5a9dd8;
+  --heat-4: #3a7cbd;
+  --heat-5: #275e98;
+  --heat-6: #1a4470;
+  --heat-ink-0: #0e1417; /* letters on heat-0..3 */
+  --heat-ink-1: #e4eaee; /* letters on heat-4..6 */
+  --wf-lo: #0b1013;
+  --wf-hi: #f2f6f8;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --paper: #eef2f4;
+  --surface: #f9fbfc;
+  --surface-2: #e5ebee;
+  --surface-3: #cfd8de;
+  --rule: #c7d0d6;
+  --rule-strong: #93a1ab;
+  --ink: #10181d;
+  --ink-2: #36444d;
+  --ink-3: #52606a;
+  --accent: #10181d;
+  --on-accent: #f9fbfc;
+  --hatch: #dde4e8;
+
+  --st-off: #a4abb6;
+  --st-standby: #2dccff;
+  --st-normal: #56f000;
+  --st-caution: #fad800;
+  --st-serious: #ffaf3d;
+  --st-critical: #ff2a04;
+  --st-off-edge: #3c3e42;
+  --st-standby-edge: #285766;
+  --st-normal-edge: #24561b;
+  --st-caution-edge: #645600;
+  --st-serious-edge: #664618;
+  --st-critical-edge: #661102;
+  --error-text: #a3170a;
+
+  --water: #eef2f4;
+  --land: #dbe2e6;
+  --coast: #a5b3bb;
+  --border: #b8c4cb;
+  --graticule: #dfe6ea;
+  --site: #10181d;
+  --sat: #36444d;
+
+  --fix: #b0127f;
+  --fix-fill: #b0127f26;
+  --lop: #0b7466;
+  --lop-fill: #0b74661f;
+  --det-fill: #b0127f33;
+  --heat-0: #0c3a63;
+  --heat-1: #1d5a8f;
+  --heat-2: #3479b3;
+  --heat-3: #5b98cc;
+  --heat-4: #8ab7de;
+  --heat-5: #b7d3ec;
+  --heat-6: #dceaf6;
+  --heat-ink-0: #f9fbfc;
+  --heat-ink-1: #10181d;
+  --wf-lo: #f9fbfc;
+  --wf-hi: #0b1013;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+  }
+}

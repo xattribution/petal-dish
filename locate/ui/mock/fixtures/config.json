@@ -1,0 +1,1245 @@
+{
+  "version": 7,
+  "config": {
+    "version": 7,
+    "name": "pacific-uhf",
+    "description": "Illustrative legacy-UHF bent-pipe scenario over the Pacific: three satellites with 25 kHz channels near 300 MHz uplink, seven city-centre monitoring sites and two reference carriers. All orbital slots, inclinations, channel frequencies, translations, link parameters, antennas and powers are illustrative placeholders, not data for any real system; no site or reference location is a real facility.",
+    "dut1_s": 0.0,
+    "satellites": [
+      {
+        "id": "muos-pac",
+        "name": "MUOS Pacific (nominal 177 W)",
+        "norad_id": null,
+        "notes": "Illustrative: nominal slot; inclination, phase, channel frequencies, the -41.0 MHz translation and the link numbers are placeholders.",
+        "orbit": {
+          "type": "geo",
+          "lon_deg": -177.0,
+          "inclination_deg": 5.0,
+          "epoch": "2026-01-01T00:00:00Z",
+          "phase_deg": 40.0,
+          "drift_deg_per_day": 0.0
+        },
+        "transponders": [
+          {
+            "id": "shared-1",
+            "uplink_center_hz": 301000000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -41000000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          },
+          {
+            "id": "shared-2",
+            "uplink_center_hz": 301125000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -41000000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          },
+          {
+            "id": "solo-pac",
+            "uplink_center_hz": 301500000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -41000000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          }
+        ],
+        "ephemeris_sigma": null
+      },
+      {
+        "id": "uhf-172e",
+        "name": "UFO-class legacy UHF (nominal 172 E)",
+        "norad_id": null,
+        "notes": "Illustrative: nominal slot; inclination, phase, channel frequencies, the -33.6 MHz translation and the link numbers are placeholders.",
+        "orbit": {
+          "type": "geo",
+          "lon_deg": 172.0,
+          "inclination_deg": 4.0,
+          "epoch": "2026-01-01T00:00:00Z",
+          "phase_deg": 200.0,
+          "drift_deg_per_day": 0.0
+        },
+        "transponders": [
+          {
+            "id": "shared-1",
+            "uplink_center_hz": 301000000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -33600000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          },
+          {
+            "id": "shared-2",
+            "uplink_center_hz": 301125000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -33600000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          },
+          {
+            "id": "solo-172e",
+            "uplink_center_hz": 301750000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -33600000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          }
+        ],
+        "ephemeris_sigma": null
+      },
+      {
+        "id": "muos-io",
+        "name": "MUOS Indo-Asia (nominal 75 E)",
+        "norad_id": null,
+        "notes": "Illustrative: nominal slot; inclination, phase, channel frequencies, the -41.0 MHz translation (co-channel with muos-pac) and the link numbers are placeholders.",
+        "orbit": {
+          "type": "geo",
+          "lon_deg": 75.0,
+          "inclination_deg": 5.0,
+          "epoch": "2026-01-01T00:00:00Z",
+          "phase_deg": 310.0,
+          "drift_deg_per_day": 0.0
+        },
+        "transponders": [
+          {
+            "id": "shared-1",
+            "uplink_center_hz": 301000000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -41000000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          },
+          {
+            "id": "shared-2",
+            "uplink_center_hz": 301125000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -41000000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          },
+          {
+            "id": "solo-io",
+            "uplink_center_hz": 302000000.0,
+            "bandwidth_hz": 25000.0,
+            "translation_hz": -41000000.0,
+            "g_over_t_dbk": -14.0,
+            "sfd_dbw_m2": -136.0,
+            "eirp_sat_dbw": 26.0,
+            "group_delay_s": 0.0
+          }
+        ],
+        "ephemeris_sigma": null
+      }
+    ],
+    "sites": [
+      {
+        "id": "honolulu",
+        "name": "Honolulu (city centre)",
+        "lat_deg": 21.307,
+        "lon_deg": -157.858,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "honolulu-pac",
+            "name": "Honolulu on MUOS Pacific",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 1.2,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "honolulu-172e",
+            "name": "Honolulu on 172 E",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "hilo",
+        "name": "Hilo (city centre)",
+        "lat_deg": 19.707,
+        "lon_deg": -155.085,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "hilo-pac",
+            "name": "Hilo on MUOS Pacific",
+            "antenna": {
+              "type": "beam",
+              "gain_dbi": 10.0,
+              "hpbw_deg": 52.0,
+              "front_to_back_db": 20.0
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 3.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "hilo-172e",
+            "name": "Hilo on 172 E",
+            "antenna": {
+              "type": "beam",
+              "gain_dbi": 10.0,
+              "hpbw_deg": 52.0,
+              "front_to_back_db": 20.0
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 3.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "tokyo",
+        "name": "Tokyo (city centre)",
+        "lat_deg": 35.681,
+        "lon_deg": 139.767,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "tokyo-pac",
+            "name": "Tokyo on MUOS Pacific",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 1.2,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "tokyo-172e",
+            "name": "Tokyo on 172 E",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "tokyo-io",
+            "name": "Tokyo on MUOS Indo-Asia",
+            "antenna": {
+              "type": "beam",
+              "gain_dbi": 10.0,
+              "hpbw_deg": 52.0,
+              "front_to_back_db": 20.0
+            },
+            "pointing": {
+              "satellite_id": "muos-io"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 3.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-io:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:solo-io",
+                "center_hz": 261000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "naha",
+        "name": "Naha (city centre)",
+        "lat_deg": 26.212,
+        "lon_deg": 127.679,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "naha-pac",
+            "name": "Naha on MUOS Pacific",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "naha-172e",
+            "name": "Naha on 172 E",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 1.2,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "naha-io",
+            "name": "Naha on MUOS Indo-Asia",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-io"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-io:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:solo-io",
+                "center_hz": 261000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "seoul",
+        "name": "Seoul (city centre)",
+        "lat_deg": 37.566,
+        "lon_deg": 126.978,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "seoul-pac",
+            "name": "Seoul on MUOS Pacific",
+            "antenna": {
+              "type": "beam",
+              "gain_dbi": 10.0,
+              "hpbw_deg": 52.0,
+              "front_to_back_db": 20.0
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 3.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "seoul-172e",
+            "name": "Seoul on 172 E",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 1.2,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "seoul-io",
+            "name": "Seoul on MUOS Indo-Asia",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 1.2,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-io"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-io:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:solo-io",
+                "center_hz": 261000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "busan",
+        "name": "Busan (city centre)",
+        "lat_deg": 35.18,
+        "lon_deg": 129.075,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "busan-pac",
+            "name": "Busan on MUOS Pacific",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "busan-172e",
+            "name": "Busan on 172 E",
+            "antenna": {
+              "type": "beam",
+              "gain_dbi": 10.0,
+              "hpbw_deg": 52.0,
+              "front_to_back_db": 20.0
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 3.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "busan-io",
+            "name": "Busan on MUOS Indo-Asia",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-io"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-io:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:solo-io",
+                "center_hz": 261000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "manila",
+        "name": "Manila (city centre)",
+        "lat_deg": 14.599,
+        "lon_deg": 120.984,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "clock": {
+          "sigma_ns": 30.0
+        },
+        "channels": [
+          {
+            "id": "manila-pac",
+            "name": "Manila on MUOS Pacific",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 1.2,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "muos-pac"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-pac:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-pac:solo-pac",
+                "center_hz": 260500000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "manila-172e",
+            "name": "Manila on 172 E",
+            "antenna": {
+              "type": "parabolic",
+              "diameter_m": 0.72,
+              "efficiency": 0.55
+            },
+            "pointing": {
+              "satellite_id": "uhf-172e"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 0.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "uhf-172e:shared-1",
+                "center_hz": 267400000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:shared-2",
+                "center_hz": 267525000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "uhf-172e:solo-172e",
+                "center_hz": 268150000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          },
+          {
+            "id": "manila-io",
+            "name": "Manila on MUOS Indo-Asia",
+            "antenna": {
+              "type": "beam",
+              "gain_dbi": 10.0,
+              "hpbw_deg": 52.0,
+              "front_to_back_db": 20.0
+            },
+            "pointing": {
+              "satellite_id": "muos-io"
+            },
+            "system_noise_temp_k": 400.0,
+            "polarization_loss_db": 3.0,
+            "max_sample_rate_hz": 2000000.0,
+            "monitors": [
+              {
+                "id": "muos-io:shared-1",
+                "center_hz": 260000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:shared-2",
+                "center_hz": 260125000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              },
+              {
+                "id": "muos-io:solo-io",
+                "center_hz": 261000000.0,
+                "span_hz": 31250.0,
+                "nfft": 1024,
+                "navg": 8,
+                "frame_rate_hz": 2.0
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "carriers": [
+      {
+        "id": "ref-guam",
+        "name": "Reference carrier, Guam city centre (illustrative)",
+        "satellite_id": "muos-io",
+        "transponder_id": "shared-1",
+        "uplink_center_hz": 300992500.0,
+        "bandwidth_hz": 5000.0,
+        "location": {
+          "lat_deg": 13.476,
+          "lon_deg": 144.749,
+          "alt_m": 0.0,
+          "antenna_height_m": 10.0
+        },
+        "emitter": {
+          "eirp_dbw": 13.0,
+          "antenna": {
+            "type": "beam",
+            "gain_dbi": 10.0,
+            "hpbw_deg": 52.0,
+            "front_to_back_db": 15.0
+          },
+          "pointing": {
+            "satellite_id": "muos-io"
+          },
+          "bandwidth_hz": 5000.0,
+          "waveform": "noise"
+        },
+        "use_as_reference": true
+      },
+      {
+        "id": "ref-sapporo",
+        "name": "Reference carrier, Sapporo city centre (illustrative)",
+        "satellite_id": "uhf-172e",
+        "transponder_id": "shared-2",
+        "uplink_center_hz": 301117500.0,
+        "bandwidth_hz": 5000.0,
+        "location": {
+          "lat_deg": 43.062,
+          "lon_deg": 141.354,
+          "alt_m": 0.0,
+          "antenna_height_m": 10.0
+        },
+        "emitter": {
+          "eirp_dbw": 13.0,
+          "antenna": {
+            "type": "beam",
+            "gain_dbi": 10.0,
+            "hpbw_deg": 52.0,
+            "front_to_back_db": 15.0
+          },
+          "pointing": {
+            "satellite_id": "uhf-172e"
+          },
+          "bandwidth_hz": 5000.0,
+          "waveform": "noise"
+        },
+        "use_as_reference": true
+      }
+    ],
+    "processing": {
+      "detection": {
+        "threshold_db": 6.0,
+        "confirm_m": 3,
+        "confirm_n": 5,
+        "release_frames": 6,
+        "merge_bins": 2,
+        "baseline_tau_s": 600.0,
+        "power_anomaly_db": 6.0,
+        "min_site_separation_km": 200.0,
+        "verdict_settle_s": 5.0,
+        "sensitivity_margin_db": 6.0
+      },
+      "capture": {
+        "duration_s": 1.0,
+        "lead_s": 0.6,
+        "interval_s": 5.0,
+        "oversample": 1.25,
+        "min_sample_rate_hz": 20000.0,
+        "max_samples": 262144,
+        "timeout_s": 15.0
+      },
+      "caf": {
+        "min_snr_db": 13.0,
+        "max_tdoa_sigma_s": 0.0005,
+        "doppler_margin_hz": 20.0,
+        "delay_margin_s": 2e-05
+      },
+      "solver": {
+        "height_m": 0.0,
+        "min_elevation_deg": 0.0,
+        "confidence": 0.95,
+        "grid_step_deg": 1.0,
+        "n_starts": 16,
+        "chi2_ambiguity": 9.0,
+        "max_measurements": 400
+      },
+      "uncertainty": {
+        "ephemeris": {
+          "operator": {
+            "pos_m": [
+              100.0,
+              1000.0,
+              1000.0
+            ],
+            "vel_mps": [
+              0.02,
+              0.02,
+              0.05
+            ]
+          },
+          "tle": {
+            "pos_m": [
+              2000.0,
+              20000.0,
+              10000.0
+            ],
+            "vel_mps": [
+              0.3,
+              0.3,
+              0.7
+            ]
+          }
+        },
+        "sat_osc_frac": 1e-06,
+        "site_osc_frac": 1e-11,
+        "tdoa_bias_ns": 50.0
+      },
+      "calibration": {
+        "enabled": true,
+        "interval_s": 30.0,
+        "max_age_s": 300.0
+      },
+      "region": {
+        "lat_min": -60.0,
+        "lat_max": 60.0,
+        "lon_min": 60.0,
+        "lon_max": -120.0
+      }
+    }
+  },
+  "warnings": [
+    {
+      "loc": "sites.0.channels.0.antenna",
+      "msg": "channel 'honolulu-pac': a 1.2 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.0.channels.1.antenna",
+      "msg": "channel 'honolulu-172e': a 0.72 m dish is under 3 wavelengths at 267.400 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.2.channels.0.antenna",
+      "msg": "channel 'tokyo-pac': a 1.2 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.2.channels.1.antenna",
+      "msg": "channel 'tokyo-172e': a 0.72 m dish is under 3 wavelengths at 267.400 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.3.channels.0.antenna",
+      "msg": "channel 'naha-pac': a 0.72 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.3.channels.1.antenna",
+      "msg": "channel 'naha-172e': a 1.2 m dish is under 3 wavelengths at 267.400 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.3.channels.2.antenna",
+      "msg": "channel 'naha-io': a 0.72 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.4.channels.1.antenna",
+      "msg": "channel 'seoul-172e': a 1.2 m dish is under 3 wavelengths at 267.400 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.4.channels.2.antenna",
+      "msg": "channel 'seoul-io': a 1.2 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.5.channels.0.antenna",
+      "msg": "channel 'busan-pac': a 0.72 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.5.channels.2.antenna",
+      "msg": "channel 'busan-io': a 0.72 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.6.channels.0.antenna",
+      "msg": "channel 'manila-pac': a 1.2 m dish is under 3 wavelengths at 260.000 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    },
+    {
+      "loc": "sites.6.channels.1.antenna",
+      "msg": "channel 'manila-172e': a 0.72 m dish is under 3 wavelengths at 267.400 MHz; it behaves as a reflector with a broad beam, not as a focusing dish"
+    }
+  ],
+  "derived_monitors": [
+    "honolulu-pac",
+    "honolulu-172e",
+    "hilo-pac",
+    "hilo-172e",
+    "tokyo-pac",
+    "tokyo-172e",
+    "tokyo-io",
+    "naha-pac",
+    "naha-172e",
+    "naha-io",
+    "seoul-pac",
+    "seoul-172e",
+    "seoul-io",
+    "busan-pac",
+    "busan-172e",
+    "busan-io",
+    "manila-pac",
+    "manila-172e",
+    "manila-io"
+  ]
+}

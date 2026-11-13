@@ -39,7 +39,9 @@ __all__ = [
     "ChannelStatus",
     "ClassificationOut",
     "ConfigEnvelope",
+    "ConflictResponse",
     "EllipseOut",
+    "ErrorResponse",
     "Event",
     "EventState",
     "EventSummary",
@@ -47,12 +49,16 @@ __all__ = [
     "EventTruth",
     "EvidenceRow",
     "EvidenceState",
+    "FieldErrorResponse",
     "FieldProblem",
     "Footprint",
     "LinkBudgetRequest",
     "LinkBudgetResponse",
     "LinkBudgetRow",
     "LookAngle",
+    "LopCollection",
+    "LopFeature",
+    "LopProperties",
     "Marking",
     "MeasurementRow",
     "Meta",
@@ -69,6 +75,7 @@ __all__ = [
     "SolutionSummary",
     "Status",
     "Subpoint",
+    "TaskingStatus",
     "Transition",
     "ValidateResult",
     "Verdict",
@@ -131,21 +138,53 @@ class FieldProblem(_Out):
 
 
 class ValidateResult(_Out):
-    """``POST /config/validate`` and the body of a 422 from ``PUT /config``."""
+    """``POST /config/validate`` (always HTTP 200; ``ok`` says whether it validates)."""
 
     ok: bool
     errors: list[FieldProblem]
     warnings: list[FieldProblem]
 
 
+class ErrorResponse(_Out):
+    """Body of every error reply (4xx, 5xx): ``detail`` says what went wrong in plain
+    words. No stack trace or internal state is ever included."""
+
+    detail: str
+
+
+class ConflictResponse(_Out):
+    """HTTP 409 from ``PUT /config``: the ``If-Match`` version is not the one in force.
+    ``current_version`` is the version to reload (also sent as the ``ETag`` header)."""
+
+    detail: str
+    current_version: int
+
+
+class FieldErrorResponse(_Out):
+    """HTTP 422: the request does not validate. ``errors`` name each field at fault
+    (``loc`` is a dotted path from the document root, or from the query parameter);
+    ``warnings`` are non-blocking findings when the server got that far."""
+
+    detail: str
+    errors: list[FieldProblem]
+    warnings: list[FieldProblem] = Field(default_factory=list)
+
+
 class ConfigEnvelope(_Out):
     """``GET /config`` and the reply to ``PUT /config``. ``version`` is also the ETag
     (quoted) and must be sent back in ``If-Match`` when saving. ``warnings`` are
-    non-blocking findings of the same kind ``/config/validate`` returns."""
+    non-blocking findings of the same kind ``/config/validate`` returns.
+
+    ``derived_monitors``: ids of the channels whose ``monitors`` the server derived from
+    the frequency plan (one window per transponder of each watched satellite). They are
+    listed in ``config`` so the console can show and stream them; send these channels
+    back with ``monitors: []`` to keep them derived (they then follow transponder
+    edits), or with the windows to make them explicit."""
 
     version: int
     config: SystemConfig
     warnings: list[FieldProblem] = Field(default_factory=list)
+    derived_monitors: list[str] = Field(default_factory=list)
 
 
 class ChannelStatus(_Out):
@@ -220,8 +259,9 @@ class SolutionOut(_Out):
     Covariances are 2x2, m^2, ordered [east, north]. ``residuals`` are whitened and
     in the order of the measurements used. ``ambiguities`` are the other admissible
     solutions (for example the mirror image across the equator); they carry no
-    ambiguities of their own. ``dominant_error`` is one of ``noise``, ``ephemeris``,
-    ``clock``, ``oscillator``, ``bias``, ``calibration``.
+    ambiguities of their own. ``dominant_error`` is one of ``noise``,
+    ``ephemeris_position``, ``ephemeris_velocity``, ``clock``, ``oscillator``,
+    ``tdoa_bias``, ``reference`` (``core.solver.ERROR_SOURCES``).
     """
 
     lat_deg: float
@@ -284,26 +324,41 @@ class Advisory(_Out):
 class EvidenceRow(_Out):
     """What one receive channel contributes to the uplink-or-local verdict.
 
+    sat_id: the satellite through which this channel would see the event; null for an
+    event outside every transponder passband (nothing relays it, so the row is about
+    the channel's own receiver).
     snr_db, cn0_dbhz: of its detection, when ``state`` is ``seen``.
     predicted_margin_db: how far above this channel's detection threshold the signal
     is expected to be, given the strongest sighting (null when it cannot be
     predicted). Negative means the channel could not see it.
+    last_seen_ns: newest frame in which this channel's detection was above threshold.
+    monitor_id: the monitor window of the channel that covers the event.
+    downlink_lo_hz, downlink_hi_hz: where the channel sees the signal (its detection,
+    when seen) or would see it (the event's range through ``sat_id``), Hz.
     """
 
     channel_id: str
     site_id: str
-    sat_id: str
+    sat_id: str | None
     state: EvidenceState
     snr_db: float | None
     cn0_dbhz: float | None
     predicted_margin_db: float | None
     last_seen_ns: ConsoleTimeNs | None = None
+    monitor_id: str | None = None
+    downlink_lo_hz: float | None = None
+    downlink_hi_hz: float | None = None
 
 
 class Transition(_Out):
+    """A change of an event's state or verdict (or a merge or split noted against it).
+    ``reason`` says why in plain words, for example ``all detections released``,
+    ``detected again``, ``closed by operator`` or ``merged into EV-000012``."""
+
     t_ns: ConsoleTimeNs
     state: EventState
     verdict: Verdict
+    reason: str | None = None
 
 
 class MeasurementRow(_Out):
@@ -369,6 +424,31 @@ class EventTransponder(_Out):
     downlink_hi_hz: float
 
 
+class TaskingStatus(_Out):
+    """What capture tasking is doing for an event (null until tasking has looked at it).
+
+    state: ``waiting`` (the next round is scheduled), ``capturing`` (IQ captures
+    requested from the nodes), ``processing`` (correlating, calibrating, solving) or
+    ``idle`` (nothing to capture: no usable channel sees the event, or no second
+    satellite with a usable channel relays it, so it cannot be located).
+    rounds: capture rounds started for the event. last_round_ns / next_round_ns: server
+    time of the last round's start and of the next one (null when none is planned).
+    channels: the receive channels of the last round, primary first.
+    message: one plain sentence about the last round (what failed and is being
+    retried, what is awaited), or null when all went well.
+    solve_reason: why the last solve gave no position (for example ``unobservable``
+    or ``fewer than two accepted measurements``); null after a successful solve.
+    """
+
+    state: Literal["waiting", "capturing", "processing", "idle"]
+    rounds: int
+    last_round_ns: ConsoleTimeNs | None
+    next_round_ns: ConsoleTimeNs | None
+    channels: list[str]
+    message: str | None
+    solve_reason: str | None
+
+
 class EventTruth(_Out):
     """Simulation only: the emitter this event corresponds to and how far off the
     estimate is. ``miss_m`` and ``inside_ellipse`` are null without a solution."""
@@ -381,32 +461,44 @@ class EventTruth(_Out):
 
 
 class EventSummary(_Out):
-    """Row of ``GET /events``."""
+    """Row of ``GET /events``. ``uplink_lo_hz`` / ``uplink_hi_hz`` are null for an event
+    outside every transponder passband (see ``Event``). ``simulated``: the event comes
+    from the simulator."""
 
     id: str
     state: EventState
     verdict: Verdict
     first_seen_ns: ConsoleTimeNs
     last_seen_ns: ConsoleTimeNs
-    uplink_lo_hz: float
-    uplink_hi_hz: float
+    uplink_lo_hz: float | None
+    uplink_hi_hz: float | None
     satellite_ids: list[str]
     label: str | None
     headline: str
     solution: SolutionSummary | None
+    simulated: bool = False
 
 
 class Event(_Out):
     """``GET /events/{id}`` and the ``event`` WebSocket message (the whole object on
-    every change)."""
+    every change).
+
+    uplink_lo_hz, uplink_hi_hz: the uplink range the interference occupies; null when
+    it lies outside every transponder passband (no satellite relays it: it can only be
+    local or undetermined, and ``downlink_lo_hz`` / ``downlink_hi_hz`` give where it
+    was seen). verdict_reason: one sentence saying what the verdict rests on, or what
+    is missing. merged_into: set when this event was folded into another one (it is
+    then ``closed``). simulated: the event comes from the simulator. tasking: what
+    capture tasking is doing for it (null until tasking has looked at it).
+    """
 
     id: str
     state: EventState
     verdict: Verdict
     first_seen_ns: ConsoleTimeNs
     last_seen_ns: ConsoleTimeNs
-    uplink_lo_hz: float
-    uplink_hi_hz: float
+    uplink_lo_hz: float | None
+    uplink_hi_hz: float | None
     satellite_ids: list[str]
     transponders: list[EventTransponder]
     classification: ClassificationOut | None
@@ -419,6 +511,66 @@ class Event(_Out):
     measurements: list[MeasurementRow]
     caf: CafDisplay | None
     truth: EventTruth | None
+    verdict_reason: str | None = None
+    downlink_lo_hz: float | None = None
+    downlink_hi_hz: float | None = None
+    merged_into: str | None = None
+    simulated: bool = False
+    tasking: TaskingStatus | None = None
+
+
+class LopProperties(_Out):
+    """What one line-of-position feature shows (``GET /events/{id}/lop``).
+
+    role: ``line`` (the measurement satisfied exactly, a MultiLineString) or ``band``
+    (between ``-k_sigma`` and ``+k_sigma`` standard deviations, a MultiPolygon).
+    kind, a_* / b_*: the measurement and its pair (A minus B). seq: the measurement's
+    number within the event (``MeasurementRow`` order, from 1). value: as measured
+    (s or Hz); correction: the calibration subtracted before contouring; sigma: its
+    own noise; sigma_total: what the band uses (the reference's noise added in
+    quadrature when calibrated). height_m: height of the surface contoured.
+    """
+
+    role: Literal["line", "band"]
+    kind: Literal["tdoa", "fdoa"]
+    event_id: str
+    seq: int
+    tag: str = ""
+    a_sat_id: str
+    a_site_id: str
+    a_channel_id: str
+    b_sat_id: str
+    b_site_id: str
+    b_channel_id: str
+    t_ns: ConsoleTimeNs
+    value: float
+    correction: float
+    calibrated: bool
+    sigma: float
+    sigma_total: float
+    k_sigma: float
+    height_m: float
+
+
+class LopFeature(_Out):
+    """A GeoJSON feature. ``geometry`` is ``{"type": "MultiLineString", "coordinates":
+    [[[lon, lat], ...], ...]}`` or ``{"type": "MultiPolygon", "coordinates": [[[[lon,
+    lat], ...], ...], ...]}`` (exterior rings counter-clockwise, holes clockwise).
+    Longitudes follow the region's grid: increasing from its ``lon_min`` and unwrapped
+    (they may exceed 180 for a region crossing the antimeridian); wrap for display."""
+
+    type: Literal["Feature"] = "Feature"
+    geometry: dict[str, Any]
+    properties: LopProperties
+
+
+class LopCollection(_Out):
+    """``GET /events/{id}/lop``: the lines of position of the newest used measurement of
+    each pair and kind (two features each at most; none when the event has no usable
+    measurement)."""
+
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[LopFeature]
 
 
 # --------------------------------------------------------------------------- geometry
@@ -469,9 +621,14 @@ class LookAngle(_Out):
 
 class AccuracyRequest(_Out):
     """``POST /analysis/accuracy``. ``pairs`` are receive-channel id pairs [A, B].
-    ``t`` defaults to now, ``region`` to the configured region. ``kinds`` chooses the
-    measurement types assumed. ``reference_carrier_id`` assumes calibration against
-    that reference carrier. ``integration_s`` defaults to the configured capture."""
+    ``t`` (ISO 8601) defaults to now (the start of the current minute, so that a
+    repeated request is answered from the server's cache), ``region`` to the configured
+    region. ``kinds`` chooses the measurement types assumed. ``reference_carrier_id``
+    assumes calibration against that reference carrier. ``integration_s`` defaults to
+    the configured capture.
+
+    The server refuses (422) a grid of more than 20 000 cells (choose a coarser
+    ``step_deg`` or a smaller ``region``) and gives up (504) after 120 s."""
 
     pairs: list[tuple[str, str]] = Field(min_length=1)
     emitter: EmitterModel
@@ -518,7 +675,10 @@ class LinkBudgetRow(_Out):
     Present only for paths that exist (satellite above both horizons and the
     frequency inside the transponder). ``snr_db`` is in the emitter's bandwidth (in
     1 Hz for a carrier of zero bandwidth). ``detectable`` applies the configured
-    detection threshold.
+    detection threshold to the rise above the noise floor in the bins of the monitor
+    window that covers ``f_down_hz`` (``monitor_id``; null, and not detectable, when no
+    window of the channel covers it): ``10 log10(1 + C / (N0 * max(bandwidth, bin)))``
+    must reach ``processing.detection.threshold_db``.
     """
 
     sat_id: str
@@ -537,6 +697,7 @@ class LinkBudgetRow(_Out):
     cn0_total_dbhz: float
     snr_db: float
     detectable: bool
+    monitor_id: str | None = None
 
 
 class LinkBudgetResponse(_Out):
@@ -585,11 +746,13 @@ class SimTruthEvent(_Out):
 
 
 class SimTruth(_Out):
-    """``GET /sim/truth``."""
+    """``GET /sim/truth``: simulated truth (fictional; label it SIMULATION wherever it
+    is shown). ``events`` covers the active events."""
 
     version: int
     emitters: list[SimTruthEmitter]
     events: list[SimTruthEvent]
+    simulated: bool = True
 
 
 # --------------------------------------------------------------------------- /ws/ui
@@ -638,10 +801,14 @@ class WsSubscribe(BaseModel):
 _EXPORTED: tuple[type[BaseModel], ...] = (
     Meta,
     ValidateResult,
+    ErrorResponse,
+    ConflictResponse,
+    FieldErrorResponse,
     ConfigEnvelope,
     Status,
     EventSummary,
     Event,
+    LopCollection,
     Subpoint,
     Footprint,
     LookAngle,

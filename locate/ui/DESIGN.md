@@ -1,0 +1,127 @@
+# PETAL Locate console: design record
+
+Process: `anti-ai-ui` (full depth) with `military-ui-conventions` as the domain read.
+This file is the plan and the justification ledger; anything on screen without a line
+here should be removed.
+
+## Domain read
+
+1. **Operational system** on a dim ops floor with wall projection and long shifts, plus
+   planners at desks. Dark theme is the default; the light theme is for planners and
+   briefings and must work as well. Both ship, chosen by setting (Auto follows the OS).
+2. **The first job is "is anything wrong?"**: the first screen is the event queue (most
+   urgent first) beside the map, with the network roll-up above the queue. No welcome,
+   no KPI tiles.
+3. Operators are **spectrum-monitoring and satcom staff**: they read analyzer displays
+   (trace over waterfall, MHz axis to the hertz, dB relative to the noise floor,
+   markers), frequency plans (transponder edges, authorised carriers) and link budgets.
+4. Geolocation readers expect a **fix**: position in decimal degrees with hemisphere and
+   datum (WGS 84), MGRS beside it, 95 % error ellipse (semi-axes and orientation), CEP50,
+   which error dominates, and whether a second position fits equally (ambiguity).
+5. Measurements are **TDOA in microseconds and FDOA in hertz to the millihertz**, with
+   sigmas, correlation SNR, whitened residuals and whether calibration was applied.
+6. **Time is Zulu first**, 24-hour, DTG for people (`131805Z NOV 26`), ISO 8601 in files.
+   A clock strip shows each site's local time with its computed zone letter and offset.
+7. **Status** is the Astro ladder (Off, Standby, Normal, Caution, Serious, Critical):
+   color plus shape plus word, roll-ups show the most urgent. Affiliation colors are
+   not used for categories.
+8. The **marking banner** comes from `/meta` only (top and bottom, fixed, above every
+   overlay); none when `marking` is null. Demo marking: UNCLASSIFIED.
+9. **Simulation truth** is fictional and carries a SIMULATION tag wherever it appears.
+10. Networks may be closed: fonts and Natural Earth data are bundled; no request leaves
+    the origin.
+
+## Plan
+
+**Color tokens** (`src/styles/tokens.css`): tinted neutrals `--paper --surface
+--surface-2 --surface-3 --rule --rule-strong --ink --ink-2 --ink-3`; one interactive
+accent `--accent/--on-accent` (focus rings, primary buttons, links on hover); the Astro
+ladder `--st-off … --st-critical` with `-edge` strokes for the light theme; marking
+levels `--mark-*`; data colors for the map and plots only: `--fix` (estimated position,
+ellipse, ellipse history), `--lop` (lines of position), `--heat-0…6` (one-hue accuracy
+ramp), waterfall ramp from `--wf-lo` to `--wf-hi`.
+
+**Type**: B612 (Airbus/ENAC cockpit face, designed for legibility on degraded displays)
+for text; B612 Mono for identifiers, DTGs, MGRS and numeric columns that are compared
+digit by digit (frequencies to the hertz). Sizes 12 / 13 / 15 / 20 px; weights 400 / 700.
+
+**Primary screen** (Watch, 1280 x 800):
+
+```
++----------------------------------------------------------------------------------+
+|                               UNCLASSIFIED                                       |
+| PETAL Locate  Watch 1  Spectrum 2  Network 3  Plan 4  Configure 5  Simulation 6   |
+|                                       [roll-up] [link: Live 0.3 s] [theme] [token]|
+| 131805Z NOV 26 | Honolulu 0805W -10:00 | Tokyo 0305I +09:00 +1 | ...              |
++-------------------------------+--------------------------------------------------+
+| Network: 6 of 7 nodes online  |                                                  |
+|  [tri] Serious  hilo offline  |               world map (Pacific)                |
+|  [dia] Caution  manila clock  |   ellipses, LOPs, sites, sub-points, footprints  |
+| Events  4 active              |                                                  |
+| [oct] EV-0042 Uplink located  |                                     layers +    |
+|   shared-1  301.001-301.009   |                                     legend       |
+|   12.3 x 0.6 km  20.35N ...   |                                                  |
+| [oct] EV-0043 ...             | cursor 20.35 N 132.42 E  53Q ...                  |
+| Inactive: 2                   |                                                  |
++-------------------------------+--------------------------------------------------+
+|                               UNCLASSIFIED                                       |
+```
+
+Event dossier replaces the map on the right (`#/event/EV-0042`): verdict and advisory
+first, then the evidence matrix, the fix, the event map, measurements, correlation
+surface and cuts, ellipse history, transitions. The queue stays on the left so j/k move
+between events.
+
+**Signature element: the evidence matrix.** Sites as rows, satellites as columns, one
+cell per receive channel showing its evidence state (seen, would see but does not,
+could not see, stale) as shape plus word plus SNR. The uplink-or-local verdict of MATH.md
+section 7 becomes visible as a pattern: a lit column across distant sites is uplink, one
+lit row is local. Everything else stays quiet.
+
+## Swap test
+
+Generic "ops monitoring dashboard": slate-900 page, indigo accent, Inter, icon sidebar,
+row of KPI tiles (Nodes 7/7, Events 4, Uptime 99.9 %), rounded cards with shadows, line
+charts, a "Welcome back". Changes made against it:
+
+- Tiles replaced by a two-line roll-up sentence with the Astro status of the worst item.
+- Icon sidebar replaced by a text tab row with number shortcuts (1-6).
+- Cards replaced by flush regions separated by rules; radius only on controls.
+- Inter replaced by B612 / B612 Mono (documented legibility provenance).
+- Selection is inverse video (solid ink fill), not a tinted accent.
+- The dossier leads with the operator's decision (advisory) and the evidence matrix,
+  not with charts.
+- Neutrals are tinted toward the map's water, not slate.
+
+## Ledger
+
+| Element | Encodes | Source |
+|---|---|---|
+| Marking banner, top and bottom, caps, level color | Handling level of the deployment | `/meta.marking`; mil conventions, Marking banner |
+| `--st-*` six colors with ring / ring-dot / circle / diamond / triangle / square | Astro status ladder (Off, Standby, Normal, Caution, Serious, Critical); shape for color-blind and grayscale reading | Astro UXDS status system; MIL-STD-1472H color redundancy |
+| Status word in caps next to the symbol | The state name operators use | Astro; caps under one line |
+| Event urgency mapping (uplink Critical, local Serious, undetermined Caution, lost Standby, closed Off) | Uplink affects every user of the transponder; local one site | MATH.md section 7; ARCHITECTURE.md section 7 |
+| Node status mapping (offline Serious, clock unlocked or stale frames Caution, normal) | Network gaps degrade verdicts and TDOA | PROTOCOL.md A heartbeat and clock rules |
+| Inverse-video selected tab / row (solid `--ink` fill, `--paper` text) | Current view, selected record | Owner rule O1 |
+| `--accent` focus ring 2 px | Keyboard focus | WCAG 2.4.7, O2 |
+| `--accent` fill on primary buttons (Save, Apply, Compute) | The one committing action of a form | O2 |
+| Red (`--st-critical`) only in status symbols and error text | Danger / failure | B7, MIL-STD-1472H |
+| `--fix` (magenta) on map and history plot | Estimated emitter position and its ellipse; no status meaning | Data color, distinct from status hues and 2525 fills |
+| Dashed `--fix` outline | Ambiguous (mirror) solution | MATH.md section 9 ambiguities |
+| `--lop` solid / dashed | TDOA / FDOA line of position; band is the ±2 sigma region | MATH.md section 11 |
+| `--heat-0..6` one-hue ramp with km legend | Predicted 95 % semi-major axis; lighter = better located (dark theme) | MATH.md section 10; dataviz sequential ramp |
+| Letters on accuracy cells | Dominant error source (N noise, P ephemeris position, V ephemeris velocity, C clock, O oscillator, B TDOA bias, R reference) | MATH.md section 9 `dominant_error` |
+| Grayscale waterfall (`--wf-lo`→`--wf-hi`) | Power over time; saturated hues are reserved for status | Spectrum convention; B6 |
+| Shaded band on spectrum trace (`--fix`) | Detection of an unauthorised signal (interference) | MATH.md section 7 detections |
+| Bracket with carrier id on spectrum | Authorised carrier allocation | Frequency plan (Carrier) |
+| Dashed vertical rules on spectrum | Transponder passband edges | Transponder |
+| Evidence glyphs: filled bar seen, hollow bar would see but does not, short dash cannot see, dotted bar stale | Evidence state of one channel (not a status: bars keep them apart from the status shapes) | MATH.md section 7 |
+| SIMULATION tag (inverse video, caps) | Simulated truth, never real | UI-BRIEF; mil conventions demo data |
+| Hatched cells in look-angle and evidence tables | Below horizon / stale: data that does not exist | Domain read 3, 4 |
+| B612 Mono runs | Ids, DTGs, MGRS, frequencies and numeric columns compared digit by digit | Required practices: Type |
+| Caps on table headers | Dense column headers only | B9 exception |
+| 3 px radius on inputs and buttons only | Marks what is a control; regions sit flush | O4, B11 |
+| One shadow on popovers (layer menu, tooltips, dialogs) | True overlays | B3 |
+| Motion: none, except the reconnect countdown text | Real state change only | B13 |
+| Dark default, light theme by setting | Dim ops floor; planners and briefings | Domain read 1 |
+| Caution note on parabolic antennas under 3 wavelengths | Behaves as a reflector, broad beam | UI-BRIEF capability 7; core.antennas |

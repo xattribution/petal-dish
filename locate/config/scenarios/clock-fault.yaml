@@ -1,0 +1,35 @@
+# SIMULATED scenario for config/pacific-uhf.yaml: pacific-demo with a clock fault.
+name: clock-fault
+seed: 1
+description: >-
+  Simulated scenario (not real data): pacific-demo (the same open-ocean noise jammer at
+  20 N 132 E, 10 kHz at 301.005 MHz, 20 dBW, the same reference carriers and small
+  truth errors) with one fault added: the Manila site clock runs 2 microseconds late.
+  Every TDOA through Manila is then off by 2 microseconds, about 600 m of range
+  difference. The operator should see the event detected and judged uplink as in
+  pacific-demo; a solution that uses Manila without calibration lands visibly away from
+  the truth (about 10 km off, against 2 to 3 km for pacific-demo, with a poor fit:
+  reduced chi-square near 5), while the reference-carrier calibration, measured through
+  the same two sites, removes the clock offset and brings the solution back to within
+  tens of metres of the true position.
+emitters:
+  - id: jammer-philsea
+    name: Uplink noise jammer (simulated, open ocean)
+    kind: jammer
+    lat_deg: 20.0
+    lon_deg: 132.0
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    freq_hz: 301.005e+6
+    eirp_dbw: 20.0
+    antenna: {type: isotropic}
+    pointing: omni
+    waveform: {type: noise, bandwidth_hz: 10.0e+3, seed: 0}
+errors:
+  ephemeris:
+    muos-pac: {ric_pos_m: [60.0, -700.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    uhf-172e: {ric_pos_m: [-40.0, 500.0, -800.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    muos-io: {ric_pos_m: [80.0, 900.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}
+  site_clock_offset_ns: {tokyo: 40.0, naha: 10000.0}
+  site_osc_frac: {honolulu: 5.0e-12, manila: -8.0e-12}

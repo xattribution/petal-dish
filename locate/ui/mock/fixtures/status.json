@@ -1,0 +1,221 @@
+{
+  "server_t_ns": "1794592800000000000",
+  "config_version": 7,
+  "nodes": [
+    {
+      "site_id": "honolulu",
+      "node_id": "5f0c00a2-1b7e-4c19-9d3a-0000e8c1a0f7",
+      "online": true,
+      "latency_ms": 41.0,
+      "clock": {
+        "source": "gpsdo",
+        "locked": true,
+        "est_offset_ns": 3.0,
+        "holdover_s": 0.0
+      },
+      "driver": "sim",
+      "software": "petal-locate 0.1.0",
+      "channels": [
+        {
+          "channel_id": "honolulu-pac",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "honolulu-172e",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        }
+      ],
+      "connected_since": "2026-11-13T14:00:00Z"
+    },
+    {
+      "site_id": "hilo",
+      "node_id": null,
+      "online": false,
+      "latency_ms": null,
+      "clock": null,
+      "driver": null,
+      "software": null,
+      "channels": [
+        {
+          "channel_id": "hilo-pac",
+          "ok": false,
+          "last_frame_age_s": 1420.0
+        },
+        {
+          "channel_id": "hilo-172e",
+          "ok": false,
+          "last_frame_age_s": 1420.0
+        }
+      ],
+      "connected_since": null
+    },
+    {
+      "site_id": "tokyo",
+      "node_id": "5f0c02a2-1b7e-4c19-9d3a-0002e8c1a0f7",
+      "online": true,
+      "latency_ms": 88.0,
+      "clock": {
+        "source": "gpsdo",
+        "locked": true,
+        "est_offset_ns": -9.0,
+        "holdover_s": 0.0
+      },
+      "driver": "sim",
+      "software": "petal-locate 0.1.0",
+      "channels": [
+        {
+          "channel_id": "tokyo-pac",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "tokyo-172e",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "tokyo-io",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        }
+      ],
+      "connected_since": "2026-11-13T13:39:38Z"
+    },
+    {
+      "site_id": "naha",
+      "node_id": "5f0c03a2-1b7e-4c19-9d3a-0003e8c1a0f7",
+      "online": true,
+      "latency_ms": 96.0,
+      "clock": {
+        "source": "gpsdo",
+        "locked": true,
+        "est_offset_ns": 14.0,
+        "holdover_s": 0.0
+      },
+      "driver": "sim",
+      "software": "petal-locate 0.1.0",
+      "channels": [
+        {
+          "channel_id": "naha-pac",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "naha-172e",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "naha-io",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        }
+      ],
+      "connected_since": "2026-11-13T13:29:27Z"
+    },
+    {
+      "site_id": "seoul",
+      "node_id": "5f0c04a2-1b7e-4c19-9d3a-0004e8c1a0f7",
+      "online": true,
+      "latency_ms": 104.0,
+      "clock": {
+        "source": "ntp",
+        "locked": true,
+        "est_offset_ns": 210.0,
+        "holdover_s": 0.0
+      },
+      "driver": "sim",
+      "software": "petal-locate 0.1.0",
+      "channels": [
+        {
+          "channel_id": "seoul-pac",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "seoul-172e",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "seoul-io",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        }
+      ],
+      "connected_since": "2026-11-13T13:19:16Z"
+    },
+    {
+      "site_id": "busan",
+      "node_id": "5f0c05a2-1b7e-4c19-9d3a-0005e8c1a0f7",
+      "online": true,
+      "latency_ms": 101.0,
+      "clock": {
+        "source": "gpsdo",
+        "locked": true,
+        "est_offset_ns": 3.0,
+        "holdover_s": 0.0
+      },
+      "driver": "sim",
+      "software": "petal-locate 0.1.0",
+      "channels": [
+        {
+          "channel_id": "busan-pac",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "busan-172e",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "busan-io",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        }
+      ],
+      "connected_since": "2026-11-13T13:09:05Z"
+    },
+    {
+      "site_id": "manila",
+      "node_id": "5f0c06a2-1b7e-4c19-9d3a-0006e8c1a0f7",
+      "online": true,
+      "latency_ms": 162.0,
+      "clock": {
+        "source": "ntp",
+        "locked": false,
+        "est_offset_ns": 1650.0,
+        "holdover_s": 412.0
+      },
+      "driver": "sim",
+      "software": "petal-locate 0.1.0",
+      "channels": [
+        {
+          "channel_id": "manila-pac",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "manila-172e",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        },
+        {
+          "channel_id": "manila-io",
+          "ok": true,
+          "last_frame_age_s": 0.4
+        }
+      ],
+      "connected_since": "2026-11-13T12:58:54Z"
+    }
+  ],
+  "events_active": 4,
+  "queue": {
+    "captures_pending": 2,
+    "jobs_running": 1,
+    "jobs_waiting": 0
+  }
+}

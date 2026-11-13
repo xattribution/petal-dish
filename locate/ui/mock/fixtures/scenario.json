@@ -1,0 +1,181 @@
+{
+  "version": 3,
+  "scenario": {
+    "name": "philippine-sea-exercise",
+    "seed": 1,
+    "description": "SIMULATION. Fictional exercise: a wideband noise jammer over open ocean in the Philippine Sea on shared-1, a QPSK intruder south of Honshu on shared-2 and a local interferer next to the Busan antenna. Truth errors: small ephemeris offsets on two satellites and a drifting clock at Manila.",
+    "emitters": [
+      {
+        "id": "jammer-psea",
+        "name": "Noise jammer, Philippine Sea (fictional)",
+        "kind": "jammer",
+        "carrier_id": null,
+        "lat_deg": 20.31,
+        "lon_deg": 132.42,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "freq_hz": 301005000.0,
+        "eirp_dbw": 25.0,
+        "antenna": {
+          "type": "isotropic",
+          "gain_dbi": 0.0
+        },
+        "pointing": "omni",
+        "waveform": {
+          "type": "noise",
+          "bandwidth_hz": 8000.0,
+          "sweep_period_s": 0.01,
+          "symbol_rate_hz": 0.0,
+          "order": 4,
+          "rolloff": 0.35,
+          "duty": 1.0,
+          "period_s": 0.0,
+          "seed": 1
+        },
+        "enabled": true,
+        "t_start": null,
+        "t_stop": null
+      },
+      {
+        "id": "psk-honshu",
+        "name": "QPSK intruder south of Honshu (fictional)",
+        "kind": "jammer",
+        "carrier_id": null,
+        "lat_deg": 29.8,
+        "lon_deg": 134.9,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "freq_hz": 301130500.0,
+        "eirp_dbw": 22.0,
+        "antenna": {
+          "type": "isotropic",
+          "gain_dbi": 0.0
+        },
+        "pointing": "omni",
+        "waveform": {
+          "type": "psk",
+          "bandwidth_hz": 0.0,
+          "sweep_period_s": 0.01,
+          "symbol_rate_hz": 3000.0,
+          "order": 4,
+          "rolloff": 0.35,
+          "duty": 1.0,
+          "period_s": 0.0,
+          "seed": 2
+        },
+        "enabled": true,
+        "t_start": null,
+        "t_stop": null
+      },
+      {
+        "id": "local-busan",
+        "name": "Local interferer next to the Busan antenna (fictional)",
+        "kind": "local",
+        "carrier_id": null,
+        "lat_deg": 35.162,
+        "lon_deg": 129.091,
+        "alt_m": 0.0,
+        "antenna_height_m": 12.0,
+        "freq_hz": 260502500.0,
+        "eirp_dbw": -20.0,
+        "antenna": {
+          "type": "isotropic",
+          "gain_dbi": 0.0
+        },
+        "pointing": "omni",
+        "waveform": {
+          "type": "psk",
+          "bandwidth_hz": 0.0,
+          "sweep_period_s": 0.01,
+          "symbol_rate_hz": 2400.0,
+          "order": 4,
+          "rolloff": 0.35,
+          "duty": 1.0,
+          "period_s": 0.0,
+          "seed": 3
+        },
+        "enabled": true,
+        "t_start": null,
+        "t_stop": null
+      },
+      {
+        "id": "test-chirp",
+        "name": "Swept test emitter, switched off (fictional)",
+        "kind": "jammer",
+        "carrier_id": null,
+        "lat_deg": 3.5,
+        "lon_deg": 141.0,
+        "alt_m": 0.0,
+        "antenna_height_m": 10.0,
+        "freq_hz": 301750000.0,
+        "eirp_dbw": 20.0,
+        "antenna": {
+          "type": "beam",
+          "gain_dbi": 10.0,
+          "hpbw_deg": 52.0,
+          "front_to_back_db": 20.0
+        },
+        "pointing": {
+          "satellite_id": "uhf-172e"
+        },
+        "waveform": {
+          "type": "chirp",
+          "bandwidth_hz": 15000.0,
+          "sweep_period_s": 0.01,
+          "symbol_rate_hz": 0.0,
+          "order": 4,
+          "rolloff": 0.35,
+          "duty": 1.0,
+          "period_s": 0.0,
+          "seed": 4
+        },
+        "enabled": false,
+        "t_start": null,
+        "t_stop": null
+      }
+    ],
+    "errors": {
+      "ephemeris": {
+        "muos-pac": {
+          "ric_pos_m": [
+            0.0,
+            350.0,
+            -150.0
+          ],
+          "ric_vel_mps": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "t_ref": null
+        },
+        "uhf-172e": {
+          "ric_pos_m": [
+            0.0,
+            -200.0,
+            100.0
+          ],
+          "ric_vel_mps": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "t_ref": null
+        }
+      },
+      "sat_osc_frac": {
+        "muos-io": 2e-07
+      },
+      "site_clock_offset_ns": {
+        "manila": 1800.0,
+        "naha": 12.0,
+        "tokyo": -8.0
+      },
+      "site_osc_frac": {},
+      "iono": {
+        "enabled": false,
+        "vtec_tecu": 30.0
+      }
+    }
+  }
+}

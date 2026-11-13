@@ -1,0 +1,41 @@
+{
+ "with_baseline": "UExCMZgBAAB7InR5cGUiOiJwc2QiLCJjaGFubmVsX2lkIjoibmFoYS1wYWMiLCJtb25pdG9yX2lkIjoibXVvcy1wYWM6c2hhcmVkLTEiLCJ0X25zIjoiMTc2MzA1NjgwMDEyMzQ1Njc4OSIsImNlbnRlcl9oeiI6MjYwMDAwMDAwLjAsInNwYW5faHoiOjMxMjUwLjAsIm5mZnQiOjgsInNlcSI6NSwiaGFzX2Jhc2VsaW5lIjp0cnVlLCJkZXRlY3Rpb25zIjpbeyJ0cmFja19pZCI6MywiZl9sb19oeiI6MjYwMDAxMDAwLjAsImZfaGlfaHoiOjI2MDAwOTAwMC4wLCJhdXRob3JpemVkX2NhcnJpZXJfaWQiOm51bGwsImFub21hbHkiOmZhbHNlfSx7InRyYWNrX2lkIjo0LCJmX2xvX2h6IjoyNTk5OTAwMDAuMCwiZl9oaV9oeiI6MjU5OTk1MDAwLjAsImF1dGhvcml6ZWRfY2Fycmllcl9pZCI6InJlZi1ndWFtIiwiYW5vbWFseSI6dHJ1ZX1dfSAAAAA/AACgvwAAQEAAALZBAAC8QQAAgD8AAAC/AACAPs3MzD3NzEw+mpmZPs3MzD4AAAA/mpkZPzMzMz/NzEw/",
+ "without_baseline": "UExCMcgAAAB7InR5cGUiOiJwc2QiLCJjaGFubmVsX2lkIjoibmFoYS1wYWMiLCJtb25pdG9yX2lkIjoibXVvcy1wYWM6c2hhcmVkLTEiLCJ0X25zIjoiMTc2MzA1NjgwMDEyMzQ1Njc4OSIsImNlbnRlcl9oeiI6MjYwMDAwMDAwLjAsInNwYW5faHoiOjMxMjUwLjAsIm5mZnQiOjgsInNlcSI6NiwiaGFzX2Jhc2VsaW5lIjpmYWxzZSwiZGV0ZWN0aW9ucyI6W119ICAgIAAAAD8AAKC/AABAQAAAtkEAALxBAACAPwAAAL8AAIA+",
+ "psd": [
+  0.5,
+  -1.25,
+  3.0,
+  22.75,
+  23.5,
+  1.0,
+  -0.5,
+  0.25
+ ],
+ "baseline": [
+  0.10000000149011612,
+  0.20000000298023224,
+  0.30000001192092896,
+  0.4000000059604645,
+  0.5,
+  0.6000000238418579,
+  0.699999988079071,
+  0.800000011920929
+ ],
+ "t_ns": "1763056800123456789",
+ "detections": [
+  {
+   "track_id": 3,
+   "f_lo_hz": 260001000.0,
+   "f_hi_hz": 260009000.0,
+   "authorized_carrier_id": null,
+   "anomaly": false
+  },
+  {
+   "track_id": 4,
+   "f_lo_hz": 259990000.0,
+   "f_hi_hz": 259995000.0,
+   "authorized_carrier_id": "ref-guam",
+   "anomaly": true
+  }
+ ]
+}

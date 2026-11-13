@@ -1,0 +1,19 @@
+# SIMULATED scenario for config/pacific-uhf.yaml: reference carriers only.
+name: quiet
+seed: 7
+description: >-
+  Simulated scenario (not real data): nothing but the two reference carriers of the
+  configuration (Guam city centre in shared-1, Sapporo city centre in shared-2, 5 kHz
+  each, as configured) and the transponders' own noise. The operator should see the
+  reference carriers as authorised, unflagged signals on the shared-1 and shared-2
+  windows, a quiet noise floor everywhere else, and no events, verdicts or positions:
+  there is nothing to find. Truth errors are the small ones of pacific-demo, so a
+  calibration run between the references still shows non-zero corrections.
+emitters: []
+errors:
+  ephemeris:
+    muos-pac: {ric_pos_m: [60.0, -700.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    uhf-172e: {ric_pos_m: [-40.0, 500.0, -800.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    muos-io: {ric_pos_m: [80.0, 900.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}
+  site_clock_offset_ns: {tokyo: 40.0}

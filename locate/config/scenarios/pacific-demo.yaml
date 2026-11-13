@@ -1,0 +1,41 @@
+# SIMULATED scenario for config/pacific-uhf.yaml. Positions are fictional open-ocean
+# points; nothing here describes a real emitter, platform or facility.
+name: pacific-demo
+seed: 1
+description: >-
+  Simulated scenario (not real data): one uplink noise jammer at a fictional open-ocean
+  point in the Philippine Sea (20 N, 132 E) radiates 10 kHz of noise at 301.005 MHz,
+  inside the shared-1 channel that all three satellites relay, 20 dBW from an
+  omnidirectional antenna. The two reference carriers of the configuration (Guam and
+  Sapporo) radiate as configured. The operator should see a strong new signal on every
+  channel's shared-1 window (52 to 56 dB-Hz, 12 to 16 dB above the floor in its 10 kHz),
+  an uplink verdict within seconds, cross-satellite correlations far above threshold
+  (about 40 dB post-correlation SNR in a 1 s capture for every satellite pair, against
+  a 13 dB threshold) and a located event near 20 N 132 E. The transponders stay about
+  6 dB below saturation. Small truth errors are applied so that calibration visibly
+  matters: satellite positions are off by up to a kilometre (inside the configured
+  operator sigmas), the satellite translation oscillators are off by 2.5e-7 to 4e-7
+  (10 to 16 Hz of FDOA) and the Tokyo clock is 40 ns late; without the reference
+  calibration the fix is off by a few kilometres, with it by tens of metres.
+emitters:
+  - id: jammer-philsea
+    name: Uplink noise jammer (simulated, open ocean)
+    kind: jammer
+    lat_deg: 20.0
+    lon_deg: 132.0
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    freq_hz: 301.005e+6
+    eirp_dbw: 20.0
+    antenna: {type: isotropic}
+    pointing: omni
+    waveform: {type: noise, bandwidth_hz: 10.0e+3, seed: 0}
+errors:
+  ephemeris:
+    muos-pac: {ric_pos_m: [60.0, -700.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    uhf-172e: {ric_pos_m: [-40.0, 500.0, -800.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    muos-io: {ric_pos_m: [80.0, 900.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}
+  site_clock_offset_ns: {tokyo: 40.0}
+  site_osc_frac: {honolulu: 5.0e-12, manila: -8.0e-12}
+  iono: {enabled: false, vtec_tecu: 30.0}

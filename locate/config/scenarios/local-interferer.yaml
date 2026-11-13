@@ -1,0 +1,32 @@
+# SIMULATED scenario for config/pacific-uhf.yaml. The interferer is a generic offset
+# (4 km at bearing 60 degrees) from the configured Busan city-centre site; it is not a
+# real device or facility.
+name: local-interferer
+seed: 4
+description: >-
+  Simulated scenario (not real data): a weak terrestrial interferer 4 km from the Busan
+  city-centre site (a generic offset, bearing 60 degrees) radiates 10 kHz of noise at
+  260.005 MHz, which is the shared-1 downlink frequency of the two MUOS satellites,
+  at -40 dBW (0.1 mW) from an omnidirectional antenna 10 m above ground. It never
+  reaches a satellite (nothing relays 260 MHz), and only Busan is inside its radio
+  horizon (26 km for two 10 m antennas; Seoul is 325 km away). The operator should see
+  a strong signal on Busan's two MUOS channels only (about 70 dB-Hz on busan-pac and
+  60 dB-Hz on busan-io, 30 and 20 dB above the floor), while every other site watching those satellites sees nothing although it
+  could: the verdict should be local, with advice that only Busan is affected and that
+  moving, shielding or filtering at that site is what helps. There is nothing to
+  geolocate by satellite. The reference carriers radiate as configured.
+emitters:
+  - id: local-busan
+    name: Terrestrial interferer near the Busan site (simulated)
+    kind: local
+    lat_deg: 35.198
+    lon_deg: 129.113
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    freq_hz: 260.005e+6
+    eirp_dbw: -40.0
+    antenna: {type: isotropic}
+    pointing: omni
+    waveform: {type: noise, bandwidth_hz: 10.0e+3}
+errors:
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}

@@ -27,6 +27,7 @@ from petal_locate.config.models import (
     PositiveFloat,
     Vector3,
 )
+from petal_locate.core.timebase import ns_from_iso
 
 __all__ = [
     "EmitterSpec",
@@ -122,6 +123,9 @@ class EmitterSpec(_Model):
     def _check(self) -> EmitterSpec:
         if self.kind == "carrier" and self.carrier_id is None:
             raise ValueError("carrier_id: required when kind is 'carrier'")
+        if self.t_start is not None and self.t_stop is not None:
+            if ns_from_iso(self.t_stop) <= ns_from_iso(self.t_start):
+                raise ValueError("t_stop: must be later than t_start")
         if self.carrier_id is None:
             missing = [
                 name
@@ -134,9 +138,11 @@ class EmitterSpec(_Model):
 
 
 class EphemerisError(_Model):
-    """True orbit minus believed orbit for one satellite, in the radial, in-track,
-    cross-track frame at ``t_ref`` (default: the believed orbit's own epoch handling,
-    see ``PerturbedOrbit``). Position m, velocity m/s."""
+    """True orbit minus believed orbit for one satellite (``core.orbits.PerturbedOrbit``):
+    ``ric_pos_m`` (m) in the believed orbit's radial / in-track / cross-track frame,
+    growing at ``ric_vel_mps`` (m/s) from ``t_ref``. ``t_ref`` matters only when the
+    velocity offset is non-zero; ``SimWorld`` then requires it (or an ``epoch_ns`` of
+    its own), since an offset growing from an arbitrary epoch would be meaningless."""
 
     ric_pos_m: Vector3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
     ric_vel_mps: Vector3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -184,15 +190,39 @@ class Scenario(_Model):
             seen.add(emitter.id)
         return self
 
+    def emitter(self, emitter_id: str) -> EmitterSpec:
+        """The scenario emitter with this id; ``ScenarioError`` naming it when there is none."""
+        for emitter in self.emitters:
+            if emitter.id == emitter_id:
+                return emitter
+        raise ScenarioError(f"emitter_id {emitter_id!r} is not an emitter of scenario {self.name!r}")
+
     def validate_against(self, config: Any) -> None:
         """Raise ``ScenarioError`` naming the field when the scenario refers to a
-        satellite, site or carrier the configuration does not have, or when an
-        emitter that realises a carrier cannot take its defaults from it."""
+        satellite, site or carrier the configuration does not have, when an emitter
+        that realises a carrier cannot take its defaults from it, when an emitter id
+        collides with the emitter the simulator creates for a configuration carrier
+        (one with ``location`` and ``emitter`` that no scenario emitter names; its id is
+        the carrier id), or when a waveform asks for what the synthesiser cannot make
+        (8-PSK: ``core.signals`` makes BPSK and QPSK)."""
         sat_ids = {s.id for s in config.satellites}
         site_ids = {s.id for s in config.sites}
         carriers = {c.id: c for c in config.carriers}
+        named = {e.carrier_id for e in self.emitters if e.carrier_id is not None}
+        auto_ids = {
+            c.id for c in config.carriers if c.id not in named and c.location is not None and c.emitter is not None
+        }
         for i, emitter in enumerate(self.emitters):
             where = f"emitters[{i}] ({emitter.id})"
+            if emitter.id in auto_ids:
+                raise ScenarioError(
+                    f"{where}.id: {emitter.id!r} is the id of the emitter created for configuration carrier "
+                    f"{emitter.id!r}; rename it or set carrier_id: {emitter.id} to realise that carrier"
+                )
+            if emitter.waveform is not None and emitter.waveform.type == "psk" and emitter.waveform.order not in (2, 4):
+                raise ScenarioError(
+                    f"{where}.waveform.order: {emitter.waveform.order}-PSK cannot be synthesised (2 or 4 only)"
+                )
             if emitter.carrier_id is not None:
                 carrier = carriers.get(emitter.carrier_id)
                 if carrier is None:

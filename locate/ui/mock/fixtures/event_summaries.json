@@ -1,0 +1,118 @@
+[
+  {
+    "id": "EV-0042",
+    "state": "located",
+    "verdict": "uplink",
+    "first_seen_ns": "1794592757000000000",
+    "last_seen_ns": "1794592799500000000",
+    "uplink_lo_hz": 301001000.0,
+    "uplink_hi_hz": 301009000.0,
+    "satellite_ids": [
+      "muos-pac",
+      "uhf-172e",
+      "muos-io"
+    ],
+    "label": "noise",
+    "headline": "Uplink interference on shared-1: change channel, not terminal",
+    "solution": {
+      "lat_deg": 20.347691409949547,
+      "lon_deg": 132.42198086689916,
+      "semi_major_m": 10570.938898218272,
+      "semi_minor_m": 599.9809995999136,
+      "azimuth_deg": 3.1776765545028827,
+      "cep50_m": 2923.2274173226533,
+      "ambiguous": false
+    },
+    "simulated": true
+  },
+  {
+    "id": "EV-0043",
+    "state": "located",
+    "verdict": "uplink",
+    "first_seen_ns": "1794592745000000000",
+    "last_seen_ns": "1794592799000000000",
+    "uplink_lo_hz": 301128475.0,
+    "uplink_hi_hz": 301132525.0,
+    "satellite_ids": [
+      "muos-pac",
+      "uhf-172e",
+      "muos-io"
+    ],
+    "label": "modulated",
+    "headline": "Uplink interference on shared-2: change channel, not terminal",
+    "solution": {
+      "lat_deg": 49.538179139970595,
+      "lon_deg": 138.41813791360482,
+      "semi_major_m": 28418.98647246884,
+      "semi_minor_m": 670.5532716627217,
+      "azimuth_deg": 10.379675191925234,
+      "cep50_m": 7835.7984142734995,
+      "ambiguous": true
+    },
+    "simulated": true
+  },
+  {
+    "id": "EV-0041",
+    "state": "characterizing",
+    "verdict": "local",
+    "first_seen_ns": "1794592488000000000",
+    "last_seen_ns": "1794592799500000000",
+    "uplink_lo_hz": 301500880.0,
+    "uplink_hi_hz": 301504120.0,
+    "satellite_ids": [
+      "muos-pac"
+    ],
+    "label": "modulated",
+    "headline": "Local interference at Busan on solo-pac: find or shield the source near the site",
+    "solution": null,
+    "simulated": true
+  },
+  {
+    "id": "EV-0044",
+    "state": "detected",
+    "verdict": "undetermined",
+    "first_seen_ns": "1794592705000000000",
+    "last_seen_ns": "1794592798000000000",
+    "uplink_lo_hz": 301756200.0,
+    "uplink_hi_hz": 301757800.0,
+    "satellite_ids": [
+      "uhf-172e"
+    ],
+    "label": null,
+    "headline": "Not yet decided: seen at Honolulu only",
+    "solution": null,
+    "simulated": true
+  },
+  {
+    "id": "EV-0039",
+    "state": "lost",
+    "verdict": "uplink",
+    "first_seen_ns": "1794587400000000000",
+    "last_seen_ns": "1794587700000000000",
+    "uplink_lo_hz": 301999100.0,
+    "uplink_hi_hz": 302000900.0,
+    "satellite_ids": [
+      "muos-io"
+    ],
+    "label": "pulsed",
+    "headline": "Uplink interference on solo-io, no longer seen",
+    "solution": null,
+    "simulated": true
+  },
+  {
+    "id": "EV-0038",
+    "state": "closed",
+    "verdict": "local",
+    "first_seen_ns": "1794583800000000000",
+    "last_seen_ns": "1794584100000000000",
+    "uplink_lo_hz": 301499800.0,
+    "uplink_hi_hz": 301500200.0,
+    "satellite_ids": [
+      "muos-pac"
+    ],
+    "label": "cw",
+    "headline": "Local carrier at Naha, closed by operator",
+    "solution": null,
+    "simulated": true
+  }
+]
