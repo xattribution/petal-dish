@@ -175,6 +175,7 @@ body[data-ready] .first-load{display:none}
 .part-row.mount .part-swatch{background:#5a7aa3}
 .part-row.clip .part-swatch{background:#f29440}
 .part-row.lever .part-swatch{background:#cc5c4d}
+.part-row.wedge .part-swatch{background:#d69e2e}
 .part-row.feed .part-swatch{background:#6bb39e}
 .part-name{font-size:13px;flex:1;min-width:0}
 .part-name small{display:block;color:var(--muted);font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums}

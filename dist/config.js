@@ -23,7 +23,7 @@ const unb64=text=>{const s=atob(text.replace(/-/g,'+').replace(/_/g,'/')),out=ne
 const canon=x=>Array.isArray(x)?'['+x.map(canon).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).filter(k=>x[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+canon(x[k])).join(',')+'}':JSON.stringify(x);
 const norm=v=>typeof v==='number'?+v.toPrecision(12):v;
 const mm=v=>Math.round(v*1000)/1000+0;
-const PRINT_KEYS=['feed','mount','clip','lever'];
+const PRINT_KEYS=['feed','mount','clip','lever','wedge'];
 // Plate rows (as plateRows gives them) of a model's hand arrangement, or null when the packer arranged the plates.
 export const handRows=m=>m.manualPacking&&m.p.packPlates?m.plates.flatMap((plate,i)=>plate.placements.map(x=>({copy:x.copy,plate:i+1,x:x.x,y:x.y,yaw:x.yaw}))):null;
 // The content of a code: settings that differ from BASE (and any setting BASE predates), joint overrides, accessories

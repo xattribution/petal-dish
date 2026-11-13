@@ -10,7 +10,7 @@ import {configInfo} from './config.js';
 // Vector views use the exported triangles. No WebGL, screenshots or network.
 const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0);
 const clean=s=>String(s).replace(/[–—−]/g,'-').replace(/×/g,'x').replace(/Ø/g,'dia. ').replace(/°/g,' deg').replace(/λ/g,'lambda').replace(/δ/g,'delta').replace(/ν/g,'nu').replace(/ψ/g,'psi').replace(/θ/g,'theta').replace(/±/g,'+/-').replace(/(\S)·(\S)/g,'$1*$2').replace(/³/g,'3').replace(/²/g,'2').replace(/[’‘]/g,"'").replace(/[“”]/g,'"').replace(/→/g,' -> ').replace(/[≤≥]/g,c=>c==='≤'?'<=':'>=').replace(/[^\x20-\x7e\n]/g,' ');
-const colors={panel:[105,147,174],hub:[194,143,67],feed:[74,144,119],mount:[85,115,150],clip:[219,142,65],lever:[196,86,72]};
+const colors={panel:[105,147,174],hub:[194,143,67],feed:[74,144,119],mount:[85,115,150],clip:[219,142,65],lever:[196,86,72],wedge:[214,158,46]};
 // Hidden-surface pass: rasterize every front-facing triangle into a depth buffer at 3 samples per point and keep only
 // triangles that are nearest at some sample. Fully hidden structure never reaches the PDF, which keeps large dishes
 // small and fast; the painter's order of what remains is unchanged.

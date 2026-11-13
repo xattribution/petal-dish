@@ -6,7 +6,7 @@ import {movePlacement,manualPlates,plateRows} from '../dist/mesh.js';
 import {manifest,scadSource} from '../dist/exports.js';
 import {configOf,modelConfig,configId,encodeConfig,readConfig,resolveConfig,isBaseline,configInfo,handRows} from '../dist/config.js';
 import {VERSION} from '../dist/version.js';
-const ID=/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/,ALL={feed:true,mount:true,clip:true,lever:true};
+const ID=/^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/,ALL={feed:true,mount:true,clip:true,lever:true,wedge:true};
 const roundTrip=cfg=>readConfig(encodeConfig(cfg));
 
 // Defaults are the baseline: an empty code whose ID is fixed.
