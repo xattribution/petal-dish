@@ -325,7 +325,8 @@ class FakeBackplane:
         )
         config = uvicorn.Config(
             app,
-            log_level="warning",
+            log_level=None,
+            log_config=None,
             access_log=False,
             lifespan="off",
             ws_per_message_deflate=False,

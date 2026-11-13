@@ -32,31 +32,6 @@ EXAMPLES = sorted((ROOT / "config").glob("*.yaml"))
 T_FIXED = "2026-11-13T12:00:00Z"
 
 
-@pytest.fixture(autouse=True)
-def restore_logging() -> Any:
-    """``cli.main`` points the root logger at the stderr of the moment, which pytest
-    closes after the test; later tests' log records would then hit a closed stream
-    ('I/O operation on closed file'). Put the logging configuration back."""
-    import logging
-
-    names = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
-    saved = {
-        name: (list(logging.getLogger(name).handlers), logging.getLogger(name).level, logging.getLogger(name).propagate)
-        for name in names
-    }
-    yield
-    for name, (handlers, level, propagate) in saved.items():
-        logger = logging.getLogger(name)
-        for handler in list(logger.handlers):
-            if handler not in handlers:
-                logger.removeHandler(handler)
-        for handler in handlers:
-            if handler not in logger.handlers:
-                logger.addHandler(handler)
-        logger.setLevel(level)
-        logger.propagate = propagate
-
-
 @pytest.fixture
 def files(tmp_path: Path) -> dict[str, Path]:
     config = tmp_path / "config.yaml"

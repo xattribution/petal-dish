@@ -316,9 +316,14 @@ async def test_a_console_that_stops_reading_is_closed(files: dict[str, Path], mo
 
 
 async def test_api_token_on_the_handshake_and_out_of_the_log(
-    files: dict[str, Path], caplog: pytest.LogCaptureFixture
+    files: dict[str, Path], caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     caplog.set_level(logging.DEBUG)
+    # The assertion below needs uvicorn's INFO records to reach the root handler, whatever
+    # an earlier test's uvicorn.Config did to these loggers.
+    for name in ("uvicorn.error", "uvicorn.access"):
+        caplog.set_level(logging.DEBUG, logger=name)
+        monkeypatch.setattr(logging.getLogger(name), "propagate", True)
     secret = "tok-5ecr3t-value"
     async with serving(settings_for(files, api_token=secret), files["presets"]) as served:
         for query in ("", "?token=wrong"):
