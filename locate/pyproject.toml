@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "petal-locate"
+version = "0.1.0"
+description = "Distributed satellite-uplink interference detection and geolocation (proof of concept)"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "sgp4>=2.22",
+  "pydantic>=2.6",
+  "pyyaml>=6",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "websockets>=12",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+sdr = ["SoapySDR"]
+
+[project.scripts]
+petal-locate = "petal_locate.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+petal_locate = ["server/static/**/*", "data/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = ["slow: long-running statistical or end-to-end tests"]
