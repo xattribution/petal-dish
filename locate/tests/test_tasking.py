@@ -519,20 +519,66 @@ async def test_a_satellite_the_calibrations_doubt_gets_an_allowance_and_the_elli
     from 42 rows on (offline 160 to 190 m off a 255 to 285 m ellipse) and the advice only
     warned. Now the calibrations size an allowance for each doubted satellite, the next
     solves widen its position sigma by that scale (velocity untouched, other satellites
-    untouched), the history says so, the truth stays inside, and the advice says the
-    ellipse includes the allowance instead of 'may lie outside'."""
+    untouched), the history says so, the truth stays inside, the event stays located from
+    its first fix on (no flapping), and the advice says the ellipse is widened and by how
+    much instead of 'may lie outside'.
+
+    The first fix waits for the allowance (final pass): the first solve's rows went
+    through uhf-172e, which that very round's clock checks named, yet it was published as
+    a fix with the doubt unconfirmed and no allowance ('the ellipse does not include that
+    error yet', the truth 415 m off a 449 m ellipse in a live run from 09:00 UTC). Now
+    the clock checks run before the solve, and a solution through a doubted satellite
+    with no allowance yet is not a fix until the doubt is confirmed and widened for."""
+    from petal_locate.core.solver import position_covariance
+
     async with environment(CONFIG, EPHEMERIS_ERROR) as env:
         record = make_event(env)
         inside: list[bool] = []
+        states: list[str] = []
+        held: list[str] = []
+        uncovered_at_first_fix: set[str] | None = None
+        # where tasking believes the event is when it picks reference carriers: a solution held
+        # back only by the doubt counts as much as a fix
+        plan_references = env.tasking._plan_references
+        nears: list[Any] = []
+
+        def spy(*args: Any) -> Any:
+            nears.append(args[5] if len(args) > 5 else None)
+            return plan_references(*args)
+
+        env.tasking._plan_references = spy  # type: ignore[method-assign]
+        after_hold: list[tuple[Any, Any]] = []
         for _ in range(16):
+            before = record.solution_out if record.solution_held else None
             await env.tasking.run_round(record.id)
+            if before is not None:
+                after_hold.append((nears[-1], (before.lat_deg, before.lon_deg)))
             env.clock.advance(5.0)
             env.book.flush(force=True)
             truth = event_truth(record, truth_emitters(env.world))
             if record.solution_out is not None:
                 inside.append(bool(truth.inside_ellipse))
+                states.append(record.state)
+                if record.state != "located":
+                    held.append(record.solution_out.not_fix_reason or "")
+                elif uncovered_at_first_fix is None:
+                    used = set(record.solution_used)
+                    through = {s for e in record.measurements if e.seq in used
+                               for s in (e.row.pair.a.sat_id, e.row.pair.b.sat_id)}
+                    covered = {a.sat_id for a in record.solution_allowance}
+                    uncovered_at_first_fix = (set(record.doubted_satellite_ids) & through) - covered
         assert len(record.used_measurements()) >= 46
         assert all(inside), inside  # every published ellipse holds the truth
+        # held until the doubt is confirmed, then located from the first fix on (no flapping)
+        first = states.index("located")
+        assert first >= 1 and set(states[:first]) == {"locating"} and set(states[first:]) == {"located"}, states
+        assert uncovered_at_first_fix == set(), uncovered_at_first_fix
+        assert held and all(r.startswith("the reference calibrations have just put the position") and
+                            r.endswith("and the ellipse does not include that error yet (it is widened once a later "
+                                       "round confirms the doubt)") for r in held), held
+        assert any((t.reason or "").startswith("the position is not a fix: the reference calibrations have just put")
+                   for t in record.transitions)
+        assert after_hold and all(near == position for near, position in after_hold), after_hold
         suspects = {s for e in env.tasking.site_clock_estimates() for s in e.suspect_satellite_ids}
         assert suspects == {"muos-pac", "uhf-172e"} == set(record.doubted_satellite_ids)
         allowance = {a.sat_id: a for a in record.solution_allowance}
@@ -550,13 +596,34 @@ async def test_a_satellite_the_calibrations_doubt_gets_an_allowance_and_the_elli
             assert np.array_equal(job.uncertainty.sat_vel_ric_mps[sat], configured.sat_vel_ric_mps[sat])
         assert np.array_equal(job.uncertainty.sat_pos_ric_m["muos-io"], configured.sat_pos_ric_m["muos-io"])
         assert job.uncertainty.site_clock_s == configured.site_clock_s
+        # how much the allowance widened the ellipse: against the configured uncertainty at the same position
+        solution = record.solution
+        plain = position_covariance(list(job.measurements), solution.lat_deg, solution.lon_deg, env.tasking._orbits,
+                                    env.tasking._sites_xyz, 0.0, configured, 0.95)
+        assert record.solution_widening == pytest.approx(solution.ellipse["semi_major_m"]
+                                                         / plain["ellipse"]["semi_major_m"], rel=1e-9)
+        assert 1.05 < record.solution_widening < 1.6
+        # what the operator sees: the published solution and the event document carry both
+        published = env.book.to_schema(record)
+        assert [(a.sat_id, a.scale, tuple(a.sigma_ric_m), a.capped) for a in published.solution.ephemeris_allowance] == [
+            (a.sat_id, a.scale, a.sigma_ric_m, a.capped) for a in record.solution_allowance]
+        assert published.solution.ellipse_widening == record.solution_widening
+        assert published.doubted_satellite_ids == ["muos-pac", "uhf-172e"]
+        growth = f"{(record.solution_widening - 1.0) * 100.0:.0f} % longer than with the configured uncertainty"
         assert any((t.reason or "").startswith("ellipse widened: the reference calibrations put the position")
                    for t in record.transitions)
-        assert "The ellipse includes an allowance for the positions of muos-pac" in record.tasking.message
+        message = record.tasking.message
+        # the widened sigma as the advice writes it ('8.0 km', it read '8 km' here and '8.0 km' there)
+        assert ("The ellipse is widened for the positions of muos-pac (8 times its configured sigma, about 8.0 km) "
+                "and uhf-172e (9.5 times its configured sigma, about 9.5 km)") in message
+        assert ("which the reference calibrations put wrong beyond the configured uncertainty: the 95 % ellipse's "
+                f"major axis is {growth}.") in message
         record.verdict = "uplink"
         advisory = env.book.to_schema(record).advisory
-        assert ("(one sigma) for the positions of muos-pac and uhf-172e, which the reference calibrations put wrong "
-                "beyond their configured uncertainty; check their ephemerides.") in advisory.detail
+        assert ("The ellipse is widened for the positions of muos-pac and uhf-172e, which the reference calibrations put "
+                "wrong beyond their configured uncertainty (their position sigmas taken 8 and ") in advisory.detail
+        assert f"check their ephemerides. Widened, the 95 % ellipse's major axis is {growth}." in advisory.detail
+        assert "about 8.0 km and 9.5 km one sigma" in advisory.detail
         assert "may lie outside" not in " ".join([advisory.detail, *advisory.actions])
 
 
@@ -1286,6 +1353,34 @@ async def test_the_newest_rows_of_another_transmitter_set_the_earlier_ones_aside
         assert any(r.startswith("another transmission: the newest measurements fit one transmitter") for r in reasons)
 
 
+async def test_the_split_solve_of_another_transmitter_uses_the_allowance_in_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1 with K2: the solve that tests the newest rows on their own (another transmitter)
+    is widened like any other: it gets the allowance in force for its rows' satellites,
+    and the solution it publishes carries that allowance and its widening."""
+    async with environment(NO_CAL, None) as env:
+        forced = {s: (4.0, False) for s in ("muos-pac", "uhf-172e", "muos-io")}
+        monkeypatch.setattr(env.tasking, "ephemeris_allowance", lambda: dict(forced))
+        record = make_event(env, config=NO_CAL)
+        state = tasking_module._EventState(record.id)
+        add_rows(env, record, [A_POS] * 3, T0)
+        await env.tasking._solve_event(record.id, state, RoundReport(record.id, T0), env.tasking._generation)
+        assert record.state == "located" and record.solution_allowance
+        env.clock.advance(120.0)
+        new = add_rows(env, record, [B_POS] * 3, T0 + 120 * S)
+        await env.tasking._solve_event(record.id, state, RoundReport(record.id, T0), env.tasking._generation)
+        assert env.tasking.counters["transmission_changes"] == 1 and record.solution_used == tuple(new)
+        split = [args[0] for fn, args in env.pool.jobs if fn is tasking_module._solve][-1]
+        assert len(split.measurements) == len(new)
+        sats = {s for m in split.measurements for s in (m.a.sat_id, m.b.sat_id)}
+        configured = NO_CAL.resolved_uncertainty()
+        for sat in sats:
+            assert split.uncertainty.sat_pos_ric_m[sat] == pytest.approx(configured.sat_pos_ric_m[sat] * 4.0)
+        assert {a.sat_id for a in record.solution_allowance} == sats
+        assert record.solution_widening is not None and record.solution_widening >= 1.0
+
+
 # ----------------------------------------------------------------------------- signals that cannot be located (UX-4)
 
 SWEPT = load_scenario(ROOT / "config" / "scenarios" / "uplink-swept.yaml")
@@ -1870,16 +1965,18 @@ def test_ephemeris_scale_covers_the_evidence_with_its_margin_rounded_up_and_capp
     assert ephemeris_scale(evidence(6.0, 1.0), 1.0) == (1.0, True)
 
 
-async def test_the_allowance_rises_at_once_holds_and_ends_when_its_evidence_ages_out(
+async def test_the_allowance_waits_for_a_confirmed_doubt_rises_at_once_holds_and_ends_when_its_evidence_ages_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """D1 hysteresis: a doubted satellite's scale applies to the next solve at once; a
-    smaller estimate or a cleared doubt does not lower it until the evidence that sized
-    it is older than calibration.max_age_s (300 s), then it falls back to the configured
+    """D1 hysteresis: a satellite named by the clock checks at one round end only is not
+    widened; named again at least one capture interval (5 s) later, within
+    calibration.max_age_s, its scale applies to the next solve at once; a smaller
+    estimate or a cleared doubt does not lower it until the evidence that sized it is
+    older than calibration.max_age_s (300 s), then it falls back to the configured
     sigma. With nothing in doubt the solves use the configured Uncertainty object itself.
     A satellite configured with a zero sigma is widened from the operator-grade default.
-    Replacing the world or the configuration forgets the allowance."""
-    from petal_locate.server.pipeline.tasking import PositionEvidence
+    Replacing the world or the configuration forgets the allowance and the doubt."""
+    from petal_locate.server.pipeline.tasking import DOUBT_CONFIRM_INTERVALS, PositionEvidence
 
     data = CONFIG.export_dict()
     data["satellites"][2]["ephemeris_sigma"] = {"pos_m": [0.0, 0.0, 0.0], "vel_mps": [0.0, 0.0, 0.0]}
@@ -1896,6 +1993,14 @@ async def test_the_allowance_rises_at_once_holds_and_ends_when_its_evidence_ages
         assert tasking._solve_uncertainty(rows) == (tasking._uncertainty, ())
         assert tasking._solve_uncertainty(rows)[0] is tasking._uncertainty
         shown["muos-pac"] = PositionEvidence("muos-pac", (0.0, 6000.0, 0.0), 6.2, 0.75, 9)
+        # named once, then again 4 s later: not yet confirmed
+        tasking._update_allowance({"muos-pac"})
+        assert tasking.ephemeris_allowance() == {}
+        env.clock.advance(4.0)
+        tasking._update_allowance({"muos-pac"})
+        assert tasking.ephemeris_allowance() == {}
+        assert tasking._solve_uncertainty(rows)[0] is tasking._uncertainty
+        env.clock.advance(1.0)  # 5 s after the first: confirmed, sized at once
         tasking._update_allowance({"muos-pac"})
         assert tasking.ephemeris_allowance() == {"muos-pac": (pytest.approx(8.0), False)}
         unc, applied = tasking._solve_uncertainty(rows)
@@ -1918,8 +2023,19 @@ async def test_the_allowance_rises_at_once_holds_and_ends_when_its_evidence_ages
         tasking._update_allowance(set())
         assert tasking.ephemeris_allowance() == {}
         assert tasking._solve_uncertainty(rows)[0] is tasking._uncertainty
-        # a satellite configured with zero sigma: widened from the operator-grade default
+        # named twice 200 s apart: confirmed; named again 310 s after a lone sighting: not
+        shown["uhf-172e"] = PositionEvidence("uhf-172e", (0.0, 3000.0, 0.0), 3.0, 0.5, 6)
+        tasking._update_allowance({"uhf-172e"})
+        env.clock.advance(200.0)
+        tasking._update_allowance({"uhf-172e"})
+        assert set(tasking.ephemeris_allowance()) == {"uhf-172e"}
         shown["muos-io"] = PositionEvidence("muos-io", (0.0, 0.0, 0.0), 0.0, 1.0, 3)
+        tasking._update_allowance({"muos-io"})
+        env.clock.advance(310.0)
+        tasking._update_allowance({"muos-io"})
+        assert "muos-io" not in tasking.ephemeris_allowance()
+        # a satellite configured with zero sigma: widened from the operator-grade default
+        env.clock.advance(5.0)
         tasking._update_allowance({"muos-io"})
         unc, applied = tasking._solve_uncertainty(rows)
         operator = np.asarray(zero.processing.uncertainty.ephemeris.operator.pos_m)
@@ -1927,16 +2043,69 @@ async def test_the_allowance_rises_at_once_holds_and_ends_when_its_evidence_ages
         # a satellite the rows do not go through changes nothing
         other = [Measurement("tdoa", 0.0, 1e-7, T0, PathSpec("muos-pac", "tokyo", 301e6, -41e6),
                              PathSpec("uhf-172e", "naha", 301e6, -33.6e6))]
+        env.clock.advance(400.0)
+        tasking._update_allowance(set())
         assert tasking._solve_uncertainty(other)[0] is tasking._uncertainty
+        tasking._update_allowance({"muos-io"})
+        env.clock.advance(5.0)
+        tasking._update_allowance({"muos-io"})
+        assert set(tasking.ephemeris_allowance()) == {"muos-io"}
         tasking.world_changed(env.clock())
         assert tasking.ephemeris_allowance() == {}
+        tasking._update_allowance({"muos-io"})  # the doubt was forgotten too: one sighting again
+        assert tasking.ephemeris_allowance() == {}
+        env.clock.advance(5.0)
         tasking._update_allowance({"muos-io"})
+        assert set(tasking.ephemeris_allowance()) == {"muos-io"}
         tasking.reconfigure(zero)
+        assert tasking.ephemeris_allowance() == {}
+        tasking._update_allowance({"muos-io"})
         assert tasking.ephemeris_allowance() == {}
         # a cap of 1 turns the allowance off
         tasking.reconfigure(with_processing(zero, calibration={"ephemeris_allowance_max_scale": 1.0}))
-        tasking._update_allowance({"muos-io", "muos-pac"})
+        for _ in range(3):
+            tasking._update_allowance({"muos-io", "muos-pac"})
+            env.clock.advance(5.0)
         assert tasking.ephemeris_allowance() == {}
+    assert DOUBT_CONFIRM_INTERVALS * zero.processing.capture.interval_s == 5.0  # the 5 s above
+
+
+async def test_a_doubt_not_yet_confirmed_holds_a_first_fix_only_until_it_is_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Final pass: ``_unconfirmed_doubt`` names the doubted satellites the rows (or their
+    calibrations) go through that no allowance covers yet because the doubt is not
+    confirmed; those hold a first fix (``EventBook.set_solution(unconfirmed_doubt=...)``).
+    The hold ends once the doubt is confirmed (one capture interval later), and never
+    starts for a satellite the rows do not go through, one the configuration does not
+    know, or with the allowance turned off (it would never come)."""
+    from petal_locate.core.types import CalRef
+    from petal_locate.server.pipeline.tasking import PositionEvidence
+
+    async with environment(CONFIG, None) as env:
+        tasking = env.tasking
+        shown = {"uhf-172e": PositionEvidence("uhf-172e", (0.0, 6000.0, 0.0), 6.2, 0.75, 9)}
+        monkeypatch.setattr(tasking, "satellite_position_evidence", lambda: dict(shown))
+        cal = CalRef("c-1", CONFIG.carrier_xyz("ref-guam"), PathSpec("muos-pac", "tokyo", 301e6, -41e6),
+                     PathSpec("uhf-172e", "naha", 301e6, -33.6e6), T0, 1e-7)
+        plain = Measurement("tdoa", 0.0, 1e-7, T0, PathSpec("muos-pac", "tokyo", 301e6, -41e6),
+                            PathSpec("muos-io", "naha", 301e6, -41e6))
+        calibrated = Measurement("tdoa", 0.0, 1e-7, T0, plain.a, plain.b, cal=cal)
+        assert tasking._unconfirmed_doubt((), [plain]) == ()
+        tasking._update_allowance({"uhf-172e"})  # named once
+        assert tasking._unconfirmed_doubt(("uhf-172e",), [plain]) == ()  # not through these rows
+        assert tasking._unconfirmed_doubt(("uhf-172e",), [calibrated]) == ("uhf-172e",)  # through their calibration
+        assert tasking._unconfirmed_doubt(("uhf-172e", "sat-unknown"), [calibrated]) == ("uhf-172e",)
+        env.clock.advance(5.0)
+        tasking._update_allowance({"uhf-172e"})  # confirmed and sized: covered, no hold
+        assert set(tasking.ephemeris_allowance()) == {"uhf-172e"}
+        assert tasking._unconfirmed_doubt(("uhf-172e",), [calibrated]) == ()
+        # confirmed but (here, by force) not widened: no hold either, it would never end
+        monkeypatch.setattr(tasking, "ephemeris_allowance", lambda: {})
+        assert tasking._unconfirmed_doubt(("uhf-172e",), [calibrated]) == ()
+        tasking.reconfigure(with_processing(CONFIG, calibration={"ephemeris_allowance_max_scale": 1.0}))
+        tasking._update_allowance({"muos-pac"})
+        assert tasking._unconfirmed_doubt(("muos-pac",), [plain]) == ()
 
 
 async def test_a_clock_fault_never_widens_an_ephemeris() -> None:
@@ -1956,6 +2125,254 @@ async def test_a_clock_fault_never_widens_an_ephemeris() -> None:
         evidence = env.tasking.satellite_position_evidence()
         assert evidence and all(e.norm < 2.0 for e in evidence.values()), evidence
         assert all(c.position_partials for c in env.tasking.calibrations() if c.key[4] == "tdoa")
+
+
+def same_uncertainty(a: Any, b: Any) -> bool:
+    """Whether two ``Uncertainty`` objects hold exactly the same values (every field;
+    per-satellite arrays compared element by element, no tolerance)."""
+    import dataclasses
+
+    for f in dataclasses.fields(a):
+        x, y = getattr(a, f.name), getattr(b, f.name)
+        if isinstance(x, dict):
+            if x.keys() != y.keys():
+                return False
+            for key in x:
+                if not np.array_equal(np.asarray(x[key]), np.asarray(y[key])):
+                    return False
+        elif x != y:
+            return False
+    return True
+
+
+@pytest.mark.parametrize("scenario", [DEMO, load_scenario(ROOT / "config" / "scenarios" / "two-jammers.yaml")],
+                         ids=["pacific-demo", "two-jammers"])
+async def test_with_nothing_in_doubt_every_solve_gets_the_configured_uncertainty_exactly(scenario: Scenario) -> None:
+    """D1, no doubt no change: with no satellite named by the clock checks, every solve
+    (warm, global and split alike) is handed the configured Uncertainty itself, equal
+    value for value to ``config.resolved_uncertainty()``, no widening is worked out, the
+    published solution carries no allowance and the history says nothing about one. (The
+    working tree and a56a6f9 gave bit-identical solutions over 20 rounds of pacific-demo,
+    two-jammers and clock-fault in this harness.)"""
+    async with environment(CONFIG, scenario) as env:
+        record = make_event(env)
+        await rounds(env, record, 10)
+        assert record.state == "located" and record.doubted_satellite_ids == ()
+        assert env.tasking.ephemeris_allowance() == {}
+        solves = [args[0] for fn, args in env.pool.jobs if fn is tasking_module._solve]
+        assert len(solves) >= 6
+        resolved = CONFIG.resolved_uncertainty()
+        for job in solves:
+            assert job.uncertainty is env.tasking._uncertainty
+            assert same_uncertainty(job.uncertainty, resolved)
+        assert not [fn for fn, _ in env.pool.jobs if fn is tasking_module._configured_semi_major]
+        assert record.solution_allowance == () and record.solution_widening is None
+        assert not any((t.reason or "").startswith(("ellipse widened", "ellipse allowance")) for t in record.transitions)
+        assert "widened" not in (record.tasking.message or "")
+
+
+class _ClockStep:
+    """A SimWorld whose renders at one site's channels are ``shift_ns`` late: that
+    site's clock stepped (the captures keep their timestamps), with no ``world_changed``."""
+
+    def __init__(self, world: SimWorld, site_id: str) -> None:
+        self._world = world
+        self._site_id = site_id
+        self.shift_ns = 0
+
+    def render_iq(self, channel_id: str, t_ns: int, n: int, rate: float, fc: float) -> Any:
+        site, _ = CONFIG.channel(channel_id)
+        return self._world.render_iq(channel_id, t_ns + (self.shift_ns if site.id == self._site_id else 0), n, rate, fc)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._world, name)
+
+
+@pytest.mark.slow
+async def test_a_clock_that_steps_mid_run_is_not_read_as_a_satellite_error_to_widen() -> None:
+    """D1 entry hysteresis (pacific-demo, Naha's clock steps 10 us at the eighth round, as
+    real hardware would: no world_changed, calibrations from before the step still count).
+    While old and new calibrations mix, one round end saw Naha's views through its
+    satellites disagree and named all three satellites; the next blamed the clock again.
+    Sized at once, that one round widened all three satellites for the next 300 s (and
+    the advice asked for their ephemerides to be checked). A doubt seen at one round end
+    is not acted on: no allowance at any round, every solve keeps the configured
+    uncertainty."""
+    async with environment(CONFIG, DEMO) as env:
+        stepped = _ClockStep(env.world, "naha")
+        env.hub.world = stepped
+        record = make_event(env)
+        doubted_rounds: list[int] = []
+        for i in range(18):
+            if i == 8:
+                stepped.shift_ns = 10_000
+            await env.tasking.run_round(record.id)
+            env.clock.advance(5.0)
+            env.book.flush(force=True)
+            if record.doubted_satellite_ids:
+                doubted_rounds.append(i)
+            assert env.tasking.ephemeris_allowance() == {}, i
+        assert doubted_rounds == [16]  # the lone round end that named them
+        estimates = {e.site_id: e for e in env.tasking.site_clock_estimates()}
+        assert estimates["naha"].caution
+        solves = [args[0] for fn, args in env.pool.jobs if fn is tasking_module._solve]
+        assert solves and all(job.uncertainty is env.tasking._uncertainty for job in solves)
+        assert record.solution_allowance == ()
+
+
+async def test_a_widened_ellipse_faces_the_fix_gate_and_a_new_allowance_is_solved_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1 (pacific-demo, allowance forced): the fix gate judges the widened ellipse (here
+    against a 0.8 km bound: the event goes back to locating, and is located again when the
+    allowance ends); a change of the allowance in force re-solves the event in the next
+    round even when it brings no new measurement; the widening is the widened semi-major
+    axis over the configured uncertainty's at the same position; the status message and
+    the advice keep the warning for an allowance at the largest scale."""
+    from petal_locate.core.solver import position_covariance
+    from petal_locate.server.pipeline.events import fix_semi_major_limit_m
+
+    forced: dict[str, tuple[float, bool]] = {}
+    async with environment(CONFIG, DEMO) as env:
+        tasking = env.tasking
+        monkeypatch.setattr(tasking, "ephemeris_allowance", lambda: dict(forced))
+        monkeypatch.setattr(tasking_module, "fix_semi_major_limit_m", lambda region: 800.0)
+        assert fix_semi_major_limit_m(CONFIG.processing.region) > 800.0
+        record = make_event(env)
+        await rounds(env, record, 6)
+        assert record.state == "located" and record.solution_out.ellipse.semi_major_m < 800.0
+        # every satellite widened 20 times (capped), with no capture succeeding: solved anyway
+        forced.update({s: (20.0, True) for s in ("muos-pac", "uhf-172e", "muos-io")})
+        env.hub.fail_all = "offline"
+        before = len([1 for fn, _ in env.pool.jobs if fn is tasking_module._solve])
+        await rounds(env, record, 1)
+        solves = [args[0] for fn, args in env.pool.jobs if fn is tasking_module._solve]
+        assert len(solves) > before
+        job = solves[-1]
+        configured = CONFIG.resolved_uncertainty()
+        for sat in ("muos-pac", "uhf-172e", "muos-io"):
+            assert job.uncertainty.sat_pos_ric_m[sat] == pytest.approx(configured.sat_pos_ric_m[sat] * 20.0)
+        assert [(a.sat_id, a.scale, a.capped) for a in record.solution_allowance] == [
+            ("muos-io", 20.0, True), ("muos-pac", 20.0, True), ("uhf-172e", 20.0, True)]
+        solution = record.solution
+        plain = position_covariance(list(job.measurements), solution.lat_deg, solution.lon_deg, tasking._orbits,
+                                    tasking._sites_xyz, 0.0, configured, 0.95)
+        assert record.solution_widening == pytest.approx(solution.ellipse["semi_major_m"]
+                                                         / plain["ellipse"]["semi_major_m"], rel=1e-9)
+        assert solution.ellipse["semi_major_m"] > 800.0 and record.solution_widening > 2.0
+        assert record.state == "locating" and not record.solution_out.is_fix
+        reasons = [t.reason or "" for t in record.transitions]
+        assert any(r.startswith("position withdrawn: the position is not a fix") for r in reasons)
+        assert any(r.startswith("ellipse widened: the reference calibrations put the positions of muos-io, muos-pac "
+                                "and uhf-172e wrong") and "at the largest allowed scale" in r for r in reasons)
+        message = record.tasking.message
+        assert "The ellipse is widened for the positions of muos-io (20 times its configured sigma, about 20 km, the " \
+               "largest scale allowed)" in message
+        assert "The allowance may still be too small: the transmitter may lie outside the ellipse." in message
+        # the same allowance again, still no capture: nothing more to solve
+        before = len([1 for fn, _ in env.pool.jobs if fn is tasking_module._solve])
+        await rounds(env, record, 1)
+        assert len([1 for fn, _ in env.pool.jobs if fn is tasking_module._solve]) == before
+        # the allowance ends: re-solved with the configured uncertainty, located again
+        forced.clear()
+        await rounds(env, record, 1)
+        job = [args[0] for fn, args in env.pool.jobs if fn is tasking_module._solve][-1]
+        assert job.uncertainty is tasking._uncertainty
+        assert record.solution_allowance == () and record.solution_widening is None
+        assert record.state == "located"
+        assert record.transitions[-1].reason.startswith("ellipse allowance for the positions of muos-io, muos-pac and "
+                                                        "uhf-172e removed")
+
+
+def test_satellite_partials_that_cannot_be_worked_out_cost_only_the_evidence(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """D1: the satellite partials worked out with each TDOA calibration are optional
+    evidence. A predictor's ValueError (numpy's LinAlgError and the propagators' errors
+    are ValueErrors) or an arithmetic error leaves the calibration with empty partials
+    and a warning; any other exception is a bug and is not swallowed (it fails the
+    calibration job, where it is logged)."""
+    from petal_locate.core.types import CalRef
+
+    x_ref = CONFIG.carrier_xyz("ref-guam")
+    cal = CalRef("c-1", x_ref, PathSpec("muos-pac", "tokyo", 301e6, -41e6), PathSpec("uhf-172e", "naha", 301e6, -33.6e6),
+                 T0, 1e-7)
+    orbits, sites = CONFIG.orbits(), CONFIG.sites_xyz()
+    position, media = tasking_module._reference_partials("tdoa", cal, orbits, sites)
+    assert {s for s, _ in position} == {"muos-pac", "uhf-172e"} and media
+    assert tasking_module._reference_partials("fdoa", cal, orbits, sites) == ((), ())
+    for error in (ValueError("orbit propagation failed"), np.linalg.LinAlgError("singular"), FloatingPointError("x")):
+        def broken(*args: Any, error: Exception = error) -> Any:
+            raise error
+
+        monkeypatch.setattr(tasking_module, "reference_position_partials", broken)
+        caplog.clear()
+        assert tasking_module._reference_partials("tdoa", cal, orbits, sites) == ((), ())
+        assert any("calibration c-1: satellite partials not worked out" in r.getMessage() for r in caplog.records)
+
+    def bug(*args: Any) -> Any:
+        raise TypeError("a bug")
+
+    monkeypatch.setattr(tasking_module, "reference_position_partials", bug)
+    with pytest.raises(TypeError):
+        tasking_module._reference_partials("tdoa", cal, orbits, sites)
+
+
+def test_the_evidence_works_for_any_satellite_set_leo_and_a_single_satellite_included() -> None:
+    """D1, any constellation: the evidence fit and the scale take whatever satellites,
+    sites and orbits the configuration has. Two low-Earth-orbit satellites (the shipped
+    leo-example orbits, 800 km) over four sites 400 km apart, leo-a 3 km off in-track
+    against an operator-grade 100 m / 1 km / 1 km: its error comes out and its scale
+    covers it, leo-b stays near zero. A single satellite (clock checks only, no
+    cross-satellite pair) gives finite evidence and no crash; so do one edge, and edges
+    naming a satellite with no configured sigma."""
+    from petal_locate.core.geodesy import lla_to_ecef
+    from petal_locate.core.orbits import PerturbedOrbit
+    from petal_locate.core.solver import reference_position_partials
+    from petal_locate.core.types import CalRef
+    from petal_locate.server.pipeline.tasking import EvidenceEdge, ephemeris_scale, satellite_position_evidence
+
+    leo = load_config(ROOT / "config" / "leo-example.yaml")
+    orbits = leo.orbits()
+    t_ns = ns_from_iso("2026-01-01T00:02:00Z")
+    t_s = t_ns / S
+    site = leo.sites[0]
+    lat0, lon0 = float(site.lat_deg), float(site.lon_deg)
+    sites = {f"s{i}": lla_to_ecef(lat0 + dlat, lon0 + dlon, 0.0)
+             for i, (dlat, dlon) in enumerate([(0.0, 0.0), (3.6, 0.0), (0.0, 4.5), (-3.6, -4.5)])}
+    x_ref = lla_to_ecef(lat0 + 1.0, lon0 + 1.5, 0.0)
+    truth = dict(orbits)
+    truth["leo-a"] = PerturbedOrbit(orbits["leo-a"], np.array([0.0, 3000.0, 0.0]), np.zeros(3), t_s)
+    rng = np.random.default_rng(3)
+    sigma = {s: np.array([100.0, 1000.0, 1000.0]) for s in orbits}
+
+    def edges_for(pairs: list[tuple[str, str, str, str]]) -> list[EvidenceEdge]:
+        out = []
+        for k, (sa, a, sb, b) in enumerate(pairs):
+            cal = CalRef(f"c{k}", x_ref, PathSpec(sa, a, 435.1e6, -289.2e6), PathSpec(sb, b, 435.1e6, -289.2e6),
+                         t_ns + k * S, 30e-9)
+            tk = cal.t_ns / S
+            c = float(predict_pair(x_ref, cal.a, cal.b, tk, truth, sites)[0]
+                      - predict_pair(x_ref, cal.a, cal.b, tk, orbits, sites)[0]) + float(rng.normal(0.0, 30e-9))
+            partials = reference_position_partials("tdoa", cal, orbits, sites)
+            out.append(EvidenceEdge(sa, a, sb, b, c, 30e-9, tuple((s, tuple(p)) for s, p in partials.items())))
+        return out
+
+    names = sorted(sites)
+    checks = [(sat, "s0", sat, other) for sat in orbits for other in names[1:]]
+    cross = [("leo-a", a, "leo-b", b) for a in names for b in names if a != b]
+    evidence = satellite_position_evidence(edges_for(checks + cross), sigma)
+    assert set(evidence) == {"leo-a", "leo-b"}
+    assert evidence["leo-a"].error_ric_m[1] == pytest.approx(3000.0, rel=0.25)
+    scale, capped = ephemeris_scale(evidence["leo-a"], 20.0)
+    assert not capped and scale * sigma["leo-a"][1] >= 3000.0
+    assert evidence["leo-b"].norm < 1.5
+    single = satellite_position_evidence(edges_for([("leo-a", "s0", "leo-a", other) for other in names[1:]]), sigma)
+    assert set(single) == {"leo-a"} and all(math.isfinite(v) for v in (single["leo-a"].norm, single["leo-a"].norm_sigma))
+    one = satellite_position_evidence(edges_for([("leo-a", "s0", "leo-b", "s1")]), sigma)
+    assert set(one) == {"leo-a", "leo-b"} and all(e.norm_sigma <= 1.0 + 1e-9 for e in one.values())
+    unknown = satellite_position_evidence(edges_for(checks), {})
+    assert all(e.norm == 0.0 and e.error_ric_m == (0.0, 0.0, 0.0) for e in unknown.values())
 
 
 async def test_a_failed_solve_over_more_rows_withdraws_the_published_position(monkeypatch: pytest.MonkeyPatch) -> None:

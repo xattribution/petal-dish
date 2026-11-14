@@ -441,7 +441,8 @@ Event            {id, state, verdict, verdict_reason | null, first_seen_ns, last
                   measurements: [MeasurementRow], caf: CafDisplay | null, truth: EventTruth | null,
                   merged_into | null, simulated, tasking: TaskingStatus | null,
                   onset_ns | null, resumed_ns | null, break_s | null, recheck | null,
-                  received_lo_hz | null, received_hi_hz | null, seen_site_ids, width_lower_bound}
+                  received_lo_hz | null, received_hi_hz | null, seen_site_ids, width_lower_bound,
+                  doubted_satellite_ids: [sat_id]}
 EvidenceRow      {channel_id, site_id, sat_id | null, state: "seen" | "not_seen_capable" | "not_capable" | "stale",
                   snr_db | null, cn0_dbhz | null, predicted_margin_db | null, last_seen_ns | null,
                   monitor_id | null, downlink_lo_hz | null, downlink_hi_hz | null}
@@ -456,7 +457,9 @@ EventTruth       {emitter_id, lat_deg, lon_deg, miss_m | null, inside_ellipse | 
 SolutionOut      core.solver.Solution.as_dict(): {lat_deg, lon_deg, height_m, cov_en_m2, cov_noise_en_m2, cov_consider_en_m2,
                   ellipse: {semi_major_m, semi_minor_m, azimuth_deg, confidence}, cep50_m, chi2, dof, reduced_chi2 | null,
                   residuals, ambiguities: [SolutionOut], ambiguity_resolved_by, converged, dominant_error, n_measurements}
-                  plus fit_consistent (true), fit_p_value | null, ellipse_scale (1.0), is_fix (true), not_fix_reason | null
+                  plus fit_consistent (true), fit_p_value | null, ellipse_scale (1.0), is_fix (true), not_fix_reason | null,
+                  ephemeris_allowance: [EphemerisAllowanceOut] ([]), ellipse_widening | null
+EphemerisAllowanceOut {sat_id, scale, sigma_ric_m: [radial, in_track, cross_track], capped (false)}
 LopCollection    {type: "FeatureCollection", features: [{type: "Feature", geometry, properties: LopProperties}]}
 LopProperties    {role: "line" | "band", kind, event_id, seq, tag, a_sat_id, a_site_id, a_channel_id, b_sat_id, b_site_id,
                   b_channel_id, t_ns, value, correction, calibrated, sigma, sigma_total, k_sigma (2), height_m}
@@ -554,10 +557,14 @@ Notes on the fields:
   `not_fix_reason`, one plain clause: `the solver did not converge`, `the measurements
   do not fit one stationary transmitter (reduced chi-square X, limit Y)`, `no
   redundancy: N measurements for the two unknowns of a position, so the fit cannot be
-  checked against itself`, or `the 95 % error ellipse has a semi-major axis of N km,
+  checked against itself`, `the 95 % error ellipse has a semi-major axis of N km,
   more than the M km a fix may have here: the measurements do not pin the position
-  down`; each ambiguity carries its own. A located event whose new solution is not a fix
-  goes back to `locating`. A fit is inconsistent when `reduced_chi2 > processing.solver.max_reduced_chi2` (5) and the
+  down`, or, for an event not yet located whose rows go through a satellite whose
+  doubt is not yet confirmed (below), `the reference calibrations have just put the
+  position of X wrong beyond its configured uncertainty, and the ellipse does not
+  include that error yet (it is widened once a later round confirms the doubt)`; each
+  ambiguity carries its own. A located event whose new solution is not a fix
+  goes back to `locating` (the doubt reason never withdraws a located event). A fit is inconsistent when `reduced_chi2 > processing.solver.max_reduced_chi2` (5) and the
   chi-square tail probability is below 0.001: it is published with `fit_consistent:
   false`, `fit_p_value` and `ellipse_scale = sqrt(reduced_chi2)` already applied to
   `ellipse.semi_major_m`, `semi_minor_m` and `cep50_m` (its square to the three
@@ -569,6 +576,49 @@ Notes on the fields:
   `dominant` grid) is one of `core.solver.ERROR_SOURCES`: `noise`,
   `ephemeris_position`, `ephemeris_velocity`, `clock`, `oscillator`, `tdoa_bias`,
   `reference`, `ionosphere`, `troposphere`.
+- `SolutionOut.ephemeris_allowance` lists the satellites whose position sigma the solve
+  widened because the reference calibrations put their position wrong beyond the
+  configured uncertainty (MATH.md section 9, *ephemeris allowance*), sorted by `sat_id`;
+  empty when the solve used the configured uncertainty unchanged, and always on an
+  ambiguity. Each `EphemerisAllowanceOut` gives `scale`, the factor (greater than 1) on
+  the satellite's configured radial / in-track / cross-track position sigma (a component
+  configured as zero takes `processing.uncertainty.ephemeris.operator.pos_m` first),
+  `sigma_ric_m`, the widened one-sigma in meters, and `capped`: the scale is the largest
+  allowed (`processing.calibration.ephemeris_allowance_max_scale`, 20) and the
+  calibrations ask for more, or they could not size the error, so the ellipse may still
+  not cover it. The ellipse, CEP50 and covariances already include the allowance and
+  `is_fix` judges the widened ellipse. `ellipse_widening` is, with an allowance, the 95 %
+  semi-major axis over the one the same measurements give at the same position with the
+  configured uncertainty (normally at least 1; 1.21: the major axis 21 % longer; the
+  area grows more, both axes widening), null without an
+  allowance or when it could not be worked out. Both are in the stored solution. A
+  change of the list adds a transition: `ellipse widened: the reference calibrations put
+  the position of X wrong beyond the configured uncertainty (position sigma taken
+  larger: X N times[, at the largest allowed scale][; the 95 % ellipse's major axis P %
+  longer than with the configured uncertainty])` (several satellites: `the positions of X and Y`,
+  `X N1 times, Y N2 times`), `ellipse allowance for the position of X reduced to N times
+  its configured sigma`, `ellipse allowance for the position of X removed: the configured
+  uncertainty is used again` (several: `the positions of X and Y`), or `the allowance for
+  the position of X is now|no longer at its largest scale`. `TaskingStatus.message` then
+  ends `The ellipse is widened for the position of X (N times its configured sigma, about
+  D), which the reference calibrations put wrong beyond the configured uncertainty:
+  the 95 % ellipse's major axis is P % longer than with the configured uncertainty.` (D
+  written as the advisory writes distances, `8.0 km`; with `, the largest scale allowed` and
+  ` The allowance may still be too small: the transmitter may lie outside the ellipse.`
+  for a capped one), and the advisory of a fix through X says `The ellipse is widened
+  for the position of X, which the reference calibrations put wrong beyond its
+  configured uncertainty (its position sigma taken N times larger, about D one sigma);
+  check its ephemeris. Widened, the 95 % ellipse's major axis is P % longer than with
+  the configured uncertainty.` (report action `...; the ellipse is widened for the
+  ephemeris of X, which is in doubt`, or `the ephemerides of X and Y, which are in
+  doubt`; a capped one says the calibrations put the position wrong by more than the
+  largest allowance or by an amount they cannot size, and keeps `...; the ephemeris of X
+  is in doubt, so the transmitter may lie outside this`). A growth of twice or more
+  reads `N times as long as with the configured uncertainty`. Loading a configuration
+  ends every allowance at once (the calibrations go with it). `Event.doubted_satellite_ids` lists every
+  satellite the clock checks name when tasking last looked at the event (network-wide,
+  sorted), so a console can tell those the published solve covers from those it does
+  not cover yet.
 - `EvidenceRow.sat_id` is null for an event outside every passband.
   `predicted_margin_db` is how far above the channel's threshold the signal should be
   given the strongest sighting (null when it cannot be predicted). `last_seen_ns` is
@@ -635,11 +685,17 @@ Notes on the fields:
   the site's timing differs between satellites (`... through X about N µs ahead; through
   Y ...`), so its clock is probably fine and the position of the satellite named is
   probably wrong beyond its configured uncertainty (check its ephemeris);
-  `suspect_satellite_ids` lists the satellites that message names (empty otherwise). An
-  event whose fix rests on rows through such a satellite gets an advisory saying the
-  ellipse does not include that error and the transmitter may lie outside it (the report
-  action adds `; the ephemeris of X is in doubt, so the transmitter may lie outside
-  this`).
+  `suspect_satellite_ids` lists the satellites that message names (empty otherwise);
+  tasking copies them, every site's together, to each event it tasks
+  (`Event.doubted_satellite_ids`) and, once a satellite has been named in two rounds
+  at least a capture interval apart, widens its position sigma in the live solves
+  (`SolutionOut.ephemeris_allowance`, below). Until then a solution of an event not yet
+  located whose rows go through it is not a fix (`not_fix_reason` above). A located
+  event whose fix rests on rows through a doubted satellite that its published solve
+  did not widen for (yet) gets an advisory saying the ellipse does not include that
+  error yet and the transmitter may lie outside it (the report action adds `; the
+  ephemeris of X is in doubt, so the transmitter may lie outside this`, or `the
+  ephemerides of X and Y are in doubt`).
 - `ChannelStatus.windows` gives each monitor window's state: `last_frame_age_s` (from
   the hub), `detection_frame_age_s` (the newest frame detection accepted), `blind`
   (frames arrive but none has been accepted for 10 frame periods) with `blind_reason`,

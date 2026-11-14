@@ -588,9 +588,12 @@ moments at which rounds ran still followed the wall clock).
   operator-grade sigmas.
 - ephemeris-error: verdict uplink 5.0 s and located 7.4 s after detection. The fix was
   88, 15, 18 and 61 m off, always inside; at 16 rows the ellipse was 437 by 164 m. The
-  same rows without corrections land 12.0 km off (NEES 31). With many more rows the fix
-  stays a couple of hundred meters off while its ellipse shrinks past that (LIMITATIONS.md
-  section 7).
+  same rows without corrections land 12.0 km off (NEES 31). This run predates the
+  ephemeris allowance: with many more rows the fix stayed a couple of hundred meters off
+  while its ellipse shrank past that. The server now widens the position sigma of the
+  satellites the clock checks put wrong (MATH.md section 9), and a first fix waits for
+  that; live, the ellipse then kept the truth in every snapshot (LIMITATIONS.md section
+  7).
 
 ## 6. Reference carriers: why calibration helps now
 
@@ -647,8 +650,10 @@ target's.
   capture noise attributes a co-channel copy heard in one channel partly to the other.
 - The maps are single-epoch, one capture per pair. The live system adds rows every 5 s,
   so noise averages down while systematic errors stay. With TLE-class errors the
-  calibrated ellipse can then shrink past the uncancelled residual (ephemeris-error
-  description).
+  calibrated ellipse would then shrink past the uncancelled residual (ephemeris-error
+  description); the live server widens the position sigma of the satellites its clock
+  checks put wrong for that (ephemeris allowance, LIMITATIONS.md section 7), which the
+  maps, with no live calibrations, do not do.
 - Detection thresholds assume a noise-like jammer on a quiet channel, with the tracker's
   start-up prior as its baseline (10 s of frames). A jammer under a busy authorized
   carrier is judged against that carrier's power instead.

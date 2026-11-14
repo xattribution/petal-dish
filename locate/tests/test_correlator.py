@@ -1087,10 +1087,13 @@ def test_a_solution_without_redundancy_or_with_an_absurd_ellipse_is_not_a_fix() 
 
 def test_a_solution_solved_with_an_ephemeris_allowance_keeps_it_and_says_when_it_changes() -> None:
     """D1: tasking widens the position sigma of a satellite the calibrations put wrong
-    beyond its configured uncertainty and hands the allowance to set_solution. The
-    published solution keeps it (``solution_allowance``), the history says when it
-    widens, shrinks or ends (and nothing when it is the same), and a withdrawn
-    position takes it along. The state is never touched by the allowance itself."""
+    beyond its configured uncertainty and hands the allowance to set_solution, with how
+    much it widened the 95 % ellipse. The published solution keeps both
+    (``solution_allowance``, ``solution_widening``; no widening without an allowance),
+    the history says when the allowance widens (with the growth of the ellipse when
+    known), shrinks or ends (and nothing when it is the same), and a withdrawn position
+    takes them along. The state is never touched by the allowance itself; the fix gate
+    judges the widened ellipse like any other."""
     from petal_locate.server.pipeline.events import EphemerisAllowance
 
     h = Harness(make_config())
@@ -1107,34 +1110,187 @@ def test_a_solution_solved_with_an_ephemeris_allowance_keeps_it_and_says_when_it
     assert record.state == "located" and record.solution_allowance == ()
     count = len(record.transitions)
     wide = EphemerisAllowance("sat-b", 9.51, (951.0, 9510.0, 9510.0))
-    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 2, used=seqs, allowance=[wide])
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 2, used=seqs, allowance=[wide],
+                               widening=1.214)
     assert record.solution_allowance == (wide,) and record.state == "located"
+    assert record.solution_widening == pytest.approx(1.214)
     assert len(record.transitions) == count + 1
     assert record.transitions[-1].reason == (
         "ellipse widened: the reference calibrations put the position of sat-b wrong beyond the configured "
-        "uncertainty (position sigma taken larger: sat-b 9.5 times)"
+        "uncertainty (position sigma taken larger: sat-b 9.5 times; the 95 % ellipse's major axis 21 % longer than "
+        "with the configured uncertainty)"
     )
     assert record.transitions[-1].state == "located"
-    # the same allowance again: nothing to say
+    # the same allowance again: nothing to say (the growth is kept as given: here not known)
     assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs, allowance=[wide])
-    assert len(record.transitions) == count + 1
+    assert len(record.transitions) == count + 1 and record.solution_widening is None
+    # no allowance: no widening kept, whatever is passed
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs, widening=1.5)
+    assert record.solution_widening is None
+    assert record.transitions[-1].reason.startswith("ellipse allowance for the position of sat-b removed")
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs, allowance=[wide],
+                               widening=float("nan"))
+    assert record.solution_widening is None
+    assert record.transitions[-1].reason.endswith("(position sigma taken larger: sat-b 9.5 times)")
     # smaller, then capped, then gone
     small = EphemerisAllowance("sat-b", 4.0, (400.0, 4000.0, 4000.0))
     assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 4, used=seqs, allowance=[small])
     assert record.transitions[-1].reason == "ellipse allowance for the position of sat-b reduced to 4 times its configured sigma"
     top = EphemerisAllowance("sat-a", 20.0, (2000.0, 20000.0, 20000.0), capped=True)
-    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 5, used=seqs, allowance=[small, top])
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 5, used=seqs, allowance=[small, top],
+                               widening=2.5)
     assert "the position of sat-a wrong beyond the configured uncertainty (position sigma taken larger: sat-a 20 " \
-           "times, at the largest allowed scale)" in record.transitions[-1].reason
+           "times, at the largest allowed scale; the 95 % ellipse's major axis 2.5 times as long as with the " \
+           "configured uncertainty)" in record.transitions[-1].reason
     assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 6, used=seqs, allowance=[top])
     assert record.transitions[-1].reason == (
         "ellipse allowance for the position of sat-b removed: the configured uncertainty is used again"
     )
+    # the fix gate judges the widened ellipse (here 4.9 km against a 1 km bound): not a fix, back to locating
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 6, used=seqs, allowance=[top],
+                               widening=1.3, max_semi_major_m=1000.0)
+    assert record.state == "locating" and not record.solution_out.is_fix
+    assert record.transitions[-1].reason.startswith("position withdrawn: the position is not a fix")
     # a failed solve keeps the published allowance; a withdrawn position takes it along
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 6, used=seqs, allowance=[top],
+                               widening=1.3)
+    assert record.state == "located"
     assert h.book.set_solution(record.id, None, T0 + 7, reason="unobservable")
-    assert record.solution_allowance == (top,)
+    assert record.solution_allowance == (top,) and record.solution_widening == pytest.approx(1.3)
     assert h.book.withdraw_solution(record.id, "test")
-    assert record.solution_allowance == ()
+    assert record.solution_allowance == () and record.solution_widening is None
+
+
+def test_a_first_fix_through_a_doubt_not_yet_confirmed_waits_and_a_located_event_keeps_its_fix() -> None:
+    """Final pass (live ephemeris-error from 09:00 UTC: the first fix, 4 rows, came while
+    the doubt about a satellite it went through was unconfirmed, so no allowance covered
+    it; it was located with the truth 415 m off a 449 m ellipse). A solution through such
+    a satellite (``unconfirmed_doubt``, from tasking) is published as not a fix while the
+    event is not yet located, and so is each ambiguity that would be a fix; the event
+    stays locating with the reason in the history. Once the doubt is confirmed (no
+    satellite passed) the next fix locates it. A located event is not withdrawn for a new,
+    unconfirmed doubt (the advice warns instead), and a withdrawn position forgets the
+    hold."""
+    from petal_locate.server.pipeline.events import doubt_hold_reason
+
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    h.book.mark_characterizing(record.id)
+    seqs = [
+        h.book.add_measurement(record.id, _row("fdoa", value=v), Measurement("fdoa", v, 1e-3, T0, path, other))
+        for v in (0.5, 0.6, 0.7)
+    ]
+
+    class Ambiguous(FakeSolution):
+        def as_dict(self) -> dict[str, Any]:
+            data = super().as_dict()
+            data["ambiguities"] = [FakeSolution(list(self.residuals), lat_deg=-20.0).as_dict()]
+            data["ambiguity_resolved_by"] = "region"
+            return data
+
+    reason = doubt_hold_reason(("sat-b",))
+    assert reason == ("the reference calibrations have just put the position of sat-b wrong beyond its configured "
+                      "uncertainty, and the ellipse does not include that error yet (it is widened once a later "
+                      "round confirms the doubt)")
+    assert doubt_hold_reason(("sat-a", "sat-b")).startswith(
+        "the reference calibrations have just put the positions of sat-a and sat-b wrong beyond their configured")
+    assert h.book.set_solution(record.id, Ambiguous([0.5, -0.2, 0.1]), T0 + 1, used=seqs,
+                               unconfirmed_doubt=["sat-b", "sat-b"])
+    out = record.solution_out
+    assert record.state == "locating" and not out.is_fix and out.not_fix_reason == reason
+    assert [(a.is_fix, a.not_fix_reason) for a in out.ambiguities] == [(False, reason)]
+    assert record.solution_held == ("sat-b",) and record.solution_history[-1].is_fix is False
+    assert record.transitions[-1].reason == f"the position is not a fix: {reason}"
+    # the doubt confirmed and widened for: the next fix locates the event
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 2, used=seqs)
+    assert record.state == "located" and record.solution_out.is_fix and record.solution_held == ()
+    assert record.transitions[-1].reason == "position estimated"
+    # located: a new unconfirmed doubt does not withdraw the fix
+    count = len(record.transitions)
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs,
+                               unconfirmed_doubt=["sat-a"])
+    assert record.state == "located" and record.solution_out.is_fix and record.solution_held == ()
+    assert len(record.transitions) == count
+    # a solution that is not a fix for another reason keeps that reason
+    assert h.book.withdraw_solution(record.id, "test")
+    assert record.state == "locating"
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), T0 + 4, used=seqs[:2],
+                               unconfirmed_doubt=["sat-b"])
+    assert record.solution_out.not_fix_reason.startswith("no redundancy") and record.solution_held == ()
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 5, used=seqs,
+                               unconfirmed_doubt=["sat-b"])
+    assert record.solution_held == ("sat-b",)
+    assert h.book.withdraw_solution(record.id, "test") and record.solution_held == ()
+
+
+def test_the_published_solution_and_event_carry_the_ephemeris_allowance_and_doubt() -> None:
+    """Integration of D1: the allowance a solve was widened by and how much it widened
+    the ellipse reach the operator in the published solution
+    (``SolutionOut.ephemeris_allowance``, ``ellipse_widening``), in the stored solution
+    JSON and in the event document, with the satellites in doubt
+    (``Event.doubted_satellite_ids``). Without an allowance both are empty, whatever
+    widening is passed; an ambiguity never carries them."""
+    from petal_locate.server.pipeline.events import EphemerisAllowance
+
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    h.book.mark_characterizing(record.id)
+    seqs = [
+        h.book.add_measurement(record.id, _row("fdoa", value=v), Measurement("fdoa", v, 1e-3, T0, path, other))
+        for v in (0.5, 0.6, 0.7)
+    ]
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 1, used=seqs, widening=1.4)
+    out = record.solution_out
+    assert out.ephemeris_allowance == [] and out.ellipse_widening is None
+    doc = h.book.to_schema(record)
+    assert doc.doubted_satellite_ids == [] and doc.solution.ephemeris_allowance == []
+
+    class Ambiguous(FakeSolution):
+        def as_dict(self) -> dict[str, Any]:
+            data = super().as_dict()
+            mirror = FakeSolution(list(self.residuals), lat_deg=-20.0).as_dict()
+            data["ambiguities"] = [mirror]
+            data["ambiguity_resolved_by"] = "region"
+            return data
+
+    wide = EphemerisAllowance("sat-b", 9.51, (951.0, 9510.0, 9510.0))
+    top = EphemerisAllowance("sat-a", 20.0, (2000.0, 20000.0, 20000.0), capped=True)
+    assert h.book.set_satellite_doubt(record.id, ["sat-b", "sat-a"])
+    assert h.book.set_solution(record.id, Ambiguous([0.5, -0.2, 0.1]), T0 + 2, used=seqs, allowance=[wide, top],
+                               widening=1.214)
+    out = record.solution_out
+    assert [a.model_dump() for a in out.ephemeris_allowance] == [
+        {"sat_id": "sat-a", "scale": 20.0, "sigma_ric_m": [2000.0, 20000.0, 20000.0], "capped": True},
+        {"sat_id": "sat-b", "scale": 9.51, "sigma_ric_m": [951.0, 9510.0, 9510.0], "capped": False},
+    ]
+    assert out.ellipse_widening == pytest.approx(1.214)
+    assert len(out.ambiguities) == 1
+    assert out.ambiguities[0].ephemeris_allowance == [] and out.ambiguities[0].ellipse_widening is None
+    stored = json.loads(record.unsaved_solutions[-1][2])
+    assert [a["sat_id"] for a in stored["ephemeris_allowance"]] == ["sat-a", "sat-b"]
+    assert stored["ellipse_widening"] == pytest.approx(1.214)
+    doc = h.book.to_schema(record)
+    assert doc.doubted_satellite_ids == ["sat-a", "sat-b"]
+    assert doc.solution.ephemeris_allowance == out.ephemeris_allowance
+    again = type(doc).model_validate_json(doc.model_dump_json())
+    assert again.solution.ellipse_widening == pytest.approx(1.214) and again.doubted_satellite_ids == ["sat-a", "sat-b"]
+    # both ended at once: one transition naming both positions
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs)
+    assert record.transitions[-1].reason == (
+        "ellipse allowance for the positions of sat-a and sat-b removed: the configured uncertainty is used again"
+    )
+    assert record.solution_out.ephemeris_allowance == [] and record.solution_out.ellipse_widening is None
+    # not finite: the allowance is published, the widening is not known
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs, allowance=[wide],
+                               widening=float("inf"))
+    assert [a.sat_id for a in record.solution_out.ephemeris_allowance] == ["sat-b"]
+    assert record.solution_out.ellipse_widening is None
 
 
 def test_a_local_signal_that_takes_over_starts_its_own_transmission() -> None:

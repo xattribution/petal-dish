@@ -35,15 +35,21 @@ description: >-
   allowance the truth fell outside from 46 rows on, 180 to 240 m off a 95 % semi-major of
   240 to 270 m). The clock checks show the satellite errors from the first rounds (every
   site's timing differs between MUOS Pacific and the 172 E satellite, and the Network
-  screen names them), and the live solves widen the two satellites' position sigma by a
-  factor sized from the calibrations: 8 times for both within the first 20 s, then 9.5
-  for the 172 E satellite. In the live demo started at 03:00 UTC the event was located
-  in every snapshot over 9.5 minutes (8 to 400 rows) with the truth inside its ellipse
-  in all 38 (6 to 72 m off, 95 % semi-axes 310 to 373 m by 196 to 256 m); started at
-  15:00 UTC, all 38 again (8 to 54 m off, 290 to 355 m by 199 to 244 m). The event's
-  history says "ellipse widened: ...", and the advice says the ellipse includes an
-  allowance of about 8 and 9.5 km for the two satellites' positions and asks for their
-  ephemerides to be checked.
+  screen names them), and once each is named in two rounds a capture interval apart the
+  live solves widen the two satellites' position sigma by a factor sized from the
+  calibrations: 8 and 9.5 times within the first 30 s. Until then a first fix waits (the
+  position is shown as not a fix yet). In the live demo started at 03:00, 09:00 and
+  15:00 UTC (15 s snapshots over 9.5 minutes, 4 to 400 rows) the truth was inside the
+  published ellipse in all 114 snapshots with a position (15 to 255 m off, 95 %
+  semi-major 290 to 506 m, its major axis 2 to 67 % longer than with the configured
+  uncertainty); at 09:00 and 15:00 the first snapshot showed the position as not a fix
+  yet and the event was located from the second on, and at 03:00 the first fix came
+  before any doubt. From the widening on, the event's history says "ellipse widened:
+  ...", and the advice says the ellipse is widened for the two satellites' positions
+  (their sigmas taken 8 and 9.5 times larger, about 8.0 and 9.5 km), how much longer the
+  95 % ellipse's major axis is, and asks for their ephemerides to be checked. At 15:00
+  MUOS Indo-Asia, whose error is within its sigma, was also named after a minute and
+  widened 3.4 times, which costs ellipse size only.
   Calibration removes what the jammer and the reference have in common, so it helps less
   with distance: with the same errors at the pacific-demo position, 1,500 km from Guam,
   the calibrated fix is 190 to 870 m off and outside its ellipse at three of eight

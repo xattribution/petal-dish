@@ -45,6 +45,7 @@ __all__ = [
     "ConfigEnvelope",
     "ConflictResponse",
     "EllipseOut",
+    "EphemerisAllowanceOut",
     "ErrorResponse",
     "Event",
     "EventState",
@@ -297,8 +298,11 @@ class SiteClockEstimate(_Out):
     satellites). Without caution it may say that the site's offset differs between
     satellites, so its clock is probably fine and a satellite's position is wrong beyond
     its configured uncertainty (that satellite is named). suspect_satellite_ids: the
-    satellites that message names (empty otherwise); an event whose fix rests on them is
-    told that its ellipse does not include that error.
+    satellites that message names (empty otherwise; ``Event.doubted_satellite_ids``).
+    Once a satellite is named at two round ends at least a capture interval apart, the
+    live solves through it widen its position sigma by a scale sized from the
+    calibrations (``SolutionOut.ephemeris_allowance``, MATH.md section 9); until then an
+    event whose fix rests on it is told that its ellipse does not include that error yet.
     """
 
     site_id: str
@@ -354,6 +358,25 @@ class EllipseOut(_Out):
     confidence: float
 
 
+class EphemerisAllowanceOut(_Out):
+    """A satellite whose position sigma a solve widened because the reference
+    calibrations put its position wrong beyond its configured uncertainty (MATH.md
+    section 9, *ephemeris allowance*; ``SolutionOut.ephemeris_allowance``).
+
+    sat_id: the satellite. scale: the factor on its configured radial / in-track /
+    cross-track position sigma (greater than 1; a component configured as zero takes
+    ``processing.uncertainty.ephemeris.operator.pos_m`` first). sigma_ric_m: the widened
+    one-sigma radial, in-track, cross-track, m. capped: the scale is the largest allowed
+    (``processing.calibration.ephemeris_allowance_max_scale``) and the calibrations ask
+    for more, or they could not size the error: the ellipse may still not cover it.
+    """
+
+    sat_id: str
+    scale: float
+    sigma_ric_m: list[float] = Field(min_length=3, max_length=3)
+    capped: bool = False
+
+
 class SolutionOut(_Out):
     """A position estimate (``core.solver.Solution.as_dict()``).
 
@@ -383,7 +406,23 @@ class SolutionOut(_Out):
     the region's smaller extent when that is less). An event is ``located`` only while its
     solution is a fix. not_fix_reason: one plain clause saying why it is not (for example
     "no redundancy: 2 measurements for the two unknowns of a position, so the fit cannot
-    be checked against itself"); null for a fix.
+    be checked against itself", or, while the event is not yet located, "the reference
+    calibrations have just put the position of X wrong beyond its configured
+    uncertainty, and the ellipse does not include that error yet ..." until the
+    satellite's ephemeris allowance applies); null for a fix.
+
+    Ephemeris allowance (set by the server when it publishes a solve; MATH.md section 9,
+    *ephemeris allowance*). ephemeris_allowance: the satellites whose position sigma
+    this solve widened because the reference calibrations put their position wrong
+    beyond the configured uncertainty, sorted by ``sat_id``; empty when the solve used
+    the configured uncertainty unchanged (always for an ambiguity, whose ellipse is
+    nonetheless worked out with the same uncertainty as the solution's). The ellipse,
+    CEP50 and covariances already include it, and ``is_fix`` judges the widened ellipse.
+    ellipse_widening: with an allowance, the 95 % semi-major axis over the one the same
+    measurements give at the same position with the configured uncertainty (normally
+    at least 1: 1.21 means the ellipse's major axis is 21 % longer for the allowance;
+    the area grows more, both axes widening); null without
+    an allowance or when it could not be worked out.
     """
 
     lat_deg: float
@@ -408,6 +447,8 @@ class SolutionOut(_Out):
     ellipse_scale: float = 1.0
     is_fix: bool = True
     not_fix_reason: str | None = None
+    ephemeris_allowance: list[EphemerisAllowanceOut] = Field(default_factory=list)
+    ellipse_widening: float | None = None
 
 
 class AmbiguitySummary(_Out):
@@ -715,6 +756,14 @@ class Event(_Out):
     reach both edges of the window (within 8 % of the span, where receiver filters roll
     off), so the signal may be wider than its range shows: its width is a lower bound
     ("at least N wide").
+    doubted_satellite_ids: the satellites whose position the reference calibrations put
+    wrong beyond their configured uncertainty when tasking last looked at the event
+    (every site's ``SiteClockEstimate.suspect_satellite_ids``, network-wide: not only the
+    satellites of this event), sorted. Those the published solution's rows go through
+    (rows with a ``residual``) are either in ``solution.ephemeris_allowance`` (the
+    ellipse is widened for them) or not yet: then a solution of an event not yet located
+    is not a fix (``solution.not_fix_reason``), and the advisory of a located one warns
+    that the ellipse does not include that error yet.
     """
 
     id: str
@@ -751,6 +800,7 @@ class Event(_Out):
     received_hi_hz: float | None = None
     seen_site_ids: list[str] = Field(default_factory=list)
     width_lower_bound: bool = False
+    doubted_satellite_ids: list[str] = Field(default_factory=list)
 
 
 class LopProperties(_Out):

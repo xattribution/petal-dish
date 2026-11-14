@@ -36,10 +36,13 @@ Rules the texts follow:
 - A fix whose rows go through a satellite the reference calibrations put beyond its
   configured position uncertainty is still reported. When the solve widened that
   satellite's position sigma (``EventRecord.solution_allowance``), the advice says the
-  ellipse includes an allowance of about that size and asks for its ephemeris to be
-  checked; when the allowance reached its largest scale, or the doubt
-  (``EventRecord.doubted_satellite_ids``) came after the solve, it warns that the
-  transmitter may lie outside the ellipse.
+  ellipse is widened, by what factor on which satellite's sigma and how much longer the
+  95 % ellipse's major axis is for it (``EventRecord.solution_widening``), and asks for
+  the ephemeris to be checked; when the allowance reached its largest scale, or the doubt
+  (``EventRecord.doubted_satellite_ids``) came after the solve of a located event, it
+  warns that the transmitter may lie outside the ellipse. (A first fix waits for the
+  allowance: until the doubt is confirmed the solution is not a fix,
+  ``events.doubt_hold_reason``.)
 
 Terms are explained the first time they appear; numbers are rounded to what matters.
 Simulated events say so in the headline. Pure functions, no I/O.
@@ -53,7 +56,7 @@ from typing import Any, Final
 
 from petal_locate.server.api import schemas
 from petal_locate.server.pipeline.correlator import REOPEN_WINDOW_S
-from petal_locate.server.pipeline.events import REACQUIRE_KEEP_S, EventRecord
+from petal_locate.server.pipeline.events import REACQUIRE_KEEP_S, EventRecord, scale_text, widening_text
 
 __all__ = ["LABEL_TEXT", "advise", "format_distance", "format_frequency", "format_position"]
 
@@ -453,11 +456,14 @@ def _ephemeris_notes(record: EventRecord, names: _Names) -> tuple[str, str]:
     ``(sentences, report suffix)``, both "" when there are none.
 
     A satellite whose position sigma the published solve widened
-    (``EventRecord.solution_allowance``) is covered: the ellipse includes an allowance of
-    about its widened sigma, and the operator is asked to check its ephemeris. One whose
-    allowance reached the largest scale (``capped``), or that is in doubt
-    (``EventRecord.doubted_satellite_ids``) without an allowance in the published solve
-    (the doubt came after it), keeps the warning that the transmitter may lie outside."""
+    (``EventRecord.solution_allowance``) is covered: the ellipse is widened for it (the
+    factor on its sigma and the widened sigma are said, and how much longer the 95 %
+    ellipse's major axis is, ``EventRecord.solution_widening``), and the operator is
+    asked to check its ephemeris. One whose allowance reached the largest scale
+    (``capped``: the error asks for more, or the calibrations cannot size it), or that is
+    in doubt (``EventRecord.doubted_satellite_ids``) without an allowance in the
+    published solve (the doubt came after it), keeps the warning that the transmitter
+    may lie outside."""
     used = set(record.solution_used)
     through: set[str] = set()
     for entry in record.measurements:
@@ -469,26 +475,41 @@ def _ephemeris_notes(record: EventRecord, names: _Names) -> tuple[str, str]:
     capped = [a for a in allowance if a.capped]
     bare = [s for s in record.doubted_satellite_ids if s in through and s not in widened]
     sentences, report = "", ""
+
+    def sigma_text(entries: Sequence[Any]) -> str:
+        """``taken 9.5 times larger, about 9.5 km`` (one sigma) for the entries in order."""
+        factors = _join([scale_text(a.scale) for a in entries])
+        sizes = _join([format_distance(max(a.sigma_ric_m)) for a in entries])
+        return f"taken {factors} times larger, about {sizes} one sigma"
+
     if covered:
-        sizes = _join([format_distance(max(a.sigma_ric_m)) for a in covered])
         sats = _join([names.satellite(a.sat_id) for a in covered])
         one = len(covered) == 1
         sentences += (
-            f" The ellipse includes {'an allowance' if one else 'allowances'} of about {sizes} (one sigma) for the "
-            f"{'position' if one else 'positions'} of {sats}, which the reference calibrations put wrong beyond "
-            f"{'its' if one else 'their'} configured uncertainty; check {'its ephemeris' if one else 'their ephemerides'}."
+            f" The ellipse is widened for the {'position' if one else 'positions'} of {sats}, which the reference "
+            f"calibrations put wrong beyond {'its' if one else 'their'} configured uncertainty "
+            f"({'its position sigma' if one else 'their position sigmas'} {sigma_text(covered)}); check "
+            f"{'its ephemeris' if one else 'their ephemerides'}."
         )
-        report += f"; the ellipse includes an allowance for the ephemeris of {sats}, which is in doubt"
+        report += (
+            f"; the ellipse is widened for the {'ephemeris' if one else 'ephemerides'} of {sats}, which "
+            f"{'is' if one else 'are'} in doubt"
+        )
     if capped:
-        sizes = _join([format_distance(max(a.sigma_ric_m)) for a in capped])
+        # capped: the error asks for more than the largest scale, or the calibrations cannot size it
         sats = _join([names.satellite(a.sat_id) for a in capped])
         one = len(capped) == 1
         sentences += (
             f" The reference calibrations put the {'position' if one else 'positions'} of {sats} wrong beyond "
-            f"{'its' if one else 'their'} configured uncertainty by more than the largest allowance the system makes "
-            f"(about {sizes}, one sigma), which the ellipse includes: the transmitter may still lie outside it; check "
+            f"{'its' if one else 'their'} configured uncertainty, by more than the largest allowance the system makes "
+            f"or by {'an amount' if one else 'amounts'} they cannot size; the ellipse includes that largest "
+            f"allowance ({'its position sigma' if one else 'their position sigmas'} {sigma_text(capped)}), but the "
+            "transmitter may still lie outside it; check "
             f"{'its ephemeris' if one else 'their ephemerides'}."
         )
+    growth = widening_text(record.solution_widening) if allowance else None
+    if growth:
+        sentences += f" Widened, the 95 % ellipse's major axis is {growth}."
     if bare:
         sats = _join([names.satellite(s) for s in bare])
         one = len(bare) == 1
@@ -497,9 +518,13 @@ def _ephemeris_notes(record: EventRecord, names: _Names) -> tuple[str, str]:
             f"{'its' if one else 'their'} configured uncertainty, and the ellipse does not include that error yet: "
             "the transmitter may lie outside it."
         )
-    doubt = _join([names.satellite(a.sat_id) for a in capped] + [names.satellite(s) for s in bare])
-    if doubt:
-        report += f"; the ephemeris of {doubt} is in doubt, so the transmitter may lie outside this"
+    doubtful = [names.satellite(a.sat_id) for a in capped] + [names.satellite(s) for s in bare]
+    if doubtful:
+        one = len(doubtful) == 1
+        report += (
+            f"; the {'ephemeris' if one else 'ephemerides'} of {_join(doubtful)} {'is' if one else 'are'} in doubt, "
+            "so the transmitter may lie outside this"
+        )
     return sentences, report
 
 

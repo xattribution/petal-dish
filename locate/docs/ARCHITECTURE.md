@@ -352,7 +352,8 @@ ephemeris-error   the same jammer at 17 N 141 E while muos-pac is 8 km ahead and
                   (the solver assumes 1 km)
 two-jammers       pacific-demo's jammer plus an 8 kHz, 18 dBW jammer at 301.130 MHz (shared-2), 30 N 135 E
 uplink-cw         CW jammer, 5 dBW at 301.130 MHz, 15 N 130 E: FDOA only
-uplink-swept      sawtooth chirp, 10 kHz every 40 ms around 301.005 MHz, 21 N 127 E: every correlation ambiguous
+uplink-swept      sawtooth chirp, 10 kHz every 40 ms around 301.005 MHz, 21 N 127 E: correlations ambiguous as a rule
+                  (a calibrated pair whose window holds a single peak measures it)
 local-interferer  terrestrial noise, -40 dBW at 260.005 MHz (a MUOS shared-1 downlink), 4 km from Busan: local
 quiet             only the reference carriers: no event
 ```
@@ -764,8 +765,15 @@ the configuration has a reference carrier); `accuracy_band_bytes(n_pairs,
 cells)` and `accuracy_band_cells(n_pairs, n_lon)` (bands of at most
 `ACCURACY_BAND_CELLS = 256` cells, fewer when the memory estimate demands, never under
 two grid rows); `MAX_BODY_BYTES = 4 MiB`; `resolve_time_ns` (422 outside 1970..2262);
-`token_warnings(settings, site_ids)`; and `compute_link_budget`, which leaves out (and
-logs) satellites whose orbit cannot be evaluated at `t`. `accuracy_problems` splits each
+`token_warnings(settings, site_ids)`; `compute_accuracy(accuracy_map, cfg, request,
+t_ns, *, progress, should_stop)`, the banded map the command line runs (the API runs
+the same bands on the worker pool), both merged by `_merge_accuracy`, whose
+`_merge_pairs` turns the bands' per-pair summaries into one `AccuracyPairSummary` per
+pair (PROTOCOL.md B has the rules; `ACCURACY_NO_REFERENCE = "none"` keys the cells with
+no reference, `NO_ELIGIBLE_REFERENCE` starts the reason for them, and `_reference_probe`
+maps one cell against a `"nearest"` carrier whose outcome no band's summary shows); and
+`compute_link_budget`, which leaves out (and logs) satellites whose orbit cannot be
+evaluated at `t`. `accuracy_problems` splits each
 pair end with `split_channel_ref` and checks the channel, the named satellite, one
 channel at both ends and repeated pairs (either order, keyed on the satellite each end
 correlates on as `core.accuracy.pair_satellites` resolves it, so a bare channel id and
@@ -814,8 +822,10 @@ Drivers:
   world building in the node's worker pool), refetched on `open`, `on_assign` and
   `on_sim_update` (concurrent requests share one fetch; failures retried with backoff).
   A capture is served whole from the world in force at its first sample; at most two
-  worlds are kept, the first one fetched also serves earlier times, an interval only a
-  dropped world could serve gets `too_late`, and a version announced but superseded
+  worlds are kept, more (up to `MAX_KEPT_WORLDS` = 8) while an older one still serves
+  intervals within the 30 s lookback of the newest one asked for, so two scenario
+  changes a moment apart no longer drop the world in force; the first one fetched also
+  serves earlier times, an interval only a dropped world could serve gets `too_late`, and a version announced but superseded
   before this node fetched it gets `driver`. A read waits for an announced, not yet
   fetched version at most `world_wait_s`. `read` returns exactly `render_iq` and `psd`
   exactly `render_psd`, each only after the node clock has passed the end of its
@@ -1311,37 +1321,72 @@ and log line.
     Two sites whose difference alone is known (a cluster of two) are both judged on
     their difference. Published as
     `Status.site_clocks`.
-  - Ephemeris allowance (MATH section 9). At each round end tasking puts the satellites
+  - Ephemeris allowance (MATH section 9; not the search-window widening that shares the
+    name, MATH section 6). In every round, once its calibrations are in and just
+    before its solve, tasking puts the satellites
     the clock checks name (`suspect_satellite_ids`) on the event
-    (`EventBook.set_satellite_doubt`) and sizes each one's allowance
-    (`Tasking._update_allowance`): `satellite_position_evidence(edges, sigma_ric_m)`
-    fits every TDOA calibration held as an `EvidenceEdge(sat_a, site_a, sat_b, site_b,
-    c_s, sigma_s, partials, shared)` (free clocks and satellite common delays; RIC
-    position errors with the configured prior; the media per ground end as shared terms;
-    the partials are worked out with each calibration in the worker pool,
-    `Calibration.position_partials` / `media_partials`) and returns a
-    `PositionEvidence(sat_id, error_ric_m, norm, norm_sigma, n_edges)` per satellite;
-    `ephemeris_scale(evidence, max_scale)` gives `(scale, capped)`: `max(DOUBT_MIN_SCALE =
-    3, norm + DOUBT_MARGIN_SIGMAS (2) x norm_sigma)` rounded up to quarter octaves
-    (`SCALE_STEPS_PER_OCTAVE`) and capped at
+    (`EventBook.set_satellite_doubt`, published as `Event.doubted_satellite_ids`) and
+    sizes the allowance of each one whose doubt is
+    confirmed (`Tasking._update_allowance`: named in two rounds at least
+    `DOUBT_CONFIRM_INTERVALS` (1) x `capture.interval_s` apart within
+    `calibration.max_age_s`, not necessarily consecutive ones, since the clock checks
+    rotate over the pairs; a doubt seen once is not acted on):
+    `satellite_position_evidence(edges, sigma_ric_m)` fits every TDOA calibration held
+    as an `EvidenceEdge(sat_a, site_a, sat_b, site_b, c_s, sigma_s, partials, shared)`
+    (free clocks and satellite common delays; RIC position errors with the configured
+    prior; the media per ground end as shared terms; the partials are worked out with
+    each calibration in the worker pool, `Calibration.position_partials` /
+    `media_partials`, empty with a warning when a predictor raises a ValueError or an
+    arithmetic error) and returns a `PositionEvidence(sat_id, error_ric_m, norm,
+    norm_sigma, n_edges)` per satellite; `ephemeris_scale(evidence, max_scale)` gives
+    `(scale, capped)`: `max(DOUBT_MIN_SCALE = 3, norm + DOUBT_MARGIN_SIGMAS (2) x
+    norm_sigma)` rounded up to quarter octaves (`SCALE_STEPS_PER_OCTAVE`) and capped at
     `processing.calibration.ephemeris_allowance_max_scale` (20; 1 turns it off; no
     evidence: the cap, `capped`). `Tasking.ephemeris_allowance()` is the largest scale
     sized per satellite within the last `calibration.max_age_s` (counter
-    `allowance_changes`); `world_changed` and `reconfigure` forget it. `_solve_event` and
-    `_split_test` solve with `_solve_uncertainty(rows)`: the configured `Uncertainty`
-    object itself unless a satellite of the rows (or of their calibrations) has a scale,
-    else a copy with those satellites' position sigmas (never the velocity) multiplied by
-    it; the solve hands the applied `EphemerisAllowance(sat_id, scale, sigma_ric_m,
-    capped)` list to `EventBook.set_solution(allowance=...)`, which keeps it as
-    `EventRecord.solution_allowance` and adds the transition `ellipse widened: the
-    reference calibrations put the position of X wrong beyond the configured uncertainty
-    (position sigma taken larger: X N times)` (or `ellipse allowance for the position of
-    X reduced to N times its configured sigma` / `... removed: the configured
-    uncertainty is used again`) when it differs from the published one. A round also
-    re-solves when the allowance in force differs from the published solution's, and its
-    status message adds `The ellipse includes an allowance for the position of X (N
-    times its configured sigma, about D km): the reference calibrations put it wrong
-    beyond the configured uncertainty.`
+    `allowance_changes`); `world_changed` and `reconfigure` forget it and the doubts
+    seen, so loading a configuration (a corrected ephemeris, say) ends it at once and
+    the next round solves with the configured uncertainty. `_solve_event` and `_split_test` solve with `_solve_uncertainty(rows)`: the
+    configured `Uncertainty` object itself unless a satellite of the rows (or of their
+    calibrations) has a scale, else a copy with those satellites' position sigmas
+    (never the velocity) multiplied by it. With an allowance the solve also works out,
+    in the worker pool, the 95 % semi-major axis the same rows give at the same
+    position with the configured uncertainty (`_configured_semi_major`, through
+    `core.solver.position_covariance`); the widened semi-major over it is the
+    *widening*. The solve hands the applied `EphemerisAllowance(sat_id, scale,
+    sigma_ric_m, capped)` list and the widening to `EventBook.set_solution(allowance=...,
+    widening=...)`, which keeps them as `EventRecord.solution_allowance` and
+    `EventRecord.solution_widening` (None without an allowance), publishes them with the
+    solution (`SolutionOut.ephemeris_allowance`: `EphemerisAllowanceOut(sat_id, scale,
+    sigma_ric_m, capped)` sorted by `sat_id`, and `SolutionOut.ellipse_widening`; also in
+    the stored solution) and adds the transition
+    `ellipse widened: the reference calibrations put the position of X wrong beyond the
+    configured uncertainty (position sigma taken larger: X N times; the 95 % ellipse's
+    major axis P % longer than with the configured uncertainty)` (or `... X N times, at the largest
+    allowed scale ...`, `ellipse allowance for the position of X reduced to N times its
+    configured sigma` / `ellipse allowance for the position of X (the positions of X and
+    Y) removed: the configured uncertainty is used again`) when
+    the list differs from the published one. The fix gate judges the widened ellipse.
+    A doubted satellite the rows (or their calibrations) go through whose doubt is not
+    yet confirmed has no allowance (`Tasking._unconfirmed_doubt`); the solve passes it as
+    `set_solution(unconfirmed_doubt=...)`, and while the event is not yet `located` a
+    solution that would be a fix (and each such ambiguity) is published as not a fix with
+    `not_fix_reason` `the reference calibrations have just put the position of X wrong
+    beyond its configured uncertainty, and the ellipse does not include that error yet
+    (it is widened once a later round confirms the doubt)` (`events.doubt_hold_reason`,
+    `EventRecord.solution_held`), so a first fix waits about one capture interval for the
+    allowance; a located event keeps its fix. The next round still picks its reference
+    carriers around such a held position, as around a fix.
+    A round also re-solves when the allowance in force differs from the published
+    solution's (even with no new measurement), and its status message adds `The ellipse
+    is widened for the position of X (N times its configured sigma, about D), which
+    the reference calibrations put wrong beyond the configured uncertainty: the 95 %
+    ellipse's major axis is P % longer than with the configured uncertainty.` (D as the
+    advice writes distances, `8.0 km`; `, the largest scale
+    allowed` and ` The allowance may still be too small: the transmitter may lie outside
+    the ellipse.` for a capped one). A growth of twice or more reads `N times as long
+    as with the configured uncertainty`. The growth is a ratio of semi-major axes: the
+    area grows more, both axes widening.
   - Known limits, measured against `SimWorld`: a CW has no delay to separate copies by,
     so when a channel also hears a second copy a few Doppler bins away (a co-channel
     satellite, or a self-peak ridge) the FDOA scatters up to about 5 reported sigma; two
@@ -1372,18 +1417,24 @@ and log line.
   was seen or measured through (`It may also reach X ...`); after one, satellites that
   cannot see the fix are said to be unaffected. A fix whose rows go through a satellite
   whose position sigma its solve widened (`EventRecord.solution_allowance`, ephemeris
-  allowance above) adds `The ellipse includes an allowance of about D (one sigma) for the
-  position of X, which the reference calibrations put wrong beyond its configured
-  uncertainty; check its ephemeris.` and its report reads `(<position>, ±N at 95 %
-  confidence; the ellipse includes an allowance for the ephemeris of X, which is in
-  doubt)`. An allowance at its largest scale (`capped`) says the error is beyond the
-  largest allowance and the transmitter may still lie outside; a satellite in
+  allowance above) adds `The ellipse is widened for the position of X, which the
+  reference calibrations put wrong beyond its configured uncertainty (its position sigma
+  taken N times larger, about D one sigma); check its ephemeris.` and, when the widening
+  is known, `Widened, the 95 % ellipse's major axis is P % longer than with the
+  configured uncertainty.`; its report reads `(<position>, ±N at 95 % confidence; the
+  ellipse is widened for the ephemeris of X, which is in doubt)` (`the ephemerides of X
+  and Y, which are in doubt` for several). An allowance at its largest scale
+  (`capped`: the error asks for more, or the calibrations cannot size it) says the
+  error is beyond the largest allowance the system makes or cannot be sized, that the
+  ellipse includes that largest allowance, and that the transmitter may still lie
+  outside; a satellite in
   `EventRecord.doubted_satellite_ids` (set by tasking every round from
   `SiteClockEstimate.suspect_satellite_ids`) without an allowance in the published solve
   adds `The reference calibrations put the position of X wrong beyond its configured
   uncertainty, and the ellipse does not include that error yet: the transmitter may lie
-  outside it.`; both report `(...; the ephemeris of X is in doubt, so the transmitter may
-  lie outside this)`. A lost event says when it
+  outside it.` (in practice only for a located event: a first fix waits for the
+  allowance); both report `(...; the ephemeris of X is in doubt, so the transmitter may
+  lie outside this)` (`the ephemerides of X and Y are in doubt` for several). A lost event says when it
   stopped, what reopening does (within `REOPEN_WINDOW_S`; kept under re-check within
   `REACQUIRE_KEEP_S`, set aside after longer), `Nothing needs to be moved or changed
   while the signal is off; act again if it returns.`, and keeps its report action ending
@@ -1508,7 +1559,8 @@ every command: [--log-level debug|info|warning|error] [--log-format text|json]
   still exits 0.
 - `accuracy` calls `core.accuracy.accuracy_map` (in latitude bands sized by
   `accuracy_band_cells`, with progress, after `rest.accuracy_problems`) and writes the
-  `AccuracyGrid` keys as JSON; `--request` is read with `safe_yaml_load`. `--pair` ends
+  `AccuracyGrid` keys as JSON, `pairs` included (`rest.compute_accuracy`, the API's
+  merge); `--request` is read with `safe_yaml_load`. `--pair` ends
   may be `channel@sat`; `--reference-carrier nearest` calibrates each cell against the
   reference carrier nearest it.
 - `montecarlo` calls `sim.montecarlo.run_trials` (default emitter: the scenario's only

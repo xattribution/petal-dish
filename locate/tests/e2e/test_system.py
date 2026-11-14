@@ -36,7 +36,7 @@ What the scenarios must show (config/scenarios/*.yaml):
   solved without their corrections land more than 10 km off; no healthy clock is blamed
   with confidence (a caution names the satellite alternative); the clock checks name the
   two satellites, the solves widen their position sigma, and a fix from 50 rows still
-  holds the truth, its advice saying that the ellipse includes that allowance.
+  holds the truth, its advice saying that the ellipse is widened and by how much.
 - uplink-swept: ambiguous correlations and no false position.
 - two-jammers: two separate events, each located near its own jammer.
 - pacific-demo, then ephemeris-error loaded with no break (another jammer on the same
@@ -730,20 +730,24 @@ async def test_ephemeris_error_is_removed_by_the_reference_calibration(demo: Dem
             if again["state"] != "located" or solution.get("n_measurements", 0) < 50:
                 return None
             detail = again["advisory"]["detail"]
-            return again if "The ellipse includes an allowance of about" in detail or (
-                "The ellipse includes allowances of about" in detail) else None
+            return again if "The ellipse is widened for the position" in detail else None
 
-        later = await _wait_for(widened, 240.0, "a located fix from 50 rows whose ellipse includes the allowance")
+        later = await _wait_for(widened, 240.0, "a located fix from 50 rows whose ellipse is widened")
         _report("ephemeris-error later", later)
         suspects = {s for row in (await _site_clocks(client)).values() for s in row.get("suspect_satellite_ids", [])}
         assert suspects <= {"muos-pac", "uhf-172e"}, suspects
         assert later["truth"]["inside_ellipse"] is True, later["truth"]
         assert later["solution"]["ellipse"]["semi_major_m"] < 1_000.0  # widened, not blown up
         assert "may lie outside" not in later["advisory"]["detail"]
-        assert any("the ellipse includes an allowance for the ephemeris of" in a for a in later["advisory"]["actions"])
+        assert "times larger, about" in later["advisory"]["detail"]  # the factor on the sigma and its size
+        # and how much longer the 95 % ellipse's major axis is
+        assert "Widened, the 95 % ellipse's major axis is" in later["advisory"]["detail"]
+        assert any("the ellipse is widened for the ephemeris of" in a or "the ellipse is widened for the ephemerides of"
+                   in a for a in later["advisory"]["actions"])
         assert any((t["reason"] or "").startswith("ellipse widened: the reference calibrations put the position")
                    for t in later["transitions"])
-        assert "The ellipse includes an allowance for the position" in later["tasking"]["message"]
+        assert "The ellipse is widened for the position" in later["tasking"]["message"]
+        assert "than with the configured uncertainty" in later["tasking"]["message"]
 
 
 @pytest.mark.slow

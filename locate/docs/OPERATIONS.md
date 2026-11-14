@@ -500,9 +500,12 @@ retried when the link comes back. Screens:
   the current transmission), `Detected again ... after a break of N` after a loss,
   satellites not affected (they cannot see the estimated position), the advisory (what
   to do, in plain words), the evidence matrix (each site's channel to each satellite:
-  seen, would see but does not, could not see, stale), the position with its ellipse,
-  CEP50, dominant error source (`I` ionosphere and `T` troposphere among them), fit and
-  any second candidate, the lines of position, the measurements (value, sigma,
+  seen, would see but does not, could not see, stale), the position with its ellipse
+  (with an `Ephemeris allowance` line when the solve widened a satellite's position sigma
+  because the reference calibrations put that satellite wrong: which satellites, by what
+  factor, the widened sigma, and how much longer the 95 % ellipse's major axis is than
+  with the configured uncertainty), CEP50, dominant error source (`I` ionosphere and `T`
+  troposphere among them), fit and any second candidate, the lines of position, the measurements (value, sigma,
   calibration correction and its reference, SNR, residual, and why a row is not used),
   the correlation surface and its cuts, the transitions, what capture tasking is doing,
   and the ellipse against time (rows set aside after a break or another transmitter are
@@ -511,13 +514,16 @@ retried when the link comes back. Screens:
   monitor window it was seen in and may be wider. Cautions: `Not a fix` with the
   server's reason, for a fit whose measurements do not agree (its ellipse is drawn
   dotted and enlarged) and for a position that cannot yet be trusted (too few
-  measurements to check it against itself, or an ellipse too large to pin it down;
-  `Not a fix yet` on the queue row); such a position is drawn dotted and never reported
+  measurements to check it against itself, an ellipse too large to pin it down, or a
+  satellite the reference calibrations have just put wrong whose allowance has not been
+  confirmed yet; `Not a fix yet` on the queue row); such a position is drawn dotted and never reported
   as located. `Position withdrawn` when the newest measurements admit no position at
   all, `One of N positions` with every candidate when the system cannot choose between
   them, `Re-check` while a position from before a break or a change of signal is
-  checked against new measurements, and `Cannot be located` with the reason when no
-  position can be computed.
+  checked against new measurements, `Ephemeris in doubt` when a satellite the position
+  rests on is wrong by more than the largest allowance or not yet allowed for (the
+  transmitter may lie outside the ellipse), and `Cannot be located` with the reason when
+  no position can be computed.
 - **Spectrum**: live spectrum and waterfall of any monitor window, with the learned
   baseline and detections (authorized carriers flagged); the header marks a window whose
   detection is blind or whose noise floor is raised.
@@ -599,8 +605,10 @@ section 5).
 - Transmitting a reference carrier needs the satellite operator's authorization like
   any other carrier; list it in `carriers` so it is never raised as interference.
 - Settings (`processing.calibration`): `enabled` (true), `interval_s` (30: a pair is
-  re-calibrated this often, only while an event uses it), `max_age_s` (300). A
-  measurement row shows the correction and the reference it came from.
+  re-calibrated this often, only while an event uses it), `max_age_s` (300),
+  `ephemeris_allowance_max_scale` (20: the largest factor on a doubted satellite's
+  position sigma, below; 1 turns the widening off). A measurement row shows the
+  correction and the reference it came from.
 - The calibrations also give each site's clock offset (`/status` `site_clocks`, the
   Network screen's `By calibration` column). While an event is tasked, tasking also runs
   clock checks: one satellite's copy of a reference measured at two sites, which shows
@@ -609,7 +617,14 @@ section 5).
   an offset that differs between satellites points at a satellite whose position is
   worse than configured, and the server names it instead of the clock. Live, the
   `clock-fault` scenario flagged Naha at -10.0 us within 20 s, and the `ephemeris-error`
-  scenario raised no clock caution and named muos-pac and uhf-172e. A site checked
+  scenario raised no clock caution and named muos-pac and uhf-172e. Once a satellite has
+  been named in two rounds at least a capture interval apart, the live solves through
+  it widen its position sigma by a factor sized from the calibrations (at least 3, at
+  most `ephemeris_allowance_max_scale`), so the ellipse covers the error; until then an
+  event not yet located gets no fix through it. The factor falls back only when the
+  calibrations that showed the error have aged out (`max_age_s`), or at once when a new
+  configuration is loaded (MATH.md section 9, LIMITATIONS.md section 7). A clock caution names no satellite and
+  widens nothing. A site checked
   through one satellite only gets a caution naming both explanations until a second
   check arrives (LIMITATIONS.md section 7). Nothing is checked while no event is
   tasked, so a clean column is no proof of good clocks.
@@ -783,18 +798,31 @@ statistics; each takes about 1 s.
   The position is shown with its ellipse enlarged by the square root of the reduced
   chi-square and must not be reported. `Not a fix yet` in the queue (the dossier gives
   the reason): too few measurements to check the position against itself (a CW gives
-  two FDOA rows per pair at first) or an ellipse too large to pin it down; wait for more
-  rounds or add pairs. A CW whose channels also hear a co-channel copy of the tone can
+  two FDOA rows per pair at first), an ellipse too large to pin it down, or a satellite
+  the reference calibrations have just put wrong beyond its configured uncertainty
+  (the position waits for the ellipse to be widened for it, about one capture interval);
+  wait for more rounds or add pairs. A CW whose channels also hear a co-channel copy of the tone can
   stay inconsistent for a long time (LIMITATIONS.md section 7).
 - **Position withdrawn** (dossier). The newest measurements, added to those the
   published position rested on, admit no position at all, so it was taken back: do not
   report the earlier position; look for a second transmitter or a changed signal.
-- **"The ephemeris of X is in doubt"** (advisory of a located event). The reference
-  calibrations show satellite X's position wrong beyond its configured uncertainty (the
-  Network screen's site-clock notes name it), and the solver does not budget for that:
-  the transmitter may lie outside the ellipse (in the ephemeris-error scenario it does,
-  a few hundred meters off). Report the position as approximate and load a current
-  ephemeris for X, or raise its `ephemeris_sigma` until the notes stop.
+- **"The ellipse is widened for the position of X"** (advisory of a located event; the
+  dossier's `Ephemeris allowance` line, `ellipse widened: ...` in the transitions). The
+  reference calibrations show satellite X's position wrong beyond its configured
+  uncertainty (the Network screen's site-clock notes name it), so the solves take its
+  position sigma larger, by the factor shown, and the ellipse covers the error: report
+  the position with its widened ellipse (in the ephemeris-error scenario it held the
+  truth in every snapshot, its major axis 2 to 67 % longer than with the configured
+  uncertainty). Load a current ephemeris for X: loading the configuration drops the
+  calibrations and the allowance at once, and the next round solves with the configured
+  uncertainty (if instead the error goes away by itself, the ellipses return to the
+  configured size about `calibration.max_age_s`, 300 s, after the notes stop).
+- **"The ephemeris of X is in doubt"** (advisory, `Ephemeris in doubt` in the dossier).
+  The error is beyond the largest allowance (`calibration.ephemeris_allowance_max_scale`)
+  or cannot be sized, or the doubt is newer than the published solve of a located event
+  (it is acted on after a second round names X, about 5 s later; an event not yet
+  located waits for it instead): the transmitter may lie outside the ellipse. Report the position as approximate and load a current ephemeris for X, or
+  raise its `ephemeris_sigma` until the notes stop.
 - **Ambiguous fixes** (two candidates drawn, "unresolved"). Uncalibrated two-pair
   geometry crosses twice at some times of day; calibration removed it in every simulated
   case. Otherwise more pairs or rows over time, or a tighter `processing.region`, decide

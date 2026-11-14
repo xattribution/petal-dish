@@ -74,10 +74,15 @@ every ``capture.interval_s``:
    whenever a warm-started solve fails or has ``reduced_chi2 > WARM_RCHI2_LIMIT``;
    warm starts from the previous solution and its ambiguities. The consider uncertainty
    is the configured one, except that a satellite the clock checks put wrong beyond its
-   configured position sigma has that sigma widened by a scale sized from the
+   configured position sigma (in two rounds at least ``DOUBT_CONFIRM_INTERVALS``
+   capture intervals apart) has that sigma widened by a scale sized from the
    calibrations (*ephemeris allowance*, ``_update_allowance``, MATH.md section 9),
-   from the solve after the round that sized it. The result goes to
-   ``EventBook.set_solution`` with ``solver.max_reduced_chi2`` and the region's fix
+   from the solve of the round that sized it (the clock checks run over the round's
+   calibrations just before its solve); such a solve also works out how much the
+   allowance widened its ellipse (``_configured_semi_major``). While a doubt through
+   the rows is not yet confirmed (``_unconfirmed_doubt``), an event that is not yet
+   located gets no fix (``EventBook.set_solution(unconfirmed_doubt=...)``). The
+   result goes to ``EventBook.set_solution`` with ``solver.max_reduced_chi2`` and the region's fix
    bound (``events.fix_semi_major_limit_m``): solution history, residuals, ``located``
    only for a fix (``SolutionOut.is_fix``: consistent, ``dof >= 1``, the ellipse within
    the bound); an inconsistent one is published flagged, its ellipse enlarged by
@@ -180,10 +185,17 @@ from petal_locate.core.detect import MIN_CLASSIFY_SAMPLES, classify
 from petal_locate.core.geometry import elevation_deg, measurement_windows, predict_pair, search_windows, self_peak
 from petal_locate.core.orbits import orbit_position
 from petal_locate.core.media import row_media_partials
-from petal_locate.core.solver import Solution, calibration_correction, reference_position_partials, solve
+from petal_locate.core.solver import (
+    Solution,
+    calibration_correction,
+    position_covariance,
+    reference_position_partials,
+    solve,
+)
 from petal_locate.core.types import CalRef, Measurement, PathSpec, Uncertainty
 from petal_locate.server.api import schemas
 from petal_locate.server.hub import CaptureFailed
+from petal_locate.server.pipeline.advisory import format_distance
 from petal_locate.server.pipeline.correlator import QualityTable
 from petal_locate.server.pipeline.events import (
     EphemerisAllowance,
@@ -195,12 +207,15 @@ from petal_locate.server.pipeline.events import (
     assess_fit,
     caf_display,
     fix_semi_major_limit_m,
+    scale_text,
+    widening_text,
 )
 
 __all__ = [
     "CLOCK_CAUTION_NS",
     "CLOCK_CHECKS_PER_ROUND",
     "CONFIRM_SIGMAS",
+    "DOUBT_CONFIRM_INTERVALS",
     "DOUBT_MARGIN_SIGMAS",
     "DOUBT_MIN_SCALE",
     "GLOBAL_SEARCH_EVERY",
@@ -1102,7 +1117,12 @@ def _reference_partials(
         media = row_media_partials(
             kind, cal.a, cal.b, np.array([int(cal.t_ns) / _NS]), x_ref, orbits, sites_xyz, ("ref", x_ref.tobytes())
         )
-    except Exception as exc:  # optional evidence: never lose the calibration over it
+    except (ValueError, ArithmeticError) as exc:
+        # The correction itself was worked out with the same orbits, so this is not
+        # expected; what the predictors raise (a ValueError, numpy's LinAlgError and the
+        # orbit propagators' errors included) costs only this calibration's evidence about
+        # the satellites' positions, never the calibration. Anything else is a bug and
+        # fails the calibration job.
         logger.warning("calibration %s: satellite partials not worked out: %s", cal.cal_id, exc)
         return (), ()
     pos_out = tuple(
@@ -1131,6 +1151,22 @@ def _solve(job: _SolveJob) -> tuple[Solution | None, str | None]:
         )
     except ValueError as exc:  # numpy's LinAlgError included
         return None, f"solver rejected the measurements: {exc}"
+
+
+def _configured_semi_major(job: _SolveJob, lat_deg: float, lon_deg: float, configured: Uncertainty) -> float | None:
+    """95 % (``solver.confidence``) semi-major axis, m, that the rows of ``job`` give at
+    ``(lat_deg, lon_deg)`` with the ``configured`` uncertainty instead of the job's own
+    (``core.solver.position_covariance``; blocking): what the ellipse of a solve widened by
+    an ephemeris allowance would be without it. None when the position is unobservable
+    with it or the rows are refused."""
+    try:
+        cov = position_covariance(
+            list(job.measurements), lat_deg, lon_deg, job.orbits, job.sites_xyz,
+            float(job.solver_cfg.height_m), configured, float(job.solver_cfg.confidence),
+        )
+    except ValueError:
+        return None
+    return None if cov is None else _finite(cov["ellipse"]["semi_major_m"])
 
 
 def _consistent(prev: _Detection, new: _Detection, rates: tuple[float, float]) -> bool:
@@ -1268,6 +1304,16 @@ configured sigmas or more, even where the calibrations cannot size it better."""
 DOUBT_MARGIN_SIGMAS: Final[float] = 2.0
 """The scale covers the error the calibrations show plus this many of its one-sigma
 uncertainties (``ephemeris_scale``)."""
+
+DOUBT_CONFIRM_INTERVALS: Final[float] = 1.0
+"""A doubted satellite is widened only once the clock checks have named it in two rounds
+at least this many ``capture.interval_s`` apart (within ``calibration.max_age_s``):
+a doubt seen once is not acted on. A clock that steps while calibrations from before
+the step still count can make a site's views through its satellites disagree for a
+round, which names every satellite it sees; the next round blames the clock instead.
+The two rounds need not be consecutive: the clock checks rotate over the pairs
+(``CLOCK_CHECKS_PER_ROUND``), so a real doubt is not named in every round. Until the
+doubt is confirmed, a first fix through the satellite waits (``_unconfirmed_doubt``)."""
 
 SCALE_STEPS_PER_OCTAVE: Final[int] = 4
 """A scale is rounded up to the next of these steps per factor of two (1, 1.19, 1.41,
@@ -1820,8 +1866,10 @@ class Tasking:
         # carriers through the same channels must not hold back each other's calibration
         self._cal_attempts: dict[tuple[tuple[tuple[str, str], tuple[str, str]], str], int] = {}
         self._world_since_ns: int | None = None  # calibrations measured before this are not kept
-        # ephemeris allowance: per doubted satellite, the scales sized at round ends (t_ns, scale, capped)
+        # ephemeris allowance: per doubted satellite, the scales sized in rounds (t_ns, scale, capped),
+        # and the rounds in which it was doubted (t_ns; DOUBT_CONFIRM_INTERVALS)
         self._allowance_targets: dict[str, list[tuple[int, float, bool]]] = {}
+        self._doubt_seen: dict[str, list[int]] = {}
         self._cal_seq = itertools.count(1)
         self._loop_task: asyncio.Task[None] | None = None
         self._background: set[asyncio.Task[Any]] = set()
@@ -1870,15 +1918,16 @@ class Tasking:
     def reconfigure(self, config: Any) -> None:
         """Take a new configuration. Rounds in flight are cancelled; calibrations (with
         the ephemeris allowance they sized), confirmation tracks and channel exclusions
-        are dropped (orbits, transponders, channels or sigmas may have changed). Measurements already recorded stay with their
-        events and are solved with the new orbits (rows naming a satellite or site
-        that no longer exists are left out)."""
+        are dropped (orbits, transponders, channels or sigmas may have changed).
+        Measurements already recorded stay with their events and are solved with the new
+        orbits (rows naming a satellite or site that no longer exists are left out)."""
         self._generation += 1
         self._apply_config(config)
         self._quality = None
         self._calibrations.clear()
         self._cal_attempts.clear()
         self._allowance_targets.clear()
+        self._doubt_seen.clear()
         for state in self._states.values():
             if state.task is not None and not state.task.done():
                 state.task.cancel()
@@ -1899,6 +1948,7 @@ class Tasking:
         self._calibrations.clear()
         self._cal_attempts.clear()
         self._allowance_targets.clear()
+        self._doubt_seen.clear()
         logger.info("simulated world replaced: calibrations dropped", extra={"effective_ns": str(int(effective_ns))})
 
     # ------------------------------------------------------------------ lifecycle
@@ -2062,11 +2112,14 @@ class Tasking:
         """Size the ephemeris allowance of every doubted satellite
         (``SiteClockEstimate.suspect_satellite_ids``) from the calibrations held
         (``satellite_position_evidence``, ``ephemeris_scale``) and forget scales older than
-        ``calibration.max_age_s``. A satellite in no doubt is never widened, so with no
-        doubt the solves use the configured uncertainty unchanged."""
+        ``calibration.max_age_s``. A satellite is sized only once its doubt is confirmed:
+        named in two rounds at least ``DOUBT_CONFIRM_INTERVALS`` capture intervals
+        apart within ``calibration.max_age_s``. A satellite in no doubt is never widened,
+        so with no doubt the solves use the configured uncertainty unchanged."""
         now = self._clock()
-        cal_cfg = self._config.processing.calibration
-        hold_ns = int(float(cal_cfg.max_age_s) * _NS)
+        cfg = self._config.processing
+        hold_ns = int(float(cfg.calibration.max_age_s) * _NS)
+        confirm_ns = int(DOUBT_CONFIRM_INTERVALS * float(cfg.capture.interval_s) * _NS)
         before = self.ephemeris_allowance()
         for sat in list(self._allowance_targets):
             kept = [t for t in self._allowance_targets[sat] if now - t[0] <= hold_ns]
@@ -2074,8 +2127,17 @@ class Tasking:
                 self._allowance_targets[sat] = kept
             else:
                 del self._allowance_targets[sat]
-        max_scale = float(cal_cfg.ephemeris_allowance_max_scale)
-        widen = sorted(s for s in doubted if s in self._allowance_base)
+        for sat in list(self._doubt_seen):
+            seen = [t for t in self._doubt_seen[sat] if now - t <= hold_ns]
+            if seen:
+                self._doubt_seen[sat] = seen
+            else:
+                del self._doubt_seen[sat]
+        candidates = sorted(s for s in doubted if s in self._allowance_base)
+        for sat in candidates:
+            self._doubt_seen.setdefault(sat, []).append(now)
+        widen = [s for s in candidates if now - min(self._doubt_seen[s]) >= confirm_ns]
+        max_scale = float(cfg.calibration.ephemeris_allowance_max_scale)
         if widen and max_scale > 1.0:
             evidence = self.satellite_position_evidence()
             for sat in widen:
@@ -2098,6 +2160,42 @@ class Tasking:
                 extra={"allowance": {s: k for s, (k, _) in after.items()}},
             )
 
+    @staticmethod
+    def _row_satellites(rows: Sequence[Measurement]) -> set[str]:
+        """The satellites ``rows`` and their reference calibrations go through."""
+        sats: set[str] = set()
+        for row in rows:
+            sats.update((row.a.sat_id, row.b.sat_id))
+            if row.cal is not None:
+                sats.update((row.cal.a.sat_id, row.cal.b.sat_id))
+        return sats
+
+    def _unconfirmed_doubt(self, doubted: Sequence[str], rows: Sequence[Measurement]) -> tuple[str, ...]:
+        """The satellites in doubt (``doubted``: ``EventRecord.doubted_satellite_ids``)
+        that ``rows`` or their calibrations go through and that no allowance covers yet
+        because their doubt is not confirmed (``DOUBT_CONFIRM_INTERVALS``), sorted: a
+        solve through one cannot include its error, so a first fix waits
+        (``EventBook.set_solution(unconfirmed_doubt=...)``). Empty when the allowance is
+        off (``calibration.ephemeris_allowance_max_scale`` 1), for a satellite with no
+        configured sigma to widen, and once the doubt is confirmed (sized or not), so the
+        hold lasts about one capture interval."""
+        cfg = self._config.processing
+        if not doubted or float(cfg.calibration.ephemeris_allowance_max_scale) <= 1.0:
+            return ()
+        now = self._clock()
+        confirm_ns = int(DOUBT_CONFIRM_INTERVALS * float(cfg.capture.interval_s) * _NS)
+        allowance = self.ephemeris_allowance()
+        sats = self._row_satellites(rows)
+        held = []
+        for sat in doubted:
+            if sat not in sats or sat not in self._allowance_base or sat in allowance:
+                continue
+            seen = self._doubt_seen.get(sat)
+            if seen and now - min(seen) >= confirm_ns:
+                continue
+            held.append(sat)
+        return tuple(sorted(held))
+
     def _solve_uncertainty(self, rows: Sequence[Measurement]) -> tuple[Uncertainty, tuple[EphemerisAllowance, ...]]:
         """The consider uncertainty for solving ``rows``: the configured one (the very same
         object) unless the ephemeris allowance (``ephemeris_allowance``) widens a satellite
@@ -2106,11 +2204,7 @@ class Tasking:
         allowance = self.ephemeris_allowance()
         if not allowance:
             return self._uncertainty, ()
-        sats: set[str] = set()
-        for row in rows:
-            sats.update((row.a.sat_id, row.b.sat_id))
-            if row.cal is not None:
-                sats.update((row.cal.a.sat_id, row.cal.b.sat_id))
+        sats = self._row_satellites(rows)
         used = {s: v for s, v in allowance.items() if s in sats and s in self._allowance_base}
         if not used:
             return self._uncertainty, ()
@@ -2135,27 +2229,32 @@ class Tasking:
         return allowance != record.solution_allowance
 
     @staticmethod
-    def _allowance_text(allowance: Sequence[EphemerisAllowance]) -> str | None:
+    def _allowance_text(allowance: Sequence[EphemerisAllowance], widening: float | None = None) -> str | None:
         """The status sentence for a published solution solved with an ephemeris
-        allowance, or None."""
+        allowance (``widening``: its 95 % semi-major axis over the configured
+        uncertainty's at the same position, ``EventRecord.solution_widening``), or None.
+        The widened sigma is written as the advice writes it (``format_distance``)."""
         if not allowance:
             return None
         listed = _and_list(
             [
-                f"{a.sat_id} ({a.scale:.2g} times its configured sigma, about "
-                f"{max(a.sigma_ric_m) / 1000.0:.2g} km{', the largest scale allowed' if a.capped else ''})"
+                f"{a.sat_id} ({scale_text(a.scale)} times its configured sigma, about "
+                f"{format_distance(max(a.sigma_ric_m))}{', the largest scale allowed' if a.capped else ''})"
                 for a in allowance
             ]
         )
-        which = "position" if len(allowance) == 1 else "positions"
+        one = len(allowance) == 1
+        growth = widening_text(widening)
         tail = (
             " The allowance may still be too small: the transmitter may lie outside the ellipse."
             if any(a.capped for a in allowance)
             else ""
         )
         return (
-            f"The ellipse includes an allowance for the {which} of {listed}: the reference calibrations put "
-            f"{'it' if len(allowance) == 1 else 'them'} wrong beyond the configured uncertainty.{tail}"
+            f"The ellipse is widened for the {'position' if one else 'positions'} of {listed}, which the reference "
+            f"calibrations put wrong beyond the configured uncertainty"
+            + (f": the 95 % ellipse's major axis is {growth}." if growth else ".")
+            + tail
         )
 
     @property
@@ -3071,7 +3170,8 @@ class Tasking:
         max_rate = min([primary.max_rate_hz] + [p.max_rate_hz for p in partners])
         fs_guess = float(min(max(float(capture_cfg.min_sample_rate_hz), float(capture_cfg.oversample) * width), max_rate))
         fix = record.solution_out
-        near = (fix.lat_deg, fix.lon_deg) if fix is not None and fix.is_fix else None
+        # where the event is: its fix, or a solution held from a fix only by a doubt not yet confirmed
+        near = (fix.lat_deg, fix.lon_deg) if fix is not None and (fix.is_fix or record.solution_held) else None
         ref_plans = (
             self._plan_references(primary, partners, lo, hi, f_e, near) if cfg.processing.calibration.enabled else []
         )
@@ -3332,6 +3432,15 @@ class Tasking:
             except (ValidationError, ValueError) as exc:
                 logger.warning("correlation surface of %s not shown: %s", event_id, exc, extra={"event_id": event_id})
 
+        # ---- satellites in doubt -----------------------------------------------------------
+        # The clock checks over the calibrations held (this round's included) name the
+        # satellites whose position is wrong beyond their configured uncertainty; the
+        # allowance is brought up to date before the solve, which uses it, and a first fix
+        # through a satellite whose doubt is not yet confirmed is held back.
+        doubted = {s for e in self.site_clock_estimates() for s in e.suspect_satellite_ids}
+        self._book.set_satellite_doubt(event_id, doubted)
+        self._update_allowance(doubted)
+
         # ---- solve --------------------------------------------------------------------------
         if new_used or self._has_unsolved_rows(record, state) or self._allowance_changed(record):
             await self._solve_event(event_id, state, report, generation)
@@ -3355,9 +3464,6 @@ class Tasking:
         explanation = round_explanation(report.pairs)
         if explanation:
             parts.append(explanation)
-        doubted = {s for e in self.site_clock_estimates() for s in e.suspect_satellite_ids}
-        self._book.set_satellite_doubt(event_id, doubted)
-        self._update_allowance(doubted)  # the next solve uses it
         if new_used:
             state.unlocatable_reason = None
         elif explanation in (EXPLAIN_AMBIGUOUS, EXPLAIN_COUPLED):
@@ -3370,7 +3476,11 @@ class Tasking:
             parts.append(f"Satellite {sat_id}: orbit not available ({why}); its pairs are not tasked.")
         if state.fit_note:
             parts.append(state.fit_note)
-        allowance_note = self._allowance_text(record.solution_allowance) if record.solution_out is not None else None
+        allowance_note = (
+            self._allowance_text(record.solution_allowance, record.solution_widening)
+            if record.solution_out is not None
+            else None
+        )
         if allowance_note:
             parts.append(allowance_note)
         state.message = " ".join(parts) or None
@@ -3945,6 +4055,7 @@ class Tasking:
         self._abort_if_stale(generation)
         if solution is None or not assess_fit(solution.chi2, solution.dof, solution.reduced_chi2, limit).consistent:
             return None
+        widening = await self._widening(job, solution, allowance, generation)
         onset = min(int(e.row.t_ns) for e in new)
         self._count("transmission_changes")
         self._book.transmission_changed(
@@ -3966,6 +4077,7 @@ class Tasking:
             self._book.set_solution(
                 event_id, solution, self._clock(), used=new_seqs, max_reduced_chi2=limit,
                 max_semi_major_m=fix_semi_major_limit_m(self._config.processing.region), allowance=allowance,
+                widening=widening, unconfirmed_doubt=self._unconfirmed_doubt(record.doubted_satellite_ids, new_rows),
             )
         except ValueError as exc:
             logger.error("solution of %s not attached: %s", event_id, exc, extra={"event_id": event_id})
@@ -4017,6 +4129,24 @@ class Tasking:
     def _has_unsolved_rows(self, record: EventRecord, state: _EventState) -> bool:
         return any(e.seq > state.last_solved_seq for e in record.used_measurements())
 
+    async def _widening(
+        self, job: _SolveJob, solution: Solution | None, allowance: Sequence[EphemerisAllowance], generation: int
+    ) -> float | None:
+        """How much an ephemeris allowance widened ``solution`` (solved from ``job``): its
+        95 % semi-major axis over the one the same rows give at the same position with
+        the configured uncertainty (``_configured_semi_major``, worker pool). None without
+        an allowance or a solution, or when it cannot be worked out."""
+        if not allowance or solution is None:
+            return None
+        widened = _finite(solution.ellipse.get("semi_major_m"))
+        if widened is None:
+            return None
+        configured = await self._pool.run(
+            _configured_semi_major, job, float(solution.lat_deg), float(solution.lon_deg), self._uncertainty
+        )
+        self._abort_if_stale(generation)
+        return widened / configured if configured is not None and configured > 0.0 else None
+
     async def _solve_event(self, event_id: str, state: _EventState, report: RoundReport, generation: int) -> None:
         """Solve the event's accepted rows (warm start or global search) and attach the
         result."""
@@ -4056,6 +4186,7 @@ class Tasking:
             self._abort_if_stale(generation)
             if global_solution is not None or solution is None:
                 solution, reason = global_solution, global_reason
+        widening = await self._widening(job(None), solution, allowance, generation)
         self._count("solves")
         t_ns = self._clock()
         limit = float(cfg.solver.max_reduced_chi2)
@@ -4064,6 +4195,7 @@ class Tasking:
             self._book.set_solution(
                 event_id, solution, t_ns, used=seqs if solution is not None else (), reason=reason,
                 max_reduced_chi2=limit, max_semi_major_m=fix_semi_major_limit_m(cfg.region), allowance=allowance,
+                widening=widening, unconfirmed_doubt=self._unconfirmed_doubt(record.doubted_satellite_ids, rows),
             )
         except ValueError as exc:
             self._count("solve_errors")

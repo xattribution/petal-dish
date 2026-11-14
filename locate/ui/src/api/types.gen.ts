@@ -429,6 +429,25 @@ export interface EmitterSpec {
 }
 
 /**
+ * A satellite whose position sigma a solve widened because the reference
+ * calibrations put its position wrong beyond its configured uncertainty (MATH.md
+ * section 9, *ephemeris allowance*; ``SolutionOut.ephemeris_allowance``).
+ *
+ * sat_id: the satellite. scale: the factor on its configured radial / in-track /
+ * cross-track position sigma (greater than 1; a component configured as zero takes
+ * ``processing.uncertainty.ephemeris.operator.pos_m`` first). sigma_ric_m: the widened
+ * one-sigma radial, in-track, cross-track, m. capped: the scale is the largest allowed
+ * (``processing.calibration.ephemeris_allowance_max_scale``) and the calibrations ask
+ * for more, or they could not size the error: the ellipse may still not cover it.
+ */
+export interface EphemerisAllowanceOut {
+  capped?: boolean;
+  sat_id: string;
+  scale: number;
+  sigma_ric_m: number[];
+}
+
+/**
  * True orbit minus believed orbit for one satellite (``core.orbits.PerturbedOrbit``):
  * ``ric_pos_m`` (m) in the believed orbit's radial / in-track / cross-track frame,
  * growing at ``ric_vel_mps`` (m/s) from ``t_ref``. ``t_ref`` matters only when the
@@ -507,12 +526,21 @@ export interface ErrorResponse {
  * reach both edges of the window (within 8 % of the span, where receiver filters roll
  * off), so the signal may be wider than its range shows: its width is a lower bound
  * ("at least N wide").
+ * doubted_satellite_ids: the satellites whose position the reference calibrations put
+ * wrong beyond their configured uncertainty when tasking last looked at the event
+ * (every site's ``SiteClockEstimate.suspect_satellite_ids``, network-wide: not only the
+ * satellites of this event), sorted. Those the published solution's rows go through
+ * (rows with a ``residual``) are either in ``solution.ephemeris_allowance`` (the
+ * ellipse is widened for them) or not yet: then a solution of an event not yet located
+ * is not a fix (``solution.not_fix_reason``), and the advisory of a located one warns
+ * that the ellipse does not include that error yet.
  */
 export interface Event {
   advisory: Advisory;
   break_s?: number | null;
   caf: CafDisplay | null;
   classification: ClassificationOut | null;
+  doubted_satellite_ids?: string[];
   downlink_hi_hz?: number | null;
   downlink_lo_hz?: number | null;
   evidence: EvidenceRow[];
@@ -1153,8 +1181,11 @@ export interface SiteClock {
  * satellites). Without caution it may say that the site's offset differs between
  * satellites, so its clock is probably fine and a satellite's position is wrong beyond
  * its configured uncertainty (that satellite is named). suspect_satellite_ids: the
- * satellites that message names (empty otherwise); an event whose fix rests on them is
- * told that its ellipse does not include that error.
+ * satellites that message names (empty otherwise; ``Event.doubted_satellite_ids``).
+ * Once a satellite is named at two round ends at least a capture interval apart, the
+ * live solves through it widen its position sigma by a scale sized from the
+ * calibrations (``SolutionOut.ephemeris_allowance``, MATH.md section 9); until then an
+ * event whose fix rests on it is told that its ellipse does not include that error yet.
  */
 export interface SiteClockEstimate {
   caution: boolean;
@@ -1214,7 +1245,23 @@ export interface SolutionHistoryRow {
  * the region's smaller extent when that is less). An event is ``located`` only while its
  * solution is a fix. not_fix_reason: one plain clause saying why it is not (for example
  * "no redundancy: 2 measurements for the two unknowns of a position, so the fit cannot
- * be checked against itself"); null for a fix.
+ * be checked against itself", or, while the event is not yet located, "the reference
+ * calibrations have just put the position of X wrong beyond its configured
+ * uncertainty, and the ellipse does not include that error yet ..." until the
+ * satellite's ephemeris allowance applies); null for a fix.
+ *
+ * Ephemeris allowance (set by the server when it publishes a solve; MATH.md section 9,
+ * *ephemeris allowance*). ephemeris_allowance: the satellites whose position sigma
+ * this solve widened because the reference calibrations put their position wrong
+ * beyond the configured uncertainty, sorted by ``sat_id``; empty when the solve used
+ * the configured uncertainty unchanged (always for an ambiguity, whose ellipse is
+ * nonetheless worked out with the same uncertainty as the solution's). The ellipse,
+ * CEP50 and covariances already include it, and ``is_fix`` judges the widened ellipse.
+ * ellipse_widening: with an allowance, the 95 % semi-major axis over the one the same
+ * measurements give at the same position with the configured uncertainty (normally
+ * at least 1: 1.21 means the ellipse's major axis is 21 % longer for the allowance;
+ * the area grows more, both axes widening); null without
+ * an allowance or when it could not be worked out.
  */
 export interface SolutionOut {
   ambiguities: SolutionOut[];
@@ -1229,6 +1276,8 @@ export interface SolutionOut {
   dominant_error: string;
   ellipse: EllipseOut;
   ellipse_scale?: number;
+  ellipse_widening?: number | null;
+  ephemeris_allowance?: EphemerisAllowanceOut[];
   fit_consistent?: boolean;
   fit_p_value?: number | null;
   height_m: number;

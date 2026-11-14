@@ -237,11 +237,16 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
 - **Ephemeris allowance.** The clock checks name the satellites whose position is worse
   than configured, and the live solves widen those satellites' position sigma by a
   factor sized from the calibrations (MATH.md section 9), so the ellipse covers the
-  error: live from 03:00 and from 15:00 UTC the ephemeris-error event was located in
-  every snapshot over 9.5 minutes (8 to 400 rows), the two satellites' sigmas widened 8
-  and 9.5 times, and the truth was inside the ellipse in all 76 snapshots (6 to 72 m
-  off, 95 % semi-major 290 to 373 m, 15 to 30 % larger than without the allowance). Its
-  limits:
+  error: live from 03:00, 09:00 and 15:00 UTC (15 s snapshots over 9.5 minutes, 4 to
+  400 rows) the truth was inside the published ellipse in all 114 snapshots with a
+  position (15 to 255 m off, 95 % semi-major 290 to 506 m, its major axis 2 to 67 %
+  longer than with the configured uncertainty), and once located the event stayed
+  located. At 09:00 and
+  15:00 the clock checks named both satellites by the first solve: the first snapshot
+  showed the position as not a fix yet, and from the second (12 rows) the event was
+  located with the two sigmas widened 8 and 9.5 times. At 03:00 the first fix (4 rows)
+  came before any doubt; MUOS Pacific was named while the event was located, and the
+  sigmas were widened from the third snapshot on (3.4, then 8 and 9.5 times). Its limits:
   - it acts only on satellites the clock checks name, so only while an event is tasked
     and only for errors that make a site's timing differ between satellites by at least
     the doubt threshold (the largest of 1 us, ten times the site's clock sigma and three
@@ -257,9 +262,39 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
     has less margin;
   - only the position sigma is widened: a velocity error beyond its sigma is neither
     seen nor covered;
-  - the scale rises at once but falls back only when the calibrations that sized it
-    have aged out (`calibration.max_age_s`, 300 s), so after an ephemeris update the
-    ellipses stay wide for up to five minutes;
+  - a doubt is acted on only once the clock checks have named the satellite in two
+    rounds at least one capture interval apart (5 s by default). Until then nothing
+    covers the error: an event not yet located gets no fix from rows through that
+    satellite (shown as "not a fix" with the reason), so its first fix comes about one
+    capture interval later; a located event keeps its fix while a new doubt is being
+    confirmed, and its advice warns that the transmitter may lie outside the ellipse;
+  - the two rounds need not be consecutive, because the clock checks rotate over the
+    pairs and a real doubt is not named in every round; so two isolated namings up to
+    `calibration.max_age_s` apart also widen. A clock that steps mid-run while older
+    calibrations still count can name every satellite of its site in one round, which
+    is ignored, but a mix that is named again later would widen them. Both cost ellipse
+    size, never coverage;
+  - the scale rises at once but, without a configuration change, falls back only when
+    the calibrations that sized it have aged out (`calibration.max_age_s`, 300 s), so the
+    ellipses stay wide for up to five minutes after a satellite's error goes away.
+    Loading a configuration (a current ephemeris is part of it) drops the calibrations
+    and ends the allowance at once: the next round solves with the configured
+    uncertainty;
+  - the floor of three configured sigmas applies to every satellite the clock checks
+    name, whatever the calibrations say about it: a satellite named wrongly (one whose
+    error is within its sigma, blamed for another's) is widened at least 3.4 times for
+    as long as it is named and `max_age_s` after (live at 15:00 UTC in ephemeris-error,
+    MUOS Indo-Asia, 0.9 km off in-track against its 1 km sigma, was named after a minute
+    and widened 3.4 times for the rest of the run, the major axis then 46 to 67 % longer
+    than with the configured uncertainty against 16 to 38 % before; in a variant
+    configuration with one satellite 7 km off cross-track, an innocent one was widened
+    3.4 times); this costs ellipse size only;
+  - the calibrations size an error along the directions they see well and the scale
+    covers that: an error mostly in a direction they see weakly is sized low (7 sigma
+    cross-track came out as 4.8 times; 8 and 9 sigma in-track on a single satellite as
+    5.7 times). The jammer's rows see that direction about as weakly when the target is
+    near the reference, and every such run kept the truth inside, but far from the
+    reference the margin is not guaranteed;
   - the evidence carries the configured media; ionospheric differences between sites
     beyond them can read as a satellite error and widen an ellipse more than needed
     (never less);
@@ -333,6 +368,11 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   minute in the ephemeris-error scenario); two sites whose difference alone is known
   (for example two sites reached only through the same satellite from one channel) are
   both flagged on their difference, with a message saying one of the two clocks is off.
+  So a healthy site can be flagged for a round or two while an event's first checks
+  come in (live, the clock-fault scenario's first snapshot flagged Honolulu with Naha as
+  such a pair, cleared within 30 s; with one satellite 8 km off in a variant
+  configuration, a healthy site was flagged for one round); the message names both
+  explanations.
   While a clock fault is new, calibrations from before it still count until they are
   replaced or age out (`calibration.max_age_s`, 300 s by default): the fault's site is
   then shown with a smaller offset, or as one of such a pair, for up to a few minutes. A site whose offset differs between satellites is not flagged,

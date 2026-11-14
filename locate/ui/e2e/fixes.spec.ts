@@ -247,6 +247,48 @@ test('a position the newest measurements no longer admit is withdrawn, with the 
   await expect(loc).toContainText('The newest measurements, added to the 21 it rested on, admit no position (no admissible solution). Do not report the earlier position.');
 });
 
+test('an ellipse widened for ephemeris doubt says for which satellites and by how much; a doubt it does not cover is a caution (closing D1)', async ({ page }) => {
+  let doubted = ['muos-pac'];
+  let allowance: Doc[] = [{ sat_id: 'muos-pac', scale: 8, sigma_ric_m: [800, 8000, 8000], capped: false }];
+  await rewriteEvent(
+    page,
+    'EV-0042',
+    (e) => {
+      Object.assign(e.solution as Doc, { ephemeris_allowance: allowance, ellipse_widening: allowance.length ? 1.214 : null });
+      e.doubted_satellite_ids = doubted;
+    },
+    () => undefined,
+  );
+  await open(page, 'event/EV-0042');
+  const loc = page.getByRole('region', { name: 'Location' });
+  await expect(loc).toContainText('widened for ephemeris doubt');
+  await expect(loc).toContainText('Ephemeris allowance');
+  await expect(loc).toContainText('Position sigma of muos-pac ×8, about 8.0 km one sigma.');
+  await expect(loc).toContainText("The 95 % ellipse's major axis is 21 % longer than with the configured uncertainty.");
+  // covered: no caution
+  await expect(loc).not.toContainText('Ephemeris in doubt');
+  await expect(loc.getByRole('button', { name: 'About ephemeris allowance' })).toBeVisible();
+
+  // the largest scale, and a second satellite in doubt that the solve did not widen for yet
+  doubted = ['muos-pac', 'uhf-172e'];
+  allowance = [{ sat_id: 'muos-pac', scale: 20, sigma_ric_m: [2000, 20000, 20000], capped: true }];
+  await page.reload();
+  await expect(loc).toContainText('Ephemeris in doubt');
+  await expect(loc).toContainText('the position of muos-pac wrong by more than the largest allowance the system makes, or by an amount they cannot size');
+  await expect(loc).toContainText('the position of uhf-172e wrong beyond its configured uncertainty, and the ellipse does not include that error yet');
+  await expect(loc).toContainText('Position sigma of muos-pac ×20, about 20 km one sigma, the largest allowed.');
+  await expect(loc.locator('.notice.caution .word', { hasText: 'Ephemeris in doubt' })).toBeVisible();
+
+  // nothing in doubt: nothing said
+  doubted = [];
+  allowance = [];
+  await page.reload();
+  await expect(loc).toContainText('95 % ellipse');
+  await expect(loc).not.toContainText('Ephemeris allowance');
+  await expect(loc).not.toContainText('widened for ephemeris doubt');
+  await expect(loc).not.toContainText('Ephemeris in doubt');
+});
+
 test('an unresolved ambiguity lists every position that fits (UX-6) with semi-axes (UX-9)', async ({ page }) => {
   await open(page, 'watch');
   const row = page.locator('.qrow[data-event="EV-0043"]');

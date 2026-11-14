@@ -60,7 +60,7 @@ while the solver allows for both, so their calibrated ellipses are cautious.
 |---|---|---|
 | `pacific-demo` (default) | a 10 kHz noise jammer, 20 dBW, at 20 N 132 E on a channel all three satellites relay; small satellite, oscillator and clock errors | a new signal on every site, an uplink verdict within seconds, a fix calibrated against the Guam reference with a median miss of 0.13 km (at most 0.44 km) inside a 95 % ellipse with a semi-major of 0.47 to 0.61 km |
 | `clock-fault` | the same, with the Naha site clock 10 us late | the same calibrated fix, and on the Network screen a caution on Naha's clock (about -10 us by calibration, the calibrations through two satellites agreeing); without calibration the fix would be about 31 km off (median), mostly outside its ellipse, with no warning from the fit |
-| `ephemeris-error` | the jammer at 17 N 141 E while two satellites are 8 km and 6 km from where the server believes them | calibrated 0.13 km from the truth (median); uncalibrated 12 to 25 km off or worse; no clock caution, and the Network screen's site-clock notes name muos-pac and uhf-172e as probably mispositioned; the live solves then widen those two satellites' position sigma (8 and 9.5 times, sized from the calibrations) and the fix stays inside its ellipse (live from 03:00 and 15:00 UTC: inside in all 76 snapshots over 9.5 minutes each, 6 to 72 m off, 95 % semi-major 290 to 373 m), the advice saying the ellipse includes that allowance |
+| `ephemeris-error` | the jammer at 17 N 141 E while two satellites are 8 km and 6 km from where the server believes them | calibrated 0.13 km from the truth (median); uncalibrated 12 to 25 km off or worse; no clock caution, and the Network screen's site-clock notes name muos-pac and uhf-172e as probably mispositioned; the live solves then widen those two satellites' position sigma (8 and 9.5 times, sized from the calibrations), and a first fix waits for that (until the doubt is confirmed, about 5 s, the position is shown as not a fix yet); the published ellipse holds the truth (live from 03:00, 09:00 and 15:00 UTC: inside in all 114 snapshots with a position over 9.5 minutes each, 15 to 255 m off, 95 % semi-major 290 to 506 m, its major axis 2 to 67 % longer than with the configured uncertainty), the advice and the event dossier saying the ellipse is widened and by how much |
 | `two-jammers` | a second jammer, 8 kHz, 18 dBW, at 30 N 135 E on the other shared channel | two separate events, each located (median miss 0.08 km and 0.10 km) |
 | `uplink-cw` | an unmodulated carrier, 5 dBW, at 15 N 130 E | classification `cw`, uplink, FDOA only ("No TDOA: the signal is too narrow ..."); the first positions, from two FDOA rows, are shown as "not a fix"; a coarse calibrated fix (median miss about 16 km, 95th percentile 50 km) inside a very long ellipse once there are spare measurements |
 | `uplink-swept` | a sawtooth chirp sweeping 10 kHz every 40 ms at 21 N 127 E | classification `swept`, uplink, the correlations ambiguous, no position, and a message saying why it cannot be located (fresh at 03:00 and 03:26 UTC; a calibrated pair whose window holds one peak can still locate it, roughly) |
@@ -91,10 +91,12 @@ ionosphere (30 TECU) and the troposphere, which the solver carries as uncertaint
 - **Satellite position errors beyond the configured sigma** show in the reference
   calibrations (same-satellite clock checks name the satellite). The live solves widen
   that satellite's position sigma by a factor sized from those calibrations, so the
-  ellipse covers the error instead of shrinking past it as rows pile up (live
-  ephemeris-error: the truth inside in every snapshot, the ellipse 15 to 30 % larger
-  than without the allowance). Errors the clock checks cannot see go uncovered
-  (LIMITATIONS.md section 7).
+  ellipse covers the error instead of shrinking past it as rows pile up, and an event
+  is not located from rows through such a satellite before its sigma is widened (live
+  ephemeris-error: the truth inside in every snapshot, the 95 % ellipse's major axis 2
+  to 67 % longer than with the configured uncertainty, which the advice states). Errors
+  the clock checks cannot see go uncovered, and a satellite they name wrongly is widened
+  too (LIMITATIONS.md section 7).
 - **The ionosphere** delays each UHF leg by roughly 0.45 to 1.7 microseconds on a
   typical day. The system does not predict it; it widens every ellipse to cover a
   stated level (`processing.uncertainty.iono_vtec_tecu`), which must match the region

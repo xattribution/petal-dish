@@ -1155,7 +1155,8 @@ uncorrelated (different kinds).
   clock or the satellite it was seen through (the message says both). Two sites whose
   difference alone is known (a cluster of two) are both judged on their difference.
 - **Ephemeris allowance** (server, `tasking.satellite_position_evidence`,
-  `tasking.ephemeris_scale`, `Tasking._update_allowance`). The satellites the clock checks
+  `tasking.ephemeris_scale`, `Tasking._update_allowance`; not the search-window
+  widening of section 6, which shares the name). The satellites the clock checks
   name (`SiteClockEstimate.suspect_satellite_ids`, the *doubt*) are wrong beyond their
   configured sigma, and the consider covariance above, which budgets for that sigma,
   then understates the error: live, in the ephemeris-error scenario, the ellipse shrank
@@ -1200,30 +1201,64 @@ uncorrelated (different kinds).
      calibrations measure delays at one instant, which say nothing about a velocity
      error, and widening the velocity sigma by the same factor tripled the ellipse in
      the scenario (1 km instead of 0.3 km) without being needed.
-  3. *Hysteresis.* Each round end sizes the doubted satellites; the scale in force is
-     the largest sized within the last `calibration.max_age_s` (the life of the
-     calibrations that showed the error), so it rises at once, falls only when that
-     evidence has aged out, and returns to the configured sigma `max_age_s` after the
-     doubt clears. A new scale applies from the next solve (a round re-solves when the
-     scale in force differs from the published solution's), and the event's history
-     says "ellipse widened: ..." when it does.
+  3. *Hysteresis.* A doubt seen once is not acted on: a satellite is sized only once
+     the clock checks have named it in two rounds at least one capture interval
+     apart (`DOUBT_CONFIRM_INTERVALS` times `capture.interval_s`, 5 s by default) within
+     `calibration.max_age_s`. The two rounds need not be consecutive: the clock checks
+     rotate over the pairs (`CLOCK_CHECKS_PER_ROUND`), so a real doubt need not be named
+     in every round (in the harness run below the 172 E satellite was named in the
+     second and fourth rounds, not the third); the price is that two isolated namings up
+     to `max_age_s` apart also widen, which costs ellipse size, not coverage. The clock
+     checks run over each round's calibrations just before its solve. A clock that steps while calibrations from before the step
+     still count can make a site's views through its satellites disagree for one round,
+     which names every satellite the site sees, before the next round blames the clock
+     (seen in the tasking harness: Naha stepped 10 us at the eighth round, one round end
+     eight rounds later named all three satellites; sized at once, that widened all
+     three for the next five minutes). Each round then sizes the confirmed
+     satellites; the scale in force is the largest sized within the last
+     `calibration.max_age_s` (the life of the calibrations that showed the error), so it
+     rises at once, falls only when that evidence has aged out, and returns to the
+     configured sigma `max_age_s` after the doubt clears. Loading a configuration (a
+     corrected ephemeris is part of it) drops the calibrations and ends the allowance at
+     once. A new scale applies from that round's solve on (a round re-solves when the
+     scale in force differs from the published solution's), and the event's history says
+     "ellipse widened: ..." when it does. Until a doubt is confirmed nothing covers the
+     error, so an event not yet located gets no fix from rows through that satellite
+     (`not_fix_reason` "the reference calibrations have just put the position of X wrong
+     beyond its configured uncertainty, ..."): its first fix waits about one capture
+     interval for the allowance; a located event keeps its fix, and its advice warns.
+  4. *How much it widened.* For a solve with an allowance the server also works out
+     the 95 % ellipse the same rows give at the same position with the configured
+     uncertainty (`position_covariance`, `tasking._configured_semi_major`); the ratio of
+     the two semi-major axes (`EventRecord.solution_widening`, at least 1 since a larger
+     consider covariance never shrinks the position covariance) is what the advice, the
+     status message and the history give as "the 95 % ellipse's major axis is N %
+     longer than with the configured uncertainty" (the area grows more, both axes
+     widening). The solution publishes the allowance and the ratio
+     (`SolutionOut.ephemeris_allowance`, `ellipse_widening`; PROTOCOL.md), and the
+     console's event dossier shows them next to the ellipse. The fix gate
+     (`fix_semi_major_limit_m`) judges the widened ellipse like any other.
   Without doubt nothing changes: the solve gets the configured `Uncertainty` object
-  itself, so pacific-demo, two-jammers and clock-fault solve exactly as before (a clock
-  caution names no satellite, and the free clocks of the evidence fit read a clock
-  fault as no position error at all). The Monte Carlo, the accuracy maps and the
-  capability study have no live calibrations and never widen. Measured offline on the
-  ephemeris-error world (the tasking test harness, 03 UTC, 30 rounds of 5 s): the
-  evidence put MUOS Pacific 6.0 km ahead and the 172 E satellite 6.8 km behind in-track
-  (truth 8 and 6 km), the scales came to 4 within two rounds and to 8 and 9.5 by 75 s,
-  and every published ellipse held the truth (miss 53 to 103 m, 95 % semi-major 318 to
-  435 m), where before the truth fell outside from 42 rows on (150 to 190 m off a 255 to
-  285 m ellipse); the widened solve also weights the rows that feel those satellites
-  less, so the miss itself halved. The fit is a minimum-norm one: an error that two
-  satellites see the network alike through (MUOS Pacific and the 172 E satellite, 11
-  degrees apart) is shared between them when only one is off (8 km on one gave about 5
-  and -3 km), but their difference, which is what a calibrated pair through both feels,
-  is right and their combined allowance covers it; a satellite seen only from clustered
-  sites shows some directions weakly (LIMITATIONS.md section 4).
+  itself and no widening is worked out, so pacific-demo, two-jammers and clock-fault
+  solve exactly as before (bit-identical positions and ellipses against the previous
+  release over 24 rounds of each in the tasking harness; a clock caution names no
+  satellite, and the free clocks of the evidence fit read a clock fault as no position
+  error at all). The Monte Carlo, the accuracy maps and the capability study have no
+  live calibrations and never widen. Measured offline on the ephemeris-error world (the
+  tasking test harness, 03 UTC, 30 rounds of 5 s): the evidence put MUOS Pacific 6.0 km
+  ahead and the 172 E satellite 6.8 km behind in-track (truth 8 and 6 km), the doubt was
+  confirmed in the fourth round (15 s), whose solve used scales of 4 (4.8 from the
+  fifth round, 8 and 9.5 from 70 s); the two solutions before it were published as not
+  a fix, and from the first fix on every published ellipse held the truth (all 29: miss
+  53 to 120 m, 95 % semi-major 318 to 435 m, its major axis up to 25 % longer than with
+  the configured uncertainty), where before the truth fell outside from 42 rows on (150
+  to 190 m off a 255 to 285 m ellipse); the widened solve also weights the rows that
+  feel those satellites less, so the miss itself halved. The fit is a minimum-norm one: an error that two satellites
+  see the network alike through (MUOS Pacific and the 172 E satellite, 11 degrees apart)
+  is shared between them when only one is off (8 km on one gave about 5 and -3 km), but
+  their difference, which is what a calibrated pair through both feels, is right and
+  their combined allowance covers it; a satellite seen only from clustered sites shows
+  some directions weakly (LIMITATIONS.md section 7).
 - Stationary emitter assumed; multi-epoch fusion is just more rows.
 
 ## 10. Accuracy prediction

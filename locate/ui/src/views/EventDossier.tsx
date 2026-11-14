@@ -5,7 +5,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import type { Event, EvidenceRow, LopCollection, MeasurementRow, NodeStatus, SolutionOut, SystemConfig, TaskingStatus } from '../api/types.gen';
 import { ErrorNote, Info, Loading, SimTag, Status, StatusSymbol, useTick } from '../components/common';
 import { Heatmap, LinePlot } from '../components/plots';
-import { candidates, isInconsistent, isNotFix, notFixText, received, semiAxes, splitHistory, widthText } from '../domain/event';
+import { candidates, distanceText, doubtCautionText, ephemerisDoubt, isInconsistent, isNotFix, notFixText, received, semiAxes, splitHistory, widthText } from '../domain/event';
 import { eventLevel, isActive, STATE_WORD, VERDICT_WORD } from '../domain/status';
 import { DATUM, distanceM, formatLat, formatLatLon, formatLon, formatMgrs } from '../format/geo';
 import { DASH, db, deg, fixed, hz3, km, mhz, micros, millihertz, percent, plural } from '../format/units';
@@ -384,8 +384,20 @@ function Location({ ev }: { ev: Event }) {
   // R4: consistent, but no redundancy or an ellipse too large: shown, never reported
   const notFix = isNotFix(sol);
   const all = candidates(sol);
+  // D1: satellites whose position sigma the solve widened, and doubts the ellipse may not cover
+  const doubt = ephemerisDoubt(ev);
+  const doubtCaution = doubtCautionText(doubt);
   return (
     <div>
+      {doubtCaution ? (
+        <div className="notice caution" role="note" style={{ marginTop: 0 }}>
+          <span className="status">
+            <StatusSymbol level="caution" />
+            <span className="word">Ephemeris in doubt</span>
+          </span>{' '}
+          {doubtCaution}
+        </div>
+      ) : null}
       {!bad && notFix ? (
         <div className="notice caution" role="note" style={{ marginTop: 0 }}>
           <span className="status">
@@ -453,7 +465,35 @@ function Location({ ev }: { ev: Event }) {
           <span className="mono">{semiAxes(e.semi_major_m, e.semi_minor_m)}</span> semi-axes, major axis {deg(e.azimuth_deg, 0)}
           {'°'} true{bad ? `, enlarged ${fixed(sol.ellipse_scale ?? 1, 1)} times` : ''}
           {all.length ? ' (position 1)' : ''}
+          {doubt?.widened.length ? ', widened for ephemeris doubt' : ''}
         </dd>
+        {doubt?.widened.length ? (
+          <>
+            <dt>
+              Ephemeris allowance{' '}
+              <Info label="ephemeris allowance">
+                The reference calibrations put these satellites&apos; positions wrong beyond their configured uncertainty, so this solve takes their position sigma larger, by a
+                factor sized from the calibrations, and the ellipse includes that error. It returns to the configured uncertainty once the calibrations that showed the error
+                have aged out, or at once when a new configuration (a current ephemeris) is loaded. Check the ephemerides.
+              </Info>
+            </dt>
+            <dd>
+              {doubt.widened.map((w, i) => (
+                <span key={w.sat}>
+                  {i ? '; ' : 'Position sigma of '}
+                  {w.capped ? (
+                    <>
+                      <StatusSymbol level="caution" />{' '}
+                    </>
+                  ) : null}
+                  {w.sat} {'×'}
+                  {w.factor}, about <span className="mono">{distanceText(w.sigmaM)}</span> one sigma{w.capped ? ', the largest allowed' : ''}
+                </span>
+              ))}
+              .{doubt.growth ? ` The 95 % ellipse's major axis is ${doubt.growth}.` : ''}
+            </dd>
+          </>
+        ) : null}
         <dt>CEP50</dt>
         <dd className="mono">{km(sol.cep50_m)} km</dd>
         <dt>

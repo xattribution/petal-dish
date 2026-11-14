@@ -69,10 +69,18 @@ rows of the published position finds no position at all, that position is withdr
 
 Ephemeris allowance. A solve may have widened the position sigma of satellites the
 reference calibrations put wrong beyond their configured uncertainty (tasking, MATH.md
-section 9); ``set_solution(allowance=...)`` keeps that list with the published solution
-(``EventRecord.solution_allowance``) and notes a transition ("ellipse widened: ...")
-whenever it differs from the previous one. The fix gate applies to the widened ellipse
-as to any other.
+section 9); ``set_solution(allowance=..., widening=...)`` keeps that list with the
+published solution (``EventRecord.solution_allowance``), with how much it widened the
+95 % ellipse (``EventRecord.solution_widening``: the semi-major axis over the one the
+configured uncertainty gives at the same position), publishes both with it
+(``SolutionOut.ephemeris_allowance``, ``SolutionOut.ellipse_widening``, also in the
+stored solution) and notes a transition ("ellipse widened: ...") whenever the list
+differs from the previous one. The fix gate applies to the widened ellipse as to any
+other. A satellite whose doubt tasking has not yet confirmed has no allowance yet: a
+solution through it (``set_solution(unconfirmed_doubt=...)``) is published as not a fix
+while the event is not yet ``located`` (``EventRecord.solution_held``), so a first fix
+waits for the widened ellipse; a located event is not withdrawn for it (the advice warns
+that its ellipse does not include that error yet).
 
 Publication. Mutations mark a record dirty; ``EventBook.flush`` builds the console
 document once and hands it to the publisher (console and store). A *material* change
@@ -126,9 +134,12 @@ __all__ = [
     "assess_fit",
     "caf_display",
     "classification_out",
+    "doubt_hold_reason",
     "event_truth",
     "fix_semi_major_limit_m",
+    "scale_text",
     "visible_satellites",
+    "widening_text",
     "writable_text",
 ]
 
@@ -350,6 +361,8 @@ class EventRecord:
     local_site_ids: tuple[str, ...] = ()  # correlator: sites seeing it when the verdict became local
     doubted_satellite_ids: tuple[str, ...] = ()  # tasking: positions the calibrations put beyond their sigma
     solution_allowance: tuple[EphemerisAllowance, ...] = ()  # widened satellite sigmas of the published solution
+    solution_widening: float | None = None  # its 95 % semi-major over the configured uncertainty's (allowance only)
+    solution_held: tuple[str, ...] = ()  # satellites whose unconfirmed doubt held the published solution from a fix
     # publication bookkeeping (EventBook)
     measurement_seq: int = 0
     published_signature: tuple[Any, ...] | None = None
@@ -782,6 +795,8 @@ class EventBook:
         record.solution_t_ns = None
         record.solution_used = ()
         record.solution_allowance = ()
+        record.solution_widening = None
+        record.solution_held = ()
         record.last_solve_reason = None
         record.recheck = None
         record.recheck_since_ns = None
@@ -988,6 +1003,8 @@ class EventBook:
         max_reduced_chi2: float | None = None,
         max_semi_major_m: float | None = None,
         allowance: Sequence[EphemerisAllowance] = (),
+        widening: float | None = None,
+        unconfirmed_doubt: Sequence[str] = (),
     ) -> bool:
         """Attach the result of a solve.
 
@@ -1002,9 +1019,23 @@ class EventBook:
         max_semi_major_m: largest 95 % semi-major axis of a fix
             (``fix_semi_major_limit_m``); None: no bound.
         allowance: the satellites whose position sigma the solve widened
-            (``EphemerisAllowance``; tasking), kept as ``solution_allowance``. A change
-            from the published solution's adds the transition "ellipse widened: ..."
-            (or "ellipse allowance ... reduced / removed: ...").
+            (``EphemerisAllowance``; tasking), kept as ``solution_allowance`` and
+            published as ``SolutionOut.ephemeris_allowance`` (sorted by ``sat_id``). A
+            change from the published solution's adds the transition "ellipse widened:
+            ..." (or "ellipse allowance ... reduced / removed: ...").
+        widening: with an allowance, the solution's 95 % semi-major axis over the one the
+            configured uncertainty gives at the same position (tasking), kept as
+            ``solution_widening`` and published as ``SolutionOut.ellipse_widening``
+            (None without an allowance, or when not finite).
+        unconfirmed_doubt: satellites the solved rows (or their calibrations) go
+            through whose position the reference calibrations put wrong beyond their
+            configured uncertainty, with a doubt tasking has not confirmed yet, so the
+            solve could not widen for them (tasking). While the event is not
+            ``located``, a solution that would be a fix (and each such ambiguity) is
+            published as not a fix with ``not_fix_reason`` "the reference calibrations
+            have just put the position of X wrong beyond its configured uncertainty,
+            ..." (``solution_held``); a located event keeps its fix (no withdrawal for a
+            doubt one round may clear).
         A converged solution adds a row to the solution history. A fix (converged,
         consistent, ``dof >= 1``, ellipse within the bound: ``SolutionOut.is_fix``)
         moves the event to ``located``; an inconsistent one is published flagged, with
@@ -1030,8 +1061,18 @@ class EventBook:
             self.counters["rejected"] += 1
             logger.info("event %s: solution from set-aside rows discarded", record.id, extra={"event_id": record.id})
             return False
+        applied = tuple(sorted(allowance, key=lambda a: a.sat_id))
+        widened_by = _finite_or_none(widening) if applied else None
+        held = tuple(sorted({str(sat) for sat in unconfirmed_doubt})) if record.progress != "located" else ()
         try:
             data = _assessed(solution.as_dict(), max_reduced_chi2, max_semi_major_m)
+            held = _hold_for_doubt(data, held)
+            data["ephemeris_allowance"] = [
+                {"sat_id": a.sat_id, "scale": float(a.scale), "sigma_ric_m": [float(v) for v in a.sigma_ric_m],
+                 "capped": bool(a.capped)}
+                for a in applied
+            ]
+            data["ellipse_widening"] = widened_by
             out = schemas.SolutionOut.model_validate(data)
             text = json.dumps(data, allow_nan=False)
         except (ValidationError, ValueError, TypeError) as exc:
@@ -1052,7 +1093,9 @@ class EventBook:
         record.solution_out = out
         record.solution_t_ns = int(t_ns)
         record.solution_used = used_seqs
-        record.solution_allowance = tuple(sorted(allowance, key=lambda a: a.sat_id))
+        record.solution_allowance = applied
+        record.solution_widening = widened_by
+        record.solution_held = held
         record.last_solve_reason = None
         record.unsaved_solutions.append((int(t_ns), bool(solution.converged), text))
         if solution.converged:
@@ -1093,7 +1136,7 @@ class EventBook:
                 logger.warning(
                     "event %s: %s", record.id, note, extra={"event_id": record.id, "reduced_chi2": out.reduced_chi2}
                 )
-        widened = _allowance_note(allowance_before, record.solution_allowance)
+        widened = _allowance_note(allowance_before, record.solution_allowance, record.solution_widening)
         if widened is not None and not record.lost:
             self.note_transition(record, self._clock(), widened, force=True)
         self.touch(record, "solution")
@@ -1114,6 +1157,8 @@ class EventBook:
         record.solution_t_ns = None
         record.solution_used = ()
         record.solution_allowance = ()
+        record.solution_widening = None
+        record.solution_held = ()
         record.last_solve_reason = writable_text(reason)
         record.not_visible_satellite_ids = []
         for i, entry in enumerate(record.measurements):
@@ -1151,8 +1196,8 @@ class EventBook:
     def set_satellite_doubt(self, event_id: str, sat_ids: Iterable[str]) -> bool:
         """Satellites whose position the reference calibrations put wrong beyond their
         configured uncertainty (``SiteClockEstimate.suspect_satellite_ids``): the advice
-        for a fix resting on them says its ellipse does not include that error. Returns
-        whether it changed."""
+        for a fix resting on them that its solve did not widen for (``solution_allowance``)
+        says its ellipse does not include that error yet. Returns whether it changed."""
         record = self._target(event_id, "set_satellite_doubt")
         if record is None:
             return False
@@ -1448,6 +1493,7 @@ class EventBook:
             received_hi_hz=received[1] if received is not None else None,
             seen_site_ids=record.seen_sites(),
             width_lower_bound=bool(record.width_lower_bound),
+            doubted_satellite_ids=list(record.doubted_satellite_ids),
         )
 
     def summary(self, record: EventRecord) -> schemas.EventSummary:
@@ -1659,14 +1705,33 @@ def fix_semi_major_limit_m(region: Any) -> float:
     return min(FIX_MAX_SEMI_MAJOR_M, FIX_MAX_REGION_FRACTION * extent)
 
 
-def _scale_text(scale: float) -> str:
-    """``9.5`` or ``12`` (a scale for a transition)."""
+def scale_text(scale: float) -> str:
+    """``9.5`` or ``12``: an ephemeris allowance's factor on a configured sigma, for
+    operator text."""
     return f"{scale:.2g}" if scale < 10.0 else f"{scale:.0f}"
 
 
-def _allowance_note(before: Sequence[EphemerisAllowance], after: Sequence[EphemerisAllowance]) -> str | None:
+def widening_text(widening: float | None) -> str | None:
+    """``21 % longer than with the configured uncertainty`` or ``2.4 times as long as
+    with the configured uncertainty``: how much an ephemeris allowance lengthened the
+    major axis of a 95 % ellipse (``EventRecord.solution_widening``, a ratio of
+    semi-major axes; the area grows more, both axes widening), for operator text that
+    names the major axis; None when not known."""
+    if widening is None or not math.isfinite(widening) or widening <= 0.0:
+        return None
+    if widening >= 2.0:
+        return f"{widening:.2g} times as long as with the configured uncertainty"
+    percent = (widening - 1.0) * 100.0
+    size = "less than 1 %" if percent < 1.0 else f"{percent:.0f} %"
+    return f"{size} longer than with the configured uncertainty"
+
+
+def _allowance_note(
+    before: Sequence[EphemerisAllowance], after: Sequence[EphemerisAllowance], widening: float | None = None
+) -> str | None:
     """The transition text when a solve's widened satellite sigmas differ from the
-    published solution's (``set_solution``), or None when they are the same."""
+    published solution's (``set_solution``), or None when they are the same. widening:
+    the new solution's ``solution_widening``, said with a widened sigma when known."""
     old = {a.sat_id: a for a in before}
     new = {a.sat_id: a for a in after}
     if {s: (a.scale, a.capped) for s, a in old.items()} == {s: (a.scale, a.capped) for s, a in new.items()}:
@@ -1679,22 +1744,28 @@ def _allowance_note(before: Sequence[EphemerisAllowance], after: Sequence[Epheme
             else f"the positions of {', '.join(widened[:-1])} and {widened[-1]}"
         )
         scales = ", ".join(
-            f"{s} {_scale_text(new[s].scale)} times" + (", at the largest allowed scale" if new[s].capped else "")
+            f"{s} {scale_text(new[s].scale)} times" + (", at the largest allowed scale" if new[s].capped else "")
             for s in widened
         )
+        growth = widening_text(widening)
         parts.append(
             f"ellipse widened: the reference calibrations put {which} wrong beyond the configured uncertainty "
-            f"(position sigma taken larger: {scales})"
+            f"(position sigma taken larger: {scales}"
+            + (f"; the 95 % ellipse's major axis {growth})" if growth else ")")
         )
     reduced = [s for s in sorted(new) if s in old and new[s].scale < old[s].scale]
     for s in reduced:
         parts.append(
-            f"ellipse allowance for the position of {s} reduced to {_scale_text(new[s].scale)} times its configured sigma"
+            f"ellipse allowance for the position of {s} reduced to {scale_text(new[s].scale)} times its "
+            "configured sigma"
         )
     removed = [s for s in sorted(old) if s not in new]
     if removed:
-        which = removed[0] if len(removed) == 1 else f"{', '.join(removed[:-1])} and {removed[-1]}"
-        parts.append(f"ellipse allowance for the position of {which} removed: the configured uncertainty is used again")
+        which = (
+            f"the position of {removed[0]}" if len(removed) == 1
+            else f"the positions of {', '.join(removed[:-1])} and {removed[-1]}"
+        )
+        parts.append(f"ellipse allowance for {which} removed: the configured uncertainty is used again")
     capped = [s for s in sorted(new) if s in old and new[s].scale == old[s].scale and new[s].capped != old[s].capped]
     for s in capped:
         parts.append(
@@ -1773,6 +1844,35 @@ def _assessed(
         for a in data.get("ambiguities", [])
     ]
     return out
+
+
+def doubt_hold_reason(sat_ids: Sequence[str]) -> str:
+    """``SolutionOut.not_fix_reason`` of a solution held back from a fix because the
+    reference calibrations have just put the position of a satellite it goes through
+    wrong beyond its configured uncertainty and no allowance covers it yet
+    (``set_solution(unconfirmed_doubt=...)``)."""
+    one = len(sat_ids) == 1
+    sats = sat_ids[0] if one else f"{', '.join(sat_ids[:-1])} and {sat_ids[-1]}"
+    return (
+        f"the reference calibrations have just put the {'position' if one else 'positions'} of {sats} wrong beyond "
+        f"{'its' if one else 'their'} configured uncertainty, and the ellipse does not include that error yet (it is "
+        "widened once a later round confirms the doubt)"
+    )
+
+
+def _hold_for_doubt(data: dict[str, Any], held: tuple[str, ...]) -> tuple[str, ...]:
+    """An assessed solution (``_assessed``) that would be a fix, and each such ambiguity,
+    made not a fix because of ``held`` (``doubt_hold_reason``); returns ``held`` when that
+    changed anything, else ()."""
+    if not held:
+        return ()
+    changed = False
+    for entry in [data, *data.get("ambiguities", [])]:
+        if entry.get("is_fix"):
+            entry["is_fix"] = False
+            entry["not_fix_reason"] = doubt_hold_reason(held)
+            changed = True
+    return held if changed else ()
 
 
 def _number(value: float | None) -> str:

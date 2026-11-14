@@ -435,17 +435,23 @@ def test_a_fix_through_a_satellite_whose_position_is_in_doubt_says_the_ellipse_m
     assert "may lie outside" not in _all_text(advise(other, _config()))
     both = _record(**UPLINK, solution_out=_solution(), measurements=entries, solution_used=(1,),
                    doubted_satellite_ids=("sat-a", "sat-b"))
+    both_advice = advise(both, _config())
     assert ("The reference calibrations put the positions of Sat A and Sat B wrong beyond their configured "
-            "uncertainty, and the ellipse does not include that error yet") in advise(both, _config()).detail
+            "uncertainty, and the ellipse does not include that error yet") in both_advice.detail
+    # the report says it in the plural too (it read "the ephemeris of Sat A and Sat B is in doubt")
+    report = next(a for a in both_advice.actions if a.startswith("Report the estimated transmitter position"))
+    assert "; the ephemerides of Sat A and Sat B are in doubt, so the transmitter may lie outside this)" in report
 
 
 def test_a_fix_whose_ellipse_includes_an_ephemeris_allowance_says_so_and_drops_the_warning() -> None:
     """D1: once the solve widened the position sigma of the satellite the calibrations put
     wrong beyond its configured uncertainty (``EventRecord.solution_allowance``), the
-    ellipse covers that error: the advice says it includes an allowance of about the
-    widened sigma and asks for the ephemeris to be checked, with no 'may lie outside'.
-    An allowance at its largest scale keeps the warning; so does a doubt that came after
-    the solve. Satellites the rows do not go through are not mentioned."""
+    ellipse covers that error: the advice says the ellipse is widened, by what factor on
+    which satellite's sigma and how much longer the 95 % ellipse's major axis is for it
+    (``EventRecord.solution_widening``), and asks for the ephemeris to be checked, with
+    no 'may lie outside'. An allowance at its largest scale keeps the warning; so does a
+    doubt that came after the solve. Satellites the rows do not go through are not
+    mentioned."""
     from petal_locate.server.pipeline.events import EphemerisAllowance, MeasurementEntry
 
     pair = schemas.PairRef(
@@ -457,29 +463,56 @@ def test_a_fix_whose_ellipse_includes_an_ephemeris_allowance_says_so_and_drops_t
     entries = [MeasurementEntry(1, row, None)]
     base = dict(UPLINK, solution_out=_solution(), measurements=entries, solution_used=(1,))
     widened = EphemerisAllowance("sat-b", 9.51, (951.0, 9510.0, 9510.0))
-    covered = advise(_record(**base, doubted_satellite_ids=("sat-b",), solution_allowance=(widened,)), _config())
-    assert ("The ellipse includes an allowance of about 9.5 km (one sigma) for the position of Sat B, which the "
-            "reference calibrations put wrong beyond its configured uncertainty; check its ephemeris.") in covered.detail
+    covered = advise(_record(**base, doubted_satellite_ids=("sat-b",), solution_allowance=(widened,),
+                             solution_widening=1.21), _config())
+    assert ("The ellipse is widened for the position of Sat B, which the reference calibrations put wrong beyond its "
+            "configured uncertainty (its position sigma taken 9.5 times larger, about 9.5 km one sigma); check its "
+            "ephemeris. Widened, the 95 % ellipse's major axis is 21 % longer than with the configured "
+            "uncertainty.") in covered.detail
     assert "may lie outside" not in _all_text(covered)
     report = next(a for a in covered.actions if a.startswith("Report the estimated transmitter position"))
-    assert "±4.9 km at 95 % confidence; the ellipse includes an allowance for the ephemeris of Sat B, which is in doubt)" in report
+    assert "±4.9 km at 95 % confidence; the ellipse is widened for the ephemeris of Sat B, which is in doubt)" in report
+    # how much longer: not said when not known; 'times as long' from twice the length
+    unknown = advise(_record(**base, solution_allowance=(widened,)), _config())
+    assert "configured uncertainty (its position sigma taken 9.5 times larger" in unknown.detail
+    assert "Widened, the 95 % ellipse" not in unknown.detail
+    twice = advise(_record(**base, solution_allowance=(widened,), solution_widening=2.4), _config())
+    assert "Widened, the 95 % ellipse's major axis is 2.4 times as long as with the configured uncertainty." in \
+        twice.detail
     # the doubt cleared but the published solve still carries the allowance: it is still described
-    kept = advise(_record(**base, solution_allowance=(widened,)), _config())
-    assert "includes an allowance of about 9.5 km" in kept.detail and "may lie outside" not in _all_text(kept)
+    kept = advise(_record(**base, solution_allowance=(widened,), solution_widening=1.21), _config())
+    assert "The ellipse is widened for the position of Sat B" in kept.detail and "may lie outside" not in _all_text(kept)
     # two satellites
     other = EphemerisAllowance("sat-a", 8.0, (800.0, 8000.0, 8000.0))
-    two = advise(_record(**base, solution_allowance=(other, widened)), _config())
-    assert ("The ellipse includes allowances of about 8.0 km and 9.5 km (one sigma) for the positions of Sat A and "
-            "Sat B, which the reference calibrations put wrong beyond their configured uncertainty; check their "
-            "ephemerides.") in two.detail
+    two = advise(_record(**base, solution_allowance=(other, widened), solution_widening=1.004), _config())
+    assert ("The ellipse is widened for the positions of Sat A and Sat B, which the reference calibrations put wrong "
+            "beyond their configured uncertainty (their position sigmas taken 8 and 9.5 times larger, about 8.0 km "
+            "and 9.5 km one sigma); check their ephemerides. Widened, the 95 % ellipse's major axis is less than 1 % "
+            "longer than with the configured uncertainty.") in two.detail
+    # the report says it in the plural (it read "the ellipse is widened for the ephemeris of Sat A and Sat B,
+    # which is in doubt")
+    report = next(a for a in two.actions if a.startswith("Report the estimated transmitter position"))
+    assert "; the ellipse is widened for the ephemerides of Sat A and Sat B, which are in doubt)" in report
     # at the largest scale: the warning stays
     top = EphemerisAllowance("sat-b", 20.0, (2000.0, 20000.0, 20000.0), capped=True)
-    capped = advise(_record(**base, doubted_satellite_ids=("sat-b",), solution_allowance=(top,)), _config())
-    assert ("The reference calibrations put the position of Sat B wrong beyond its configured uncertainty by more "
-            "than the largest allowance the system makes (about 20 km, one sigma), which the ellipse includes: the "
-            "transmitter may still lie outside it; check its ephemeris.") in capped.detail
+    capped = advise(_record(**base, doubted_satellite_ids=("sat-b",), solution_allowance=(top,),
+                            solution_widening=3.0), _config())
+    # capped also means not sized (no evidence, or a fit that failed): the text must hold for both
+    assert ("The reference calibrations put the position of Sat B wrong beyond its configured uncertainty, by more "
+            "than the largest allowance the system makes or by an amount they cannot size; the ellipse includes that "
+            "largest allowance (its position sigma taken 20 times larger, about 20 km one sigma), but the transmitter "
+            "may still lie outside it; check its ephemeris. Widened, the 95 % ellipse's major axis is 3 times as long "
+            "as with the configured uncertainty.") in capped.detail
     report = next(a for a in capped.actions if a.startswith("Report the estimated transmitter position"))
-    assert "the ephemeris of Sat B is in doubt, so the transmitter may lie outside this" in report
+    assert "; the ephemeris of Sat B is in doubt, so the transmitter may lie outside this" in report
+    pair_capped = advise(_record(**base, solution_allowance=(top, EphemerisAllowance("sat-a", 20.0, (2e3, 2e4, 2e4),
+                                                                                      capped=True))), _config())
+    assert ("put the positions of Sat B and Sat A wrong beyond their configured uncertainty, by more than the largest "
+            "allowance the system makes or by amounts they cannot size; the ellipse includes that largest allowance "
+            "(their position sigmas taken 20 and 20 times larger") in pair_capped.detail
+    report = next(a for a in pair_capped.actions if a.startswith("Report the estimated transmitter position"))
+    assert "; the ephemerides of Sat B and Sat A are in doubt, so the transmitter may lie outside this" in report
     # a satellite the rows do not go through: nothing said
     away = EphemerisAllowance("sat-c", 4.0, (400.0, 4000.0, 4000.0))
-    assert "allowance" not in _all_text(advise(_record(**base, solution_allowance=(away,)), _config()))
+    assert "widened" not in _all_text(advise(_record(**base, solution_allowance=(away,), solution_widening=1.1),
+                                              _config()))

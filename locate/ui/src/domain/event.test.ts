@@ -1,8 +1,8 @@
 // How the console reads an event's new fields (UX-1, UX-3, UX-6, UX-9, K18).
 import { describe, expect, it } from 'vitest';
-import type { EvidenceRow, SolutionHistoryRow, SolutionOut, SolutionSummary, SystemConfig } from '../api/types.gen';
+import type { EvidenceRow, MeasurementRow, SolutionHistoryRow, SolutionOut, SolutionSummary, SystemConfig } from '../api/types.gen';
 import { formatLat, formatLon } from '../format/geo';
-import { candidates, isInconsistent, isNotFix, notFixText, received, semiAxes, splitHistory, summaryCandidatesText, summaryReceivedText, widthText } from './event';
+import { candidates, distanceText, doubtCautionText, ephemerisDoubt, factorText, growthText, isInconsistent, isNotFix, notFixText, received, semiAxes, splitHistory, summaryCandidatesText, summaryReceivedText, widthText } from './event';
 
 const ellipse = (a: number, b: number) => ({ semi_major_m: a, semi_minor_m: b, azimuth_deg: 10, confidence: 0.95 });
 const zero = [
@@ -119,5 +119,63 @@ describe('ellipse history break (K18)', () => {
     expect(s.current.map((x) => x.t_ns)).toEqual(['3', '4']);
     expect(s.breakNs).toBe('3');
     expect(splitHistory([r('1'), r('2')]).breakNs).toBeNull();
+  });
+});
+
+describe('ellipse widened for ephemeris doubt (closing D1)', () => {
+  const ch = (sat: string, site: string) => ({ sat_id: sat, site_id: site, channel_id: `${site}-${sat}` });
+  const row = (a: string, b: string, residual: number | null): MeasurementRow => ({
+    t_ns: '1', kind: 'tdoa', pair: { a: ch(a, 'naha'), b: ch(b, 'naha') }, value: 1e-3, sigma: 1e-8, residual, snr_db: 20, calibrated: true, used: residual !== null, reason: null,
+  });
+  const rows = [row('muos-pac', 'uhf-172e', 0.4), row('muos-io', 'uhf-172e', null)];
+  it('writes factors and growth as the server does', () => {
+    expect([9.51, 3.36, 8, 12.3, 20].map(factorText)).toEqual(['9.5', '3.4', '8', '12', '20']);
+    // the major axis, not the area: SolutionOut.ellipse_widening is a ratio of semi-major axes
+    expect(growthText(1.214)).toBe('21 % longer than with the configured uncertainty');
+    expect(growthText(1.004)).toBe('less than 1 % longer than with the configured uncertainty');
+    expect(growthText(0.998)).toBe('less than 1 % longer than with the configured uncertainty');
+    expect(growthText(2.43)).toBe('2.4 times as long as with the configured uncertainty');
+    expect(growthText(null)).toBeNull();
+  });
+  it('writes a widened sigma as the server advice and status do (advisory.format_distance)', () => {
+    expect([850, 8000, 9510, 12340, 1250000].map(distanceText)).toEqual(['850 m', '8.0 km', '9.5 km', '12 km', '1,250 km']);
+  });
+  it('lists the widened satellites with their sigma and the growth of the ellipse', () => {
+    const solution = sol({
+      ephemeris_allowance: [
+        { sat_id: 'muos-pac', scale: 8, sigma_ric_m: [800, 8000, 8000], capped: false },
+        { sat_id: 'uhf-172e', scale: 20, sigma_ric_m: [2000, 20000, 20000], capped: true },
+      ],
+      ellipse_widening: 1.214,
+    });
+    expect(ephemerisDoubt({ solution, measurements: rows, doubted_satellite_ids: ['muos-pac', 'uhf-172e'] })).toEqual({
+      widened: [
+        { sat: 'muos-pac', factor: '8', sigmaM: 8000, capped: false },
+        { sat: 'uhf-172e', factor: '20', sigmaM: 20000, capped: true },
+      ],
+      growth: '21 % longer than with the configured uncertainty',
+      notYet: [],
+    });
+    expect(doubtCautionText(ephemerisDoubt({ solution, measurements: rows, doubted_satellite_ids: [] }))).toBe(
+      'The reference calibrations put the position of uhf-172e wrong by more than the largest allowance the system makes, or by an amount they cannot size; the ellipse includes that largest allowance, but the transmitter may still lie outside it; check its ephemeris.',
+    );
+    // widened within the largest scale: the ellipse covers it, no caution
+    const covered = sol({ ephemeris_allowance: [{ sat_id: 'muos-pac', scale: 8, sigma_ric_m: [800, 8000, 8000] }], ellipse_widening: null });
+    const d = ephemerisDoubt({ solution: covered, measurements: rows, doubted_satellite_ids: ['muos-pac'] });
+    expect(d).toEqual({ widened: [{ sat: 'muos-pac', factor: '8', sigmaM: 8000, capped: false }], growth: null, notYet: [] });
+    expect(doubtCautionText(d)).toBeNull();
+  });
+  it('names a doubted satellite the rows go through that the solve did not widen for yet, and nothing else', () => {
+    const solution = sol({ ephemeris_allowance: [], ellipse_widening: null });
+    // muos-io is in doubt but no row of the solve goes through it; uhf-172e is
+    const d = ephemerisDoubt({ solution, measurements: rows, doubted_satellite_ids: ['muos-io', 'uhf-172e'] });
+    expect(d).toEqual({ widened: [], growth: null, notYet: ['uhf-172e'] });
+    expect(doubtCautionText(d)).toBe(
+      'The reference calibrations put the position of uhf-172e wrong beyond its configured uncertainty, and the ellipse does not include that error yet: the transmitter may lie outside it.',
+    );
+    expect(doubtCautionText({ widened: [], growth: null, notYet: ['muos-pac', 'uhf-172e'] })).toContain('positions of muos-pac and uhf-172e wrong beyond their configured');
+    expect(ephemerisDoubt({ solution, measurements: rows, doubted_satellite_ids: ['muos-io'] })).toBeNull();
+    expect(ephemerisDoubt({ solution: sol(), measurements: rows })).toBeNull();
+    expect(ephemerisDoubt({ solution: null, measurements: rows, doubted_satellite_ids: ['uhf-172e'] })).toBeNull();
   });
 });

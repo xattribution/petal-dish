@@ -129,3 +129,108 @@ export function splitHistory(rows: SolutionHistoryRow[]): HistorySplit {
   const current = rows.filter((r) => r.set_aside !== true);
   return { setAside, current, breakNs: setAside.length && current.length ? (current[0]?.t_ns ?? null) : null };
 }
+
+/** A satellite whose position sigma the published solve widened (SolutionOut.ephemeris_allowance). */
+export interface WidenedSatellite {
+  sat: string;
+  /** "9.5" or "12": the factor on its configured position sigma, as the server writes it */
+  factor: string;
+  /** the widened one-sigma, its largest component (radial, in-track, cross-track), m */
+  sigmaM: number;
+  /** at the largest scale allowed, or not sized: the ellipse may still not cover the error */
+  capped: boolean;
+}
+
+export interface EphemerisDoubt {
+  /** satellites the solve widened for, in the server's order (by id) */
+  widened: WidenedSatellite[];
+  /** how much longer the 95 % ellipse's major axis is for it (growthText); null when not known */
+  growth: string | null;
+  /** satellites in doubt (Event.doubted_satellite_ids) the solution's rows go through that the solve did not widen for yet */
+  notYet: string[];
+}
+
+/** An allowance's factor as the server writes it (events.scale_text): "9.5", "3.4", "12". */
+export function factorText(scale: number): string {
+  return scale < 10 ? String(Number(scale.toPrecision(2))) : String(Math.round(scale));
+}
+
+/**
+ * How much an allowance lengthened the 95 % ellipse's major axis (SolutionOut.ellipse_widening is a
+ * ratio of semi-major axes), as the server writes it (events.widening_text): "21 % longer than with
+ * the configured uncertainty", "2.4 times as long as with the configured uncertainty"; null when
+ * unknown.
+ */
+export function growthText(widening: number | null | undefined): string | null {
+  if (widening === null || widening === undefined || !Number.isFinite(widening) || widening <= 0) return null;
+  if (widening >= 2) return `${Number(widening.toPrecision(2))} times as long as with the configured uncertainty`;
+  const p = (widening - 1) * 100;
+  return `${p < 1 ? 'less than 1 %' : `${Math.round(p)} %`} longer than with the configured uncertainty`;
+}
+
+/**
+ * A widened one-sigma as the server's advice and status write it (advisory.format_distance):
+ * "850 m", "8.0 km", "12 km", "1,250 km".
+ */
+export function distanceText(meters: number): string {
+  if (!Number.isFinite(meters)) return 'an unknown distance';
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  const k = meters / 1000;
+  return k < 10 ? `${k.toFixed(1)} km` : `${Math.round(k).toLocaleString('en-US')} km`;
+}
+
+/**
+ * What the published solution says about satellites the reference calibrations put wrong
+ * beyond their configured uncertainty (D1): the ones its ellipse is widened for, by how much,
+ * and those in doubt that its rows go through but the solve did not widen for yet (the
+ * doubt came after it, or is not confirmed yet: then the server holds a first fix back as
+ * not a fix). Null when there is no solution or nothing to say.
+ */
+export function ephemerisDoubt(e: Pick<Event, 'solution' | 'measurements' | 'doubted_satellite_ids'>): EphemerisDoubt | null {
+  const sol = e.solution;
+  if (!sol) return null;
+  const widened = (sol.ephemeris_allowance ?? []).map((a) => ({
+    sat: a.sat_id,
+    factor: factorText(a.scale),
+    sigmaM: Math.max(...a.sigma_ric_m),
+    capped: a.capped === true,
+  }));
+  // the rows of the published solve are the ones with a residual (MeasurementRow.residual)
+  const through = new Set<string>();
+  for (const m of e.measurements) {
+    if (m.residual === null || m.residual === undefined) continue;
+    through.add(m.pair.a.sat_id);
+    through.add(m.pair.b.sat_id);
+  }
+  const done = new Set(widened.map((w) => w.sat));
+  const notYet = (e.doubted_satellite_ids ?? []).filter((s) => through.has(s) && !done.has(s));
+  if (!widened.length && !notYet.length) return null;
+  return { widened, growth: widened.length ? growthText(sol.ellipse_widening) : null, notYet };
+}
+
+const andList = (items: string[]): string => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+
+/**
+ * The caution for an ephemeris doubt the ellipse may not cover (D1): satellites whose
+ * allowance is at the largest scale allowed, and satellites in doubt that the solve did not
+ * widen for yet. Null when the widened ellipse covers every doubt.
+ */
+export function doubtCautionText(d: EphemerisDoubt | null): string | null {
+  if (!d) return null;
+  const parts: string[] = [];
+  const capped = d.widened.filter((w) => w.capped).map((w) => w.sat);
+  if (capped.length) {
+    // capped: the error asks for more than the largest scale, or the calibrations cannot size it
+    const one = capped.length === 1;
+    parts.push(
+      `The reference calibrations put the ${one ? 'position' : 'positions'} of ${andList(capped)} wrong by more than the largest allowance the system makes, or by ${one ? 'an amount' : 'amounts'} they cannot size; the ellipse includes that largest allowance, but the transmitter may still lie outside it; check ${one ? 'its ephemeris' : 'their ephemerides'}.`,
+    );
+  }
+  if (d.notYet.length) {
+    const one = d.notYet.length === 1;
+    parts.push(
+      `The reference calibrations put the ${one ? 'position' : 'positions'} of ${andList(d.notYet)} wrong beyond ${one ? 'its' : 'their'} configured uncertainty, and the ellipse does not include that error yet: the transmitter may lie outside it.`,
+    );
+  }
+  return parts.length ? parts.join(' ') : null;
+}

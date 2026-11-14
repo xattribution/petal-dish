@@ -1161,7 +1161,8 @@
       "calibration": {
         "enabled": true,
         "interval_s": 30.0,
-        "max_age_s": 300.0
+        "max_age_s": 300.0,
+        "ephemeris_allowance_max_scale": 20.0
       },
       "region": {
         "lat_min": -60.0,
