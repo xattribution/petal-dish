@@ -1085,6 +1085,58 @@ def test_a_solution_without_redundancy_or_with_an_absurd_ellipse_is_not_a_fix() 
     assert fix_semi_major_limit_m(None) == FIX_MAX_SEMI_MAJOR_M
 
 
+def test_a_solution_solved_with_an_ephemeris_allowance_keeps_it_and_says_when_it_changes() -> None:
+    """D1: tasking widens the position sigma of a satellite the calibrations put wrong
+    beyond its configured uncertainty and hands the allowance to set_solution. The
+    published solution keeps it (``solution_allowance``), the history says when it
+    widens, shrinks or ends (and nothing when it is the same), and a withdrawn
+    position takes it along. The state is never touched by the allowance itself."""
+    from petal_locate.server.pipeline.events import EphemerisAllowance
+
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    h.book.mark_characterizing(record.id)
+    seqs = [
+        h.book.add_measurement(record.id, _row("fdoa", value=v), Measurement("fdoa", v, 1e-3, T0, path, other))
+        for v in (0.5, 0.6, 0.7)
+    ]
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 1, used=seqs)
+    assert record.state == "located" and record.solution_allowance == ()
+    count = len(record.transitions)
+    wide = EphemerisAllowance("sat-b", 9.51, (951.0, 9510.0, 9510.0))
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 2, used=seqs, allowance=[wide])
+    assert record.solution_allowance == (wide,) and record.state == "located"
+    assert len(record.transitions) == count + 1
+    assert record.transitions[-1].reason == (
+        "ellipse widened: the reference calibrations put the position of sat-b wrong beyond the configured "
+        "uncertainty (position sigma taken larger: sat-b 9.5 times)"
+    )
+    assert record.transitions[-1].state == "located"
+    # the same allowance again: nothing to say
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 3, used=seqs, allowance=[wide])
+    assert len(record.transitions) == count + 1
+    # smaller, then capped, then gone
+    small = EphemerisAllowance("sat-b", 4.0, (400.0, 4000.0, 4000.0))
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 4, used=seqs, allowance=[small])
+    assert record.transitions[-1].reason == "ellipse allowance for the position of sat-b reduced to 4 times its configured sigma"
+    top = EphemerisAllowance("sat-a", 20.0, (2000.0, 20000.0, 20000.0), capped=True)
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 5, used=seqs, allowance=[small, top])
+    assert "the position of sat-a wrong beyond the configured uncertainty (position sigma taken larger: sat-a 20 " \
+           "times, at the largest allowed scale)" in record.transitions[-1].reason
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 6, used=seqs, allowance=[top])
+    assert record.transitions[-1].reason == (
+        "ellipse allowance for the position of sat-b removed: the configured uncertainty is used again"
+    )
+    # a failed solve keeps the published allowance; a withdrawn position takes it along
+    assert h.book.set_solution(record.id, None, T0 + 7, reason="unobservable")
+    assert record.solution_allowance == (top,)
+    assert h.book.withdraw_solution(record.id, "test")
+    assert record.solution_allowance == ()
+
+
 def test_a_local_signal_that_takes_over_starts_its_own_transmission() -> None:
     """R2: when the uplink signal stops and a local one holds its frequency at one site,
     the event's onset (the start time the operator reports) and the evidence cells'

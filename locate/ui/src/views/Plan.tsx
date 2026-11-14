@@ -5,7 +5,7 @@ import { ValidationError } from '../api/client';
 import type { AccuracyGrid, AccuracyRequest, LookAngle, SystemConfig } from '../api/types.gen';
 import { Empty, ErrorNote, Info, Loading, StatusSymbol } from '../components/common';
 import { transpondersRelaying } from '../domain/config';
-import { accuracyDefaults, NEAREST_REFERENCE, pairEnds, type PairEnd } from '../domain/plan';
+import { accuracyDefaults, NEAREST_REFERENCE, pairCalibration, pairEnds, referenceChoice, type PairEnd } from '../domain/plan';
 import { db, deg, fixed, hzToMhzInput, km, mhz, parseMhzToHz } from '../format/units';
 import { DOMINANT_KEY, DOMINANT_WORD, MapView, type MapData } from '../map/MapView';
 import { href, setParams, useRoute } from '../router';
@@ -179,7 +179,8 @@ interface AccForm {
   feMhz: string;
   tdoa: boolean;
   fdoa: boolean;
-  reference: string;
+  /** the operator's reference choice ('' none, "nearest", a carrier id); null until they choose: the configuration's default */
+  reference: string | null;
   integration: string;
   step: string;
 }
@@ -199,7 +200,7 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
       feMhz: d.feHz !== null ? hzToMhzInput(d.feHz) : '',
       tdoa: true,
       fdoa: true,
-      reference: '',
+      reference: null,
       integration: '',
       step: '3',
     };
@@ -239,6 +240,8 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
 
   const feHz = parseMhzToHz(form.feMhz);
   const relaying = feHz ? transpondersRelaying(cfg, feHz) : [];
+  // closing D2: "nearest" by default when references exist (live tasking calibrates against the nearest eligible one)
+  const reference = referenceChoice(cfg, form.reference);
   const set = (patch: Partial<AccForm>) => setForm((f) => ({ ...f, ...patch }));
 
   const compute = async () => {
@@ -277,7 +280,7 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
       f_e_hz: feHz ?? 0,
       step_deg: Number(form.step),
       kinds: [...(form.tdoa ? (['tdoa'] as const) : []), ...(form.fdoa ? (['fdoa'] as const) : [])],
-      reference_carrier_id: form.reference || null,
+      reference_carrier_id: reference || null,
       integration_s: form.integration ? Number(form.integration) : null,
       uncertainty,
     };
@@ -316,6 +319,8 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
     const top = [...dom.entries()].sort((a, b) => b[1] - a[1]);
     return { cells, n: vals.length, median: vals[Math.floor(vals.length / 2)] ?? null, best: vals[0] ?? null, top };
   }, [grid, field]);
+  // closing D2: per pair, its ends, what calibrates it, and why cells are uncalibrated
+  const pairViews = useMemo(() => (grid ? (grid.pairs ?? []).map((p) => pairCalibration(p, grid.lat_deg.length * grid.lon_deg.length)) : []), [grid]);
 
   const data: MapData = useMemo(
     () => ({ sites: cfg.sites.map((s) => ({ id: s.id, name: s.name, lat: s.lat_deg, lon: s.lon_deg })), subpoints: subs.data ?? [], heat: grid ? { grid, field, letters } : null }),
@@ -417,7 +422,7 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
             </div>
             <div className="field">
               <label htmlFor="acc-ref">Reference emitter</label>
-              <select id="acc-ref" value={form.reference} onChange={(e) => set({ reference: e.target.value })}>
+              <select id="acc-ref" value={reference} onChange={(e) => set({ reference: e.target.value })}>
                 <option value="">none</option>
                 {/* R7: each cell against the reference tasking would use for an emitter there (a carrier named "nearest" takes precedence) */}
                 {refs.length && !refs.some((r) => r.id === NEAREST_REFERENCE) ? <option value={NEAREST_REFERENCE}>nearest to each cell</option> : null}
@@ -569,6 +574,46 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
                 </dd>
               </dl>
             )}
+            {pairViews.length ? (
+              <ol className="pairsum" aria-label="Pairs of the map">
+                {pairViews.map((v, i) => (
+                  <li key={i}>
+                    <h3>
+                      <span className="mono">{v.ends}</span>
+                    </h3>
+                    <dl className="facts">
+                      <dt>Satellites</dt>
+                      <dd className="mono">{v.satellites ?? 'not resolved'}</dd>
+                      <dt>Calibration</dt>
+                      <dd>{v.calibration}</dd>
+                    </dl>
+                    {v.unusable ? (
+                      <div className="notice caution" role="note">
+                        <span className="status">
+                          <StatusSymbol level="caution" />
+                          <span className="word">No measurement</span>
+                        </span>{' '}
+                        {v.unusable}
+                      </div>
+                    ) : null}
+                    {v.uncalibrated ? (
+                      <div className="notice caution" role="note">
+                        <span className="status">
+                          <StatusSymbol level="caution" />
+                          <span className="word">Uncalibrated</span>
+                        </span>{' '}
+                        {v.uncalibrated}
+                      </div>
+                    ) : null}
+                    {v.notes.map((n, k) => (
+                      <p key={k} className="ink2">
+                        {n}
+                      </p>
+                    ))}
+                  </li>
+                ))}
+              </ol>
+            ) : null}
             <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
               <span className="seg" role="group" aria-label="Shown value">
                 <button type="button" aria-pressed={field === 'semi_major_95_m'} onClick={() => setField('semi_major_95_m')}>

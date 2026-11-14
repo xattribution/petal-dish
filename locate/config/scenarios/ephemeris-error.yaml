@@ -31,13 +31,19 @@ description: >-
   of 0.32 to 0.59 km by 0.17 to 0.22 km (at one of eight epochs just outside it, NEES
   6.7, inside the 99 % ellipse). As rounds accumulate the noise averages down but the
   uncancelled part of the 8 km and 6 km errors does not (the solver budgets for 1 km),
-  so the ellipse shrinks past it: in the live demo started at 03:00 UTC the fix was 120
-  to 210 m off and inside its ellipse up to 34 rows (the first minute), then outside it
-  from 46 rows on in every snapshot over the next five minutes (180 to 240 m off, the 95 %
-  semi-major shrinking from 270 to 240 m). The clock checks show the satellite errors
-  from the first rounds (every site's timing differs between MUOS Pacific and the 172 E
-  satellite, and the Network screen names them), so the advice for the fix warns that
-  its ellipse does not include that error and the transmitter may lie outside it.
+  so with the configured sigmas the ellipse would shrink past it (before the ephemeris
+  allowance the truth fell outside from 46 rows on, 180 to 240 m off a 95 % semi-major of
+  240 to 270 m). The clock checks show the satellite errors from the first rounds (every
+  site's timing differs between MUOS Pacific and the 172 E satellite, and the Network
+  screen names them), and the live solves widen the two satellites' position sigma by a
+  factor sized from the calibrations: 8 times for both within the first 20 s, then 9.5
+  for the 172 E satellite. In the live demo started at 03:00 UTC the event was located
+  in every snapshot over 9.5 minutes (8 to 400 rows) with the truth inside its ellipse
+  in all 38 (6 to 72 m off, 95 % semi-axes 310 to 373 m by 196 to 256 m); started at
+  15:00 UTC, all 38 again (8 to 54 m off, 290 to 355 m by 199 to 244 m). The event's
+  history says "ellipse widened: ...", and the advice says the ellipse includes an
+  allowance of about 8 and 9.5 km for the two satellites' positions and asks for their
+  ephemerides to be checked.
   Calibration removes what the jammer and the reference have in common, so it helps less
   with distance: with the same errors at the pacific-demo position, 1,500 km from Guam,
   the calibrated fix is 190 to 870 m off and outside its ellipse at three of eight

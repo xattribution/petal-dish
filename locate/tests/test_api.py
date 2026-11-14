@@ -636,6 +636,211 @@ async def test_accuracy_map_takes_the_nearest_reference(files: dict[str, Path], 
         assert reply.status_code == 422 and "unknown carrier 'nearby'" in reply.json()["errors"][0]["msg"]
 
 
+# --------------------------------------------------------------------------- closing D2: per-pair summaries
+
+
+def weak_reference_config() -> SystemConfig:
+    """``make_config`` plus a second reference carrier in the same transponders, far to
+    the north-east and too weak to calibrate anything (post-correlation SNR far below
+    the threshold)."""
+    data = make_config().export_dict()
+    ref1 = next(c for c in data["carriers"] if c["id"] == "ref-1")
+    data["carriers"].append({**ref1, "id": "ref-weak", "name": "Weak reference", "location": {"lat_deg": 45.0, "lon_deg": 175.0},
+                             "emitter": {"eirp_dbw": -40.0, "bandwidth_hz": 5e3}})
+    return SystemConfig.model_validate(data)
+
+
+def counting_engine(calls: list[Any]) -> Callable[..., Any]:
+    """The real ``core.accuracy.accuracy_map``, recording each call's region and reference."""
+    from petal_locate.core.accuracy import accuracy_map
+
+    def engine(*args: Any, **kwargs: Any) -> Any:
+        calls.append((args[5], kwargs.get("reference_carrier_id")))
+        return accuracy_map(*args, **kwargs)
+
+    return engine
+
+
+ACC_PAIRS = [["alpha-a", "bravo-b"], ["bravo-a", "charlie-ab@sat-b"]]
+
+
+async def test_accuracy_map_summarizes_each_pair_over_the_bands(
+    files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closing D2: ``AccuracyGrid.pairs`` carries one summary per requested pair, merged
+    over the latitude bands, with the real engine. Target 300.000 MHz +/- 5 kHz overlaps
+    ref-1, the only reference: "nearest" finds no eligible carrier in any cell and says
+    why; clear of it (300.004 MHz +/- 2 kHz) every cell is calibrated against ref-1, as
+    with ref-1 named. Banding changes nothing: the command line's single-band summary
+    is the same."""
+    from petal_locate.core.accuracy import accuracy_map
+
+    calls: list[Any] = []
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: counting_engine(calls))
+    monkeypatch.setattr(rest, "ACCURACY_BAND_CELLS", 40)
+    async with serving(settings_for(files), files["presets"]) as (app, client):
+        body = {"pairs": ACC_PAIRS, "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3}, "f_e_hz": 300.0e6,
+                "step_deg": 5.0, "t": T_FIXED, "reference_carrier_id": "nearest"}
+        reply = await client.post(f"{API}/analysis/accuracy", json=body)
+        assert reply.status_code == 200, reply.text
+        grid = schemas.AccuracyGrid.model_validate(reply.json())
+        cells = len(grid.lat_deg) * len(grid.lon_deg)
+        assert len({c[0].lat_min for c in calls}) > 3  # several bands
+        assert [(p.a_channel, p.b_channel, p.a_sat_id, p.b_sat_id) for p in grid.pairs] == [
+            ("alpha-a", "bravo-b", "sat-a", "sat-b"), ("bravo-a", "charlie-ab@sat-b", "sat-a", "sat-b")]
+        for p in grid.pairs:
+            assert p.reference_cells == {"none": cells} and p.uncalibrated_cells == cells
+            assert p.calibrated == [] and p.reference_carrier_id is None and p.reason is None
+            assert p.reference_reason == f"{rest.NO_ELIGIBLE_REFERENCE} (ref-1 overlaps the target band)"
+            assert not any(n.startswith("not calibrated") for n in p.notes)
+        cfg = runtime_of(app).config
+        request = schemas.AccuracyRequest.model_validate(body)
+        single = rest.compute_accuracy(accuracy_map, cfg, request, 1_794_571_200 * 10**9)  # the CLI's path
+        assert single.pairs == grid.pairs
+
+        clear = dict(body, f_e_hz=300.004e6, emitter={"eirp_dbw": 20.0, "bandwidth_hz": 4e3})
+        grid = schemas.AccuracyGrid.model_validate((await client.post(f"{API}/analysis/accuracy", json=clear)).json())
+        for p in grid.pairs:
+            assert p.reference_cells == {"ref-1": cells} and p.uncalibrated_cells == 0
+            assert p.calibrated == ["tdoa", "fdoa"] and p.reference_reason is None
+
+        named = dict(clear, reference_carrier_id="ref-1")
+        grid = schemas.AccuracyGrid.model_validate((await client.post(f"{API}/analysis/accuracy", json=named)).json())
+        for p in grid.pairs:
+            assert p.reference_carrier_id == "ref-1" and p.reference_cells == {"ref-1": cells}
+            assert p.calibrated == ["tdoa", "fdoa"] and p.uncalibrated_cells == 0 and p.reference_reason is None
+            assert p.notes == []
+        # named under the target band: the engine calibrates against it anyway, and the summary says tasking would not
+        under = dict(body, reference_carrier_id="ref-1")
+        grid = schemas.AccuracyGrid.model_validate((await client.post(f"{API}/analysis/accuracy", json=under)).json())
+        for p in grid.pairs:
+            assert p.calibrated == ["tdoa", "fdoa"] and p.reference_cells == {"ref-1": cells}
+            assert p.notes == ["ref-1 overlaps the target band, so tasking would not calibrate against it; this map "
+                               "assumes it does"]
+
+        plain = dict(body, reference_carrier_id=None)
+        grid = schemas.AccuracyGrid.model_validate((await client.post(f"{API}/analysis/accuracy", json=plain)).json())
+        for p in grid.pairs:
+            assert p.reference_cells == {} and p.uncalibrated_cells == cells and p.reference_reason is None
+
+
+async def test_accuracy_map_names_a_nearest_reference_that_cannot_calibrate(
+    files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closing D2: "nearest" chooses ref-weak for the cells nearest it, and ref-weak
+    cannot calibrate any pair. Each pair's summary counts those cells as uncalibrated
+    and gives core's reason, although core reports the reference of each band's most
+    common choice only: where no band's summary is about ref-weak alone, the server
+    asks core for a one-cell map against ref-weak."""
+    files["config"].write_text(dump_config(weak_reference_config()))
+    calls: list[Any] = []
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: counting_engine(calls))
+    monkeypatch.setattr(rest, "ACCURACY_BAND_CELLS", 40)
+    async with serving(settings_for(files), files["presets"]) as (_app, client):
+        body = {"pairs": ACC_PAIRS, "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 4e3}, "f_e_hz": 300.004e6,
+                "step_deg": 5.0, "t": T_FIXED, "reference_carrier_id": "nearest"}
+        reply = await client.post(f"{API}/analysis/accuracy", json=body)
+        assert reply.status_code == 200, reply.text
+        grid = schemas.AccuracyGrid.model_validate(reply.json())
+    cells = len(grid.lat_deg) * len(grid.lon_deg)
+    probes = [c for c in calls if c[1] != "nearest"]
+    assert probes and {c[1] for c in probes} <= {"ref-1", "ref-weak"}
+    assert all(len(c[0].grid(5.0)[0]) * len(c[0].grid(5.0)[1]) == 1 for c in probes)  # one cell each
+    for p in grid.pairs:
+        assert set(p.reference_cells) == {"ref-1", "ref-weak"} and sum(p.reference_cells.values()) == cells
+        assert 0 < p.reference_cells["ref-weak"] < cells
+        assert p.uncalibrated_cells == p.reference_cells["ref-weak"]
+        assert p.calibrated == ["tdoa", "fdoa"]  # ref-1 calibrates the other cells
+        assert p.reference_reason is not None
+        assert p.reference_reason.startswith("reference 'ref-weak': predicted post-correlation SNR")
+        assert "below threshold" in p.reference_reason
+
+
+def summary_engine(calls: list[Any]) -> Callable[..., dict[str, Any]]:
+    """``stand_in_accuracy`` that also returns pair summaries which differ by band: north
+    of the equator pair 0 is calibrated by ref-1 and pair 1 has a note of its own;
+    everywhere pair 0 has core's "not calibrated: ..." note where ref-1 fails, and pair 1
+    gives nothing (a reason that changes at the equator)."""
+    grid_of = stand_in_accuracy(calls)
+
+    def accuracy_map(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        out = grid_of(*args, **kwargs)
+        region, step = args[5], args[6]
+        lat, lon = region.grid(step)
+        north = region.lat_min >= 0.0
+        n = len(lat) * len(lon)
+        failed = "reference 'ref-1': no window"
+        pair0 = {"a_channel": "alpha-a", "b_channel": "bravo-b", "a_sat_id": "sat-a", "b_sat_id": "sat-b",
+                 "a_transponder_id": "t1", "b_transponder_id": "t1",
+                 "calibrated": ["tdoa"] if north else [], "reason": None,
+                 "reference": {"reason": None if north else failed},
+                 "notes": [] if north else [f"not calibrated: {failed}"]}
+        pair1 = {"a_channel": "bravo-a", "b_channel": "charlie-ab@sat-b", "a_sat_id": None, "b_sat_id": None,
+                 "calibrated": [], "reference": None,
+                 "reason": "satellite 'sat-a' is below the horizon" if north else "no admissible emitter position",
+                 "notes": ["fewer rows north"] if north else []}
+        if kwargs.get("reference_carrier_id") == "nearest":
+            pair0 = {**pair0, "reference_cells": {"ref-1": n}}
+            pair1 = {**pair1, "reference_cells": {"none": n}}
+        out["pairs"] = [pair0, pair1]
+        return out
+
+    return accuracy_map
+
+
+async def test_accuracy_pair_summaries_merge_rules(files: dict[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    """Closing D2 merge rules (``schemas.AccuracyPairSummary``): cells summed over bands;
+    a named carrier counts as ``"none"`` where it does not calibrate; kinds united; the
+    first band's reason kept with a note per reason naming its latitudes; a note not
+    every band gives starts with its latitudes; core's "not calibrated" notes dropped;
+    an engine whose summaries do not match the pairs is a 500."""
+    calls: list[Any] = []
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: summary_engine(calls))
+    monkeypatch.setattr(rest, "ACCURACY_BAND_CELLS", 40)
+    async with serving(settings_for(files), files["presets"]) as (_app, client):
+        body = {"pairs": ACC_PAIRS, "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 4e3}, "f_e_hz": 300.004e6,
+                "step_deg": 5.0, "t": T_FIXED, "reference_carrier_id": "ref-1"}
+        reply = await client.post(f"{API}/analysis/accuracy", json=body)
+        assert reply.status_code == 200, reply.text
+        grid = schemas.AccuracyGrid.model_validate(reply.json())
+        n_lon = len(grid.lon_deg)
+        north = sum(1 for la in grid.lat_deg if la >= 0) * n_lon
+        south = sum(1 for la in grid.lat_deg if la < 0) * n_lon
+        assert north and south
+        p0, p1 = grid.pairs
+        assert p0.reference_carrier_id == "ref-1"
+        assert p0.reference_cells == {"ref-1": north, "none": south} and p0.uncalibrated_cells == south
+        assert p0.calibrated == ["tdoa"] and p0.reference_reason == "reference 'ref-1': no window"
+        assert p0.notes == [] and p0.reason is None
+        assert p1.a_sat_id is None and p1.reference_cells == {"none": north + south}
+        assert p1.reason == "no admissible emitter position"  # the first (southernmost) band's
+        south_end = max(la for la in grid.lat_deg if la < 0)
+        assert p1.notes == [
+            f"latitudes -30 to {south_end:g}: no admissible emitter position",
+            f"latitudes 0 to 50: satellite 'sat-a' is below the horizon",
+            "latitudes 0 to 50: fewer rows north",
+        ]
+
+        nearest = dict(body, reference_carrier_id="nearest")
+        grid = schemas.AccuracyGrid.model_validate((await client.post(f"{API}/analysis/accuracy", json=nearest)).json())
+        p0, p1 = grid.pairs
+        assert p0.reference_carrier_id is None and p0.reference_cells == {"ref-1": north + south}
+        # every band holds ref-1 alone, so its outcome is read from the bands: calibrated north, not south
+        assert p0.calibrated == ["tdoa"] and p0.uncalibrated_cells == south
+        assert p0.reference_reason == "reference 'ref-1': no window"
+        assert p1.reference_cells == {"none": north + south} and p1.uncalibrated_cells == north + south
+        assert p1.reference_reason is None  # the pair is not resolved: its reason says why
+
+        def miscounted(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            out = summary_engine([])(*args, **kwargs)
+            out["pairs"] = out["pairs"][:1]
+            return out
+
+        monkeypatch.setattr(rest, "_load_accuracy_map", lambda: miscounted)
+        reply = await client.post(f"{API}/analysis/accuracy", json=dict(body, step_deg=4.0))
+        assert reply.status_code == 500 and "unusable" in reply.json()["detail"]
+
+
 async def test_accuracy_map_uncertainty_override_is_used_for_that_map_only(
     files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:

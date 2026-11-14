@@ -229,13 +229,43 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   section 2.2) and depends on the direction (a reference 1,300 km away gave 2.3 to 3.3
   km due east or west, 6.8 to 10 km due north or south; RESULTS.md section 2.5). The
   uncancelled uplink ionosphere also grows with distance (section 5 above). As rows
-  accumulate the calibrated ellipse can shrink past the uncancelled residual: in the
-  ephemeris-error scenario, run live from 03:00 UTC, the truth was inside the ellipse up
-  to 34 rows (the first minute) and outside it from 46 rows on in every snapshot for
-  five minutes (180 to 240 m off, 95 % semi-major 270 shrinking to 240 m), while the
-  event stayed located. The clock checks name the satellites whose position is worse
-  than configured from the first rounds, and the advice for a fix through them then
-  warns that its ellipse does not include that error; nothing enlarges the ellipse.
+  accumulate, the calibrated ellipse can shrink past the uncancelled part of a satellite
+  error larger than its configured sigma: before the ephemeris allowance (below), the
+  ephemeris-error scenario run live from 03:00 UTC had the truth outside the ellipse
+  from 46 rows on in every snapshot for five minutes (180 to 240 m off a 95 % semi-major
+  of 240 to 270 m) while the event stayed located.
+- **Ephemeris allowance.** The clock checks name the satellites whose position is worse
+  than configured, and the live solves widen those satellites' position sigma by a
+  factor sized from the calibrations (MATH.md section 9), so the ellipse covers the
+  error: live from 03:00 and from 15:00 UTC the ephemeris-error event was located in
+  every snapshot over 9.5 minutes (8 to 400 rows), the two satellites' sigmas widened 8
+  and 9.5 times, and the truth was inside the ellipse in all 76 snapshots (6 to 72 m
+  off, 95 % semi-major 290 to 373 m, 15 to 30 % larger than without the allowance). Its
+  limits:
+  - it acts only on satellites the clock checks name, so only while an event is tasked
+    and only for errors that make a site's timing differ between satellites by at least
+    the doubt threshold (the largest of 1 us, ten times the site's clock sigma and three
+    times its configured site-dependent ephemeris allowance);
+    a satellite the sites see from a narrow angle shows some directions weakly (MUOS
+    Indo-Asia, seen only from the Asian sites, showed an 8 km in-track error as 0.8 km
+    in an offline check) and its error can go unnoticed and uncovered;
+  - the calibrations give the smallest error that explains them: when only one of two
+    satellites that see the network alike is off, the error is shared between them (8 km
+    on MUOS Pacific alone read as about 5 km on it and -3 km on the 172 E satellite);
+    their difference, which a calibrated pair through both feels, is right, and their
+    combined allowance covers it, but a pair through the off satellite and a third one
+    has less margin;
+  - only the position sigma is widened: a velocity error beyond its sigma is neither
+    seen nor covered;
+  - the scale rises at once but falls back only when the calibrations that sized it
+    have aged out (`calibration.max_age_s`, 300 s), so after an ephemeris update the
+    ellipses stay wide for up to five minutes;
+  - the evidence carries the configured media; ionospheric differences between sites
+    beyond them can read as a satellite error and widen an ellipse more than needed
+    (never less);
+  - the factor stops at `calibration.ephemeris_allowance_max_scale` (20 by default);
+    beyond it, or when the calibrations cannot size the error, the advice keeps warning
+    that the transmitter may lie outside the ellipse.
 - **Channels relayed by one satellite cannot be located** (the example's `solo-*`
   channels); near Hawaii only two of the three satellites are visible.
 - **CW (unmodulated) jammers: FDOA only.** Uncalibrated the two FDOA rows are
@@ -309,8 +339,8 @@ otherwise; `docs/RESULTS.md` has the capability numbers and how they were produc
   and no site of its group is judged on an offset smaller than that difference, so a
   real clock fault smaller than a satellite disagreement the group shows is not
   flagged. Live, the clock-fault scenario flags Naha at -10.0 us within 20 s ("agree
-  through two satellites"), and the ephemeris-error scenario raises no caution and
-  names muos-pac and uhf-172e instead.
+  through two satellites") and widens no ellipse, and the ephemeris-error scenario
+  raises no caution and names muos-pac and uhf-172e instead (ephemeris allowance above).
 - Fixes depend slightly on where solving starts (cold and warm solves of the same 400
   rows ended 8 m apart, about 1.25 km from truth).
 - The planning map (`accuracy_map`) models no waveform coupling, no chirp ambiguity, no

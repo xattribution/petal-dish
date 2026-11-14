@@ -58,6 +58,7 @@ __all__ = [
     "Solution",
     "solve",
     "calibration_correction",
+    "reference_position_partials",
     "error_ellipse",
     "cep50",
     "position_covariance",
@@ -296,6 +297,30 @@ def calibration_correction(
         noise_share_b=float(ref_measurement.noise_share_b),
     )
     return float(ref_measurement.value) - predicted, cal
+
+
+def reference_position_partials(
+    kind: str, cal: CalRef, orbits: Mapping[str, Orbit], sites_xyz: Mapping[str, Any]
+) -> dict[str, np.ndarray]:
+    """Partials of a reference measurement with respect to its satellites' RIC position
+    offsets: ``{sat_id: [d/d radial, d/d in-track, d/d cross-track]}`` in row units per
+    metre (s/m for TDOA, Hz/m for FDOA), evaluated at ``cal.x_ref`` and ``cal.t_ns`` with
+    the reference's own paths, exactly as the solver's consider partials
+    (``_ephemeris_partials``: one-sided 1 km steps of ``PerturbedOrbit``). A satellite
+    on both paths gets one entry (both legs). Used to read the calibration network as
+    evidence about the satellites' positions (``server.pipeline.tasking``).
+    Raises ValueError for a bad ``kind`` or a ``cal`` naming an unknown satellite or site.
+    """
+    if kind not in ("tdoa", "fdoa"):
+        raise ValueError(f"kind must be 'tdoa' or 'fdoa', got {kind!r}")
+    _check_cal(cal, "cal", orbits, sites_xyz)
+    t_s = np.array([sec(int(cal.t_ns))])
+    groups = _make_groups([kind], [cal.a], [cal.b], t_s)
+    sats = list(dict.fromkeys([cal.a.sat_id, cal.b.sat_id]))
+    params = [(sat, False, comp) for sat in sats for comp in range(3)]
+    x = _vector3(cal.x_ref, "cal.x_ref")[None, :]
+    partials = _ephemeris_partials(x, groups, 1, t_s, params, orbits, sites_xyz, None)[0, 0]
+    return {sat: partials[3 * i : 3 * i + 3].copy() for i, sat in enumerate(sats)}
 
 
 def error_ellipse(P_2x2: Any, confidence: float) -> dict[str, float]:

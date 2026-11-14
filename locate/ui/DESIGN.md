@@ -162,6 +162,9 @@ charts, a "Welcome back". Changes made against it:
 | "at least N kHz" on the queue row and in the dossier header, with an (i) | `width_lower_bound`: in every monitor window the detections fill it to within the receiver's roll-off, so the signal may be wider | ADAPT-5 |
 | "Site clocks by calibration" notes under the Network table; "differs by satellite" under an offset | `SiteClockEstimate.message`: a clock fault (caution diamond) or a satellite position the per-satellite views blame instead (no status: the clock is fine) | R3 |
 | "nearest to each cell" reference in the accuracy form | `AccuracyRequest.reference_carrier_id = "nearest"`: each cell calibrated as tasking would calibrate an emitter there | R7 |
+| "nearest to each cell" as the starting reference (when the configuration has reference carriers) | Live tasking always calibrates against the nearest eligible reference, so the first map predicts what tasking does; the operator's choice is kept once made | closing D2 |
+| Pair list under the accuracy result (ends, satellites, calibration), divided by rules | `AccuracyGrid.pairs`: what each pair is calibrated with | closing D2 |
+| Caution notice "Uncalibrated" with the server's reason, "No measurement" for a pair that gives nothing | `AccuracyPairSummary.uncalibrated_cells` / `reference_reason` (some or all cells have no usable reference) and `reason` | closing D2 |
 | Candidates table "One of N positions" | Every position of an unresolved ambiguity, none singled out as the fix | MATH.md section 9; UX-6 |
 | Caution notice "Re-check" | `Event.recheck`: the position is being checked against new measurements | UX-5 |
 | "Start", "First seen", "Detected again ... after a break of" in the dossier header | `onset_ns` (the time to report), the first detection and the latest break | UX-5 |

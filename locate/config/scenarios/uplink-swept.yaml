@@ -9,9 +9,9 @@ description: >-
   every channel's shared-1 window (52 to 56 dB-Hz), a classification of swept,
   and an uplink verdict. A periodic sweep has a line spectrum (lines 25 Hz apart), so
   it correlates with itself at near-equal height one sweep period later and at every
-  step of 100 microseconds in delay with 25 Hz in Doppler. Even the narrowest search
-  window (a calibrated pair, a few tens of hertz in Doppler) holds several of these
-  peaks, so the cross-satellite correlations come back ambiguous (eight candidates
+  step of 100 microseconds in delay with 25 Hz in Doppler. Usually even the narrowest
+  search window (a calibrated pair, a few tens of hertz in Doppler) holds several of
+  these peaks, so the cross-satellite correlations come back ambiguous (eight candidates
   listed), with or without calibration, instead of giving a single TDOA/FDOA; the
   system must report that and show no position from them (live, fresh at 03:00 and
   03:26 UTC, every correlation was ambiguous). At some times a calibrated pair's window

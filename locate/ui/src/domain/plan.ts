@@ -1,7 +1,8 @@
 // Accuracy-map planning from the loaded configuration (ADAPT-10, ADAPT-4): the pair ends a
 // map accepts, and a starting request derived from the satellites, sites and bands
 // configured, never from one example deployment.
-import type { SystemConfig } from '../api/types.gen';
+import type { AccuracyPairSummary, SystemConfig } from '../api/types.gen';
+import { groupInt, MINUS } from '../format/units';
 import { watchedSatellites } from './config';
 
 /**
@@ -111,4 +112,82 @@ export function accuracyDefaults(cfg: SystemConfig): AccuracyDefaults {
   if (!best) return { pairs: [], feHz: null, bwHz: 8e3 };
   const width = best.hi - best.lo;
   return { pairs: best.pairs, feHz: Math.round((best.lo + best.hi) / 2), bwHz: Math.min(BW_MAX_HZ, Math.max(BW_MIN_HZ, Math.round(width * BW_FRACTION))) };
+}
+
+/**
+ * The reference the accuracy form starts with: "nearest" when the configuration has
+ * reference carriers (live tasking always calibrates each pair against the nearest
+ * eligible reference, so the map then predicts what tasking does), else none ('').
+ */
+export function defaultReference(cfg: SystemConfig): string {
+  return (cfg.carriers ?? []).some((c) => c.use_as_reference) ? NEAREST_REFERENCE : '';
+}
+
+/** Every reference value the form offers ('' is none); "nearest" only when a reference exists and no carrier is named so. */
+export function referenceValues(cfg: SystemConfig): string[] {
+  const refs = (cfg.carriers ?? []).filter((c) => c.use_as_reference).map((c) => c.id);
+  return ['', ...(refs.length && !refs.includes(NEAREST_REFERENCE) ? [NEAREST_REFERENCE] : []), ...refs];
+}
+
+/**
+ * The reference the form shows: the operator's choice once they have made one and the
+ * configuration still offers it, else the configuration's default (it follows a reload).
+ */
+export function referenceChoice(cfg: SystemConfig, chosen: string | null): string {
+  return chosen !== null && referenceValues(cfg).includes(chosen) ? chosen : defaultReference(cfg);
+}
+
+/** Key of `AccuracyPairSummary.reference_cells` for cells with no usable reference. */
+export const NO_REFERENCE_KEY = 'none';
+
+export interface PairCalibrationView {
+  /** "tokyo-pac − tokyo-io" */
+  ends: string;
+  /** "muos-pac − muos-io", null when the pair could not be resolved */
+  satellites: string | null;
+  /** what calibrates the pair, in words */
+  calibration: string;
+  /** plain warning when some or all cells have no usable reference (only when a reference was asked for) */
+  uncalibrated: string | null;
+  /** why the pair gives nothing at all */
+  unusable: string | null;
+  notes: string[];
+}
+
+const KIND_WORD: Record<string, string> = { tdoa: 'TDOA', fdoa: 'FDOA' };
+const count = (n: number) => groupInt(String(Math.round(n)));
+
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * One pair of a computed accuracy map in words (closing D2): its two ends and their
+ * satellites, what it is calibrated with, and a plain warning, with the server's reason,
+ * when some or all of the grid's `totalCells` cells have no usable reference.
+ */
+export function pairCalibration(p: AccuracyPairSummary, totalCells: number): PairCalibrationView {
+  const ends = `${p.a_channel} ${MINUS} ${p.b_channel}`;
+  const satellites = p.a_sat_id && p.b_sat_id ? `${p.a_sat_id} ${MINUS} ${p.b_sat_id}` : null;
+  const cells = p.reference_cells ?? {};
+  const kinds = (p.calibrated ?? []).map((k) => KIND_WORD[k] ?? k).join(', ');
+  const asked = Object.keys(cells).length > 0;
+  const unc = p.uncalibrated_cells ?? (asked ? 0 : totalCells);
+  let calibration: string;
+  if (!asked) calibration = 'none (no reference emitter chosen)';
+  else if (p.reference_carrier_id) calibration = kinds ? `${p.reference_carrier_id} (${kinds})` : `none (${p.reference_carrier_id} cannot calibrate it)`;
+  else {
+    const chosen = Object.entries(cells)
+      .filter(([id, n]) => id !== NO_REFERENCE_KEY && n > 0)
+      .sort((a, b) => b[1] - a[1]);
+    calibration = chosen.length
+      ? `nearest reference: ${chosen.map(([id, n]) => (n === totalCells ? `${id} in every cell` : `${id} in ${count(n)} cells`)).join(', ')}${kinds ? ` (${kinds})` : ''}`
+      : 'none (no eligible reference carrier)';
+  }
+  let uncalibrated: string | null = null;
+  if (asked && unc > 0 && !p.reason) {
+    const where = unc >= totalCells ? `All ${count(totalCells)} cells are uncalibrated` : `${count(unc)} of ${count(totalCells)} cells are uncalibrated`;
+    uncalibrated = p.reference_reason ? sentence(`${where}: ${p.reference_reason}`) : `${where}.`;
+  }
+  return { ends, satellites, calibration, uncalibrated, unusable: p.reason ? sentence(`This pair gives no measurement: ${p.reason}`) : null, notes: p.notes ?? [] };
 }

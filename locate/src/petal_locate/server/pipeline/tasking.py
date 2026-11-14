@@ -72,7 +72,11 @@ every ``capture.interval_s``:
 8. **Solve** the newest ``solver.max_measurements`` accepted rows (worker thread):
    the global search on the first solve, every ``GLOBAL_SEARCH_EVERY``-th solve and
    whenever a warm-started solve fails or has ``reduced_chi2 > WARM_RCHI2_LIMIT``;
-   warm starts from the previous solution and its ambiguities. The result goes to
+   warm starts from the previous solution and its ambiguities. The consider uncertainty
+   is the configured one, except that a satellite the clock checks put wrong beyond its
+   configured position sigma has that sigma widened by a scale sized from the
+   calibrations (*ephemeris allowance*, ``_update_allowance``, MATH.md section 9),
+   from the solve after the round that sized it. The result goes to
    ``EventBook.set_solution`` with ``solver.max_reduced_chi2`` and the region's fix
    bound (``events.fix_semi_major_limit_m``): solution history, residuals, ``located``
    only for a fix (``SolutionOut.is_fix``: consistent, ``dof >= 1``, the ellipse within
@@ -97,7 +101,10 @@ satellite that cannot see any point of its ellipse (``EventRecord.
 not_visible_satellite_ids``, worked out by the correlator) is not paired, and the
 reference carrier nearest the fix is calibrated against (nearest in frequency before a
 fix). ``site_clock_estimates`` turns the calibrations held (the clock checks included)
-into per-site clock offsets for ``/status``.
+into per-site clock offsets for ``/status``; the satellites it names as mispositioned
+are the event's ``doubted_satellite_ids``, and ``satellite_position_evidence`` reads the
+same calibrations as evidence about each satellite's position error, which sizes the
+ephemeris allowance (``ephemeris_scale``, ``ephemeris_allowance``).
 
 Everything runs on the event loop except the numerical jobs, which go through the
 server's ``WorkPool`` (at most 3 at once). Rounds are cancelled when their event is
@@ -151,7 +158,7 @@ import math
 import time
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Protocol
 
 import numpy as np
@@ -172,12 +179,14 @@ from petal_locate.core.geodesy import geodesic_distance_m
 from petal_locate.core.detect import MIN_CLASSIFY_SAMPLES, classify
 from petal_locate.core.geometry import elevation_deg, measurement_windows, predict_pair, search_windows, self_peak
 from petal_locate.core.orbits import orbit_position
-from petal_locate.core.solver import Solution, calibration_correction, solve
+from petal_locate.core.media import row_media_partials
+from petal_locate.core.solver import Solution, calibration_correction, reference_position_partials, solve
 from petal_locate.core.types import CalRef, Measurement, PathSpec, Uncertainty
 from petal_locate.server.api import schemas
 from petal_locate.server.hub import CaptureFailed
 from petal_locate.server.pipeline.correlator import QualityTable
 from petal_locate.server.pipeline.events import (
+    EphemerisAllowance,
     EventBook,
     EventNotFound,
     EventRecord,
@@ -192,6 +201,8 @@ __all__ = [
     "CLOCK_CAUTION_NS",
     "CLOCK_CHECKS_PER_ROUND",
     "CONFIRM_SIGMAS",
+    "DOUBT_MARGIN_SIGMAS",
+    "DOUBT_MIN_SCALE",
     "GLOBAL_SEARCH_EVERY",
     "MAX_LEAD_S",
     "NON_RETRYABLE_CODES",
@@ -209,14 +220,19 @@ __all__ = [
     "REASON_RATE_MISMATCH",
     "REASON_UNCONFIRMED",
     "REASON_WINDOW",
+    "SCALE_STEPS_PER_OCTAVE",
     "SWEEP_PERIODS",
     "WARM_RCHI2_LIMIT",
     "Calibration",
     "CaptureHub",
     "ClockEdge",
+    "EvidenceEdge",
     "PairOutcome",
+    "PositionEvidence",
     "RoundReport",
     "Tasking",
+    "ephemeris_scale",
+    "satellite_position_evidence",
     "site_clock_offsets",
     "truth_emitters",
 ]
@@ -414,6 +430,14 @@ class Calibration:
     ns. carrier_id: the reference carrier. a_transponder_id, b_transponder_id: the
     transponders it went through. f_ref_hz: its uplink centre, Hz. snr_db: its
     post-correlation SNR, dB.
+    position_partials: ``(sat_id, (d/d radial, d/d in-track, d/d cross-track))`` of the
+    reference measurement with respect to its satellites' RIC position offsets, s/m
+    (``core.solver.reference_position_partials``; TDOA only, empty when they could not
+    be worked out). media_partials: ``(medium, ground end, partial)`` of the reference
+    measurement per TECU or per metre of zenith delay (``core.media.row_media_partials``;
+    the reference's own uplink end is ``("ref", x_ref bytes)``). Both let the calibrations
+    held be read as evidence about the satellites' positions
+    (``satellite_position_evidence``).
     """
 
     key: tuple[str, str, str, str, str]
@@ -425,6 +449,8 @@ class Calibration:
     b_transponder_id: str
     f_ref_hz: float
     snr_db: float
+    position_partials: tuple[tuple[str, tuple[float, float, float]], ...] = ()
+    media_partials: tuple[tuple[str, Any, float], ...] = ()
 
 
 @dataclass
@@ -725,7 +751,8 @@ class _RefJob:
 @dataclass(frozen=True)
 class _RefResult:
     result: CafResult
-    corrections: tuple[tuple[str, float, CalRef], ...]
+    # (kind, correction, CalRef, position partials, media partials): see ``Calibration``
+    corrections: tuple[tuple[str, float, CalRef, tuple[Any, ...], tuple[Any, ...]], ...]
     problems: tuple[str, ...]
 
 
@@ -1013,7 +1040,7 @@ def _calibrate(job: _RefJob, orbits: Mapping[str, Any], sites_xyz: Mapping[str, 
     (blocking)."""
     result = _correlate(job.caf)
     problems: list[str] = []
-    corrections: list[tuple[str, float, CalRef]] = []
+    corrections: list[tuple[str, float, CalRef, tuple[Any, ...], tuple[Any, ...]]] = []
     if not result.detected:
         return _RefResult(result, (), (REASONS.get(result.reason or "", REASON_NOT_DETECTED),))
     if result.reason in (REASON_AMBIGUOUS, REASON_COUPLED, REASON_OUTSIDE):
@@ -1056,8 +1083,38 @@ def _calibrate(job: _RefJob, orbits: Mapping[str, Any], sites_xyz: Mapping[str, 
         if _finite(c) is None:
             problems.append(f"{kind}: correction not finite")
             continue
-        corrections.append((kind, float(c), cal))
+        position, media = _reference_partials(kind, cal, orbits, sites_xyz)
+        corrections.append((kind, float(c), cal, position, media))
     return _RefResult(result, tuple(corrections), tuple(problems))
+
+
+def _reference_partials(
+    kind: str, cal: CalRef, orbits: Mapping[str, Any], sites_xyz: Mapping[str, np.ndarray]
+) -> tuple[tuple[tuple[str, tuple[float, float, float]], ...], tuple[tuple[str, Any, float], ...]]:
+    """``Calibration.position_partials`` and ``media_partials`` of a TDOA reference
+    measurement (blocking; empty for FDOA, and when they cannot be worked out or are not
+    finite)."""
+    if kind != "tdoa":
+        return (), ()
+    try:
+        position = reference_position_partials(kind, cal, orbits, sites_xyz)
+        x_ref = np.asarray(cal.x_ref, dtype=np.float64)
+        media = row_media_partials(
+            kind, cal.a, cal.b, np.array([int(cal.t_ns) / _NS]), x_ref, orbits, sites_xyz, ("ref", x_ref.tobytes())
+        )
+    except Exception as exc:  # optional evidence: never lose the calibration over it
+        logger.warning("calibration %s: satellite partials not worked out: %s", cal.cal_id, exc)
+        return (), ()
+    pos_out = tuple(
+        (sat, (float(p[0]), float(p[1]), float(p[2]))) for sat, p in position.items() if np.all(np.isfinite(p))
+    )
+    media_out = tuple(
+        (medium, end, float(np.ravel(values)[0]))
+        for medium, table in media.items()
+        for end, values in table.items()
+        if np.isfinite(np.ravel(values)[0])
+    )
+    return pos_out, media_out
 
 
 def _solve(job: _SolveJob) -> tuple[Solution | None, str | None]:
@@ -1200,6 +1257,21 @@ CLOCK_CHECKS_PER_ROUND: Final[int] = 2
 """Reference pairs a round may calibrate in all, counting its pairs' own calibrations;
 what is left goes to same-satellite clock checks (``Tasking._plan_clock_checks``), so the
 round that calibrates the pairs adds none and the next rounds catch up."""
+
+DOUBT_MIN_SCALE: Final[float] = 3.0
+"""Smallest factor on the position sigma of a satellite whose position the calibrations
+put wrong beyond its configured uncertainty (``ephemeris_scale``): the doubt itself
+(views through two satellites differing by at least three times the configured
+site-dependent ephemeris allowance, ``site_clock_offsets``) means an error of about three
+configured sigmas or more, even where the calibrations cannot size it better."""
+
+DOUBT_MARGIN_SIGMAS: Final[float] = 2.0
+"""The scale covers the error the calibrations show plus this many of its one-sigma
+uncertainties (``ephemeris_scale``)."""
+
+SCALE_STEPS_PER_OCTAVE: Final[int] = 4
+"""A scale is rounded up to the next of these steps per factor of two (1, 1.19, 1.41,
+1.68, 2, ...), so that small changes of the evidence do not change the solve."""
 
 
 def _duration_ns_text(ns: float) -> str:
@@ -1516,6 +1588,163 @@ def _determined_clusters(design: npt.NDArray[np.float64], n_sites: int) -> list[
     return clusters
 
 
+@dataclass(frozen=True)
+class EvidenceEdge:
+    """One TDOA reference calibration as evidence about the satellites' positions
+    (``satellite_position_evidence``).
+
+    The correction holds ``c = o_a - o_b + e_a - e_b + sum_s P_s dr_s + shared + noise``:
+    the two sites' clock offsets ``o``, a delay ``e`` per satellite common to every site
+    that hears it (transponder, and the part of an ephemeris error common to all
+    sites), each satellite's RIC position error ``dr_s`` through the reference
+    measurement's partials ``P_s``, error terms several calibrations share (the
+    propagation media per ground end) and the edge's own noise.
+    c_s: the correction, s. sigma_s: its own noise one-sigma (the reference measurement's
+    CAF noise and the pair bias), s. partials: ``(sat_id, (d c/d radial, d c/d in-track,
+    d c/d cross-track))``, s/m. shared: ``(key, value)``: an error term shared by every
+    edge that names the same key, as this edge's partial times the term's one-sigma, s.
+    """
+
+    sat_a: str
+    site_a: str
+    sat_b: str
+    site_b: str
+    c_s: float
+    sigma_s: float
+    partials: tuple[tuple[str, tuple[float, float, float]], ...]
+    shared: tuple[tuple[Any, float], ...] = ()
+
+
+@dataclass(frozen=True)
+class PositionEvidence:
+    """What the reference calibrations say about one satellite's position
+    (``satellite_position_evidence``).
+
+    error_ric_m: the position error they show, radial / in-track / cross-track, m: the
+    smallest error (in units of the configured sigma) that explains them, so directions
+    they do not determine are left near zero. norm: its size in configured sigmas,
+    ``sqrt(sum_i (error_i / sigma_i)^2)``. norm_sigma: one-sigma uncertainty of ``norm``
+    along the error's direction (1 when the calibrations do not determine the position at
+    all). n_edges: the calibrations through the satellite.
+    """
+
+    sat_id: str
+    error_ric_m: tuple[float, float, float]
+    norm: float
+    norm_sigma: float
+    n_edges: int
+
+
+def satellite_position_evidence(
+    edges: Sequence[EvidenceEdge], sigma_ric_m: Mapping[str, Any]
+) -> dict[str, PositionEvidence]:
+    """Each satellite's position error as the TDOA calibrations held show it (MATH.md
+    section 9, *ephemeris allowance*).
+
+    One linear least-squares fit of every edge (``EvidenceEdge``): the site clocks and the
+    satellites' common delays are free (a clock fault or a transponder delay explains
+    nothing about a position: whatever a per-site offset or a per-satellite delay can
+    absorb is given to them); each satellite's RIC position error has the prior
+    ``N(0, diag(sigma^2))`` of its configured sigma (``sigma_ric_m``, m; a satellite not
+    given has none to show); the edges' covariance is their own noise plus the shared
+    terms. Returns the posterior mean of each position error and the uncertainty of its
+    size (``PositionEvidence``) for every satellite the edges name, or an empty dict
+    when there are no edges or the fit fails. Pure.
+    """
+    if not edges:
+        return {}
+    sites = sorted({e.site_a for e in edges} | {e.site_b for e in edges})
+    sats = sorted({e.sat_a for e in edges} | {e.sat_b for e in edges})
+    sigma = {
+        sat: np.abs(np.nan_to_num(np.asarray(sigma_ric_m.get(sat, (0.0, 0.0, 0.0)), dtype=np.float64).reshape(3)))
+        for sat in sats
+    }
+    m = len(edges)
+    free = np.zeros((m, len(sites) + len(sats)))
+    position = np.zeros((m, 3 * len(sats)))  # per configured sigma, ns
+    target = np.zeros(m)
+    own = np.zeros(m)
+    shared: dict[Any, np.ndarray] = {}
+    counts = dict.fromkeys(sats, 0)
+    for j, e in enumerate(edges):
+        free[j, sites.index(e.site_a)] += 1.0
+        free[j, sites.index(e.site_b)] -= 1.0
+        free[j, len(sites) + sats.index(e.sat_a)] += 1.0  # a same-satellite edge: the two cancel
+        free[j, len(sites) + sats.index(e.sat_b)] -= 1.0
+        for sat in {e.sat_a, e.sat_b}:
+            counts[sat] += 1
+        for sat, partial in e.partials:
+            if sat in counts:
+                i = sats.index(sat)
+                position[j, 3 * i : 3 * i + 3] += np.asarray(partial, dtype=np.float64) * 1e9 * sigma[sat]
+        for key, value in e.shared:
+            shared.setdefault(key, np.zeros(m))[j] += float(value) * 1e9
+        target[j] = float(e.c_s) * 1e9
+        own[j] = max(abs(float(e.sigma_s)) * 1e9, 1e-3)
+    try:
+        columns = np.stack(list(shared.values()), axis=1) if shared else np.zeros((m, 0))
+        covariance = np.diag(own**2) + columns @ columns.T
+        if not (np.all(np.isfinite(covariance)) and np.all(np.isfinite(position)) and np.all(np.isfinite(target))):
+            return {}
+        lower = np.linalg.cholesky(covariance)
+        w_free = np.linalg.solve(lower, free)
+        w_pos = np.linalg.solve(lower, position)
+        w_target = np.linalg.solve(lower, target)
+        # the free parameters absorb what they can: keep the part of the data orthogonal to them
+        basis, sv, _ = np.linalg.svd(w_free, full_matrices=False)
+        rank = int(np.count_nonzero(sv > (float(sv[0]) if sv.size else 0.0) * 1e-9))
+        q = basis[:, :rank]
+        design = w_pos - q @ (q.T @ w_pos)
+        data = w_target - q @ (q.T @ w_target)
+        normal = design.T @ design + np.eye(3 * len(sats))  # prior N(0, I) per configured sigma
+        posterior = np.linalg.inv(normal)
+        estimate = posterior @ (design.T @ data)
+    except np.linalg.LinAlgError:
+        return {}
+    if not (np.all(np.isfinite(estimate)) and np.all(np.isfinite(posterior))):
+        return {}
+    out: dict[str, PositionEvidence] = {}
+    for i, sat in enumerate(sats):
+        u = estimate[3 * i : 3 * i + 3]
+        block = posterior[3 * i : 3 * i + 3, 3 * i : 3 * i + 3]
+        norm = float(np.linalg.norm(u))
+        if norm > 0.0:
+            direction = u / norm
+        else:
+            direction = np.linalg.eigh(block)[1][:, -1]
+        spread = float(np.sqrt(max(float(direction @ block @ direction), 0.0)))
+        out[sat] = PositionEvidence(
+            sat_id=sat,
+            error_ric_m=(float(u[0] * sigma[sat][0]), float(u[1] * sigma[sat][1]), float(u[2] * sigma[sat][2])),
+            norm=norm,
+            norm_sigma=spread,
+            n_edges=counts[sat],
+        )
+    return out
+
+
+def ephemeris_scale(evidence: PositionEvidence | None, max_scale: float) -> tuple[float, bool]:
+    """The factor on a doubted satellite's configured position sigma for the solve, and
+    whether it was capped: ``(scale, capped)`` (MATH.md section 9, *ephemeris allowance*).
+
+    ``max(DOUBT_MIN_SCALE, norm + DOUBT_MARGIN_SIGMAS x norm_sigma)``: the widened sigma puts
+    the error the calibrations show (with its margin) on or inside the one-sigma surface
+    of the widened prior, rounded up to the next of ``SCALE_STEPS_PER_OCTAVE`` steps per
+    octave and at most ``max_scale``; ``capped`` when the evidence asks for more than
+    ``max_scale``. Without evidence (None, or numbers that are not finite) the error
+    cannot be sized: ``(max_scale, True)``. ``max_scale <= 1`` gives ``(1.0, True)``
+    (no allowance)."""
+    cap = float(max_scale)
+    if not (math.isfinite(cap) and cap > 1.0):
+        return 1.0, True
+    if evidence is None or not (math.isfinite(evidence.norm) and math.isfinite(evidence.norm_sigma)):
+        return cap, True
+    raw = max(DOUBT_MIN_SCALE, float(evidence.norm) + DOUBT_MARGIN_SIGMAS * float(evidence.norm_sigma))
+    steps = math.ceil(SCALE_STEPS_PER_OCTAVE * math.log2(raw) - 1e-9)
+    scale = 2.0 ** (steps / SCALE_STEPS_PER_OCTAVE)
+    return min(max(scale, 1.0), cap), raw > cap
+
+
 def truth_emitters(world: Any) -> list[TruthEmitter]:
     """``TruthEmitter`` records of a ``sim.world.SimWorld``'s resolved emitters, for
     ``events.event_truth`` (simulation only)."""
@@ -1591,6 +1820,8 @@ class Tasking:
         # carriers through the same channels must not hold back each other's calibration
         self._cal_attempts: dict[tuple[tuple[tuple[str, str], tuple[str, str]], str], int] = {}
         self._world_since_ns: int | None = None  # calibrations measured before this are not kept
+        # ephemeris allowance: per doubted satellite, the scales sized at round ends (t_ns, scale, capped)
+        self._allowance_targets: dict[str, list[tuple[int, float, bool]]] = {}
         self._cal_seq = itertools.count(1)
         self._loop_task: asyncio.Task[None] | None = None
         self._background: set[asyncio.Task[Any]] = set()
@@ -1612,6 +1843,13 @@ class Tasking:
         self._orbits: dict[str, Any] = config.orbits()
         self._sites_xyz: dict[str, np.ndarray] = config.sites_xyz()
         self._uncertainty: Uncertainty = config.resolved_uncertainty()
+        # what an ephemeris allowance scales: the configured position sigma, a component
+        # configured as zero taking the operator-grade default (MATH.md section 9)
+        operator = np.asarray(config.processing.uncertainty.ephemeris.operator.pos_m, dtype=np.float64)
+        self._allowance_base: dict[str, np.ndarray] = {
+            sat: np.where(np.asarray(sigma, dtype=np.float64) > 0.0, np.asarray(sigma, dtype=np.float64), operator)
+            for sat, sigma in self._uncertainty.sat_pos_ric_m.items()
+        }
         self._channel_site: dict[str, str] = {}
         self._channels: dict[str, Any] = {}
         for site in config.sites:
@@ -1630,9 +1868,9 @@ class Tasking:
         return self._config
 
     def reconfigure(self, config: Any) -> None:
-        """Take a new configuration. Rounds in flight are cancelled; calibrations,
-        confirmation tracks and channel exclusions are dropped (orbits, transponders or
-        channels may have changed). Measurements already recorded stay with their
+        """Take a new configuration. Rounds in flight are cancelled; calibrations (with
+        the ephemeris allowance they sized), confirmation tracks and channel exclusions
+        are dropped (orbits, transponders, channels or sigmas may have changed). Measurements already recorded stay with their
         events and are solved with the new orbits (rows naming a satellite or site
         that no longer exists are left out)."""
         self._generation += 1
@@ -1640,6 +1878,7 @@ class Tasking:
         self._quality = None
         self._calibrations.clear()
         self._cal_attempts.clear()
+        self._allowance_targets.clear()
         for state in self._states.values():
             if state.task is not None and not state.task.done():
                 state.task.cancel()
@@ -1655,10 +1894,11 @@ class Tasking:
         world it was measured in (its satellites' errors, its sites' clocks), so the
         calibrations held are dropped, any measured before ``effective_ns`` by a round
         still in flight are not kept, and every pair is calibrated again at its next
-        round."""
+        round. The ephemeris allowances they sized go with them."""
         self._world_since_ns = int(effective_ns)
         self._calibrations.clear()
         self._cal_attempts.clear()
+        self._allowance_targets.clear()
         logger.info("simulated world replaced: calibrations dropped", extra={"effective_ns": str(int(effective_ns))})
 
     # ------------------------------------------------------------------ lifecycle
@@ -1756,6 +1996,167 @@ class Tasking:
                 ClockEdge(sat_a, site_a, sat_b, site_b, float(entry.correction), math.sqrt(eph), sat_sigma[0], sat_sigma[1])
             )
         return site_clock_offsets(edges, self._config)
+
+    def satellite_position_evidence(self) -> dict[str, PositionEvidence]:
+        """Each satellite's position error as the TDOA calibrations held (within
+        ``calibration.max_age_s``, the clock checks included) show it
+        (``satellite_position_evidence``): the calibrations' own noise plus the pair bias
+        (``uncertainty.tdoa_bias_ns``), and the propagation media shared per ground end
+        as in the solver (MATH.md section 9), against the configured position sigmas."""
+        now = self._clock()
+        max_age_ns = int(float(self._config.processing.calibration.max_age_s) * _NS)
+        unc = self._uncertainty
+        media = [
+            (medium, float(sigma), float(rho))
+            for medium, sigma, rho in (
+                ("ionosphere", unc.iono_vtec_tecu, unc.iono_correlation),
+                ("troposphere", unc.tropo_zenith_m, unc.tropo_correlation),
+            )
+            if float(sigma) > 0.0
+        ]
+        edges: list[EvidenceEdge] = []
+        for (key, _carrier), entry in self._calibrations.items():
+            sat_a, site_a, sat_b, site_b, kind = key
+            if kind != "tdoa" or abs(now - entry.t_ns) > max_age_ns or not entry.position_partials:
+                continue
+            if _finite(entry.correction) is None:
+                continue
+            shared: list[tuple[Any, float]] = []
+            for medium, sigma, rho in media:
+                total = 0.0
+                for name, end, value in entry.media_partials:
+                    if name != medium:
+                        continue
+                    total += value
+                    if rho < 1.0:
+                        shared.append(((medium, end), value * sigma * math.sqrt(1.0 - rho)))
+                if rho > 0.0:
+                    shared.append(((medium, "common"), total * sigma * math.sqrt(rho)))
+            edges.append(
+                EvidenceEdge(
+                    sat_a, site_a, sat_b, site_b, float(entry.correction),
+                    math.hypot(float(entry.cal.sigma), float(unc.tdoa_bias_s)), entry.position_partials, tuple(shared),
+                )
+            )
+        return satellite_position_evidence(edges, self._allowance_base)
+
+    def ephemeris_allowance(self) -> dict[str, tuple[float, bool]]:
+        """The ephemeris allowance in force: ``{sat_id: (scale, capped)}`` for each
+        satellite whose configured position sigma the solves widen because the reference
+        calibrations put its position wrong beyond it (``_update_allowance``). The scale is
+        the largest sized within the last ``calibration.max_age_s`` (the life of the
+        calibrations that showed the error), so it rises at once and falls back, or ends,
+        only when that evidence has aged out."""
+        now = self._clock()
+        hold_ns = int(float(self._config.processing.calibration.max_age_s) * _NS)
+        out: dict[str, tuple[float, bool]] = {}
+        for sat, targets in self._allowance_targets.items():
+            live = [t for t in targets if now - t[0] <= hold_ns]
+            if not live:
+                continue
+            scale = max(t[1] for t in live)
+            out[sat] = (scale, any(t[2] for t in live if t[1] == scale))
+        return out
+
+    def _update_allowance(self, doubted: set[str]) -> None:
+        """Size the ephemeris allowance of every doubted satellite
+        (``SiteClockEstimate.suspect_satellite_ids``) from the calibrations held
+        (``satellite_position_evidence``, ``ephemeris_scale``) and forget scales older than
+        ``calibration.max_age_s``. A satellite in no doubt is never widened, so with no
+        doubt the solves use the configured uncertainty unchanged."""
+        now = self._clock()
+        cal_cfg = self._config.processing.calibration
+        hold_ns = int(float(cal_cfg.max_age_s) * _NS)
+        before = self.ephemeris_allowance()
+        for sat in list(self._allowance_targets):
+            kept = [t for t in self._allowance_targets[sat] if now - t[0] <= hold_ns]
+            if kept:
+                self._allowance_targets[sat] = kept
+            else:
+                del self._allowance_targets[sat]
+        max_scale = float(cal_cfg.ephemeris_allowance_max_scale)
+        widen = sorted(s for s in doubted if s in self._allowance_base)
+        if widen and max_scale > 1.0:
+            evidence = self.satellite_position_evidence()
+            for sat in widen:
+                scale, capped = ephemeris_scale(evidence.get(sat), max_scale)
+                if scale > 1.0:
+                    self._allowance_targets.setdefault(sat, []).append((now, scale, capped))
+                shown = evidence.get(sat)
+                logger.debug(
+                    "ephemeris evidence %s: %s", sat,
+                    "none" if shown is None else f"{shown.norm:.2f} +/- {shown.norm_sigma:.2f} sigma, "
+                    f"RIC {shown.error_ric_m[0]:.0f} / {shown.error_ric_m[1]:.0f} / {shown.error_ric_m[2]:.0f} m",
+                    extra={"sat_id": sat},
+                )
+        after = self.ephemeris_allowance()
+        if after != before:
+            self._count("allowance_changes")
+            logger.info(
+                "ephemeris allowance: %s",
+                ", ".join(f"{s} x{k:.3g}{' (capped)' if c else ''}" for s, (k, c) in sorted(after.items())) or "none",
+                extra={"allowance": {s: k for s, (k, _) in after.items()}},
+            )
+
+    def _solve_uncertainty(self, rows: Sequence[Measurement]) -> tuple[Uncertainty, tuple[EphemerisAllowance, ...]]:
+        """The consider uncertainty for solving ``rows``: the configured one (the very same
+        object) unless the ephemeris allowance (``ephemeris_allowance``) widens a satellite
+        the rows or their calibrations go through; then a copy with those satellites'
+        position sigmas multiplied by their scales, and the allowance applied."""
+        allowance = self.ephemeris_allowance()
+        if not allowance:
+            return self._uncertainty, ()
+        sats: set[str] = set()
+        for row in rows:
+            sats.update((row.a.sat_id, row.b.sat_id))
+            if row.cal is not None:
+                sats.update((row.cal.a.sat_id, row.cal.b.sat_id))
+        used = {s: v for s, v in allowance.items() if s in sats and s in self._allowance_base}
+        if not used:
+            return self._uncertainty, ()
+        positions = dict(self._uncertainty.sat_pos_ric_m)
+        applied: list[EphemerisAllowance] = []
+        for sat, (scale, capped) in sorted(used.items()):
+            widened = self._allowance_base[sat] * scale
+            positions[sat] = widened
+            sigma = (float(widened[0]), float(widened[1]), float(widened[2]))
+            applied.append(EphemerisAllowance(sat, float(scale), sigma, capped))
+        return replace(self._uncertainty, sat_pos_ric_m=positions), tuple(applied)
+
+    def _allowance_changed(self, record: EventRecord) -> bool:
+        """Whether the published solution of ``record`` was solved with another ephemeris
+        allowance than the one in force (its rows are then solved again)."""
+        if record.solution_out is None:
+            return False
+        entries = self._solvable_entries(record)
+        if len(entries) < 2:
+            return False
+        _, allowance = self._solve_uncertainty(tuple(e.measurement for e in entries))
+        return allowance != record.solution_allowance
+
+    @staticmethod
+    def _allowance_text(allowance: Sequence[EphemerisAllowance]) -> str | None:
+        """The status sentence for a published solution solved with an ephemeris
+        allowance, or None."""
+        if not allowance:
+            return None
+        listed = _and_list(
+            [
+                f"{a.sat_id} ({a.scale:.2g} times its configured sigma, about "
+                f"{max(a.sigma_ric_m) / 1000.0:.2g} km{', the largest scale allowed' if a.capped else ''})"
+                for a in allowance
+            ]
+        )
+        which = "position" if len(allowance) == 1 else "positions"
+        tail = (
+            " The allowance may still be too small: the transmitter may lie outside the ellipse."
+            if any(a.capped for a in allowance)
+            else ""
+        )
+        return (
+            f"The ellipse includes an allowance for the {which} of {listed}: the reference calibrations put "
+            f"{'it' if len(allowance) == 1 else 'them'} wrong beyond the configured uncertainty.{tail}"
+        )
 
     @property
     def captures_in_flight(self) -> int:
@@ -2932,7 +3333,7 @@ class Tasking:
                 logger.warning("correlation surface of %s not shown: %s", event_id, exc, extra={"event_id": event_id})
 
         # ---- solve --------------------------------------------------------------------------
-        if new_used or self._has_unsolved_rows(record, state):
+        if new_used or self._has_unsolved_rows(record, state) or self._allowance_changed(record):
             await self._solve_event(event_id, state, report, generation)
 
         failed_keys = [k for k in report.failures if not k.startswith("ref:")]
@@ -2954,9 +3355,9 @@ class Tasking:
         explanation = round_explanation(report.pairs)
         if explanation:
             parts.append(explanation)
-        self._book.set_satellite_doubt(
-            event_id, {s for e in self.site_clock_estimates() for s in e.suspect_satellite_ids}
-        )
+        doubted = {s for e in self.site_clock_estimates() for s in e.suspect_satellite_ids}
+        self._book.set_satellite_doubt(event_id, doubted)
+        self._update_allowance(doubted)  # the next solve uses it
         if new_used:
             state.unlocatable_reason = None
         elif explanation in (EXPLAIN_AMBIGUOUS, EXPLAIN_COUPLED):
@@ -2969,6 +3370,9 @@ class Tasking:
             parts.append(f"Satellite {sat_id}: orbit not available ({why}); its pairs are not tasked.")
         if state.fit_note:
             parts.append(state.fit_note)
+        allowance_note = self._allowance_text(record.solution_allowance) if record.solution_out is not None else None
+        if allowance_note:
+            parts.append(allowance_note)
         state.message = " ".join(parts) or None
         state.state = "waiting"
         self._publish_status(state)
@@ -3091,7 +3495,7 @@ class Tasking:
         for problem in outcome.problems:
             report.notes.append(f"calibration with {plan.carrier_id}: {problem}")
         snr = _finite(outcome.result.snr_db) or 0.0
-        for kind, correction, cal in outcome.corrections:
+        for kind, correction, cal, position, media in outcome.corrections:
             if self._world_since_ns is not None and int(cal.t_ns) < self._world_since_ns:
                 report.notes.append(f"calibration with {plan.carrier_id} measured before the simulated world changed")
                 continue
@@ -3106,6 +3510,8 @@ class Tasking:
                 b_transponder_id=plan.b.transponder_id,
                 f_ref_hz=plan.f_ref_hz,
                 snr_db=snr,
+                position_partials=position,
+                media_partials=media,
             )
             self._calibrations[(key, plan.carrier_id)] = entry
             report.calibrations.append(entry)
@@ -3532,10 +3938,9 @@ class Tasking:
         if len(new) < SPLIT_MIN_ROWS or len(old) < 2:
             return None
         cfg = self._config.processing
-        job = _SolveJob(
-            tuple(e.measurement for e in new), self._orbits, self._sites_xyz, cfg.solver, cfg.region,
-            self._uncertainty, None,
-        )
+        new_rows = tuple(e.measurement for e in new)
+        uncertainty, allowance = self._solve_uncertainty(new_rows)
+        job = _SolveJob(new_rows, self._orbits, self._sites_xyz, cfg.solver, cfg.region, uncertainty, None)
         solution, _ = await self._pool.run(_solve, job)
         self._abort_if_stale(generation)
         if solution is None or not assess_fit(solution.chi2, solution.dof, solution.reduced_chi2, limit).consistent:
@@ -3560,7 +3965,7 @@ class Tasking:
         try:
             self._book.set_solution(
                 event_id, solution, self._clock(), used=new_seqs, max_reduced_chi2=limit,
-                max_semi_major_m=fix_semi_major_limit_m(self._config.processing.region),
+                max_semi_major_m=fix_semi_major_limit_m(self._config.processing.region), allowance=allowance,
             )
         except ValueError as exc:
             logger.error("solution of %s not attached: %s", event_id, exc, extra={"event_id": event_id})
@@ -3636,8 +4041,10 @@ class Tasking:
                 + [(float(a.lat_deg), float(a.lon_deg)) for a in previous.ambiguities]
             )
 
+        uncertainty, allowance = self._solve_uncertainty(rows)
+
         def job(start_points: tuple[tuple[float, float], ...] | None) -> _SolveJob:
-            return _SolveJob(rows, self._orbits, self._sites_xyz, cfg.solver, cfg.region, self._uncertainty, start_points)
+            return _SolveJob(rows, self._orbits, self._sites_xyz, cfg.solver, cfg.region, uncertainty, start_points)
 
         solution, reason = await self._pool.run(_solve, job(starts))
         self._abort_if_stale(generation)
@@ -3656,7 +4063,7 @@ class Tasking:
         try:
             self._book.set_solution(
                 event_id, solution, t_ns, used=seqs if solution is not None else (), reason=reason,
-                max_reduced_chi2=limit, max_semi_major_m=fix_semi_major_limit_m(cfg.region),
+                max_reduced_chi2=limit, max_semi_major_m=fix_semi_major_limit_m(cfg.region), allowance=allowance,
             )
         except ValueError as exc:
             self._count("solve_errors")

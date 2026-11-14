@@ -36,7 +36,10 @@ capture is served whole from the world in force at its **first** sample, and one
 straddles a change says so in a log line. A read whose first sample falls after an
 announced version that has not been fetched yet waits for it (at most `world_wait_s`).
 At most two worlds are kept: once a third arrives the oldest is dropped, and an
-interval that only it could serve is answered with `too_late`. The first world a
+interval that only it could serve is answered with `too_late`. A world in force within
+`lookback_s` of the newest interval asked for is not dropped, though (two scenario
+changes a moment apart announce two versions at once): it stays above the limit until
+its successor has served for `lookback_s`, and at most `MAX_KEPT_WORLDS` are held. The first world a
 source ever fetches also serves earlier times (there is nothing older to serve them
 from). A version that was replaced on the server before this node could fetch it
 cannot be rendered: intervals in its time are refused with `driver`. Opening a driver
@@ -111,6 +114,7 @@ __all__ = [
     "DEFAULT_CONCURRENT_READS",
     "DEFAULT_LOOKBACK_S",
     "MAX_DOCUMENT_BYTES",
+    "MAX_KEPT_WORLDS",
     "MAX_WORLDS",
     "BackplaneDocument",
     "BackplaneError",
@@ -139,7 +143,11 @@ renders in the node's worker pool, so a capture waiting for its end must not hol
 the spectrum frames of the same channel."""
 
 MAX_WORLDS: Final[int] = 2
-"""World versions a source keeps: the one in force and the one before it."""
+"""World versions a source keeps: the one in force and the one before it (more while an
+older one still serves the lookback: `WorldTimeline.note_read`)."""
+
+MAX_KEPT_WORLDS: Final[int] = 8
+"""World versions a source holds at most, whatever the lookback still needs."""
 
 MAX_DOCUMENT_BYTES: Final[int] = 32 * 1024 * 1024
 """Largest backplane document accepted, bytes."""
@@ -343,16 +351,23 @@ class WorldTimeline:
     effect no later than an older one cancels the older one.
 
     max_worlds: how many built worlds are kept (at least 1).
+    keep_ns: how far back from the newest time read (`note_read`) intervals must stay
+        servable, ns: a world in force then is kept above `max_worlds` (never above
+        `MAX_KEPT_WORLDS`). Without a read nothing is kept above `max_worlds`.
     """
 
-    def __init__(self, max_worlds: int = MAX_WORLDS) -> None:
+    def __init__(self, max_worlds: int = MAX_WORLDS, keep_ns: int = 0) -> None:
         if isinstance(max_worlds, bool) or not isinstance(max_worlds, int) or max_worlds < 1:
             raise ValueError(f"max_worlds: must be an integer of at least 1, got {max_worlds!r}")
+        if isinstance(keep_ns, bool) or not isinstance(keep_ns, int) or keep_ns < 0:
+            raise ValueError(f"keep_ns: must be an integer of at least 0, got {keep_ns!r}")
         self._max = max_worlds
+        self._keep_ns = keep_ns
         self._held: list[WorldVersion] = []  # ascending effective_ns and version
         self._announced: dict[int, int] = {}  # version -> effective_ns, not held
         self._required = -1  # a version known to exist, time unknown (welcome)
         self._floor_ns: int | None = None
+        self._latest_ns: int | None = None  # the newest labelled time read (note_read)
 
     @property
     def held(self) -> tuple[WorldVersion, ...]:
@@ -403,7 +418,9 @@ class WorldTimeline:
         every world held. Worlds and announcements that would only take effect at or
         after it but are older are dropped (they never take effect). When more than
         `max_worlds` remain, the oldest is dropped and the floor moves to the
-        `effective_ns` of the next one."""
+        `effective_ns` of the next one, except that a world in force within `keep_ns`
+        of the newest time read (`note_read`) is kept: two versions announced a moment
+        apart must not push out the world serving now and the lookback."""
         if self._held and entry.version <= self._held[-1].version:
             return False
         self._held = [h for h in self._held if h.effective_ns < entry.effective_ns]
@@ -413,12 +430,27 @@ class WorldTimeline:
             for v, e in self._announced.items()
             if v != entry.version and not (v < entry.version and e >= entry.effective_ns)
         }
-        while len(self._held) > self._max:
+        self._trim()
+        return True
+
+    def note_read(self, t_ns: int) -> None:
+        """Record that a reader asked for labelled time `t_ns` (UTC ns). A world in force
+        within `keep_ns` before the newest such time is not dropped; one kept above
+        `max_worlds` is dropped once its successor took effect `keep_ns` before it."""
+        t_ns = int(t_ns)
+        if self._latest_ns is None or t_ns > self._latest_ns:
+            self._latest_ns = t_ns
+            self._trim()
+
+    def _trim(self) -> None:
+        limit = None if self._latest_ns is None else self._latest_ns - self._keep_ns
+        while len(self._held) > self._max and (
+            limit is None or self._held[1].effective_ns <= limit or len(self._held) > MAX_KEPT_WORLDS
+        ):
             self._held.pop(0)
             oldest = self._held[0]
             self._floor_ns = oldest.effective_ns
             self._announced = {v: e for v, e in self._announced.items() if v > oldest.version}
-        return True
 
     def lookup(self, t_ns: int) -> Lookup:
         """Which world serves labelled time `t_ns` (UTC ns); see `Lookup`."""
@@ -596,6 +628,8 @@ class SimWorldSource:
         `min(retry_base_s * 2**(k-1), retry_max_s)` plus up to 20 % jitter, seconds.
         An explicit request (`refresh`, `announce`) cuts the wait short.
     max_worlds: world versions kept (2).
+    lookback_s: how far back from the newest time asked for intervals stay servable
+        across version changes, seconds (`WorldTimeline` keep_ns).
     jitter_key: seeds the retry jitter (the site id), so that the nodes of a
         deployment do not retry in step and every run retries alike.
 
@@ -616,6 +650,7 @@ class SimWorldSource:
         retry_base_s: float = 0.5,
         retry_max_s: float = 15.0,
         max_worlds: int = MAX_WORLDS,
+        lookback_s: float = DEFAULT_LOOKBACK_S,
         jitter_key: str = "",
     ) -> None:
         if not isinstance(url, str) or not re.match(r"https?://", url):
@@ -647,7 +682,11 @@ class SimWorldSource:
         self._retry = (float(retry_base_s), float(retry_max_s))
         seed = hashlib.blake2b(f"sim-retry|{jitter_key}".encode(), digest_size=8).digest()
         self._rng = random.Random(int.from_bytes(seed, "little"))
-        self._timeline = WorldTimeline(max_worlds)
+        if isinstance(lookback_s, bool) or not isinstance(lookback_s, (int, float)) or not (
+            math.isfinite(lookback_s) and lookback_s >= 0
+        ):
+            raise ValueError(f"lookback_s: must be finite and not negative, got {lookback_s!r}")
+        self._timeline = WorldTimeline(max_worlds, keep_ns=round(lookback_s * _NS))
         self._requested = 0  # explicit fetch requests made
         self._attempted = 0  # highest request covered by a finished attempt
         self._completed = 0  # highest request covered by a successful attempt
@@ -681,7 +720,8 @@ class SimWorldSource:
 
     @property
     def versions(self) -> tuple[WorldVersion, ...]:
-        """The worlds held, oldest first (at most `max_worlds`)."""
+        """The worlds held, oldest first (at most `max_worlds`, more while an older one
+        still serves intervals within the lookback of the newest asked for)."""
         return self._timeline.held
 
     @property
@@ -819,6 +859,7 @@ class SimWorldSource:
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + wait_s
+        self._timeline.note_read(t_ns)  # worlds serving the lookback of this time are kept
         while True:
             if self._closed:
                 raise CaptureError("driver", "the simulated world source is closed")
@@ -1241,6 +1282,7 @@ class SimDriver:
                     fetch_timeout_s=self._fetch_timeout_s,
                     retry_base_s=self._retry_base_s,
                     retry_max_s=self._retry_max_s,
+                    lookback_s=self._lookback_s,
                     jitter_key=ctx.site_id,
                 ),
             )

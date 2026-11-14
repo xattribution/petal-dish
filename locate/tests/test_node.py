@@ -2278,3 +2278,91 @@ def test_system_clock_offset_shifts_labelled_time_only_when_asked() -> None:
         SystemClock(offset_ns=1.5)  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         SystemClock(offset_ns=-time.time_ns() - NS)  # before 1970
+
+
+# --------------------------------------------------------------------------- closing S1
+
+
+def test_two_versions_announced_a_moment_apart_keep_the_worlds_still_needed() -> None:
+    """Closing S1: two presets loaded about 100 ms apart announce two versions at once.
+    Installing both used to drop the world still in force (at most two are kept), so
+    every monitor frame and capture until the first of them took effect failed with
+    `too_late`, one WARNING per monitor of every channel. A world in force within
+    `keep_ns` of the newest time read now stays until its successor has served that
+    long; the timeline is back to two worlds then, and never holds more than
+    `MAX_KEPT_WORLDS`."""
+    from petal_locate.node.drivers.sim import MAX_KEPT_WORLDS, WorldTimeline, WorldVersion
+
+    def entry(version: int, effective_ns: int) -> WorldVersion:
+        return WorldVersion(version, effective_ns, f"world-{version}")  # type: ignore[arg-type]
+
+    timeline = WorldTimeline(max_worlds=2, keep_ns=30)
+    timeline.install(entry(1, 100))
+    timeline.note_read(150)  # a monitor frame now
+    timeline.install(entry(2, 200))
+    timeline.install(entry(3, 210))  # 10 units later
+    assert [h.version for h in timeline.held] == [1, 2, 3] and timeline.floor_ns is None
+    assert timeline.lookup(160).world.version == 1  # type: ignore[union-attr]
+    timeline.note_read(215)  # version 3 serves now; 185 (the lookback) still needs version 1
+    assert [h.version for h in timeline.held] == [1, 2, 3]
+    assert timeline.lookup(190).world.version == 1  # type: ignore[union-attr]
+    assert timeline.lookup(205).world.version == 2  # type: ignore[union-attr]
+    timeline.note_read(231)  # the lookback starts after version 2 took effect: version 1 goes
+    assert [h.version for h in timeline.held] == [2, 3] and timeline.floor_ns == 200
+    assert timeline.lookup(160).kind == "gone"
+    # without a read the rule is the old one (nothing says version 1 is in use)
+    bare = WorldTimeline(max_worlds=2, keep_ns=30)
+    for version, effective in ((1, 100), (2, 200), (3, 210)):
+        bare.install(entry(version, effective))
+    assert [h.version for h in bare.held] == [2, 3]
+    # a long lookback never holds more than MAX_KEPT_WORLDS
+    busy = WorldTimeline(max_worlds=2, keep_ns=10**6)
+    busy.note_read(0)
+    for version in range(1, 20):
+        busy.install(entry(version, 100 + version))
+    assert len(busy.held) == MAX_KEPT_WORLDS and busy.held[-1].version == 19
+
+
+async def test_a_source_serves_the_lookback_while_two_new_versions_take_over(caplog: pytest.LogCaptureFixture) -> None:
+    """Closing S1, through `SimWorldSource` and real worlds: version 1 in force, versions 2
+    and 3 announced 100 ms apart and both fetched. Intervals before version 2 takes
+    effect are still served from version 1 (they were refused with `too_late`), also by
+    a capture asked for after version 3 serves, and no warning is logged; once version
+    2 has served for the lookback, version 1 is dropped as before."""
+    import httpx
+
+    from petal_locate.node.drivers.sim import DEFAULT_LOOKBACK_S, SimWorldSource, backplane_url
+    from test_sim_driver import PATH, T_NOW, document, scenario  # tests/ is on sys.path
+
+    caplog.set_level(logging.WARNING)
+    current: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=current["doc"], headers={"content-type": "application/json"})
+
+    effective = {1: T_NOW - 100 * NS, 2: T_NOW + 2 * NS, 3: T_NOW + 2 * NS + 100_000_000}
+    worlds = {1: scenario(), 2: scenario(eirp_dbw=26.0), 3: scenario(tone=True)}
+    current["doc"] = document(1, effective[1], worlds[1])
+    source = SimWorldSource(backplane_url("http://backplane.test", PATH), "t", proxy=None,
+                            transport=httpx.MockTransport(handler))
+    try:
+        newest, problem = await source.refresh(10.0)
+        assert newest.version == 1 and problem is None
+        assert (await source.world_at(T_NOW - NS, 1.0)).world.version == 1  # type: ignore[union-attr]
+        for version in (2, 3):
+            current["doc"] = document(version, effective[version], worlds[version])
+            assert await source.announce(version, effective[version], 10.0)
+        assert [v.version for v in source.versions] == [1, 2, 3]
+        for t_ns, version in ((T_NOW, 1), (effective[2] + 50_000_000, 2), (effective[3] + NS, 3),
+                              (effective[2] - 160_000_000, 1)):  # a capture just before the change
+            assert (await source.world_at(t_ns, 1.0)).world.version == version  # type: ignore[union-attr]
+        assert [v.version for v in source.versions] == [1, 2, 3]
+        later = effective[2] + round(DEFAULT_LOOKBACK_S * NS) + NS
+        assert (await source.world_at(later, 1.0)).world.version == 3  # type: ignore[union-attr]
+        assert [v.version for v in source.versions] == [2, 3]
+        with pytest.raises(CaptureError) as info:
+            await source.world_at(T_NOW, 1.0)  # version 1's time, now beyond the lookback
+        assert info.value.code == "too_late"
+    finally:
+        await source.aclose()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

@@ -1943,7 +1943,9 @@ def test_defaults_of_the_architecture_document() -> None:
         "sat_osc_frac": 1e-6, "site_osc_frac": 1e-11, "tdoa_bias_ns": 50.0,
         "iono_vtec_tecu": 30.0, "iono_correlation": 0.5, "tropo_zenith_m": 2.4, "tropo_correlation": 0.9,
     }
-    assert p.calibration.model_dump() == {"enabled": True, "interval_s": 30.0, "max_age_s": 300.0}
+    assert p.calibration.model_dump() == {
+        "enabled": True, "interval_s": 30.0, "max_age_s": 300.0, "ephemeris_allowance_max_scale": 20.0
+    }
     assert p.region.model_dump() == {"lat_min": -70.0, "lat_max": 70.0, "lon_min": -180.0, "lon_max": 180.0}
     (monitor,) = channel.monitors  # 1.25 * 40 kHz = 50 kHz centred on the 260 MHz downlink
     assert (monitor.center_hz, monitor.span_hz, monitor.nfft, monitor.navg, monitor.frame_rate_hz) == (260.0e6, 50e3, 1024, 8, 2.0)

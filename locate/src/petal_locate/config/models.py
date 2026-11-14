@@ -988,11 +988,19 @@ class UncertaintyConfig(_Model):
 
 
 class CalibrationConfig(_Model):
-    """Reference-emitter calibration schedule. interval_s, max_age_s: seconds."""
+    """Reference-emitter calibration schedule. interval_s, max_age_s: seconds.
+
+    ephemeris_allowance_max_scale: largest factor by which the server widens the
+    position sigma of a satellite whose position the calibrations put wrong beyond its
+    configured uncertainty, for the live solves (MATH.md section 9, *ephemeris
+    allowance*); 20 takes an operator-grade sigma to about the TLE-grade one. 1 turns
+    the allowance off (the advice then only warns).
+    """
 
     enabled: bool = True
     interval_s: PositiveFloat = 30.0
     max_age_s: PositiveFloat = 300.0
+    ephemeris_allowance_max_scale: float = Field(20.0, ge=1.0, le=1000.0)
 
 
 class Region(_Model):

@@ -1010,6 +1010,66 @@ def test_calibration_removes_a_common_ephemeris_offset() -> None:
     assert nees(en_error(cal_unc), cal_unc.cov_en_m2) < 9.0
 
 
+def test_reference_position_partials_are_the_predictor_differences_of_a_displaced_satellite() -> None:
+    """``reference_position_partials``: d(reference row)/d(RIC position) per satellite, from
+    scalar predictor calls with a satellite displaced 1 km along each RIC axis; one
+    satellite on both paths (a clock check: its copy at two sites) has a single entry."""
+    ref = _ref_rows(ORBITS, T_NS)[0]
+    _, cal = sv.calibration_correction(ref, X_REF, ORBITS, SITES, "p-1")
+    partials = sv.reference_position_partials("tdoa", cal, ORBITS, SITES)
+    assert set(partials) == {"sat1", "sat2"}
+    base = _h("tdoa", cal.a, cal.b, cal.t_ns, X_REF, ORBITS)
+    for sat in ("sat1", "sat2"):
+        for comp in range(3):
+            moved = dict(ORBITS)
+            offset = np.zeros(3)
+            offset[comp] = 1000.0
+            moved[sat] = ob.PerturbedOrbit(ORBITS[sat], offset, [0.0, 0.0, 0.0], sec(cal.t_ns))
+            expected = (_h("tdoa", cal.a, cal.b, cal.t_ns, X_REF, moved) - base) / 1000.0
+            assert partials[sat][comp] == pytest.approx(expected, rel=1e-6, abs=1e-16)
+    same = CalRef("p-2", X_REF, PathSpec("sat1", "hnl", F_REF, -41.0e6), PathSpec("sat1", "tyo", F_REF, -41.0e6), T_NS, 1e-7)
+    both = sv.reference_position_partials("tdoa", same, ORBITS, SITES)
+    assert set(both) == {"sat1"}
+    assert abs(both["sat1"][1]) > 1e-10  # the two sites see an in-track shift differently
+    with pytest.raises(ValueError, match="kind"):
+        sv.reference_position_partials("toa", cal, ORBITS, SITES)
+    with pytest.raises(ValueError):
+        sv.reference_position_partials("tdoa", CalRef("p-3", X_REF, PathSpec("nope", "hnl", F_REF, 0.0), cal.b, T_NS, 1e-7),
+                                       ORBITS, SITES)
+
+
+def test_a_widened_satellite_sigma_covers_an_ephemeris_error_beyond_the_configured_one() -> None:
+    """D1: satellite 1 is 8 km off cross-track while the solver budgets operator-grade
+    100 m / 1 km / 1 km. Calibrated against a reference 1,900 km away, the uncancelled
+    part of that error moves the fix 1.3 km, far outside its 0.6 km ellipse (rows as
+    precise as many averaged ones, noise-free here: pure bias). With satellite 1's
+    position sigma widened eightfold, the scale tasking sizes from the calibrations
+    (``ephemeris_scale``), the solve weights the rows that feel it less and its consider
+    covariance holds the rest: the truth is inside the 95 % ellipse, which grows only
+    about 2.4 times."""
+    truth_orbits = dict(ORBITS)
+    truth_orbits["sat1"] = ob.PerturbedOrbit(ORBITS["sat1"], [0.0, 0.0, 8000.0], [0.0, 0.0, 0.0], sec(T_NS))
+    target = truth_rows(orbits=truth_orbits, sigma_t=30e-9, sigma_f=2e-3)
+    calibrated = _calibrate(target, _ref_rows(truth_orbits, T_NS - int(20e9), sigma_t=30e-9, sigma_f=2e-3))
+    limit = float(stats.chi2.ppf(0.95, 2))
+
+    def solved(scale: float) -> sv.Solution:
+        unc = Uncertainty(
+            sat_pos_ric_m={s: np.array([100.0, 1000.0, 1000.0]) * (scale if s == "sat1" else 1.0) for s in ORBITS},
+            sat_vel_ric_mps={s: np.array([0.02, 0.02, 0.05]) for s in ORBITS},
+        )
+        sol, reason = sv.solve(calibrated, ORBITS, SITES, CFG, Region(), uncertainty=unc)
+        assert sol is not None, reason
+        return sol
+
+    configured, widened = solved(1.0), solved(8.0)
+    assert nees(en_error(configured), configured.cov_en_m2) > 4.0 * limit  # outside: NEES about 38
+    assert miss_m(configured) > 2.0 * configured.ellipse["semi_major_m"]
+    assert nees(en_error(widened), widened.cov_en_m2) < limit / 4.0
+    assert miss_m(widened) < 0.5 * miss_m(configured)  # the rows that feel satellite 1 weigh less
+    assert widened.ellipse["semi_major_m"] < 3.0 * configured.ellipse["semi_major_m"]
+
+
 @pytest.mark.slow
 def test_rows_sharing_one_reference_measurement_nees_monte_carlo() -> None:
     """Three epochs of target rows per (pair, kind) share one reference measurement each.

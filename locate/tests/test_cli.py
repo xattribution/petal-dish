@@ -356,7 +356,18 @@ def test_accuracy_reference_may_be_the_nearest_one(files: dict[str, Path], capsy
             "--f-e-hz", "300e6", "--eirp-dbw", "20", "--bandwidth-hz", "10000", "--step-deg", "10",
             "--pair", "alpha-a,bravo-b"]
     assert cli.main([*base, "--reference-carrier", "nearest", "--out", str(out)]) == 0
-    schemas.AccuracyGrid.model_validate_json(out.read_text())
+    grid = schemas.AccuracyGrid.model_validate_json(out.read_text())
+    # closing D2: the JSON says, per pair, why it is uncalibrated (300 MHz +/- 5 kHz overlaps ref-1)
+    cells = len(grid.lat_deg) * len(grid.lon_deg)
+    [pair] = grid.pairs
+    assert (pair.a_channel, pair.b_channel, pair.a_sat_id, pair.b_sat_id) == ("alpha-a", "bravo-b", "sat-a", "sat-b")
+    assert pair.reference_cells == {"none": cells} and pair.uncalibrated_cells == cells and pair.calibrated == []
+    assert pair.reference_reason is not None and "ref-1 overlaps the target band" in pair.reference_reason
+    assert json.loads(out.read_text())["pairs"][0]["reference_cells"] == {"none": cells}
+    assert cli.main([*base, "--reference-carrier", "nearest", "--f-e-hz", "300.004e6", "--bandwidth-hz", "4000",
+                     "--out", str(out)]) == 0
+    [pair] = schemas.AccuracyGrid.model_validate_json(out.read_text()).pairs
+    assert pair.reference_cells == {"ref-1": cells} and pair.calibrated == ["tdoa", "fdoa"] and pair.uncalibrated_cells == 0
     assert cli.main([*base, "--reference-carrier", "nearby"]) == 2
     assert "unknown carrier 'nearby'" in capsys.readouterr().err
 

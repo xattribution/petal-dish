@@ -975,7 +975,8 @@ uncorrelated (different kinds).
   `+f_tune,B` for site b); per-satellite oscillator error (FDOA partial `+T_nom,i`,
   `-T_nom,j`); per-pair TDOA bias (partial 1, sign following the orientation of the
   pair); one parameter per distinct reference measurement (below); the propagation
-  media (below).
+  media (below). The live server widens the position sigma of a satellite the
+  calibrations put wrong beyond it (*ephemeris allowance*, below).
 - **Propagation media** (`processing.uncertainty.iono_vtec_tecu`, `iono_correlation`,
   `tropo_zenith_m`, `tropo_correlation`; defaults 30 TECU with correlation 0.5 and
   2.4 m with correlation 0.9; a sigma of 0 turns that medium off). Since `h` applies no
@@ -1153,6 +1154,76 @@ uncorrelated (different kinds).
   fit), is a caution: a clock fault when two or more satellites agree, else either the
   clock or the satellite it was seen through (the message says both). Two sites whose
   difference alone is known (a cluster of two) are both judged on their difference.
+- **Ephemeris allowance** (server, `tasking.satellite_position_evidence`,
+  `tasking.ephemeris_scale`, `Tasking._update_allowance`). The satellites the clock checks
+  name (`SiteClockEstimate.suspect_satellite_ids`, the *doubt*) are wrong beyond their
+  configured sigma, and the consider covariance above, which budgets for that sigma,
+  then understates the error: live, in the ephemeris-error scenario, the ellipse shrank
+  below the uncancelled part of the satellites' errors once about 40 rows had averaged
+  the noise down, and the truth stayed outside from then on. The live solve therefore
+  widens a doubted satellite's position sigma by a factor `k` sized from the same
+  calibrations:
+  1. *Evidence.* Every TDOA calibration held (pairs and clock checks, within
+     `calibration.max_age_s`) is one row of a linear model
+     `c = o_a - o_b + e_a - e_b + sum_s P_s dr_s + m + n`: free site clocks `o`, free
+     per-satellite common delays `e` (transponder, and the part of a position error
+     every site sees alike), each satellite's RIC position error `dr_s` with partials
+     `P_s` at the reference position and epoch (`core.solver.reference_position_partials`,
+     the solver's own differences), the propagation media `m` per ground end exactly as
+     in the solver (`core.media`, the same sigmas and correlations), and the reference's
+     CAF noise plus the pair bias `n`. The free parameters are projected out (whatever a
+     per-site offset or a per-satellite delay can explain is given to them, so a clock
+     fault reads as nothing about a position), and `dr = diag(sigma) u` is estimated with
+     the configured prior `u ~ N(0, I)`: the posterior mean `u_hat` (the smallest error,
+     in configured sigmas, that explains the calibrations; directions they do not
+     determine stay near zero) and covariance `C_u`. The evidence is
+     `d = |u_hat|` (the error's size in configured sigmas, `PositionEvidence.norm`) and
+     `s_d = sqrt(g^T C_u g)`, `g = u_hat / d` (its one-sigma uncertainty, at most 1).
+  2. *Scale.* `k = max(3, d + 2 s_d)`, rounded up to the next quarter octave
+     (1, 1.19, 1.41, 1.68, 2, ...) and at most `calibration.ephemeris_allowance_max_scale`
+     (default 20, an operator-grade sigma taken to about TLE grade); the widened sigma
+     is `k` times the configured one on all three axes (a component configured as zero
+     takes the operator-grade default). Why this size: with `k >= d` the error the
+     calibrations show lies on or inside the one-sigma surface of the widened prior
+     `k^2 diag(sigma^2)`, and a linear map never raises a Mahalanobis distance, so that
+     satellite's part of the position error lies within one sigma of the position
+     covariance it contributes, in every direction and for any geometry; for two such
+     satellites the sum lies within `sqrt(2)` sigmas (`x^T (P1 + P2)^-1 x <=
+     x1^T P1^-1 x1 + x2^T P2^-1 x2`), well inside the 2.45 sigma of the 95 % ellipse,
+     which leaves room for the noise. `2 s_d` covers the estimate's own uncertainty (a
+     one-sided 97.7 % bound along the error); the floor 3 is what the doubt itself
+     implies (it needs views through two satellites to differ by at least three times
+     the configured site-dependent allowance), and is the rule when the calibrations
+     barely determine the position (`s_d` near 1, `d` near 0). With no evidence to size
+     (no partials, a failed fit) the scale is the cap and is flagged `capped`, as is a
+     scale the evidence puts beyond the cap. Only the position sigma is widened: the
+     calibrations measure delays at one instant, which say nothing about a velocity
+     error, and widening the velocity sigma by the same factor tripled the ellipse in
+     the scenario (1 km instead of 0.3 km) without being needed.
+  3. *Hysteresis.* Each round end sizes the doubted satellites; the scale in force is
+     the largest sized within the last `calibration.max_age_s` (the life of the
+     calibrations that showed the error), so it rises at once, falls only when that
+     evidence has aged out, and returns to the configured sigma `max_age_s` after the
+     doubt clears. A new scale applies from the next solve (a round re-solves when the
+     scale in force differs from the published solution's), and the event's history
+     says "ellipse widened: ..." when it does.
+  Without doubt nothing changes: the solve gets the configured `Uncertainty` object
+  itself, so pacific-demo, two-jammers and clock-fault solve exactly as before (a clock
+  caution names no satellite, and the free clocks of the evidence fit read a clock
+  fault as no position error at all). The Monte Carlo, the accuracy maps and the
+  capability study have no live calibrations and never widen. Measured offline on the
+  ephemeris-error world (the tasking test harness, 03 UTC, 30 rounds of 5 s): the
+  evidence put MUOS Pacific 6.0 km ahead and the 172 E satellite 6.8 km behind in-track
+  (truth 8 and 6 km), the scales came to 4 within two rounds and to 8 and 9.5 by 75 s,
+  and every published ellipse held the truth (miss 53 to 103 m, 95 % semi-major 318 to
+  435 m), where before the truth fell outside from 42 rows on (150 to 190 m off a 255 to
+  285 m ellipse); the widened solve also weights the rows that feel those satellites
+  less, so the miss itself halved. The fit is a minimum-norm one: an error that two
+  satellites see the network alike through (MUOS Pacific and the 172 E satellite, 11
+  degrees apart) is shared between them when only one is off (8 km on one gave about 5
+  and -3 km), but their difference, which is what a calibrated pair through both feels,
+  is right and their combined allowance covers it; a satellite seen only from clustered
+  sites shows some directions weakly (LIMITATIONS.md section 4).
 - Stationary emitter assumed; multi-epoch fusion is just more rows.
 
 ## 10. Accuracy prediction

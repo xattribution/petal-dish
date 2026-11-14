@@ -34,7 +34,9 @@ What the scenarios must show (config/scenarios/*.yaml):
 - ephemeris-error: two satellites kilometres off in-track (TLE-class) while the solver
   assumes 1 km: the calibrated fix holds the truth inside its ellipse, and the same rows
   solved without their corrections land more than 10 km off; no healthy clock is blamed
-  with confidence (a caution names the satellite alternative).
+  with confidence (a caution names the satellite alternative); the clock checks name the
+  two satellites, the solves widen their position sigma, and a fix from 50 rows still
+  holds the truth, its advice saying that the ellipse includes that allowance.
 - uplink-swept: ambiguous correlations and no false position.
 - two-jammers: two separate events, each located near its own jammer.
 - pacific-demo, then ephemeris-error loaded with no break (another jammer on the same
@@ -679,7 +681,10 @@ async def test_ephemeris_error_is_removed_by_the_reference_calibration(demo: Dem
     """MUOS Pacific is 8 km ahead and the 172 E satellite 6 km behind in-track while the
     server assumes the operator-grade 1 km. The Guam reference, 560 km from the jammer,
     carries nearly the same satellite errors: calibrated, the truth is inside the
-    ellipse; the very same rows without their corrections land more than 10 km off."""
+    ellipse; the very same rows without their corrections land more than 10 km off. The
+    part of the errors the calibration leaves outgrew the ellipse once tens of rows had
+    averaged the noise down: the clock checks size an allowance for both satellites and
+    a fix from 50 rows holds the truth too."""
     async with _scenario(demo, "ephemeris-error") as (client, console, known):
 
         async def located() -> dict[str, Any] | None:
@@ -715,17 +720,30 @@ async def test_ephemeris_error_is_removed_by_the_reference_calibration(demo: Dem
             if row["caution"]:
                 assert "or the position of" in row["message"] or "or the positions of" in row["message"], row
 
-        # final recheck: the satellites the clock checks put off are named, and the located
-        # event's advice says its ellipse does not include that error
-        async def doubted() -> dict[str, Any] | None:
-            suspects = {s for row in (await _site_clocks(client)).values() for s in row.get("suspect_satellite_ids", [])}
+        # D1: the satellites the clock checks put off are named, the solves widen their
+        # position sigma by a scale sized from the calibrations, and the ellipse keeps the
+        # truth as the rows pile up (it used to fall outside from 46 rows on, the advice
+        # only warning that the transmitter may lie outside)
+        async def widened() -> dict[str, Any] | None:
             again = await _event(client, event["id"])
-            return again if suspects and "may lie outside" in again["advisory"]["detail"] else None
+            solution = again.get("solution") or {}
+            if again["state"] != "located" or solution.get("n_measurements", 0) < 50:
+                return None
+            detail = again["advisory"]["detail"]
+            return again if "The ellipse includes an allowance of about" in detail or (
+                "The ellipse includes allowances of about" in detail) else None
 
-        warned = await _wait_for(doubted, 90.0, "the advice to warn that the ellipse may miss")
+        later = await _wait_for(widened, 240.0, "a located fix from 50 rows whose ellipse includes the allowance")
+        _report("ephemeris-error later", later)
         suspects = {s for row in (await _site_clocks(client)).values() for s in row.get("suspect_satellite_ids", [])}
         assert suspects <= {"muos-pac", "uhf-172e"}, suspects
-        assert any("is in doubt, so the transmitter may lie outside this" in a for a in warned["advisory"]["actions"])
+        assert later["truth"]["inside_ellipse"] is True, later["truth"]
+        assert later["solution"]["ellipse"]["semi_major_m"] < 1_000.0  # widened, not blown up
+        assert "may lie outside" not in later["advisory"]["detail"]
+        assert any("the ellipse includes an allowance for the ephemeris of" in a for a in later["advisory"]["actions"])
+        assert any((t["reason"] or "").startswith("ellipse widened: the reference calibrations put the position")
+                   for t in later["transitions"])
+        assert "The ellipse includes an allowance for the position" in later["tasking"]["message"]
 
 
 @pytest.mark.slow

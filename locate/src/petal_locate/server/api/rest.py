@@ -77,9 +77,11 @@ __all__ = [
     "ACCURACY_MAX_CELLS",
     "ACCURACY_MAX_PAIRS",
     "ACCURACY_MAX_WAITING",
+    "ACCURACY_NO_REFERENCE",
     "ACCURACY_TIMEOUT_S",
     "LOP_MAX_CELLS",
     "MAX_BODY_BYTES",
+    "NO_ELIGIBLE_REFERENCE",
     "ApiProblem",
     "ApiState",
     "CatchAllMiddleware",
@@ -797,7 +799,8 @@ def compute_accuracy(
         parts.append(_accuracy_call(accuracy_map, cfg, request, t_ns, band))
         if progress is not None:
             progress(len(parts), len(bands))
-    return _merge_accuracy(t_ns, lat, lon, bands, request.step_deg, parts)
+    return _merge_accuracy(t_ns, lat, lon, bands, request.step_deg, parts, cfg=cfg, request=request,
+                           probe=_reference_probe(accuracy_map, cfg, request, t_ns))
 
 
 def accuracy_config(cfg: SystemConfig, request: schemas.AccuracyRequest) -> SystemConfig:
@@ -826,12 +829,283 @@ def _accuracy_call(accuracy_map: Callable[..., Mapping[str, Any]], cfg: SystemCo
     )
 
 
+def _reference_probe(accuracy_map: Callable[..., Mapping[str, Any]], cfg: SystemConfig,
+                     request: schemas.AccuracyRequest, t_ns: int) -> Callable[[str], Mapping[str, Any]]:
+    """``probe(carrier_id)``: ``accuracy_map`` of the request over one grid cell (the
+    region's first) with ``carrier_id`` as the named reference. Whether a carrier
+    calibrates a pair does not depend on the cell (core predicts the reference
+    measurement at the carrier's surveyed position), so its pair summaries say how that
+    carrier calibrates each pair where ``"nearest"`` chose it."""
+    region = request.region or cfg.processing.region
+    step = float(request.step_deg)
+    half = 0.5 * step  # a box narrower than one step holds one grid cell
+    cell = Region(
+        lat_min=region.lat_min,
+        lat_max=min(region.lat_max, region.lat_min + half),
+        lon_min=region.lon_min,
+        lon_max=float(wrap_lon_deg(region.lon_min + half)),
+    )
+
+    def probe(carrier_id: str) -> Mapping[str, Any]:
+        return accuracy_map(
+            accuracy_config(cfg, request),
+            [tuple(p) for p in request.pairs],
+            request.emitter,
+            float(request.f_e_hz),
+            int(t_ns),
+            cell,
+            step,
+            kinds=tuple(request.kinds),
+            reference_carrier_id=carrier_id,
+            integration_s=request.integration_s,
+        )
+
+    return probe
+
+
+ACCURACY_NO_REFERENCE: Final[str] = "none"
+"""Key of ``AccuracyPairSummary.reference_cells`` for cells without a usable reference
+(``"nearest"``: no eligible carrier; a named carrier: it does not calibrate the pair)."""
+
+NO_ELIGIBLE_REFERENCE: Final[str] = "no reference carrier clear of the target band is relayed by both transponders"
+"""``AccuracyPairSummary.reference_reason`` of the ``"nearest"`` cells with no eligible
+carrier (core's ``"none"``), before the parenthesis saying why each carrier is not."""
+
+
+def _overlaps_target(carrier: Any, request: schemas.AccuracyRequest) -> bool:
+    """Whether a carrier's band overlaps the target band ``f_e_hz +/- bandwidth_hz / 2``
+    (the eligibility rule of ``core.accuracy._nearest_reference_map``)."""
+    half_bw = 0.5 * float(request.emitter.bandwidth_hz)
+    f_ref, half = float(carrier.uplink_center_hz), 0.5 * float(carrier.bandwidth_hz)
+    return f_ref - half <= float(request.f_e_hz) + half_bw and float(request.f_e_hz) - half_bw <= f_ref + half
+
+
+def _no_eligible_reason(cfg: SystemConfig | None, request: schemas.AccuracyRequest,
+                        summary: Mapping[str, Any]) -> str | None:
+    """Why ``"nearest"`` found no eligible reference for a pair (``NO_ELIGIBLE_REFERENCE``
+    and, per reference carrier, the rule of ``core.accuracy._nearest_reference_map`` it
+    fails: its band overlaps the target's, or the pair's two transponders do not both
+    relay it). None when the pair's satellites and transponders are unknown."""
+    sat_a, sat_b = summary.get("a_sat_id"), summary.get("b_sat_id")
+    tp_a, tp_b = summary.get("a_transponder_id"), summary.get("b_transponder_id")
+    if not (sat_a and sat_b and tp_a and tp_b):
+        return None
+    why: list[str] = []
+    if cfg is not None:
+        try:
+            from petal_locate.core.accuracy import relaying_transponder
+        except ImportError:  # pragma: no cover - this build has no map at all
+            relaying_transponder = None
+        for carrier in cfg.reference_carriers():
+            f_ref = float(carrier.uplink_center_hz)
+            if _overlaps_target(carrier, request):
+                why.append(f"{carrier.id} overlaps the target band")
+                continue
+            if relaying_transponder is None:
+                continue
+            try:
+                ra = relaying_transponder(cfg.satellite(str(sat_a)), f_ref)
+                rb = relaying_transponder(cfg.satellite(str(sat_b)), f_ref)
+            except (ValueError, KeyError):
+                continue
+            if ra is None or rb is None or ra.id != tp_a or rb.id != tp_b:
+                why.append(f"{carrier.id} is not relayed by both {sat_a}/{tp_a} and {sat_b}/{tp_b}")
+    return f"{NO_ELIGIBLE_REFERENCE} ({'; '.join(why)})" if why else NO_ELIGIBLE_REFERENCE
+
+
+def _kinds_word(kinds: Sequence[str]) -> str:
+    return " or ".join(k.upper() for k in kinds)
+
+
+_Outcome = tuple[tuple[str, ...], str | None]
+"""How one reference carrier calibrates one pair: the kinds calibrated, and why none is."""
+
+
+def _reference_outcome(summary: Mapping[str, Any] | None, carrier_id: str, kinds: Sequence[str]) -> _Outcome:
+    """``(kinds calibrated, reason)`` of one carrier on one pair from a band's summary
+    (core's ``calibrated`` and ``reference.reason``)."""
+    if summary is None or summary.get("reference") is None:
+        return (), f"reference {carrier_id!r}: its calibration of this pair could not be predicted"
+    calibrated = tuple(k for k in kinds if k in (summary.get("calibrated") or ()))
+    if calibrated:
+        return calibrated, None
+    reason = (summary.get("reference") or {}).get("reason")
+    return (), str(reason) if reason else f"reference {carrier_id!r} gives no usable {_kinds_word(kinds)} measurement"
+
+
+def _latitudes(band_ids: Sequence[int], band_lat: Sequence[tuple[float, float]]) -> str:
+    """``"latitudes -30 to -21"`` (consecutive bands joined; ``" and "`` between runs)."""
+    runs: list[list[int]] = []
+    for b in sorted(set(band_ids)):
+        if runs and b == runs[-1][-1] + 1:
+            runs[-1].append(b)
+        else:
+            runs.append([b])
+    return "latitudes " + " and ".join(f"{band_lat[r[0]][0]:g} to {band_lat[r[-1]][1]:g}" for r in runs)
+
+
+def _merge_pairs(cfg: SystemConfig | None, request: schemas.AccuracyRequest, parts: Sequence[Mapping[str, Any]],
+                 band_lat: Sequence[tuple[float, float]], band_cells: Sequence[int],
+                 probe: Callable[[str], Mapping[str, Any]] | None) -> list[schemas.AccuracyPairSummary]:
+    """The bands' pair summaries merged into one ``AccuracyPairSummary`` per requested
+    pair (the rules are in its docstring). ``band_lat[b]``: first and last grid latitude
+    of band b; ``band_cells[b]``: its cells. Bands whose result has no ``pairs`` are left
+    out; none: ``[]``."""
+    n_pairs = len(request.pairs)
+    kinds = tuple(request.kinds)
+    carrying: list[tuple[int, list[Mapping[str, Any]], int]] = []  # band, its summaries, its cells
+    for b, part in enumerate(parts):
+        summaries = part.get("pairs")
+        if summaries is None:
+            continue
+        summaries = list(summaries)
+        if len(summaries) != n_pairs:
+            raise ValueError(f"accuracy_map returned {len(summaries)} pair summaries, expected {n_pairs}")
+        carrying.append((b, [dict(x) for x in summaries], int(band_cells[b])))
+    if not carrying:
+        return []
+    nearest = any("reference_cells" in s for _, summaries, _ in carrying for s in summaries)
+    named = None if nearest else request.reference_carrier_id
+
+    # "nearest": each band's cells per chosen carrier, and each carrier's outcome where a
+    # band's summary shows it (the band's own when it does, else another band's or a probe's)
+    chosen: dict[tuple[int, int], dict[str, int]] = {}  # (band, pair) -> carrier id or "none" -> cells
+    in_band: dict[tuple[int, int, str], _Outcome] = {}
+    outcomes: list[dict[str, _Outcome]] = [{} for _ in range(n_pairs)]
+    if nearest:
+        for b, summaries, _ in carrying:
+            for k, s in enumerate(summaries):
+                here = {str(key): int(n) for key, n in (s.get("reference_cells") or {}).items() if int(n) > 0}
+                chosen[b, k] = here
+                carriers = [key for key in here if key != ACCURACY_NO_REFERENCE]
+                if len(carriers) == 1 and s.get("reference") is not None:  # the band's summary is about that carrier
+                    in_band[b, k, carriers[0]] = _reference_outcome(s, carriers[0], kinds)
+                    outcomes[k].setdefault(carriers[0], in_band[b, k, carriers[0]])
+        unknown = sorted({key for (_, k), here in chosen.items() for key in here
+                          if key != ACCURACY_NO_REFERENCE and key not in outcomes[k]})
+        for carrier_id in unknown:
+            probed: list[Any] | None = None
+            if probe is not None:
+                try:
+                    probed = list(probe(carrier_id).get("pairs") or [])
+                except ValueError as exc:
+                    logger.warning("accuracy map: the calibration by %s could not be predicted: %s", carrier_id, exc)
+                if probed is not None and len(probed) != n_pairs:
+                    probed = None
+            for k in range(n_pairs):
+                if carrier_id not in outcomes[k]:
+                    outcomes[k][carrier_id] = _reference_outcome(probed[k] if probed else None, carrier_id, kinds)
+
+    overlap_note = None  # a named carrier under the target: tasking would never use it, the map assumes it
+    if named is not None and cfg is not None:
+        try:
+            carrier = cfg.carrier(named)
+        except ValueError:
+            carrier = None
+        if carrier is not None and _overlaps_target(carrier, request):
+            overlap_note = (f"{named} overlaps the target band, so tasking would not calibrate against it; this map "
+                            "assumes it does")
+
+    total_cells = sum(n for _, _, n in carrying)
+    out: list[schemas.AccuracyPairSummary] = []
+    for k in range(n_pairs):
+        per_band = [(b, summaries[k], n) for b, summaries, n in carrying]
+        first = per_band[0][1]
+
+        def known(key: str) -> Any:
+            return next((s.get(key) for _, s, _ in per_band if s.get(key) is not None), None)
+
+        ends = {key: known(key) for key in ("a_sat_id", "b_sat_id", "a_transponder_id", "b_transponder_id")}
+
+        calibrated: set[str] = set()
+        causes: dict[str | None, int] = {}  # reason -> uncalibrated cells
+        ref_cells: dict[str, int] = {}
+        ref_reasons: set[str] = set()
+        if nearest:
+            for b, _, _ in per_band:
+                for key, n in chosen[b, k].items():
+                    ref_cells[key] = ref_cells.get(key, 0) + n
+                    if key == ACCURACY_NO_REFERENCE:
+                        why = _no_eligible_reason(cfg, request, ends)
+                        causes[why] = causes.get(why, 0) + n
+                        continue
+                    got, why = in_band.get((b, k, key)) or outcomes[k][key]
+                    if got:
+                        calibrated.update(got)
+                    else:
+                        causes[why] = causes.get(why, 0) + n
+                        if why:
+                            ref_reasons.add(why)
+        elif named is not None:
+            for _, s, n in per_band:
+                got, why = _reference_outcome(s, named, kinds) if s.get("reference") is not None else ((), None)
+                key = named if got else ACCURACY_NO_REFERENCE
+                ref_cells[key] = ref_cells.get(key, 0) + n
+                if got:
+                    calibrated.update(got)
+                else:
+                    causes[why] = causes.get(why, 0) + n
+                    if why:
+                        ref_reasons.add(why)
+        uncalibrated = sum(causes.values()) if (nearest or named is not None) else total_cells
+        stated = sorted(((why, n) for why, n in causes.items() if why), key=lambda item: -item[1])
+        if len(stated) == 1:
+            reference_reason = stated[0][0]
+        elif stated:
+            reference_reason = "; ".join(f"{why} ({n} cell{'s' if n != 1 else ''})" for why, n in stated)
+        else:
+            reference_reason = None
+
+        notes: list[str] = []
+        reasons = [(b, s.get("reason")) for b, s, _ in per_band]
+        reason = next((str(r) for _, r in reasons if r), None)
+        if reason is not None and any(r != reason for _, r in reasons):
+            for text in dict.fromkeys(str(r) for _, r in reasons if r):
+                notes.append(f"{_latitudes([b for b, r in reasons if r == text], band_lat)}: {text}")
+        dropped = {f"not calibrated: {why}" for why in ref_reasons}
+        dropped |= {f"not calibrated: {(s.get('reference') or {}).get('reason')}" for _, s, _ in per_band}
+        by_note: dict[str, list[int]] = {}
+        for b, s, _ in per_band:
+            for note in s.get("notes") or ():
+                by_note.setdefault(str(note), []).append(b)
+        for note, where in by_note.items():
+            if note in dropped:
+                continue
+            notes.append(note if len(set(where)) == len(per_band) else f"{_latitudes(where, band_lat)}: {note}")
+        if overlap_note is not None and calibrated:
+            notes.append(overlap_note)
+
+        out.append(schemas.AccuracyPairSummary(
+            a_channel=str(first.get("a_channel") or request.pairs[k][0]),
+            b_channel=str(first.get("b_channel") or request.pairs[k][1]),
+            a_sat_id=ends["a_sat_id"],
+            b_sat_id=ends["b_sat_id"],
+            calibrated=[kd for kd in kinds if kd in calibrated],  # type: ignore[misc]
+            reference_carrier_id=named,
+            reference_cells=ref_cells,
+            uncalibrated_cells=uncalibrated,
+            reference_reason=reference_reason,
+            reason=reason,
+            notes=notes,
+        ))
+    return out
+
+
 def _merge_accuracy(t_ns: int, lat: np.ndarray, lon: np.ndarray, bands: Sequence[Region], step: float,
-                    parts: Sequence[Mapping[str, Any]]) -> schemas.AccuracyGrid:
+                    parts: Sequence[Mapping[str, Any]], *, cfg: SystemConfig | None = None,
+                    request: schemas.AccuracyRequest | None = None,
+                    probe: Callable[[str], Mapping[str, Any]] | None = None) -> schemas.AccuracyGrid:
+    """The bands' results as one ``AccuracyGrid``: the grids stacked (each band must
+    follow the full grid), and, with ``request``, the per-pair summaries merged
+    (``_merge_pairs``; ``cfg`` explains ``"nearest"`` cells with no eligible carrier,
+    ``probe`` is ``_reference_probe``). Raises ValueError for a result that does not
+    follow the grid."""
     n_lon = int(lon.size)
     semi: list[list[float | None]] = []
     cep: list[list[float | None]] = []
     dominant: list[list[str | None]] = []
+    band_lat: list[tuple[float, float]] = []
+    band_cells: list[int] = []
     row = 0
     for band, part in zip(bands, parts):
         part_lat = np.asarray(part.get("lat_deg", ()), dtype=np.float64).reshape(-1)
@@ -846,9 +1120,12 @@ def _merge_accuracy(t_ns: int, lat: np.ndarray, lon: np.ndarray, bands: Sequence
         semi += _grid_part(part.get("semi_major_95_m"), n_rows, n_lon, "semi_major_95_m")
         cep += _grid_part(part.get("cep50_m"), n_rows, n_lon, "cep50_m")
         dominant += _grid_part(part.get("dominant"), n_rows, n_lon, "dominant", text=True)
+        band_lat.append((float(expected[0]), float(expected[-1])))
+        band_cells.append(n_rows * n_lon)
         row += n_rows
     if row != lat.size:
         raise ValueError(f"accuracy_map covered {row} of {lat.size} grid rows")
+    pairs = [] if request is None else _merge_pairs(cfg, request, parts, band_lat, band_cells, probe)
     return schemas.AccuracyGrid(
         t_ns=int(t_ns),
         lat_deg=[float(v) for v in lat],
@@ -856,6 +1133,7 @@ def _merge_accuracy(t_ns: int, lat: np.ndarray, lon: np.ndarray, bands: Sequence
         semi_major_95_m=semi,
         cep50_m=cep,
         dominant=dominant,
+        pairs=pairs,
     )
 
 
@@ -1512,7 +1790,10 @@ async def post_accuracy(request: Request, body: schemas.AccuracyRequest) -> Resp
                                  errors=[{"loc": "(root)", "msg": str(exc)}]) from exc
         try:  # tens of thousands of cells: merged and serialised off the loop
             data = await runtime.pool.run(
-                lambda: _merge_accuracy(t_ns, lat, lon, bands, body.step_deg, parts).model_dump_json().encode("utf-8")
+                lambda: _merge_accuracy(
+                    t_ns, lat, lon, bands, body.step_deg, parts, cfg=cfg, request=body,
+                    probe=_reference_probe(accuracy_map, cfg, body, t_ns),
+                ).model_dump_json().encode("utf-8")
             )
         except (ValueError, ValidationError) as exc:
             logger.error("accuracy map result unusable: %s", exc)

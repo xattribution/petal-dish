@@ -34,8 +34,12 @@ Rules the texts follow:
   (``EventRecord.onset``), given in UTC.
 - A signal that cannot be located (``TaskingStatus.unlocatable_reason``) says so and why.
 - A fix whose rows go through a satellite the reference calibrations put beyond its
-  configured position uncertainty (``EventRecord.doubted_satellite_ids``) is still
-  reported, with the warning that its ellipse does not include that error.
+  configured position uncertainty is still reported. When the solve widened that
+  satellite's position sigma (``EventRecord.solution_allowance``), the advice says the
+  ellipse includes an allowance of about that size and asks for its ephemeris to be
+  checked; when the allowance reached its largest scale, or the doubt
+  (``EventRecord.doubted_satellite_ids``) came after the solve, it warns that the
+  transmitter may lie outside the ellipse.
 
 Terms are explained the first time they appear; numbers are rounded to what matters.
 Simulated events say so in the headline. Pure functions, no I/O.
@@ -435,29 +439,68 @@ def _position(record: EventRecord, names: _Names) -> _Position:
         f"major axis {ellipse.azimuth_deg:.0f}° from north)."
     )
     report = f"{position}, ±{format_distance(ellipse.semi_major_m)} at {confidence} % confidence"
-    doubted = _doubted(record, names)
-    if doubted:
-        sentence += (
-            f" The reference calibrations put the position of {doubted} wrong beyond its configured uncertainty, "
-            "and the ellipse does not include that error: the transmitter may lie outside it."
-        )
-        report += f"; the ephemeris of {doubted} is in doubt, so the transmitter may lie outside this"
+    note, report_note = _ephemeris_notes(record, names)
+    sentence += note
+    report += report_note
     if record.recheck:
         sentence += f" {record.recheck}"
     return _Position(sentence, report)
 
 
-def _doubted(record: EventRecord, names: _Names) -> str:
-    """The satellites in doubt (``EventRecord.doubted_satellite_ids``) that the published
-    position's rows go through, joined for a sentence ("" when none)."""
-    if not record.doubted_satellite_ids:
-        return ""
+def _ephemeris_notes(record: EventRecord, names: _Names) -> tuple[str, str]:
+    """What a fix says about satellites whose position the reference calibrations put
+    wrong beyond its configured uncertainty, among those its rows go through:
+    ``(sentences, report suffix)``, both "" when there are none.
+
+    A satellite whose position sigma the published solve widened
+    (``EventRecord.solution_allowance``) is covered: the ellipse includes an allowance of
+    about its widened sigma, and the operator is asked to check its ephemeris. One whose
+    allowance reached the largest scale (``capped``), or that is in doubt
+    (``EventRecord.doubted_satellite_ids``) without an allowance in the published solve
+    (the doubt came after it), keeps the warning that the transmitter may lie outside."""
     used = set(record.solution_used)
     through: set[str] = set()
     for entry in record.measurements:
         if entry.seq in used:
             through.update((entry.row.pair.a.sat_id, entry.row.pair.b.sat_id))
-    return _join([names.satellite(s) for s in record.doubted_satellite_ids if s in through])
+    allowance = [a for a in record.solution_allowance if a.sat_id in through]
+    widened = {a.sat_id for a in allowance}
+    covered = [a for a in allowance if not a.capped]
+    capped = [a for a in allowance if a.capped]
+    bare = [s for s in record.doubted_satellite_ids if s in through and s not in widened]
+    sentences, report = "", ""
+    if covered:
+        sizes = _join([format_distance(max(a.sigma_ric_m)) for a in covered])
+        sats = _join([names.satellite(a.sat_id) for a in covered])
+        one = len(covered) == 1
+        sentences += (
+            f" The ellipse includes {'an allowance' if one else 'allowances'} of about {sizes} (one sigma) for the "
+            f"{'position' if one else 'positions'} of {sats}, which the reference calibrations put wrong beyond "
+            f"{'its' if one else 'their'} configured uncertainty; check {'its ephemeris' if one else 'their ephemerides'}."
+        )
+        report += f"; the ellipse includes an allowance for the ephemeris of {sats}, which is in doubt"
+    if capped:
+        sizes = _join([format_distance(max(a.sigma_ric_m)) for a in capped])
+        sats = _join([names.satellite(a.sat_id) for a in capped])
+        one = len(capped) == 1
+        sentences += (
+            f" The reference calibrations put the {'position' if one else 'positions'} of {sats} wrong beyond "
+            f"{'its' if one else 'their'} configured uncertainty by more than the largest allowance the system makes "
+            f"(about {sizes}, one sigma), which the ellipse includes: the transmitter may still lie outside it; check "
+            f"{'its ephemeris' if one else 'their ephemerides'}."
+        )
+    if bare:
+        sats = _join([names.satellite(s) for s in bare])
+        one = len(bare) == 1
+        sentences += (
+            f" The reference calibrations put the {'position' if one else 'positions'} of {sats} wrong beyond "
+            f"{'its' if one else 'their'} configured uncertainty, and the ellipse does not include that error yet: "
+            "the transmitter may lie outside it."
+        )
+    doubt = _join([names.satellite(a.sat_id) for a in capped] + [names.satellite(s) for s in bare])
+    if doubt:
+        report += f"; the ephemeris of {doubt} is in doubt, so the transmitter may lie outside this"
+    return sentences, report
 
 
 def _chi2_text(value: float | None) -> str:

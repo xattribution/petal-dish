@@ -31,6 +31,7 @@ from petal_locate.sim.scenario import Scenario
 __all__ = [
     "API_PREFIX",
     "AccuracyGrid",
+    "AccuracyPairSummary",
     "AccuracyRequest",
     "Advisory",
     "AmbiguitySummary",
@@ -883,6 +884,68 @@ class AccuracyRequest(_Out):
     uncertainty: UncertaintyConfig | None = None
 
 
+class AccuracyPairSummary(_Out):
+    """One listed pair of an accuracy map: its ends, what calibrates it and why it may
+    give nothing, over the whole grid.
+
+    The server computes a map in latitude bands (``core.accuracy.accuracy_map`` once
+    per band, each returning a summary per pair) and merges the bands' summaries
+    (``rest._merge_accuracy``); the command line merges them the same way. "Cells" are
+    grid cells, admissible or not, so a pair's ``reference_cells`` add up to
+    ``n_lat * n_lon`` whenever a reference was requested.
+
+    - ``a_channel``, ``b_channel``: the ends as listed (``channel`` or
+      ``channel@sat``). ``a_sat_id``, ``b_sat_id``: the satellite each end correlates
+      on (the first band that resolved them; null when the pair cannot be resolved).
+    - ``calibrated``: the kinds calibrated in at least one cell (union over bands and
+      reference carriers, in the request's order); empty when no cell is calibrated.
+    - ``reference_carrier_id``: the carrier the request named, or null (no
+      reference, or ``"nearest"``).
+    - ``reference_cells``: cells by the reference applied to them, summed over bands.
+      For ``"nearest"``: carrier id -> cells for which that carrier is the nearest
+      eligible one (it may still fail to calibrate the pair: ``uncalibrated_cells``),
+      ``"none"`` -> cells with no eligible carrier (none relayed by both transponders
+      and clear of the target band). For a named carrier: ``{id: cells}`` where it
+      calibrates the pair and ``{"none": cells}`` where it does not. Empty when no
+      reference was requested.
+    - ``uncalibrated_cells``: cells in which no reference calibrates the pair: the
+      ``"none"`` cells plus, for ``"nearest"``, the cells of a chosen carrier that
+      cannot calibrate it (every cell when no reference was requested).
+    - ``reference_reason``: why the reference does not calibrate the pair in those
+      cells, null when it does everywhere (or when no reference was requested, or the
+      pair itself cannot be resolved). For a carrier: core's reason (for example
+      ``"reference 'ref-x' is not relayed by the pair's transponders"``). For
+      ``"nearest"`` cells with no eligible carrier: ``"no reference carrier clear of
+      the target band is relayed by both transponders"``, followed in parentheses by
+      why each reference carrier is not eligible. Several causes are joined with
+      ``"; "``, each followed by its number of cells, the largest first.
+    - ``reason``: why the pair gives nothing (core's reason; the first band's when
+      bands differ, with a note per reason saying the latitudes it holds for).
+    - ``notes``: the bands' notes, each once, in first-seen order; a note that not
+      every band gives starts with the latitudes it holds for (``"latitudes -30 to
+      -21: ..."``). core's ``"not calibrated: <reason>"`` notes are left out (the reason
+      is in ``reference_reason``). A named carrier whose band overlaps the target band
+      adds ``"<id> overlaps the target band, so tasking would not calibrate against it;
+      this map assumes it does"`` to every pair it calibrates.
+
+    For ``"nearest"``, whether a chosen carrier calibrates a pair does not depend on
+    the cell; when no band's summary shows it (core reports the reference of the most
+    common choice only), the server asks core for a map of one cell against that carrier.
+    """
+
+    a_channel: str
+    b_channel: str
+    a_sat_id: str | None = None
+    b_sat_id: str | None = None
+    calibrated: list[Literal["tdoa", "fdoa"]] = Field(default_factory=list)
+    reference_carrier_id: str | None = None
+    reference_cells: dict[str, int] = Field(default_factory=dict)
+    uncalibrated_cells: int = Field(default=0, ge=0)
+    reference_reason: str | None = None
+    reason: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
 class AccuracyGrid(_Out):
     """Predicted accuracy over a latitude-longitude grid.
 
@@ -890,6 +953,8 @@ class AccuracyGrid(_Out):
     the antimeridian). Grids are ``[n_lat][n_lon]``; a cell is null where no estimate
     is possible (satellite below the horizon, signal too weak, or geometry
     unobservable). ``dominant`` names the largest error source of each cell.
+    ``pairs`` holds one ``AccuracyPairSummary`` per requested pair, in request order
+    (empty only when the engine returned no summaries).
     """
 
     t_ns: ConsoleTimeNs
@@ -898,6 +963,7 @@ class AccuracyGrid(_Out):
     semi_major_95_m: list[list[float | None]]
     cep50_m: list[list[float | None]]
     dominant: list[list[str | None]]
+    pairs: list[AccuracyPairSummary] = Field(default_factory=list)
 
 
 class LinkBudgetRequest(_Out):

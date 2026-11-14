@@ -145,6 +145,7 @@ ProcessingConfig detection, capture, caf, solver, uncertainty, calibration, regi
                  tropo_zenith_m=2.4 (>= 0), tropo_correlation=0.9 (0..1) # one-sigma zenith delay per ground end
                  # no media delay is applied, so each sigma stands for the whole delay; 0 turns that medium off
   calibration    enabled=true, interval_s=30, max_age_s=300
+                 ephemeris_allowance_max_scale=20 (1..1000)  # cap on a doubted satellite's sigma factor, MATH section 9
   region         Region
 Region           lat_min=-70, lat_max=70, lon_min=-180, lon_max=180
 ```
@@ -1265,7 +1266,9 @@ and log line.
     first solve, every 10th and whenever a warm start fails or has `reduced_chi2 > 3`;
     warm starts from the previous solution and its ambiguities. Rows naming a satellite
     or site that no longer exists are left out; rows measured under an older
-    configuration are re-solved with the new orbits. The result goes to `set_solution`
+    configuration are re-solved with the new orbits. The consider uncertainty is the
+    configured one unless the ephemeris allowance (below) widens a satellite of the
+    rows. The result goes to `set_solution`
     with `processing.solver.max_reduced_chi2`: a fit with `reduced_chi2` above it and a
     chi-square tail probability below `FIT_MAX_P_VALUE = 1e-3` is published flagged
     inconsistent, its ellipse, CEP and covariances enlarged by `sqrt(reduced_chi2)`
@@ -1308,6 +1311,37 @@ and log line.
     Two sites whose difference alone is known (a cluster of two) are both judged on
     their difference. Published as
     `Status.site_clocks`.
+  - Ephemeris allowance (MATH section 9). At each round end tasking puts the satellites
+    the clock checks name (`suspect_satellite_ids`) on the event
+    (`EventBook.set_satellite_doubt`) and sizes each one's allowance
+    (`Tasking._update_allowance`): `satellite_position_evidence(edges, sigma_ric_m)`
+    fits every TDOA calibration held as an `EvidenceEdge(sat_a, site_a, sat_b, site_b,
+    c_s, sigma_s, partials, shared)` (free clocks and satellite common delays; RIC
+    position errors with the configured prior; the media per ground end as shared terms;
+    the partials are worked out with each calibration in the worker pool,
+    `Calibration.position_partials` / `media_partials`) and returns a
+    `PositionEvidence(sat_id, error_ric_m, norm, norm_sigma, n_edges)` per satellite;
+    `ephemeris_scale(evidence, max_scale)` gives `(scale, capped)`: `max(DOUBT_MIN_SCALE =
+    3, norm + DOUBT_MARGIN_SIGMAS (2) x norm_sigma)` rounded up to quarter octaves
+    (`SCALE_STEPS_PER_OCTAVE`) and capped at
+    `processing.calibration.ephemeris_allowance_max_scale` (20; 1 turns it off; no
+    evidence: the cap, `capped`). `Tasking.ephemeris_allowance()` is the largest scale
+    sized per satellite within the last `calibration.max_age_s` (counter
+    `allowance_changes`); `world_changed` and `reconfigure` forget it. `_solve_event` and
+    `_split_test` solve with `_solve_uncertainty(rows)`: the configured `Uncertainty`
+    object itself unless a satellite of the rows (or of their calibrations) has a scale,
+    else a copy with those satellites' position sigmas (never the velocity) multiplied by
+    it; the solve hands the applied `EphemerisAllowance(sat_id, scale, sigma_ric_m,
+    capped)` list to `EventBook.set_solution(allowance=...)`, which keeps it as
+    `EventRecord.solution_allowance` and adds the transition `ellipse widened: the
+    reference calibrations put the position of X wrong beyond the configured uncertainty
+    (position sigma taken larger: X N times)` (or `ellipse allowance for the position of
+    X reduced to N times its configured sigma` / `... removed: the configured
+    uncertainty is used again`) when it differs from the published one. A round also
+    re-solves when the allowance in force differs from the published solution's, and its
+    status message adds `The ellipse includes an allowance for the position of X (N
+    times its configured sigma, about D km): the reference calibrations put it wrong
+    beyond the configured uncertainty.`
   - Known limits, measured against `SimWorld`: a CW has no delay to separate copies by,
     so when a channel also hears a second copy a few Doppler bins away (a co-channel
     satellite, or a self-peak ridge) the FDOA scatters up to about 5 reported sigma; two
@@ -1337,12 +1371,19 @@ and log line.
   `tune to F` hint. Before a fix (`is_fix`) the advisory names only satellites the signal
   was seen or measured through (`It may also reach X ...`); after one, satellites that
   cannot see the fix are said to be unaffected. A fix whose rows go through a satellite
-  in `EventRecord.doubted_satellite_ids` (set by tasking every round from
-  `SiteClockEstimate.suspect_satellite_ids`, through `EventBook.set_satellite_doubt`)
+  whose position sigma its solve widened (`EventRecord.solution_allowance`, ephemeris
+  allowance above) adds `The ellipse includes an allowance of about D (one sigma) for the
+  position of X, which the reference calibrations put wrong beyond its configured
+  uncertainty; check its ephemeris.` and its report reads `(<position>, ±N at 95 %
+  confidence; the ellipse includes an allowance for the ephemeris of X, which is in
+  doubt)`. An allowance at its largest scale (`capped`) says the error is beyond the
+  largest allowance and the transmitter may still lie outside; a satellite in
+  `EventRecord.doubted_satellite_ids` (set by tasking every round from
+  `SiteClockEstimate.suspect_satellite_ids`) without an allowance in the published solve
   adds `The reference calibrations put the position of X wrong beyond its configured
-  uncertainty, and the ellipse does not include that error: the transmitter may lie
-  outside it.` and its report reads `(<position>, ±N at 95 % confidence; the ephemeris of
-  X is in doubt, so the transmitter may lie outside this)`. A lost event says when it
+  uncertainty, and the ellipse does not include that error yet: the transmitter may lie
+  outside it.`; both report `(...; the ephemeris of X is in doubt, so the transmitter may
+  lie outside this)`. A lost event says when it
   stopped, what reopening does (within `REOPEN_WINDOW_S`; kept under re-check within
   `REACQUIRE_KEEP_S`, set aside after longer), `Nothing needs to be moved or changed
   while the signal is off; act again if it returns.`, and keeps its report action ending

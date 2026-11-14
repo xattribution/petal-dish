@@ -376,6 +376,47 @@ test('the accuracy map can calibrate each cell against the reference nearest it 
   expect(sent.at(-1)).toMatchObject({ reference_carrier_id: 'nearest' });
 });
 
+test('the default accuracy map calibrates as tasking does and says plainly why it cannot (closing D2)', async ({ page }) => {
+  const sent: Array<Record<string, unknown>> = [];
+  page.on('request', (r) => {
+    if (r.url().endsWith('/api/v1/analysis/accuracy') && r.method() === 'POST') sent.push(r.postDataJSON() as Record<string, unknown>);
+  });
+  await open(page, 'plan?mode=accuracy');
+  // live tasking always calibrates against the nearest eligible reference: so does the form, untouched
+  await expect(page.getByLabel('Reference emitter')).toHaveValue('nearest');
+  await page.getByRole('button', { name: 'Compute accuracy map' }).click();
+  const pairs = page.getByRole('list', { name: 'Pairs of the map' });
+  await expect(pairs).toBeVisible();
+  expect(sent.at(-1)).toMatchObject({ reference_carrier_id: 'nearest', f_e_hz: 301_000_000 });
+  const items = pairs.getByRole('listitem');
+  await expect(items).toHaveCount(2);
+  await expect(items.first()).toContainText('tokyo-pac − tokyo-io');
+  await expect(items.first()).toContainText('muos-pac − muos-io');
+  await expect(items.first()).toContainText('none (no eligible reference carrier)');
+  for (const item of await items.all()) {
+    const warning = item.getByRole('note');
+    await expect(warning).toContainText('Uncalibrated');
+    await expect(warning).toContainText('All 2501 cells are uncalibrated: no reference carrier clear of the target band is relayed by both transponders (ref-guam overlaps the target band');
+  }
+  // the panel still fits at every width
+  for (const [w, h] of [
+    [1024, 768],
+    [1280, 800],
+    [1920, 1080],
+  ] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    const acc = await page.locator('.split > .side').evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    expect(acc[0], `accuracy panel with the result at ${w} px`).toBeLessThanOrEqual(acc[1] ?? 0);
+  }
+  // the operator's choice stays: none, then computed again
+  await page.getByLabel('Reference emitter').selectOption('');
+  await page.getByRole('button', { name: 'Compute accuracy map' }).click();
+  await expect.poll(() => sent.at(-1)?.reference_carrier_id).toBeNull();
+  await expect(page.getByLabel('Reference emitter')).toHaveValue('');
+  await expect(pairs.getByRole('listitem').first()).toContainText('none (no reference emitter chosen)');
+  await expect(pairs.getByRole('note')).toHaveCount(0);
+});
+
 test('the accuracy form starts from the configuration, and the side panel does not clip (ADAPT-10, UX-13)', async ({ page }) => {
   // 1024 px too (final recheck: the elevation table and a hidden tip widened the panel there)
   for (const [w, h] of [

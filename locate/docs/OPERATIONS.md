@@ -535,7 +535,16 @@ retried when the link comes back. Screens:
   every satellite from each site. The form starts from the loaded configuration (the
   uplink band most satellites share, pairs at the site that watches most of them). The
   reference emitter may be one carrier, none, or `nearest to each cell` (each cell
-  calibrated against the reference tasking would use for an emitter there).
+  calibrated against the reference tasking would use for an emitter there); it starts at
+  `nearest to each cell` when the configuration has reference carriers, as live tasking
+  always calibrates against the nearest eligible one, and keeps the operator's choice
+  once changed. Under the result each pair shows its two ends and their satellites, what
+  it is calibrated with, and an Uncalibrated caution, with the server's reason, when some
+  or all cells have no usable reference: for the starting request on the example
+  configuration (301.000 MHz, 8 kHz wide, which overlaps ref-guam's band) it reads `All
+  2501 cells are uncalibrated: no reference carrier clear of the target band is relayed
+  by both transponders (ref-guam overlaps the target band; ref-sapporo is not relayed by
+  both muos-pac/shared-1 and muos-io/shared-1)`.
 - **Configure**: the configuration with field-level validation, warnings (including
   sites with no node token on the server), save with version check, YAML export and
   import.
@@ -692,7 +701,10 @@ one channel cannot be both ends of a pair whatever satellites the ends name.
 `--reference-carrier nearest` (`"nearest"` in a request, `nearest to each cell` on the
 Plan screen) calibrates each cell against the reference carrier tasking would use for an
 emitter there: relayed by both transponders of the pair, clear of the emitter's band,
-nearest the cell; a cell with none stays uncalibrated.
+nearest the cell; a cell with none stays uncalibrated. The JSON's `pairs` says, per
+pair, which reference each cell got (`reference_cells`), how many cells are left
+uncalibrated and why (`uncalibrated_cells`, `reference_reason`), and why a pair gives
+nothing (`reason`); PROTOCOL.md (`AccuracyPairSummary`) has the rules.
 
 **Monte Carlo** (simulated): the full chain, simulated IQ through the correlator and the
 solver, many times with independent noise, against a configuration and a scenario:

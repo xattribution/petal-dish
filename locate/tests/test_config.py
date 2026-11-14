@@ -212,7 +212,9 @@ def test_defaults_match_the_architecture_document(cfg: SystemConfig) -> None:
         sat_osc_frac=1e-6, site_osc_frac=1e-11, tdoa_bias_ns=50.0,
         iono_vtec_tecu=30.0, iono_correlation=0.5, tropo_zenith_m=2.4, tropo_correlation=0.9,
     )  # fmt: skip
-    assert p.calibration.model_dump() == dict(enabled=True, interval_s=30.0, max_age_s=300.0)
+    assert p.calibration.model_dump() == dict(
+        enabled=True, interval_s=30.0, max_age_s=300.0, ephemeris_allowance_max_scale=20.0
+    )
     assert p.region.model_dump() == dict(lat_min=-70.0, lat_max=70.0, lon_min=-180.0, lon_max=180.0)
 
     monitor = Monitor(id="m", center_hz=260e6, span_hz=1e6)
@@ -454,6 +456,20 @@ def reference_contains(region: Region, lat: float, lon: float) -> bool:
         return math.degrees(math.atan2((z / start).imag, (z / start).real)) % 360.0
 
     return east_of_start(point) <= east_of_start(stop) + 1e-9
+
+
+def test_the_ephemeris_allowance_cap_defaults_to_20_and_must_be_at_least_1() -> None:
+    """D1: ``processing.calibration.ephemeris_allowance_max_scale`` caps the factor on a
+    doubted satellite's position sigma; existing configurations (without it) stay valid;
+    1 turns the allowance off; less than 1 (it would narrow a sigma) is refused."""
+    from petal_locate.config.models import CalibrationConfig
+
+    assert CalibrationConfig().ephemeris_allowance_max_scale == 20.0
+    assert CalibrationConfig.model_validate({"interval_s": 10.0}).ephemeris_allowance_max_scale == 20.0
+    assert CalibrationConfig.model_validate({"ephemeris_allowance_max_scale": 1.0}).ephemeris_allowance_max_scale == 1.0
+    for bad in (0.5, -1.0, 1e4, float("nan")):
+        with pytest.raises(ValidationError):
+            CalibrationConfig.model_validate({"ephemeris_allowance_max_scale": bad})
 
 
 def test_default_region_is_the_full_circle() -> None:

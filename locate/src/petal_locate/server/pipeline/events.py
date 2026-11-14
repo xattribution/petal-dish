@@ -67,6 +67,13 @@ solution is not a fix goes back to ``locating``). When a solve over a superset o
 rows of the published position finds no position at all, that position is withdrawn
 (``withdraw_solution``): it no longer fits what is measured.
 
+Ephemeris allowance. A solve may have widened the position sigma of satellites the
+reference calibrations put wrong beyond their configured uncertainty (tasking, MATH.md
+section 9); ``set_solution(allowance=...)`` keeps that list with the published solution
+(``EventRecord.solution_allowance``) and notes a transition ("ellipse widened: ...")
+whenever it differs from the previous one. The fix gate applies to the widened ellipse
+as to any other.
+
 Publication. Mutations mark a record dirty; ``EventBook.flush`` builds the console
 document once and hands it to the publisher (console and store). A *material* change
 (state, verdict, evidence states, membership of satellites, classification, a
@@ -105,6 +112,7 @@ __all__ = [
     "MAX_TRANSITION_ROWS",
     "REACQUIRE_KEEP_S",
     "SET_ASIDE_REASON",
+    "EphemerisAllowance",
     "EventBook",
     "EventNotFound",
     "EventRecord",
@@ -246,6 +254,25 @@ class MeasurementEntry:
 
 
 @dataclass(frozen=True)
+class EphemerisAllowance:
+    """A satellite whose position sigma a solve widened because the reference
+    calibrations put its position wrong beyond its configured uncertainty (tasking,
+    MATH.md section 9, *ephemeris allowance*).
+
+    sat_id: the satellite. scale: the factor on its configured RIC position sigma (> 1).
+    sigma_ric_m: the widened one-sigma, radial / in-track / cross-track, m. capped: the
+    calibrations ask for more than the largest scale allowed
+    (``processing.calibration.ephemeris_allowance_max_scale``) or could not size the
+    error: the ellipse may still not cover it.
+    """
+
+    sat_id: str
+    scale: float
+    sigma_ric_m: tuple[float, float, float]
+    capped: bool = False
+
+
+@dataclass(frozen=True)
 class TruthEmitter:
     """A simulated emitter as needed to match it with events (simulation only).
 
@@ -322,6 +349,7 @@ class EventRecord:
     width_lower_bound: bool = False  # correlator: every detection fills its window (ADAPT-5)
     local_site_ids: tuple[str, ...] = ()  # correlator: sites seeing it when the verdict became local
     doubted_satellite_ids: tuple[str, ...] = ()  # tasking: positions the calibrations put beyond their sigma
+    solution_allowance: tuple[EphemerisAllowance, ...] = ()  # widened satellite sigmas of the published solution
     # publication bookkeeping (EventBook)
     measurement_seq: int = 0
     published_signature: tuple[Any, ...] | None = None
@@ -753,6 +781,7 @@ class EventBook:
         record.solution_out = None
         record.solution_t_ns = None
         record.solution_used = ()
+        record.solution_allowance = ()
         record.last_solve_reason = None
         record.recheck = None
         record.recheck_since_ns = None
@@ -958,6 +987,7 @@ class EventBook:
         *,
         max_reduced_chi2: float | None = None,
         max_semi_major_m: float | None = None,
+        allowance: Sequence[EphemerisAllowance] = (),
     ) -> bool:
         """Attach the result of a solve.
 
@@ -971,6 +1001,10 @@ class EventBook:
             (``assess_fit``). None: not assessed (consistent).
         max_semi_major_m: largest 95 % semi-major axis of a fix
             (``fix_semi_major_limit_m``); None: no bound.
+        allowance: the satellites whose position sigma the solve widened
+            (``EphemerisAllowance``; tasking), kept as ``solution_allowance``. A change
+            from the published solution's adds the transition "ellipse widened: ..."
+            (or "ellipse allowance ... reduced / removed: ...").
         A converged solution adds a row to the solution history. A fix (converged,
         consistent, ``dof >= 1``, ellipse within the bound: ``SolutionOut.is_fix``)
         moves the event to ``located``; an inconsistent one is published flagged, with
@@ -1013,10 +1047,12 @@ class EventBook:
                 record.measurements[i] = MeasurementEntry(
                     entry.seq, entry.row.model_copy(update={"residual": residual}), entry.measurement
                 )
+        allowance_before = record.solution_allowance
         record.solution = solution
         record.solution_out = out
         record.solution_t_ns = int(t_ns)
         record.solution_used = used_seqs
+        record.solution_allowance = tuple(sorted(allowance, key=lambda a: a.sat_id))
         record.last_solve_reason = None
         record.unsaved_solutions.append((int(t_ns), bool(solution.converged), text))
         if solution.converged:
@@ -1057,6 +1093,9 @@ class EventBook:
                 logger.warning(
                     "event %s: %s", record.id, note, extra={"event_id": record.id, "reduced_chi2": out.reduced_chi2}
                 )
+        widened = _allowance_note(allowance_before, record.solution_allowance)
+        if widened is not None and not record.lost:
+            self.note_transition(record, self._clock(), widened, force=True)
         self.touch(record, "solution")
         return True
 
@@ -1074,6 +1113,7 @@ class EventBook:
         record.solution_out = None
         record.solution_t_ns = None
         record.solution_used = ()
+        record.solution_allowance = ()
         record.last_solve_reason = writable_text(reason)
         record.not_visible_satellite_ids = []
         for i, entry in enumerate(record.measurements):
@@ -1617,6 +1657,50 @@ def fix_semi_major_limit_m(region: Any) -> float:
     if not (math.isfinite(extent) and extent > 0.0):
         return FIX_MAX_SEMI_MAJOR_M
     return min(FIX_MAX_SEMI_MAJOR_M, FIX_MAX_REGION_FRACTION * extent)
+
+
+def _scale_text(scale: float) -> str:
+    """``9.5`` or ``12`` (a scale for a transition)."""
+    return f"{scale:.2g}" if scale < 10.0 else f"{scale:.0f}"
+
+
+def _allowance_note(before: Sequence[EphemerisAllowance], after: Sequence[EphemerisAllowance]) -> str | None:
+    """The transition text when a solve's widened satellite sigmas differ from the
+    published solution's (``set_solution``), or None when they are the same."""
+    old = {a.sat_id: a for a in before}
+    new = {a.sat_id: a for a in after}
+    if {s: (a.scale, a.capped) for s, a in old.items()} == {s: (a.scale, a.capped) for s, a in new.items()}:
+        return None
+    parts: list[str] = []
+    widened = [s for s in sorted(new) if s not in old or new[s].scale > old[s].scale]
+    if widened:
+        which = (
+            f"the position of {widened[0]}" if len(widened) == 1
+            else f"the positions of {', '.join(widened[:-1])} and {widened[-1]}"
+        )
+        scales = ", ".join(
+            f"{s} {_scale_text(new[s].scale)} times" + (", at the largest allowed scale" if new[s].capped else "")
+            for s in widened
+        )
+        parts.append(
+            f"ellipse widened: the reference calibrations put {which} wrong beyond the configured uncertainty "
+            f"(position sigma taken larger: {scales})"
+        )
+    reduced = [s for s in sorted(new) if s in old and new[s].scale < old[s].scale]
+    for s in reduced:
+        parts.append(
+            f"ellipse allowance for the position of {s} reduced to {_scale_text(new[s].scale)} times its configured sigma"
+        )
+    removed = [s for s in sorted(old) if s not in new]
+    if removed:
+        which = removed[0] if len(removed) == 1 else f"{', '.join(removed[:-1])} and {removed[-1]}"
+        parts.append(f"ellipse allowance for the position of {which} removed: the configured uncertainty is used again")
+    capped = [s for s in sorted(new) if s in old and new[s].scale == old[s].scale and new[s].capped != old[s].capped]
+    for s in capped:
+        parts.append(
+            f"the allowance for the position of {s} is {'now' if new[s].capped else 'no longer'} at its largest scale"
+        )
+    return "; ".join(parts) if parts else None
 
 
 def writable_text(text: str | None) -> str | None:

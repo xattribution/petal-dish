@@ -11,14 +11,79 @@ export type NsString = string;
  * the antimeridian). Grids are ``[n_lat][n_lon]``; a cell is null where no estimate
  * is possible (satellite below the horizon, signal too weak, or geometry
  * unobservable). ``dominant`` names the largest error source of each cell.
+ * ``pairs`` holds one ``AccuracyPairSummary`` per requested pair, in request order
+ * (empty only when the engine returned no summaries).
  */
 export interface AccuracyGrid {
   cep50_m: Array<Array<number | null>>;
   dominant: Array<Array<string | null>>;
   lat_deg: number[];
   lon_deg: number[];
+  pairs?: AccuracyPairSummary[];
   semi_major_95_m: Array<Array<number | null>>;
   t_ns: NsString;
+}
+
+/**
+ * One listed pair of an accuracy map: its ends, what calibrates it and why it may
+ * give nothing, over the whole grid.
+ *
+ * The server computes a map in latitude bands (``core.accuracy.accuracy_map`` once
+ * per band, each returning a summary per pair) and merges the bands' summaries
+ * (``rest._merge_accuracy``); the command line merges them the same way. "Cells" are
+ * grid cells, admissible or not, so a pair's ``reference_cells`` add up to
+ * ``n_lat * n_lon`` whenever a reference was requested.
+ *
+ * - ``a_channel``, ``b_channel``: the ends as listed (``channel`` or
+ *   ``channel@sat``). ``a_sat_id``, ``b_sat_id``: the satellite each end correlates
+ *   on (the first band that resolved them; null when the pair cannot be resolved).
+ * - ``calibrated``: the kinds calibrated in at least one cell (union over bands and
+ *   reference carriers, in the request's order); empty when no cell is calibrated.
+ * - ``reference_carrier_id``: the carrier the request named, or null (no
+ *   reference, or ``"nearest"``).
+ * - ``reference_cells``: cells by the reference applied to them, summed over bands.
+ *   For ``"nearest"``: carrier id -> cells for which that carrier is the nearest
+ *   eligible one (it may still fail to calibrate the pair: ``uncalibrated_cells``),
+ *   ``"none"`` -> cells with no eligible carrier (none relayed by both transponders
+ *   and clear of the target band). For a named carrier: ``{id: cells}`` where it
+ *   calibrates the pair and ``{"none": cells}`` where it does not. Empty when no
+ *   reference was requested.
+ * - ``uncalibrated_cells``: cells in which no reference calibrates the pair: the
+ *   ``"none"`` cells plus, for ``"nearest"``, the cells of a chosen carrier that
+ *   cannot calibrate it (every cell when no reference was requested).
+ * - ``reference_reason``: why the reference does not calibrate the pair in those
+ *   cells, null when it does everywhere (or when no reference was requested, or the
+ *   pair itself cannot be resolved). For a carrier: core's reason (for example
+ *   ``"reference 'ref-x' is not relayed by the pair's transponders"``). For
+ *   ``"nearest"`` cells with no eligible carrier: ``"no reference carrier clear of
+ *   the target band is relayed by both transponders"``, followed in parentheses by
+ *   why each reference carrier is not eligible. Several causes are joined with
+ *   ``"; "``, each followed by its number of cells, the largest first.
+ * - ``reason``: why the pair gives nothing (core's reason; the first band's when
+ *   bands differ, with a note per reason saying the latitudes it holds for).
+ * - ``notes``: the bands' notes, each once, in first-seen order; a note that not
+ *   every band gives starts with the latitudes it holds for (``"latitudes -30 to
+ *   -21: ..."``). core's ``"not calibrated: <reason>"`` notes are left out (the reason
+ *   is in ``reference_reason``). A named carrier whose band overlaps the target band
+ *   adds ``"<id> overlaps the target band, so tasking would not calibrate against it;
+ *   this map assumes it does"`` to every pair it calibrates.
+ *
+ * For ``"nearest"``, whether a chosen carrier calibrates a pair does not depend on
+ * the cell; when no band's summary shows it (core reports the reference of the most
+ * common choice only), the server asks core for a map of one cell against that carrier.
+ */
+export interface AccuracyPairSummary {
+  a_channel: string;
+  a_sat_id?: string | null;
+  b_channel: string;
+  b_sat_id?: string | null;
+  calibrated?: Array<"tdoa" | "fdoa">;
+  notes?: string[];
+  reason?: string | null;
+  reference_carrier_id?: string | null;
+  reference_cells?: Record<string, number>;
+  reference_reason?: string | null;
+  uncalibrated_cells?: number;
 }
 
 /**
@@ -151,9 +216,16 @@ export interface CafDisplay {
 
 /**
  * Reference-emitter calibration schedule. interval_s, max_age_s: seconds.
+ *
+ * ephemeris_allowance_max_scale: largest factor by which the server widens the
+ * position sigma of a satellite whose position the calibrations put wrong beyond its
+ * configured uncertainty, for the live solves (MATH.md section 9, *ephemeris
+ * allowance*); 20 takes an operator-grade sigma to about the TLE-grade one. 1 turns
+ * the allowance off (the advice then only warns).
  */
 export interface CalibrationConfig {
   enabled?: boolean;
+  ephemeris_allowance_max_scale?: number;
   interval_s?: number;
   max_age_s?: number;
 }
@@ -414,11 +486,15 @@ export interface ErrorResponse {
  * once one exists, only satellites above ``solver.min_elevation_deg`` (and the
  * horizon) at the fix, at an end of one of its 95 % ellipse axes or at an ambiguity
  * (never none). not_visible_satellite_ids: satellites of the plan left out because
- * they cannot see the transmitter's position (empty before a consistent fix).
+ * they cannot see the transmitter's position (empty before a consistent fix). All
+ * three are empty while the verdict is ``local`` (no satellite relays a local signal).
  * onset_ns: start of the current transmission, labeled time: the first detection
  * after the latest break, the first detection that showed another transmitter
- * took the frequency, or, when a local signal took over an uplink event's frequency,
- * the last sighting of the uplink at the sites that no longer see anything; equal to
+ * took the frequency (for a re-check that only pairs first detected since the change
+ * could answer, the first detection of the oldest of them), when a local signal took
+ * over an uplink event's frequency the last sighting of the uplink at the sites that no
+ * longer see anything, or when an uplink signal took over a local event's frequency
+ * its first detection at a site that did not see the local signal; equal to
  * ``first_seen_ns`` while none of these happened. Report this as the start time. resumed_ns: server time the event was detected again after its
  * latest loss (null if it was never lost); break_s: the length of that break, s.
  * recheck: why the position and measurements shown are being checked against new
@@ -427,9 +503,10 @@ export interface ErrorResponse {
  * received_lo_hz / received_hi_hz: union of the downlink ranges of the ``seen``
  * evidence rows (what is on the air at the sites that see it; null while nothing is
  * seen). seen_site_ids: sites with a ``seen`` row, in row order.
- * width_lower_bound: every detection holding the event reaches both edges of the
- * monitor window it was measured in, so the signal may be wider than its range shows:
- * its width is a lower bound ("at least N wide").
+ * width_lower_bound: in every monitor window holding the event, its detections together
+ * reach both edges of the window (within 8 % of the span, where receiver filters roll
+ * off), so the signal may be wider than its range shows: its width is a lower bound
+ * ("at least N wide").
  */
 export interface Event {
   advisory: Advisory;

@@ -467,7 +467,11 @@ LookAngle        {site_id, channel_id, sat_id, az_deg, el_deg, range_km, off_axi
 AccuracyRequest  {pairs: [[channel_a, channel_b]] (at most 128), emitter: EmitterModel, f_e_hz, t?: ISO, region?: Region,
                   step_deg (0.25..10, 2), kinds (["tdoa", "fdoa"]), reference_carrier_id? (a carrier id or "nearest"), integration_s?,
                   uncertainty?: UncertaintyConfig}
-AccuracyGrid     {t_ns, lat_deg: [..], lon_deg: [..], semi_major_95_m: [[m | null]], cep50_m: [[m | null]], dominant: [[source | null]]}
+AccuracyGrid     {t_ns, lat_deg: [..], lon_deg: [..], semi_major_95_m: [[m | null]], cep50_m: [[m | null]], dominant: [[source | null]],
+                  pairs: [AccuracyPairSummary]}
+AccuracyPairSummary {a_channel, b_channel, a_sat_id | null, b_sat_id | null, calibrated: ["tdoa" | "fdoa"],
+                  reference_carrier_id | null, reference_cells: {carrier_id | "none": cells}, uncalibrated_cells,
+                  reference_reason | null, reason | null, notes: [..]}
 LinkBudgetRequest  {emitter: EmitterModel, f_e_hz, lat_deg, lon_deg, alt_m (0), t?: ISO}
 LinkBudgetResponse {t_ns, rows: [{sat_id, transponder_id, site_id, channel_id, f_down_hz, uplink_elevation_deg,
                   eirp_toward_sat_dbw, pfd_dbw_m2, cn0_up_dbhz, transponder_eirp_dbw, downlink_elevation_deg, off_axis_deg,
@@ -667,6 +671,38 @@ Notes on the fields:
   computed at a time, up to 4 wait; the grid is computed in latitude bands of about 256
   cells, fewer when many pairs would need more than 256 MiB per band (never under two
   grid rows), and the 120 s limit is checked between bands.
+- `AccuracyGrid.pairs` has one `AccuracyPairSummary` per requested pair, in request
+  order, merged over the latitude bands (the command line's JSON carries the same).
+  "Cells" are grid cells, admissible or not. `a_channel`, `b_channel` are the ends as
+  listed; `a_sat_id`, `b_sat_id` the satellites they correlate on (null when the pair
+  cannot be resolved). `calibrated` lists the kinds calibrated in at least one cell.
+  `reference_carrier_id` is the carrier the request named (null for none and for
+  `"nearest"`). `reference_cells` counts the cells by the reference applied, summed over
+  the bands: for `"nearest"`, carrier id -> cells for which it is the nearest eligible
+  carrier, and `"none"` -> cells with no eligible carrier (none clear of the target
+  band and relayed by both transponders); for a named carrier, `{id: cells}` where it
+  calibrates the pair and `{"none": cells}` where it does not; `{}` without a reference.
+  `uncalibrated_cells` counts the cells in which no reference calibrates the pair: the
+  `"none"` cells, plus the cells of a nearest carrier that cannot calibrate it (all
+  cells without a reference). `reference_reason` says why, null when the reference
+  calibrates every cell (or none was requested, or the pair cannot be resolved): the
+  engine's reason for a carrier (for example `reference 'ref-x': predicted
+  post-correlation SNR -48.0 dB below threshold`), and for `"nearest"` cells with no
+  eligible carrier `no reference carrier clear of the target band is relayed by both
+  transponders (<carrier> overlaps the target band; <carrier> is not relayed by both
+  <sat>/<transponder> and <sat>/<transponder>)`; several causes are joined with `; `,
+  each with its cell count, the largest first. `reason` is why the pair gives nothing:
+  the first band's, with a note per distinct reason naming its latitudes when the
+  bands differ. `notes` holds each band note once, in first-seen order; one that not
+  every band gives starts with its latitudes (`latitudes -30 to -21: ...`); the
+  engine's `not calibrated: <reason>` notes are left out (the reason is in
+  `reference_reason`); a named carrier whose band overlaps the target band adds `<id>
+  overlaps the target band, so tasking would not calibrate against it; this map assumes
+  it does` to each pair it calibrates (the engine calibrates against a named carrier
+  wherever it lies). Whether a carrier calibrates a pair does not depend on the cell;
+  for `"nearest"` the engine reports the reference of each band's most common choice
+  only, so when no band shows a chosen carrier's outcome the server computes a one-cell
+  map against that carrier to learn it.
 - `LinkBudgetRow` exists only for paths that exist (satellite above both horizons,
   frequency inside the transponder, an orbit that can be evaluated at `t`). `snr_db` is
   in the emitter's bandwidth (1 Hz for
