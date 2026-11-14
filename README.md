@@ -146,6 +146,10 @@ Petal retention uses an **M3 × 12 headless screw** and a **short M3 heat-set in
 - [Engineering limits](docs/ENGINEERING.md) · [Validation record](docs/VALIDATION.md)
 - [Self-hosting](docs/SELF-HOSTING.md)
 
+## PETAL Locate
+
+[`locate/`](locate/README.md) is a separate proof of concept that uses small dishes such as PETAL, or any other antenna, with software-defined radios at several sites to detect interference on bent-pipe satellite transponders, tell uplink interference from local interference, and locate uplink emitters from the copies two or more satellites relay. It has been validated only in simulation. See [locate/README.md](locate/README.md).
+
 ## Status and limits
 
 PETAL is an **engineering prototype**. Test prints fit as designed, but a closed STL is not a load, weather or RF rating. Printed plastic needs a conductive finish and a proper RF feed before it works as an antenna. Interface revision 12 parts are not compatible with older kits, so regenerate the whole kit after changing settings. PETG is fine for indoor fit tests. Use ASA for outdoor trials, with a controlled enclosure.

@@ -1,0 +1,54 @@
+{
+  "field": {
+    "ok": false,
+    "errors": [
+      {
+        "loc": "satellites.0.transponders.1.id",
+        "msg": "String should match pattern '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'"
+      },
+      {
+        "loc": "sites.0.lat_deg",
+        "msg": "Input should be less than or equal to 90"
+      },
+      {
+        "loc": "sites.2.channels.0.antenna.diameter_m",
+        "msg": "Input should be greater than 0"
+      }
+    ],
+    "warnings": []
+  },
+  "xref": {
+    "ok": false,
+    "errors": [
+      {
+        "loc": "sites.1.channels.0.pointing.satellite_id",
+        "msg": "unknown satellite id 'muos-atl'"
+      }
+    ],
+    "warnings": []
+  },
+  "carrier": {
+    "ok": false,
+    "errors": [
+      {
+        "loc": "carriers.0.uplink_center_hz",
+        "msg": "301200000 Hz is outside the uplink passband of transponder 'shared-1' (300987500 to 301012500 Hz)"
+      }
+    ],
+    "warnings": []
+  },
+  "time_zone": {
+    "ok": false,
+    "errors": [
+      {
+        "loc": "sites.0.time_zone",
+        "msg": "Value error, unknown IANA time zone 'Pacific/Atlantis' (for example Asia/Tokyo or Pacific/Honolulu)"
+      },
+      {
+        "loc": "sites.1.time_zone",
+        "msg": "Value error, must be an IANA time zone name such as Asia/Tokyo, got 'Asia Tokyo'"
+      }
+    ],
+    "warnings": []
+  }
+}

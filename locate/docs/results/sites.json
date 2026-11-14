@@ -1,0 +1,1781 @@
+{
+ "section": "sites",
+ "simulated": true,
+ "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
+ "config": "config/pacific-uhf.yaml",
+ "config_sha256_16": "c1dffdc7253968bf",
+ "script": "scripts/capability_study.py",
+ "media_assumed_by_solver": {
+  "iono_vtec_tecu": 30.0,
+  "iono_correlation": 0.5,
+  "tropo_zenith_m": 2.4,
+  "tropo_correlation": 0.9
+ },
+ "epoch": "2026-01-01T03:00:00Z",
+ "t_ns": 1767236400000000000,
+ "method": "The configuration with one site removed (drop_one) or with one site kept (only_one); at each point the tasking rule's pairs for a shared-1 jammer at 03 UTC and the predicted 95 % semi-major, operator-grade ephemeris, uncalibrated and calibrated against the Guam reference. A point with no pairs cannot be located (fewer than two satellites reach a channel).",
+ "all": {
+  "philippine-sea": {
+   "pairs": [
+    [
+     "honolulu-pac",
+     "naha-172e"
+    ],
+    [
+     "honolulu-pac",
+     "seoul-io"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": 5463.714681017274,
+   "calibrated_semi_major_95_m": 571.6864361606371,
+   "calibrated_cep50_m": 192.75114567678935,
+   "calibrated_reason": null,
+   "uncalibrated_reason": null
+  },
+  "south-china-sea": {
+   "pairs": [
+    [
+     "seoul-io",
+     "seoul-pac"
+    ],
+    [
+     "seoul-io",
+     "seoul-172e"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": 6036.661306265693,
+   "calibrated_semi_major_95_m": 620.1713408518442,
+   "calibrated_cep50_m": 245.7623087650613,
+   "calibrated_reason": null,
+   "uncalibrated_reason": null
+  },
+  "sea-of-japan": {
+   "pairs": [
+    [
+     "honolulu-pac",
+     "naha-172e"
+    ],
+    [
+     "honolulu-pac",
+     "seoul-io"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": 5272.340466385491,
+   "calibrated_semi_major_95_m": 994.539579138435,
+   "calibrated_cep50_m": 301.76064141143564,
+   "calibrated_reason": null,
+   "uncalibrated_reason": null
+  },
+  "near-guam": {
+   "pairs": [
+    [
+     "honolulu-pac",
+     "naha-172e"
+    ],
+    [
+     "honolulu-pac",
+     "seoul-io"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": 5278.2908414528465,
+   "calibrated_semi_major_95_m": 511.8684959373398,
+   "calibrated_cep50_m": 174.69270667301058,
+   "calibrated_reason": null,
+   "uncalibrated_reason": null
+  },
+  "near-hawaii": {
+   "pairs": [
+    [
+     "honolulu-pac",
+     "naha-172e"
+    ],
+    [
+     "honolulu-pac",
+     "seoul-io"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": null,
+   "calibrated_semi_major_95_m": 5472.237602357612,
+   "calibrated_cep50_m": 1818.4148496969842,
+   "calibrated_reason": null,
+   "uncalibrated_reason": "unobservable"
+  },
+  "korean-peninsula": {
+   "pairs": [
+    [
+     "honolulu-pac",
+     "naha-172e"
+    ],
+    [
+     "honolulu-pac",
+     "seoul-io"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": 5357.585127178852,
+   "calibrated_semi_major_95_m": 918.79083842484,
+   "calibrated_cep50_m": 286.9766889054682,
+   "calibrated_reason": null,
+   "uncalibrated_reason": null
+  },
+  "east-of-japan": {
+   "pairs": [
+    [
+     "honolulu-pac",
+     "naha-172e"
+    ],
+    [
+     "honolulu-pac",
+     "seoul-io"
+    ]
+   ],
+   "uncalibrated_semi_major_95_m": 4977.57772403352,
+   "calibrated_semi_major_95_m": 903.5224199235427,
+   "calibrated_cep50_m": 294.53447478557786,
+   "calibrated_reason": null,
+   "uncalibrated_reason": null
+  }
+ },
+ "drop_one": {
+  "honolulu": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "naha-172e",
+      "tokyo-pac"
+     ],
+     [
+      "naha-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6219.600687241296,
+    "calibrated_semi_major_95_m": 589.7496230596149,
+    "calibrated_cep50_m": 198.98660774645924,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "naha-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6013.576736884085,
+    "calibrated_semi_major_95_m": 1028.8052931210186,
+    "calibrated_cep50_m": 311.3498640351276,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "naha-172e",
+      "tokyo-pac"
+     ],
+     [
+      "naha-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5973.461269905209,
+    "calibrated_semi_major_95_m": 519.2560796193109,
+    "calibrated_cep50_m": 183.66666532825118,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "naha-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5523.905418974823,
+    "calibrated_cep50_m": 1834.377928250381,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "naha-172e",
+      "tokyo-pac"
+     ],
+     [
+      "naha-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6027.056607110344,
+    "calibrated_semi_major_95_m": 951.5928049801274,
+    "calibrated_cep50_m": 295.6215875687331,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "naha-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5681.581848726986,
+    "calibrated_semi_major_95_m": 934.457641670255,
+    "calibrated_cep50_m": 303.1393596685292,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "hilo": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5463.714681017274,
+    "calibrated_semi_major_95_m": 571.6864361606371,
+    "calibrated_cep50_m": 192.75114567678935,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5272.340466385491,
+    "calibrated_semi_major_95_m": 994.539579138435,
+    "calibrated_cep50_m": 301.76064141143564,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5278.2908414528465,
+    "calibrated_semi_major_95_m": 511.8684959373398,
+    "calibrated_cep50_m": 174.69270667301058,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5472.237602357612,
+    "calibrated_cep50_m": 1818.4148496969842,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5357.585127178852,
+    "calibrated_semi_major_95_m": 918.79083842484,
+    "calibrated_cep50_m": 286.9766889054682,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4977.57772403352,
+    "calibrated_semi_major_95_m": 903.5224199235427,
+    "calibrated_cep50_m": 294.53447478557786,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "tokyo": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5463.714681017274,
+    "calibrated_semi_major_95_m": 571.6864361606371,
+    "calibrated_cep50_m": 192.75114567678935,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5272.340466385491,
+    "calibrated_semi_major_95_m": 994.539579138435,
+    "calibrated_cep50_m": 301.76064141143564,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5278.2908414528465,
+    "calibrated_semi_major_95_m": 511.8684959373398,
+    "calibrated_cep50_m": 174.69270667301058,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5472.237602357612,
+    "calibrated_cep50_m": 1818.4148496969842,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5357.585127178852,
+    "calibrated_semi_major_95_m": 918.79083842484,
+    "calibrated_cep50_m": 286.9766889054682,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4977.57772403352,
+    "calibrated_semi_major_95_m": 903.5224199235427,
+    "calibrated_cep50_m": 294.53447478557786,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "naha": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "seoul-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5613.755635015982,
+    "calibrated_semi_major_95_m": 573.6639060480663,
+    "calibrated_cep50_m": 193.2265743693466,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "seoul-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5451.149641480086,
+    "calibrated_semi_major_95_m": 995.8092968439014,
+    "calibrated_cep50_m": 302.0704467418801,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "seoul-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5394.9470871704925,
+    "calibrated_semi_major_95_m": 514.2144130177013,
+    "calibrated_cep50_m": 175.48987120208105,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "seoul-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5477.671777368463,
+    "calibrated_cep50_m": 1819.915108047767,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "seoul-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5530.497516093301,
+    "calibrated_semi_major_95_m": 920.4276665292409,
+    "calibrated_cep50_m": 287.3662215273988,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "seoul-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5146.605173625427,
+    "calibrated_semi_major_95_m": 904.7067410332062,
+    "calibrated_cep50_m": 294.80997614159094,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "seoul": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5465.827032253564,
+    "calibrated_semi_major_95_m": 552.1824661343826,
+    "calibrated_cep50_m": 187.30578868220215,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6020.621686426832,
+    "calibrated_semi_major_95_m": 575.5023588328548,
+    "calibrated_cep50_m": 234.76249010570268,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5275.817367632311,
+    "calibrated_semi_major_95_m": 990.6211052327782,
+    "calibrated_cep50_m": 300.06763377249956,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5279.083991857521,
+    "calibrated_semi_major_95_m": 485.55501144635844,
+    "calibrated_cep50_m": 166.57922289141936,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5472.237602357612,
+    "calibrated_cep50_m": 1818.4148496969842,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5360.711767165605,
+    "calibrated_semi_major_95_m": 914.4950731072097,
+    "calibrated_cep50_m": 285.23129060146334,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4980.407040932801,
+    "calibrated_semi_major_95_m": 896.7111066110126,
+    "calibrated_cep50_m": 292.10707174307515,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "busan": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5463.714681017274,
+    "calibrated_semi_major_95_m": 571.6864361606371,
+    "calibrated_cep50_m": 192.75114567678935,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5272.340466385491,
+    "calibrated_semi_major_95_m": 994.539579138435,
+    "calibrated_cep50_m": 301.76064141143564,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5278.2908414528465,
+    "calibrated_semi_major_95_m": 511.8684959373398,
+    "calibrated_cep50_m": 174.69270667301058,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5472.237602357612,
+    "calibrated_cep50_m": 1818.4148496969842,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5357.585127178852,
+    "calibrated_semi_major_95_m": 918.79083842484,
+    "calibrated_cep50_m": 286.9766889054682,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4977.57772403352,
+    "calibrated_semi_major_95_m": 903.5224199235427,
+    "calibrated_cep50_m": 294.53447478557786,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "manila": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5463.714681017274,
+    "calibrated_semi_major_95_m": 571.6864361606371,
+    "calibrated_cep50_m": 192.75114567678935,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5272.340466385491,
+    "calibrated_semi_major_95_m": 994.539579138435,
+    "calibrated_cep50_m": 301.76064141143564,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5278.2908414528465,
+    "calibrated_semi_major_95_m": 511.8684959373398,
+    "calibrated_cep50_m": 174.69270667301058,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5472.237602357612,
+    "calibrated_cep50_m": 1818.4148496969842,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5357.585127178852,
+    "calibrated_semi_major_95_m": 918.79083842484,
+    "calibrated_cep50_m": 286.9766889054682,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "naha-172e"
+     ],
+     [
+      "honolulu-pac",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4977.57772403352,
+    "calibrated_semi_major_95_m": 903.5224199235427,
+    "calibrated_cep50_m": 294.53447478557786,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  }
+ },
+ "only_one": {
+  "honolulu": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 4286.1454414756845,
+    "calibrated_cep50_m": 1213.0017914061145,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 8360.92318248271,
+    "calibrated_cep50_m": 2343.7839671584015,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 13512.357203641895,
+    "calibrated_cep50_m": 3745.7694063702406,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 2296.254906151361,
+    "calibrated_cep50_m": 667.9058400680467,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5571.2612896809205,
+    "calibrated_cep50_m": 1847.7675834508213,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 14313.656981212105,
+    "calibrated_cep50_m": 3962.8793945960106,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "honolulu-pac",
+      "honolulu-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 7885.476594289615,
+    "calibrated_cep50_m": 2206.7025416680776,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   }
+  },
+  "hilo": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 3905.4624752711397,
+    "calibrated_cep50_m": 1105.3154614118462,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 7727.025421354075,
+    "calibrated_cep50_m": 2168.2261994512974,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 13294.839671895776,
+    "calibrated_cep50_m": 3684.5253632366675,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 1949.7614779583364,
+    "calibrated_cep50_m": 567.9328169435887,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5489.987547977649,
+    "calibrated_cep50_m": 1823.7870555093546,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 14021.496600347144,
+    "calibrated_cep50_m": 3881.132480997524,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "hilo-pac",
+      "hilo-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 7729.235605682984,
+    "calibrated_cep50_m": 2161.632198379887,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   }
+  },
+  "tokyo": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5189.451294345821,
+    "calibrated_semi_major_95_m": 652.8935802732997,
+    "calibrated_cep50_m": 214.32409307658236,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5818.32792623605,
+    "calibrated_semi_major_95_m": 681.533523147106,
+    "calibrated_cep50_m": 261.1616577386839,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4996.995804972686,
+    "calibrated_semi_major_95_m": 1073.771765647197,
+    "calibrated_cep50_m": 322.40894475002085,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4899.2165439655955,
+    "calibrated_semi_major_95_m": 586.6112095782253,
+    "calibrated_cep50_m": 203.32335305927523,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5634.653568480214,
+    "calibrated_cep50_m": 1867.1159344216678,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5107.999956061169,
+    "calibrated_semi_major_95_m": 1002.4341359109698,
+    "calibrated_cep50_m": 308.3292207846634,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "tokyo-pac",
+      "tokyo-172e"
+     ],
+     [
+      "tokyo-pac",
+      "tokyo-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4654.90890193459,
+    "calibrated_semi_major_95_m": 975.4537434704115,
+    "calibrated_cep50_m": 312.69806400455866,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "naha": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5357.177958277916,
+    "calibrated_semi_major_95_m": 660.3637351662959,
+    "calibrated_cep50_m": 219.5665836131443,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6067.400308260392,
+    "calibrated_semi_major_95_m": 691.8369281848358,
+    "calibrated_cep50_m": 263.6243785207732,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5057.226594226528,
+    "calibrated_semi_major_95_m": 1089.1118972736344,
+    "calibrated_cep50_m": 328.23159713957887,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5043.821708300135,
+    "calibrated_semi_major_95_m": 589.1585391514617,
+    "calibrated_cep50_m": 210.69878522820832,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5670.625376537707,
+    "calibrated_cep50_m": 1878.1354547440521,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5198.016497631645,
+    "calibrated_semi_major_95_m": 1017.8005069900571,
+    "calibrated_cep50_m": 314.1964079688837,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "naha-172e",
+      "naha-pac"
+     ],
+     [
+      "naha-172e",
+      "naha-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4695.785605048154,
+    "calibrated_semi_major_95_m": 991.097552059698,
+    "calibrated_cep50_m": 318.87504740614077,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "seoul": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "seoul-172e",
+      "seoul-pac"
+     ],
+     [
+      "seoul-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5361.297007305515,
+    "calibrated_semi_major_95_m": 581.4758483563938,
+    "calibrated_cep50_m": 196.22785446741267,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "seoul-io",
+      "seoul-pac"
+     ],
+     [
+      "seoul-io",
+      "seoul-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6036.661306265693,
+    "calibrated_semi_major_95_m": 620.1713408518442,
+    "calibrated_cep50_m": 245.7623087650613,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "seoul-172e",
+      "seoul-pac"
+     ],
+     [
+      "seoul-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5136.930750398136,
+    "calibrated_semi_major_95_m": 1011.8966988357204,
+    "calibrated_cep50_m": 306.37847162708994,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "seoul-172e",
+      "seoul-pac"
+     ],
+     [
+      "seoul-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5050.2048024479245,
+    "calibrated_semi_major_95_m": 516.2522310514976,
+    "calibrated_cep50_m": 180.1688304396659,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "seoul-172e",
+      "seoul-pac"
+     ],
+     [
+      "seoul-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5507.816385551667,
+    "calibrated_cep50_m": 1829.3099324361979,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "seoul-172e",
+      "seoul-pac"
+     ],
+     [
+      "seoul-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5259.150950204133,
+    "calibrated_semi_major_95_m": 937.3267129143181,
+    "calibrated_cep50_m": 291.84989050132396,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "seoul-172e",
+      "seoul-pac"
+     ],
+     [
+      "seoul-172e",
+      "seoul-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4778.762772551064,
+    "calibrated_semi_major_95_m": 918.1505678054983,
+    "calibrated_cep50_m": 298.3987709634942,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "busan": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5347.303863995345,
+    "calibrated_semi_major_95_m": 669.498555597707,
+    "calibrated_cep50_m": 221.78285158806835,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6018.412661377829,
+    "calibrated_semi_major_95_m": 700.8699522819921,
+    "calibrated_cep50_m": 265.88708050688507,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5112.548247363859,
+    "calibrated_semi_major_95_m": 1095.507381508051,
+    "calibrated_cep50_m": 329.88905992158556,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5037.693984616904,
+    "calibrated_semi_major_95_m": 599.6777903460886,
+    "calibrated_cep50_m": 213.46636153629797,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5688.099381065405,
+    "calibrated_cep50_m": 1883.2654923390228,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5237.1166745863375,
+    "calibrated_semi_major_95_m": 1024.431559071777,
+    "calibrated_cep50_m": 315.8704509890538,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "busan-172e",
+      "busan-pac"
+     ],
+     [
+      "busan-172e",
+      "busan-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4755.037336243836,
+    "calibrated_semi_major_95_m": 997.5806402007031,
+    "calibrated_cep50_m": 320.4863547965428,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  },
+  "manila": {
+   "philippine-sea": {
+    "pairs": [
+     [
+      "manila-pac",
+      "manila-172e"
+     ],
+     [
+      "manila-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5450.506495738705,
+    "calibrated_semi_major_95_m": 651.426124688897,
+    "calibrated_cep50_m": 214.01676546947593,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "south-china-sea": {
+    "pairs": [
+     [
+      "manila-io",
+      "manila-pac"
+     ],
+     [
+      "manila-io",
+      "manila-172e"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 6235.448806707879,
+    "calibrated_semi_major_95_m": 629.4275806848246,
+    "calibrated_cep50_m": 248.07035246253915,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "sea-of-japan": {
+    "pairs": [
+     [
+      "manila-pac",
+      "manila-172e"
+     ],
+     [
+      "manila-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5047.506009331857,
+    "calibrated_semi_major_95_m": 1080.8617691478853,
+    "calibrated_cep50_m": 324.0806800339001,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-guam": {
+    "pairs": [
+     [
+      "manila-pac",
+      "manila-172e"
+     ],
+     [
+      "manila-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5132.236913097063,
+    "calibrated_semi_major_95_m": 580.1630554804609,
+    "calibrated_cep50_m": 202.23938706596434,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "near-hawaii": {
+    "pairs": [
+     [
+      "manila-pac",
+      "manila-172e"
+     ],
+     [
+      "manila-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": null,
+    "calibrated_semi_major_95_m": 5652.741768593201,
+    "calibrated_cep50_m": 1872.552755568792,
+    "calibrated_reason": null,
+    "uncalibrated_reason": "unobservable"
+   },
+   "korean-peninsula": {
+    "pairs": [
+     [
+      "manila-pac",
+      "manila-172e"
+     ],
+     [
+      "manila-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 5213.1667211549175,
+    "calibrated_semi_major_95_m": 1009.7453202324297,
+    "calibrated_cep50_m": 310.04143339347615,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   },
+   "east-of-japan": {
+    "pairs": [
+     [
+      "manila-pac",
+      "manila-172e"
+     ],
+     [
+      "manila-pac",
+      "manila-io"
+     ]
+    ],
+    "uncalibrated_semi_major_95_m": 4680.4358454152325,
+    "calibrated_semi_major_95_m": 980.1983495784285,
+    "calibrated_cep50_m": 313.7262995745588,
+    "calibrated_reason": null,
+    "uncalibrated_reason": null
+   }
+  }
+ },
+ "elapsed_s": 33.58684539794922
+}

@@ -1,0 +1,42 @@
+# SIMULATED scenario for config/pacific-uhf.yaml. Fictional open-ocean position.
+name: uplink-cw
+seed: 2
+description: >-
+  Simulated scenario (not real data): an unmodulated carrier (CW) jammer at a fictional
+  open-ocean point in the Philippine Sea (15 N, 130 E) radiates 5 dBW at 301.130 MHz,
+  inside the shared-2 channel relayed by all three satellites and clear of the Sapporo
+  reference carrier. The operator should see a narrow line on every channel's shared-2
+  window (35 to 42 dB-Hz, 15 to 22 dB above the floor over the three or four bins the
+  detector gives the line), a classification of cw, and an uplink verdict.
+  Cross-satellite correlations detect it far above threshold (35 to 39 dB
+  post-correlation SNR in a 1 s capture), but a CW carrier has no bandwidth, so its
+  time difference of arrival cannot be measured: every cross-satellite correlation
+  reports FDOA only (TDOA unavailable, reason narrowband) and the system must say so
+  instead of producing a TDOA. Two FDOA rows alone do not give a position while they
+  carry the uncalibrated satellite-oscillator uncertainty (up to 40 Hz): without
+  calibration the solver reports the event unobservable. Calibrated against the
+  Sapporo reference carrier, which shares shared-2, the oscillator terms cancel and a
+  coarse FDOA-only fix appears, 3 to 64 km from the truth inside a very long 95 % ellipse
+  (60 to 650 km by 1.7 to 3.3 km) that contains it (eight times of day with the server's
+  chain of tests/test_sim_verify.py; over 40 Monte Carlo trials the median miss is about
+  16 km, RESULTS.md section 4.4). Truth errors are the small ones of pacific-demo.
+emitters:
+  - id: jammer-cw
+    name: Uplink CW jammer (simulated, open ocean)
+    kind: jammer
+    lat_deg: 15.0
+    lon_deg: 130.0
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    freq_hz: 301.130e+6
+    eirp_dbw: 5.0
+    antenna: {type: isotropic}
+    pointing: omni
+    waveform: {type: cw}
+errors:
+  ephemeris:
+    muos-pac: {ric_pos_m: [60.0, -700.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    uhf-172e: {ric_pos_m: [-40.0, 500.0, -800.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    muos-io: {ric_pos_m: [80.0, 900.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}
+  site_clock_offset_ns: {tokyo: 40.0}

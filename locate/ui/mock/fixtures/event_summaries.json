@@ -1,0 +1,217 @@
+[
+  {
+    "id": "EV-0040",
+    "state": "locating",
+    "verdict": "uplink",
+    "first_seen_ns": "1794592736000000000",
+    "last_seen_ns": "1794592799300000000",
+    "uplink_lo_hz": 301122500.0,
+    "uplink_hi_hz": 301124500.0,
+    "satellite_ids": [
+      "muos-pac",
+      "uhf-172e",
+      "muos-io"
+    ],
+    "label": "noise",
+    "headline": "Uplink interference on MUOS Pacific (nominal 177 W), UFO-class legacy UHF (nominal 172 E) and MUOS Indo-Asia (nominal 75 E) at 301.1235 MHz",
+    "solution": {
+      "lat_deg": 14.550992044234064,
+      "lon_deg": 147.05749898136753,
+      "semi_major_m": 4393744.937178363,
+      "semi_minor_m": 301839.81803478516,
+      "azimuth_deg": 7.5042830500986035,
+      "cep50_m": 1217031.6682946049,
+      "ambiguous": false,
+      "ambiguities": [],
+      "fit_consistent": false,
+      "is_fix": false
+    },
+    "simulated": true,
+    "onset_ns": "1794592736000000000",
+    "received_lo_hz": 260122500.0,
+    "received_hi_hz": 267524500.0,
+    "seen_site_ids": [
+      "honolulu",
+      "tokyo",
+      "naha",
+      "seoul",
+      "busan",
+      "manila"
+    ],
+    "width_lower_bound": false
+  },
+  {
+    "id": "EV-0042",
+    "state": "located",
+    "verdict": "uplink",
+    "first_seen_ns": "1794592707000000000",
+    "last_seen_ns": "1794592799500000000",
+    "uplink_lo_hz": 301001000.0,
+    "uplink_hi_hz": 301009000.0,
+    "satellite_ids": [
+      "muos-pac",
+      "uhf-172e",
+      "muos-io"
+    ],
+    "label": "noise",
+    "headline": "Uplink interference on MUOS Pacific (nominal 177 W), UFO-class legacy UHF (nominal 172 E) and MUOS Indo-Asia (nominal 75 E) at 301.0050 MHz",
+    "solution": {
+      "lat_deg": 20.314808860933567,
+      "lon_deg": 132.4196587991396,
+      "semi_major_m": 1345.8548076450438,
+      "semi_minor_m": 552.2036939449948,
+      "azimuth_deg": 11.059216663734372,
+      "cep50_m": 447.66620420840195,
+      "ambiguous": false,
+      "ambiguities": [],
+      "fit_consistent": true,
+      "is_fix": true
+    },
+    "simulated": true,
+    "onset_ns": "1794592777500000000",
+    "received_lo_hz": 260001000.0,
+    "received_hi_hz": 267409000.0,
+    "seen_site_ids": [
+      "honolulu",
+      "tokyo",
+      "naha",
+      "seoul",
+      "busan",
+      "manila"
+    ],
+    "width_lower_bound": false
+  },
+  {
+    "id": "EV-0043",
+    "state": "located",
+    "verdict": "uplink",
+    "first_seen_ns": "1794592745000000000",
+    "last_seen_ns": "1794592799000000000",
+    "uplink_lo_hz": 301128475.0,
+    "uplink_hi_hz": 301132525.0,
+    "satellite_ids": [
+      "muos-pac",
+      "uhf-172e",
+      "muos-io"
+    ],
+    "label": "modulated",
+    "headline": "Uplink interference on MUOS Pacific (nominal 177 W), UFO-class legacy UHF (nominal 172 E) and MUOS Indo-Asia (nominal 75 E) at 301.1305 MHz",
+    "solution": {
+      "lat_deg": 49.53817719315211,
+      "lon_deg": 138.4181374035437,
+      "semi_major_m": 30608.783078169257,
+      "semi_minor_m": 686.4844784684988,
+      "azimuth_deg": 10.28289327761317,
+      "cep50_m": 8439.079361806658,
+      "ambiguous": true,
+      "ambiguities": [
+        {
+          "lat_deg": 29.814703748046767,
+          "lon_deg": 134.90131639795436,
+          "semi_major_m": 29176.02094236441,
+          "semi_minor_m": 664.6371970596418,
+          "azimuth_deg": 5.45094398045087
+        }
+      ],
+      "fit_consistent": true,
+      "is_fix": true
+    },
+    "simulated": true,
+    "onset_ns": "1794592745000000000",
+    "received_lo_hz": 260128475.0,
+    "received_hi_hz": 267532525.0,
+    "seen_site_ids": [
+      "honolulu",
+      "tokyo",
+      "naha",
+      "seoul",
+      "busan",
+      "manila"
+    ],
+    "width_lower_bound": false
+  },
+  {
+    "id": "EV-0041",
+    "state": "detected",
+    "verdict": "local",
+    "first_seen_ns": "1794592488000000000",
+    "last_seen_ns": "1794592799500000000",
+    "uplink_lo_hz": 301500880.0,
+    "uplink_hi_hz": 301504120.0,
+    "satellite_ids": [],
+    "label": "modulated",
+    "headline": "Local interference at Busan (city center)",
+    "solution": null,
+    "simulated": true,
+    "onset_ns": "1794592488000000000",
+    "received_lo_hz": 260500880.0,
+    "received_hi_hz": 260504120.0,
+    "seen_site_ids": [
+      "busan"
+    ],
+    "width_lower_bound": false
+  },
+  {
+    "id": "EV-0044",
+    "state": "detected",
+    "verdict": "undetermined",
+    "first_seen_ns": "1794592705000000000",
+    "last_seen_ns": "1794592798000000000",
+    "uplink_lo_hz": 301756200.0,
+    "uplink_hi_hz": 301757800.0,
+    "satellite_ids": [
+      "uhf-172e"
+    ],
+    "label": null,
+    "headline": "Interference received at 268.1570 MHz: source not yet determined",
+    "solution": null,
+    "simulated": true,
+    "onset_ns": "1794592705000000000",
+    "received_lo_hz": null,
+    "received_hi_hz": null,
+    "seen_site_ids": [
+      "honolulu"
+    ],
+    "width_lower_bound": false
+  },
+  {
+    "id": "EV-0039",
+    "state": "lost",
+    "verdict": "uplink",
+    "first_seen_ns": "1794587400000000000",
+    "last_seen_ns": "1794587700000000000",
+    "uplink_lo_hz": 301999100.0,
+    "uplink_hi_hz": 302000900.0,
+    "satellite_ids": [
+      "muos-io"
+    ],
+    "label": "pulsed",
+    "headline": "No longer detected: uplink interference on MUOS Indo-Asia (nominal 75 E) at 302.0000 MHz",
+    "solution": null,
+    "simulated": true,
+    "onset_ns": "1794587400000000000",
+    "received_lo_hz": null,
+    "received_hi_hz": null,
+    "seen_site_ids": [],
+    "width_lower_bound": false
+  },
+  {
+    "id": "EV-0038",
+    "state": "closed",
+    "verdict": "local",
+    "first_seen_ns": "1794583800000000000",
+    "last_seen_ns": "1794584100000000000",
+    "uplink_lo_hz": 301499800.0,
+    "uplink_hi_hz": 301500200.0,
+    "satellite_ids": [],
+    "label": "cw",
+    "headline": "Closed: local interference at one site",
+    "solution": null,
+    "simulated": true,
+    "onset_ns": "1794583800000000000",
+    "received_lo_hz": null,
+    "received_hi_hz": null,
+    "seen_site_ids": [],
+    "width_lower_bound": false
+  }
+]

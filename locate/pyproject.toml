@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "petal-locate"
+version = "0.1.0"
+description = "Distributed satellite-uplink interference detection and geolocation (proof of concept)"
+requires-python = ">=3.11"
+license-files = ["THIRD_PARTY.md"]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "sgp4>=2.22",
+  "contourpy>=1.2",
+  "pydantic>=2.6",
+  "pyyaml>=6",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "websockets>=15",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# The soapy driver needs the SoapySDR Python bindings, which are not on the package index
+# (system package python3-soapysdr, or SoapySDR built from source).
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+petal-locate = "petal_locate.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# The console build. The example configurations are copied in by setup.py.
+petal_locate = ["server/static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["slow: long-running statistical or end-to-end tests"]

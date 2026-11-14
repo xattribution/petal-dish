@@ -4,3 +4,17 @@ node_modules/
 tmp/
 .claude/worktrees/
 __pycache__/
+
+# PETAL Locate
+locate/.venv/
+locate/venv/
+locate/data/
+locate/build/
+locate/dist/
+locate/ui/node_modules/
+*.egg-info/
+*.py[cod]
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/

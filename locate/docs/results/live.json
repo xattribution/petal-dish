@@ -1,0 +1,143 @@
+{
+ "section": "live",
+ "simulated": true,
+ "note": "SIMULATED: every number comes from the PETAL Locate simulator and models with illustrative link parameters and nominal orbital slots (config/pacific-uhf.yaml), not from real satellites, terminals or sites.",
+ "config": "config/pacific-uhf.yaml",
+ "config_sha256_16": "c1dffdc7253968bf",
+ "script": "scripts/capability_study.py",
+ "media_assumed_by_solver": {
+  "iono_vtec_tecu": 30.0,
+  "iono_correlation": 0.5,
+  "tropo_zenith_m": 2.4,
+  "tropo_correlation": 0.9
+ },
+ "start": "2026-01-01T03:00:00Z",
+ "method": "petal-locate demo --start (server plus seven node subprocesses with the simulated radio driver, real WebSockets, 127.0.0.1, simulated time starting at the main epoch of the other sections) started on the quiet preset; each preset loaded through POST /api/v1/sim/presets/{name}/load and the event read through GET /api/v1/events/{id} (with the demo's API token) until its solution used 16 rows (about 4 to 8 rounds); 'uncorrected_rows' re-solves the very rows the server used without their reference-carrier corrections, with the same solver settings. The shipped presets have no ionosphere or troposphere; the server's solver carries both at the configured sigmas.",
+ "pacific-demo": {
+  "loaded_host_t_ns": 1794607387913297745,
+  "history": [
+   {
+    "host_t_ns": 1794607400037699864,
+    "n_measurements": 4,
+    "miss_m": 353.38986298937436,
+    "inside_ellipse": true,
+    "semi_major_m": 559.6626393399123,
+    "semi_minor_m": 246.05677111718163,
+    "dominant_error": "ionosphere"
+   },
+   {
+    "host_t_ns": 1794607404092714753,
+    "n_measurements": 8,
+    "miss_m": 251.50007373538304,
+    "inside_ellipse": true,
+    "semi_major_m": 537.1437291710379,
+    "semi_minor_m": 241.6372562646852,
+    "dominant_error": "ionosphere"
+   },
+   {
+    "host_t_ns": 1794607416205996878,
+    "n_measurements": 12,
+    "miss_m": 236.73730904867512,
+    "inside_ellipse": true,
+    "semi_major_m": 529.3409604560908,
+    "semi_minor_m": 240.11228813071935,
+    "dominant_error": "ionosphere"
+   },
+   {
+    "host_t_ns": 1794607426246585779,
+    "n_measurements": 16,
+    "miss_m": 227.02813273990668,
+    "inside_ellipse": true,
+    "semi_major_m": 496.0100422721736,
+    "semi_minor_m": 231.49304405668585,
+    "dominant_error": "ionosphere"
+   }
+  ],
+  "event_id": "EV-000001",
+  "verdict": "uplink",
+  "seconds_to_verdict": 5.034320896,
+  "seconds_to_located": 7.420804864,
+  "rows_used": 16,
+  "rows_calibrated": 16,
+  "final": {
+   "host_t_ns": 1794607426246585779,
+   "n_measurements": 16,
+   "miss_m": 227.02813273990668,
+   "inside_ellipse": true,
+   "semi_major_m": 496.0100422721736,
+   "semi_minor_m": 231.49304405668585,
+   "dominant_error": "ionosphere"
+  },
+  "uncorrected_rows": {
+   "miss_m": 421.33509572172176,
+   "nees_total": 0.16335887143269254,
+   "semi_major_m": 5448.625238639485,
+   "reduced_chi2": 0.7843052189713637,
+   "n_ambiguities": 0
+  }
+ },
+ "ephemeris-error": {
+  "loaded_host_t_ns": 1794607432733436861,
+  "history": [
+   {
+    "host_t_ns": 1794607444853592310,
+    "n_measurements": 4,
+    "miss_m": 87.51291759290574,
+    "inside_ellipse": true,
+    "semi_major_m": 500.57407743842634,
+    "semi_minor_m": 209.4564764947187,
+    "dominant_error": "ionosphere"
+   },
+   {
+    "host_t_ns": 1794607448868918035,
+    "n_measurements": 8,
+    "miss_m": 14.942232174617741,
+    "inside_ellipse": true,
+    "semi_major_m": 476.565076700794,
+    "semi_minor_m": 196.69360069222608,
+    "dominant_error": "ionosphere"
+   },
+   {
+    "host_t_ns": 1794607458950116952,
+    "n_measurements": 12,
+    "miss_m": 17.745602375941942,
+    "inside_ellipse": true,
+    "semi_major_m": 468.2505596154028,
+    "semi_minor_m": 191.76498863053092,
+    "dominant_error": "ionosphere"
+   },
+   {
+    "host_t_ns": 1794607470992974088,
+    "n_measurements": 16,
+    "miss_m": 61.176410300702656,
+    "inside_ellipse": true,
+    "semi_major_m": 436.6720480216432,
+    "semi_minor_m": 164.4682434305341,
+    "dominant_error": "ionosphere"
+   }
+  ],
+  "event_id": "EV-000002",
+  "verdict": "uplink",
+  "seconds_to_verdict": 5.002362521,
+  "seconds_to_located": 7.410403529,
+  "rows_used": 16,
+  "rows_calibrated": 16,
+  "final": {
+   "host_t_ns": 1794607470992974088,
+   "n_measurements": 16,
+   "miss_m": 61.176410300702656,
+   "inside_ellipse": true,
+   "semi_major_m": 436.6720480216432,
+   "semi_minor_m": 164.4682434305341,
+   "dominant_error": "ionosphere"
+  },
+  "uncorrected_rows": {
+   "miss_m": 12020.532747414356,
+   "nees_total": 30.989650759102386,
+   "semi_major_m": 5336.113734594809,
+   "reduced_chi2": 0.3445590861177151,
+   "n_ambiguities": 0
+  }
+ },
+ "elapsed_s": 108.02135109901428
+}

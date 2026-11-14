@@ -1,0 +1,80 @@
+# PETAL Locate example configuration: two low-Earth-orbit satellites (Kepler elements).
+#
+# EVERYTHING NUMERIC HERE IS ILLUSTRATIVE: the orbits, the transponder plan and the
+# link numbers are invented for geometry and solver tests and describe no real
+# spacecraft. The site is a city-center coordinate with a neutral name, not a facility.
+#
+# Both satellites (800 km, 60 degrees inclination, neighboring planes) are above the
+# horizon of the site from the epoch, 2026-01-01T00:00:00Z, for the next 8 minutes:
+# leo-a climbs from 27 to 85 degrees elevation (culminating about 180 s after the
+# epoch) and leo-b from 52 to 54 degrees (about 30 s after), then both set.
+# Delays and Dopplers change quickly on such orbits; the CAF dynamics limits of
+# MATH.md section 6 apply.
+version: 1
+name: leo-example
+description: >-
+  Illustrative low-Earth-orbit example for geometry and solver tests: two satellites
+  defined by Kepler elements sharing one transponder plan, and one city-center site
+  with a fixed zenith-pointing channel that watches both. Orbits, frequencies and link
+  parameters are illustrative placeholders, not data for any real system; the site is
+  not a real facility. Both satellites are above the site's horizon from the epoch
+  2026-01-01T00:00:00Z for 8 minutes.
+dut1_s: 0.0
+
+satellites:
+  - id: leo-a
+    name: Generic LEO A (illustrative)
+    notes: Illustrative orbit and link numbers; shares the transponder plan of leo-b.
+    orbit:
+      type: kepler
+      a_m: 7178137.0            # 800 km above the equatorial radius
+      e: 0.001
+      inc_deg: 60.0
+      raan_deg: 212.0
+      argp_deg: 0.0
+      mean_anomaly_deg: 20.0
+      epoch: "2026-01-01T00:00:00Z"
+      j2: true
+    transponders:
+      - {id: u1, uplink_center_hz: 435.100e+6, bandwidth_hz: 100.0e+3, translation_hz: -289.2e+6,
+         g_over_t_dbk: -25.0, sfd_dbw_m2: -105.0, eirp_sat_dbw: 3.0}
+      - {id: u2, uplink_center_hz: 435.300e+6, bandwidth_hz: 100.0e+3, translation_hz: -289.2e+6,
+         g_over_t_dbk: -25.0, sfd_dbw_m2: -105.0, eirp_sat_dbw: 3.0}
+
+  - id: leo-b
+    name: Generic LEO B (illustrative)
+    notes: Illustrative orbit and link numbers; shares the transponder plan of leo-a.
+    orbit:
+      type: kepler
+      a_m: 7178137.0
+      e: 0.001
+      inc_deg: 60.0
+      raan_deg: 218.0
+      argp_deg: 0.0
+      mean_anomaly_deg: 26.0
+      epoch: "2026-01-01T00:00:00Z"
+      j2: true
+    transponders:
+      - {id: u1, uplink_center_hz: 435.100e+6, bandwidth_hz: 100.0e+3, translation_hz: -289.2e+6,
+         g_over_t_dbk: -25.0, sfd_dbw_m2: -105.0, eirp_sat_dbw: 3.0}
+      - {id: u2, uplink_center_hz: 435.300e+6, bandwidth_hz: 100.0e+3, translation_hz: -289.2e+6,
+         g_over_t_dbk: -25.0, sfd_dbw_m2: -105.0, eirp_sat_dbw: 3.0}
+
+sites:
+  - id: naha
+    name: Naha (city center)
+    time_zone: Asia/Tokyo
+    lat_deg: 26.212
+    lon_deg: 127.679
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    clock: {sigma_ns: 30.0}
+    channels:
+      - id: naha-leo
+        name: Naha zenith antenna (both LEO satellites)
+        antenna: {type: isotropic, gain_dbi: 2.0}
+        pointing: {az_deg: 0.0, el_deg: 90.0, satellite_ids: [leo-a, leo-b]}
+        system_noise_temp_k: 600.0
+
+processing:
+  region: {lat_min: 0.0, lat_max: 50.0, lon_min: 100.0, lon_max: 160.0}

@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0 (mock)",
+  "marking": {
+    "level": "UNCLASSIFIED",
+    "line": "UNCLASSIFIED"
+  },
+  "simulation": true,
+  "server_t_ns": "1794592800000000000",
+  "config_name": "pacific-uhf",
+  "api_token_required": false
+}

@@ -1,0 +1,43 @@
+{
+  "name": "petal-locate-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "PETAL Locate operator console (React + TypeScript + Vite)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.e2e.json && vite build",
+    "preview:mock": "node mock/serve.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.e2e.json",
+    "gen:types": "node scripts/gen-types.mjs",
+    "gen:zones": "node scripts/gen-zones.mjs",
+    "gen:fixtures": "../.venv/bin/python mock/generate_fixtures.py",
+    "e2e": "vite build && playwright test --trace off"
+  },
+  "dependencies": {
+    "@fontsource/b612": "5.3.0",
+    "@fontsource/b612-mono": "5.3.0",
+    "d3-geo": "3.1.1",
+    "mgrs": "2.2.0",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "topojson-client": "3.1.0",
+    "world-atlas": "2.0.2",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/d3-geo": "3.1.1",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/topojson-client": "3.1.5",
+    "@types/ws": "8.18.2",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "4.1.12",
+    "ws": "8.22.0"
+  }
+}

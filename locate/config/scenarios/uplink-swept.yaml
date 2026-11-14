@@ -1,0 +1,40 @@
+# SIMULATED scenario for config/pacific-uhf.yaml. Fictional open-ocean position.
+name: uplink-swept
+seed: 3
+description: >-
+  Simulated scenario (not real data): a swept (sawtooth chirp) jammer at a fictional
+  open-ocean point in the Philippine Sea (21 N, 127 E) sweeps 10 kHz every 40 ms around
+  301.005 MHz, inside the shared-1 channel relayed by all three satellites, at 20 dBW
+  from an omnidirectional antenna. The operator should see a 10 kHz-wide signal on
+  every channel's shared-1 window (52 to 56 dB-Hz), a classification of swept,
+  and an uplink verdict. A periodic sweep has a line spectrum (lines 25 Hz apart), so
+  it correlates with itself at near-equal height one sweep period later and at every
+  step of 100 microseconds in delay with 25 Hz in Doppler. Usually even the narrowest
+  search window (a calibrated pair, a few tens of hertz in Doppler) holds several of
+  these peaks, so the cross-satellite correlations come back ambiguous (eight candidates
+  listed), with or without calibration, instead of giving a single TDOA/FDOA; the
+  system must report that and show no position from them (live, fresh at 03:00 and
+  03:26 UTC, every correlation was ambiguous). At some times a calibrated pair's window
+  is narrow enough to hold a single peak; that pair then measures the jammer correctly
+  and gives a rough fix (live, a 10 to 12 km by 0.3 km ellipse that held the truth).
+  Truth errors are the small ones of pacific-demo.
+emitters:
+  - id: jammer-swept
+    name: Uplink swept jammer (simulated, open ocean)
+    kind: jammer
+    lat_deg: 21.0
+    lon_deg: 127.0
+    alt_m: 0.0
+    antenna_height_m: 10.0
+    freq_hz: 301.005e+6
+    eirp_dbw: 20.0
+    antenna: {type: isotropic}
+    pointing: omni
+    waveform: {type: chirp, bandwidth_hz: 10.0e+3, sweep_period_s: 0.04}
+errors:
+  ephemeris:
+    muos-pac: {ric_pos_m: [60.0, -700.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    uhf-172e: {ric_pos_m: [-40.0, 500.0, -800.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+    muos-io: {ric_pos_m: [80.0, 900.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
+  sat_osc_frac: {muos-pac: 4.0e-7, uhf-172e: -3.0e-7, muos-io: 2.5e-7}
+  site_clock_offset_ns: {tokyo: 40.0}

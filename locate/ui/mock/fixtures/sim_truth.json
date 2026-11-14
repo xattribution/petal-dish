@@ -1,0 +1,116 @@
+{
+  "version": 3,
+  "emitters": [
+    {
+      "id": "jammer-psea",
+      "name": "Noise jammer, Philippine Sea (fictional)",
+      "kind": "jammer",
+      "lat_deg": 20.31,
+      "lon_deg": 132.42,
+      "freq_hz": 301005000.0,
+      "eirp_dbw": 25.0,
+      "bandwidth_hz": 8000.0,
+      "waveform": "noise",
+      "enabled": true,
+      "active": true
+    },
+    {
+      "id": "psk-honshu",
+      "name": "QPSK intruder south of Honshu (fictional)",
+      "kind": "jammer",
+      "lat_deg": 29.8,
+      "lon_deg": 134.9,
+      "freq_hz": 301130500.0,
+      "eirp_dbw": 22.0,
+      "bandwidth_hz": 4050.0000000000005,
+      "waveform": "psk",
+      "enabled": true,
+      "active": true
+    },
+    {
+      "id": "local-busan",
+      "name": "Local interferer next to the Busan antenna (fictional)",
+      "kind": "local",
+      "lat_deg": 35.162,
+      "lon_deg": 129.091,
+      "freq_hz": 260502500.0,
+      "eirp_dbw": -20.0,
+      "bandwidth_hz": 3240.0,
+      "waveform": "psk",
+      "enabled": true,
+      "active": true
+    },
+    {
+      "id": "test-chirp",
+      "name": "Swept test emitter, switched off (fictional)",
+      "kind": "jammer",
+      "lat_deg": 3.5,
+      "lon_deg": 141.0,
+      "freq_hz": 301750000.0,
+      "eirp_dbw": 20.0,
+      "bandwidth_hz": 15000.0,
+      "waveform": "chirp",
+      "enabled": false,
+      "active": false
+    },
+    {
+      "id": "ref-guam",
+      "name": "Reference carrier, Guam city center (illustrative)",
+      "kind": "carrier",
+      "lat_deg": 13.476,
+      "lon_deg": 144.749,
+      "freq_hz": 300992500.0,
+      "eirp_dbw": 20.0,
+      "bandwidth_hz": 8000.0,
+      "waveform": "noise",
+      "enabled": true,
+      "active": true
+    },
+    {
+      "id": "ref-sapporo",
+      "name": "Reference carrier, Sapporo city center (illustrative)",
+      "kind": "carrier",
+      "lat_deg": 43.062,
+      "lon_deg": 141.354,
+      "freq_hz": 301117500.0,
+      "eirp_dbw": 20.0,
+      "bandwidth_hz": 8000.0,
+      "waveform": "noise",
+      "enabled": true,
+      "active": true
+    }
+  ],
+  "events": [
+    {
+      "event_id": "EV-0040",
+      "emitter_id": null,
+      "miss_m": null,
+      "inside_ellipse": null
+    },
+    {
+      "event_id": "EV-0042",
+      "emitter_id": "jammer-psea",
+      "miss_m": 533.5716645859909,
+      "inside_ellipse": true
+    },
+    {
+      "event_id": "EV-0043",
+      "emitter_id": "psk-honshu",
+      "miss_m": 2211598.558293846,
+      "inside_ellipse": false
+    },
+    {
+      "event_id": "EV-0041",
+      "emitter_id": "local-busan",
+      "miss_m": null,
+      "inside_ellipse": null
+    },
+    {
+      "event_id": "EV-0044",
+      "emitter_id": null,
+      "miss_m": null,
+      "inside_ellipse": null
+    }
+  ],
+  "simulated": true
+}
