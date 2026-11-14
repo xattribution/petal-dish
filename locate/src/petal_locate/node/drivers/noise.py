@@ -140,7 +140,7 @@ class NoiseDriver:
         if not (math.isfinite(fc) and caps.min_hz <= fc <= caps.max_hz):
             raise CaptureError(
                 "out_of_range",
-                f"centre {fc!r} Hz is outside {caps.min_hz:g}..{caps.max_hz:g} Hz",
+                f"center {fc!r} Hz is outside {caps.min_hz:g}..{caps.max_hz:g} Hz",
             )
         now_ns = clock.now_ns()
         oldest_ns = now_ns - round(caps.lookback_s * _NS)

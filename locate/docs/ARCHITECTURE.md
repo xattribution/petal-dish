@@ -96,7 +96,7 @@ SystemConfig
   dut1_s: float = 0
   satellites: list[Satellite]
   sites: list[Site]
-  carriers: list[Carrier] = []          # authorised carriers (frequency plan)
+  carriers: list[Carrier] = []          # authorized carriers (frequency plan)
   processing: ProcessingConfig = defaults
 
 Satellite        id, name, norad_id?: int, notes: str = "", orbit: Orbit, transponders: list[Transponder],
@@ -160,14 +160,14 @@ Rules:
   satellite and monitor ids within a channel.
 - Orbits of type `tle` use the `tle` ephemeris sigmas; `geo`, `kepler` and `table` use
   `operator`; `Satellite.ephemeris_sigma` overrides either.
-- Monitor: the node reads `nfft * navg` samples at `fs = span_hz` centred on
+- Monitor: the node reads `nfft * navg` samples at `fs = span_hz` centered on
   `center_hz`. Validation: `span_hz <= max_sample_rate_hz`,
   `nfft * navg / span_hz <= 1 / frame_rate_hz` and `16 <= nfft <= 131072` (the
   spectrum tracker refuses fewer than 16 bins, although the wire allows 2), and
   `processing.detection.baseline_tau_s` must span at least 10 frame periods of every
   monitor (the tracker refuses less; the error names the monitor's `frame_rate_hz`, or
   `baseline_tau_s` once for derived monitors). Empty `monitors` gives one derived
-  window per transponder of each watched satellite: `center_hz` = downlink centre,
+  window per transponder of each watched satellite: `center_hz` = downlink center,
   `span_hz = min(1.25 * bandwidth_hz, max_sample_rate_hz)`, `frame_rate_hz = 2`;
   `nfft` is halved (minimum 64) until the frame fits the frame period, keeping
   `navg = 8`, and only when 64 x 8 samples do not fit (spans under 1024 Hz) is `navg`
@@ -192,8 +192,8 @@ Rules:
   (lat_deg[n_lat], lon_deg[n_lon])` with `lon_deg = lon_min + k * step`, increasing and
   allowed to exceed 180 (unwrapped).
 - Other validation (each error names the field): references resolve, positive
-  bandwidths, latitude and longitude in range, TLE checksum and matching catalogue
-  numbers, table strictly increasing in time, every orbit buildable, a carrier's centre
+  bandwidths, latitude and longitude in range, TLE checksum and matching catalog
+  numbers, table strictly increasing in time, every orbit buildable, a carrier's center
   inside its transponder's uplink passband, `emitter.bandwidth_hz` not above the
   carrier's, Kepler perigee above the Earth's surface, transponder uplink and downlink
   passbands above 0 Hz, `confirm_m <= confirm_n`, `dut1_s` in [-1, 1], pointing
@@ -205,7 +205,7 @@ Rules:
 
 Helper methods on `SystemConfig`: `satellite(id)`, `site(id)`,
 `channel(id) -> (Site, ReceiveChannel)`, `carrier(id)`, `reference_carriers()`,
-`carrier_xyz(carrier_id)`, `site_xyz(site_id) -> ndarray[3]` (phase centre, includes
+`carrier_xyz(carrier_id)`, `site_xyz(site_id) -> ndarray[3]` (phase center, includes
 `antenna_height_m`), `sites_xyz() -> dict`, `orbit(sat_id) -> Orbit`,
 `orbits() -> dict[sat_id, Orbit]` (`tle`, `geo` and `kepler` orbits are built on every
 call; a `table` orbit is built at validation and reused while its samples' content is
@@ -215,15 +215,15 @@ unchanged), `boresight_ecef(channel_id, t_s) -> unit ECEF vector`,
 transponder whose uplink passband overlaps the range at all: more than an edge for a
 range of non-zero width, the closed passband for a single frequency),
 `uplink_for(sat_id, f_down_hz) -> (Transponder, f_up_hz) | None` (the nearest downlink
-centre when passbands overlap, the earlier transponder on a tie),
+center when passbands overlap, the earlier transponder on a tie),
 `downlink_hz(sat_id, transponder_id, f_up)`,
 `resolved_uncertainty() -> core.solver.Uncertainty`,
 `export_dict() -> dict` (JSON-compatible data that loads back to an equal model,
 without unset optional fields and derived monitors), and
 `warnings(t_s=None) -> list[{loc, msg}]`, what is valid but deserves attention: a
 parabolic antenna under 3 wavelengths (one note per channel at its lowest working
-frequency, the downlink centres of its watched transponders and its monitor centres;
-a carrier emitter's dish at the carrier's uplink centre); a carrier allocation reaching
+frequency, the downlink centers of its watched transponders and its monitor centers;
+a carrier emitter's dish at the carrier's uplink center); a carrier allocation reaching
 beyond its transponder's uplink passband; a monitor with `navg < 8`; a channel whose
 configured monitors miss the downlink of a transponder it watches; a watched
 transponder whose downlink the channel's windows (derived or configured) cover by less
@@ -237,7 +237,7 @@ note) and a TLE whose epoch lies more than `TLE_AGE_WARN_DAYS` (14) days from `t
 `TLE_AGE_WARN_DAYS_FAST` (3) when its mean motion exceeds `TLE_FAST_REV_PER_DAY` (2 rev
 per day) (loc `satellites.K.orbit`; the TLE sigmas are not scaled with age). The four
 constants are exported; `models.tle_epoch_s(line1)` reads a TLE epoch. Also
-`Transponder.relays(f_up_hz)` (centre inside the closed uplink passband) with
+`Transponder.relays(f_up_hz)` (center inside the closed uplink passband) with
 `uplink_lo_hz`, `uplink_hi_hz`, `downlink_center_hz`, `downlink_lo_hz`,
 `downlink_hi_hz`; `ReceiveChannel.watched_satellite_ids`, `monitors_derived`,
 `antenna_summary`; `Monitor.frame_duration_s`, `bin_hz`.
@@ -312,7 +312,7 @@ WaveformSpec     type: cw | noise | chirp | psk, bandwidth_hz=0, sweep_period_s=
                  symbol_rate_hz=0, order=4, rolloff=0.35, duty=1.0, period_s=0, seed=0
 TruthErrors      ephemeris: {sat_id: {ric_pos_m: [3], ric_vel_mps: [3], t_ref?: iso}} = {}
                  sat_osc_frac: {sat_id: float} = {}
-                 site_clock_offset_ns: {site_id: float} = {}     # delta_g: true time minus labelled time
+                 site_clock_offset_ns: {site_id: float} = {}     # delta_g: true time minus labeled time
                  site_osc_frac: {site_id: float} = {}
                  iono: {enabled=false, vtec_tecu=30}
                  tropo: {enabled=false, zenith_m=2.3}     # TropoError: relay and relayed-noise legs, envelope and phase
@@ -369,7 +369,7 @@ errors that grow without a `t_ref`; the sim driver passes the backplane document
   `decimate_margin(m)` extra samples at each end, which are dropped; direct paths
   point the emitter with `linkbudget.emitter_boresight`.
 - `render_psd(channel_id, t_start_ns, fc, span_hz, nfft, navg, *, expected=False) ->
-  float32[nfft]`: the expected Welch PSD without synthesising IQ. Linear power in bin
+  float32[nfft]`: the expected Welch PSD without synthesizing IQ. Linear power in bin
   k = 1 (thermal, 0 dB) + sum over transponders of `N0_relay / N0_site` on their
   passband bins + sum over paths of `(C_rx / (N0_site * span_hz)) * nfft * S_p[k]`,
   where `S_p[k] = waveform.spectral_shape(f_k - f_bb, resolution_hz=bin_hz) * bin_hz`
@@ -383,11 +383,11 @@ errors that grow without a `t_ref`; the sim driver passes the backplane document
   edges). Decimated paths and slices are multiplied by the decimation filter's
   `|H(f)|^2`. Each path is scaled by the fraction of the snippet the emitter radiates
   (`gate_fraction`, on/off times); then every bin is multiplied by a
-  `Gamma(shape=navg, scale=1/navg)` draw keyed by (scenario seed, channel, centre,
+  `Gamma(shape=navg, scale=1/navg)` draw keyed by (scenario seed, channel, center,
   `t_start_ns`), left out with `expected=True`. Measured against
   `welch_psd_db(render_iq(...))` on every window of every scenario: occupied bins within
-  0.33 dB, empty bins within 0.19 dB (the test requires 1 dB). The per-realisation
-  ripple of a chirp against the Welch segments (about +/- 1.5 dB) is not modelled.
+  0.33 dB, empty bins within 0.19 dB (the test requires 1 dB). The per-realization
+  ripple of a chirp against the Welch segments (about +/- 1.5 dB) is not modeled.
 - Budgets, Doppler and power robbing are evaluated on a node grid aligned to absolute
   time, 10 s apart when every satellite stays above 20 000 km and 1 s otherwise, and
   interpolated linearly between nodes (power and received frequency). Robbing uses the
@@ -407,7 +407,9 @@ errors that grow without a `t_ref`; the sim driver passes the backplane document
 - A satellite whose truth orbit cannot be evaluated at an instant (an ephemeris table
   that has ended or not begun) has no paths then: an emitter aimed at it radiates no
   uplink, a channel tracking it renders receiver noise only, a capture reaching past
-  the end of its table drops its paths, and `truth_summary` leaves it out; the other
+  the end of its table drops its paths (as does a path node in the table's last second,
+  where the Doppler stencil around the instant reaches past the end), and
+  `truth_summary` leaves it out; the other
   satellites are unaffected. Each case is logged once (`simulated <what> cannot be
   placed at t = ... (...); its paths are left out`).
 - `rebuild(config=None, scenario=None, *, epoch_ns=None) -> SimWorld` carries
@@ -439,11 +441,13 @@ solve directly (no network) and follows tasking (section 7) where it matters:
   `ephemeris_allowance(uncertainty, sat_a, sat_b, f_hz) -> (delay_s, doppler_hz)`
   (public): `6 (|sigma_pos,a| + |sigma_pos,b|) / c` and `6 f (|sigma_vel,a| +
   |sigma_vel,b|) / c` with the RIC one-sigma vectors, the same allowance as tasking.
-- Calibration: the first reference carrier in configuration order relayed by both of
-  the pair's transponders (or `reference_carrier_id`; tasking prefers the one nearest
-  the current fix, which this driver does not), captured through the same channels at
-  the same start time as the targets (tasking uses a later time slot), turned into
-  corrections with `solver.calibration_correction`.
+- Calibration: tasking's rule (K6, R7): the reference carriers relayed by both of the
+  pair's transponders whose band does not overlap the emitter's, nearest the emitter
+  (standing in for the fix tasking calibrates against once it has one) first, then
+  nearest in frequency; the first with a usable window (or `reference_carrier_id`,
+  honored as given). Captured through the same channels at the same start time as the
+  targets (tasking uses a later time slot), turned into corrections with
+  `solver.calibration_correction`.
 - CAF results that are undetected, ambiguous, coupled or mirror-ambiguous are recorded
   with their reason (`REASON_MIRROR_AMBIGUOUS = "mirror ambiguous"`) and not solved; a
   mirror-ambiguous reference gives no calibration (as tasking).
@@ -488,7 +492,7 @@ sec(t_ns: int) -> float                                 # correctly rounded t_ns
 gmst_rad(t_s, dut1_s=0.0);  wrapped_phase(rate_rad_s, dt_s)   # (rate * dt) mod 2 pi from an exact product
 MAX_UNIX_S = 1e11                                       # a larger |t_s| is t_ns passed as seconds: ValueError
 
-# geodesy.py   (degrees in, metres out)
+# geodesy.py   (degrees in, meters out)
 wrap_lon_deg(lon_deg)                                   # to [-180, 180)
 lla_to_ecef(lat_deg, lon_deg, alt_m=0.0) -> ndarray[...,3]
 ecef_to_lla(xyz) -> (lat_deg, lon_deg, alt_m)
@@ -583,7 +587,7 @@ slant_factor(el_deg);  group_delay_s(vtec_tecu, el_deg, freq_hz)     # el_deg ou
 MEDIA = ("ionosphere", "troposphere")
 tropo_mapping(el_deg)                                   # Black-Eisner 1.001 / sqrt(0.002001 + sin^2 el)
 tropo_delay_s(zenith_m, el_deg)
-leg_partials(ground, orbit, t_s, freq_hz) -> {medium: (delay_s, path_frequency_hz)}   # per TECU / per metre of zenith delay
+leg_partials(ground, orbit, t_s, freq_hz) -> {medium: (delay_s, path_frequency_hz)}   # per TECU / per meter of zenith delay
 row_media_partials(kind, a, b, t_s, emitter, orbits, sites_xyz, emitter_key="emitter", *, uplinks=True, downlinks=True)
     -> {medium: {ground_end_key: partial}}      # per ground end of the row (emitter, each site, a reference position)
     # uplink legs at the emitter's frequency and elevation, downlink legs at the site's; FDOA convention: the
@@ -598,7 +602,7 @@ sigmas_from_coherence(C, noise_bw_hz, rms_bw_hz, T_s, noise_rms_bw_hz=None, *, r
     # noise_rms_bw_hz multiplies sigma_tdoa by F = noise_rms_bw_hz / rms_bw_hz (MATH section 6 item 4)
 
 # spectrum.py
-welch_psd_db(iq: complex[nfft*navg], fs, nfft, navg) -> float32[nfft]     # MATH section 7 normalisation; fft-shifted
+welch_psd_db(iq: complex[nfft*navg], fs, nfft, navg) -> float32[nfft]     # MATH section 7 normalization; fft-shifted
 
 # signals.py
 class Waveform: evaluate(base_ns: int, t_rel: ndarray) -> complex128;  bandwidth_hz;  rms_bandwidth_hz;
@@ -608,13 +612,13 @@ class Waveform: evaluate(base_ns: int, t_rel: ndarray) -> complex128;  bandwidth
     # freqs_hz) each value is averaged over one bin, so sum * bin width is the in-span power fraction; cw returns the
     # full Hann-window kernel of welch_psd_db and needs a resolution. bandwidth_hz: 0 for cw, symbol_rate_hz (1 + rolloff)
     # for psk. gate_fraction: exact on-fraction of [base_ns, base_ns + duration_s) (MATH section 4)
-CwWaveform, ChirpWaveform, NoiseWaveform, PskWaveform (symbols(n_first, count): the symbol centred on n / symbol_rate_hz)
+CwWaveform, ChirpWaveform, NoiseWaveform, PskWaveform (symbols(n_first, count): the symbol centered on n / symbol_rate_hz)
 waveform_from_spec(spec, key_label: str) -> Waveform     # spec.seed is not read: it is part of key_label
 key128(label: str) -> int
 
 # channel.py
 render_path(waveform, base_ns, n, fs, delay_fn, phase_fn, amplitude) -> complex128[n]
-    # delay_fn(t_rel: float64[n]) -> seconds, phase_fn(t_rel) -> cycles; t_rel = k/fs seconds of labelled time after base_ns
+    # delay_fn(t_rel: float64[n]) -> seconds, phase_fn(t_rel) -> cycles; t_rel = k/fs seconds of labeled time after base_ns
 decimate(x, m) -> ndarray            # linear-phase FIR of MATH section 4, group delay removed exactly; ceil(len(x) / m)
                                      # samples, x taken as zero outside the array
 decimate_margin(m) -> int            # output samples at each end carrying that edge transient (26; 0 for m = 1)
@@ -652,7 +656,7 @@ class SignalTracker:
              passbands: list[(f_lo_hz, f_hi_hz, relay_rise_db)], carriers: list[(carrier_id, f_lo_hz, f_hi_hz)])
         # nfft >= 16; ValueError when cfg.baseline_tau_s spans fewer than 10 frame periods
     update(psd_db: float32[nfft], t_ns: int) -> list[Detection]      # every confirmed, unreleased track
-        # a track on an authorised carrier only while anomalous; ValueError for a non-increasing t_ns or non-finite bins
+        # a track on an authorized carrier only while anomalous; ValueError for a non-increasing t_ns or non-finite bins
     baseline_db: float32[nfft]                                       # NaN before the first update
     effective_threshold_db: float                                    # threshold in force, MATH section 7
     floor_db: float                  # start-up floor F (a bin's median noise level without relayed noise); NaN before a frame
@@ -720,7 +724,11 @@ accuracy_map(config, pairs: list[tuple[str, str]] (ends A, B: channel ids, or "c
     # (its relayed noise and the co-channel copies of the carrier it relays); CW and narrow carriers are correlated over
     # max(width, MIN_SIGNAL_BW_HZ) plus the Doppler reach, as tasking does; same-site co-channel pairs carry the
     # coincident self-peak term (copies taken in phase); media columns and shared-capture noise as in the solver
-    # (MATH section 10). The reference is the one named; the map does not choose one.
+    # (MATH section 10). The reference is the one named, or with NEAREST_REFERENCE = "nearest" (unless a carrier
+    # has that id) the one tasking would use for an emitter in each cell: per pair, a carrier relayed by both of its
+    # transponders whose band is clear of the target's, nearest the cell, then nearest in frequency (K6, R7). One map
+    # per distinct choice over the grid, merged cell by cell; each pair summary then has reference_cells {carrier id or
+    # "none": cells} and the result's reference_carrier_id is "nearest".
 # Shared with the Monte Carlo driver, which plans captures as the map does. Tasking implements the same rules
 # itself (section 7) and adds the ones listed there (ephemeris allowance, Doppler sample rate, capture lengthening).
 MIN_SIGNAL_BW_HZ = 10.0                                  # narrowest band filter of tasking, the map and the Monte Carlo
@@ -746,16 +754,22 @@ covariance_batch(jacobian, sigma, active, gain, categories) -> dict, cep50_batch
 `server/api/rest.py` also exports `accuracy_config(cfg, request)`: the configuration
 with `AccuracyRequest.uncertainty` in place of `processing.uncertainty` (satellite
 `ephemeris_sigma` and site clocks keep theirs); `accuracy_problems(cfg, request)` (the
-422 checks, also used by the CLI: unknown or repeated channels, a pair named twice,
-more than `ACCURACY_MAX_PAIRS = 128` pairs, two grid rows needing more than
+422 checks, also used by the CLI: unknown or repeated channels, a satellite a
+`channel@sat` end's channel does not watch, a malformed end, a pair named twice, more
+than `ACCURACY_MAX_PAIRS = 128` pairs, two grid rows needing more than
 `ACCURACY_BAND_BYTES = 256 MiB` at `ACCURACY_BYTES_PER_CELL_PAIR2 = 160` bytes per cell
-per pairs squared, a reference carrier that is not one); `accuracy_band_bytes(n_pairs,
+per pairs squared, a reference carrier that is not one; `"nearest"` is accepted while
+the configuration has a reference carrier); `accuracy_band_bytes(n_pairs,
 cells)` and `accuracy_band_cells(n_pairs, n_lon)` (bands of at most
 `ACCURACY_BAND_CELLS = 256` cells, fewer when the memory estimate demands, never under
 two grid rows); `MAX_BODY_BYTES = 4 MiB`; `resolve_time_ns` (422 outside 1970..2262);
 `token_warnings(settings, site_ids)`; and `compute_link_budget`, which leaves out (and
-logs) satellites whose orbit cannot be evaluated at `t`. `accuracy_problems` checks pair
-ends against channel ids as written, so the `channel@sat` form is refused there.
+logs) satellites whose orbit cannot be evaluated at `t`. `accuracy_problems` splits each
+pair end with `split_channel_ref` and checks the channel, the named satellite, one
+channel at both ends and repeated pairs (either order, keyed on the satellite each end
+correlates on as `core.accuracy.pair_satellites` resolves it, so a bare channel id and
+the same channel `@` that satellite are one end); in a build without `core.accuracy` it
+checks the ends as written, so a valid request still gets its 501.
 
 ## 6. Node agent (`node/`)
 
@@ -812,7 +826,7 @@ Drivers:
 - `sigmf`: replays a `cf32_le` SigMF recording with its timestamps
   (`core:datetime` of the first capture segment, read to the nanosecond, or the
   `t0_ns` option); later segments are taken to follow without a gap. A request for the
-  recording's own rate and centre returns its samples bit for bit; others inside the
+  recording's own rate and center returns its samples bit for bit; others inside the
   recorded band are mixed and resampled (`scipy.signal.resample_poly`, about -6 dB at
   the new band edge), others fail `out_of_range`. Without `loop` an interval outside
   the recording fails `too_late`; with `loop=true` the recording repeats (the join is
@@ -853,9 +867,13 @@ messages wait behind samples already in the kernel; `--send-buffer-bytes`) and
 `connect_options` (for example `ssl=` with a private CA), `proxy`, `driver_factory`.
 Text from the driver or peer that is put on the wire (`hello` software and driver,
 `capture_error.message`, a channel error in `assign_ack`) has characters that are not
-valid Unicode escaped (`backslashreplace`). A `sim_update` is handed only to drivers
-already open (one that arrives while channels open is lost on the node; the hub re-sends
-it after the ack, PROTOCOL.md A). Without `node_id` or `state_path` the node id is kept
+valid Unicode escaped (`backslashreplace`). A `sim_update` is handed to every driver
+already open, and the newest of the session is remembered and handed to each driver as
+it opens, so one that arrives while channels open is not lost (the hub's re-send after
+the ack stays for older nodes, PROTOCOL.md A). A capture the server withdrew (a
+`capture_cancel`, or an `assign` that removed or changed its channel) is logged at INFO
+as `capture withdrawn by the server: cancelled: ...`; real failures stay WARNING
+`capture failed: ...`. Without `node_id` or `state_path` the node id is kept
 in `$XDG_STATE_HOME/petal-locate/node-<site>.json` (else `~/.local/state/...`).
 
 ## 7. Server (`server/`)
@@ -873,9 +891,8 @@ shutdown. `GET /healthz` is a liveness probe without authentication. The server'
 is `app.state.clock = Settings.clock()` (the host clock, plus `sim_time_offset_ns` under
 `petal-locate demo --start`): the hub (`Hub(clock=...)`), the runtime
 (`ServerRuntime.from_settings(store=..., clock=...)`), the store (built in the lifespan
-with the settings' retention limits) and rest's default `t` use it. (`app._hub_clock`
-and `_ShiftedTime`, which patched the hub module's `time` for a hub without a `clock`
-parameter, no longer act: the hub takes the clock.)
+with the settings' retention limits) and rest's default `t` use it; the hub is always
+built with `clock=settings.clock()`.
 
 `RequestGuardMiddleware` runs before any route (PROTOCOL.md B): the `Host` check
 (`allowed_host_names(settings)`; exempt `/ws/node`, `/healthz` and the backplane; 400
@@ -921,7 +938,12 @@ and log line.
   `center_hz` / `fc`, `overflow`, `clock`, `clock_locked`), raising
   `CaptureFailed(code, message)` with codes `not_ready`, `limit`, `offline`,
   `disconnected`, `replaced`, `reassigned`, `deadline`, `bad_data`, `shutdown` (all
-  retryable) and the node's `capture_error` codes; `await hub.reassign(site_ids=None)`
+  retryable) and the node's `capture_error` codes. A capture beyond a node's
+  `MAX_CONCURRENT_CAPTURES` (8) pending waits for a slot, shared by every caller (a
+  pending map that wakes waiters on every removal; counter `capture_queued`), until a
+  slot frees, the session changes or its deadline passes; only then is it `limit`
+  ("... had 8 captures pending until the deadline"), so two events starting together no
+  longer fail each other's captures; `await hub.reassign(site_ids=None)`
   after every configuration change; `announce_sim_update(version, effective_ns)`;
   `channel_capabilities(channel_id)` (None while the channel is not ready);
   `subscribe_psd` (newest-wins mailbox per (channel, monitor)) and `subscribe_status`
@@ -938,11 +960,16 @@ and log line.
   `WindowHealthProvider = Callable[[channel_id, monitor_id], Mapping | None]`; a failing
   provider is logged and counted as `window_health_errors`) feeds the `windows` and
   `detection_problem` of each channel in `node_status`; a channel of an online node with
-  a blind window is not `ok`.
+  a blind window is not `ok`. Text a node sends that UTF-8 cannot carry (node id,
+  driver, software, detection problem, a window's note and blind reason) is escaped in
+  `node_status`.
 - `runtime.py`: `ServerRuntime` owns the configuration and its integer version (the
   ETag), the scenario and its version, the store, the hub providers, the pipeline and
   `WorkPool` (3 threads for CAF, solves, classification, accuracy maps, lines of
-  position, validation and large serialisations). `replace_config` checks `If-Match`
+  position, validation and large serialisations; `WorkPool(limit, *,
+  close_grace_s=WORK_CLOSE_GRACE_S = 10 s)`: `close()` logs a WARNING naming the jobs
+  still running after the grace period, `shutdown waits for N worker job(s) still running
+  after G s: <name (age s)>, ...`, and goes on waiting, since a thread cannot be stopped). `replace_config` checks `If-Match`
   (`*` matches any version; a value that is not a version is a conflict), validates
   with field errors, refuses a configuration the running scenario no longer fits (loc
   `(scenario)`), persists, calls `hub.reassign()`, rebuilds the pipeline, tells the
@@ -987,8 +1014,8 @@ and log line.
   `build_window_specs` (in a worker thread): passbands of every watched satellite's
   transponders overlapping the window with their `relay_rise_db` (evaluated when the
   configuration is installed; 0 dB for a satellite below the horizon then, and not
-  updated as satellites move), and the authorised carriers mapped through **every**
-  watched satellite whose transponder relays the carrier's centre, each widened by
+  updated as satellites move), and the authorized carriers mapped through **every**
+  watched satellite whose transponder relays the carrier's center, each widened by
   `downlink_spread_hz` (MATH section 7) and rounded outward to whole bins. A tracker is
   rebuilt only when its inputs change (it then relearns its baseline; the old tracker's
   detections are carried for `confirm_n` frames so the event is not lost meanwhile;
@@ -1023,21 +1050,49 @@ and log line.
   (counter `held`). Once a consistent fit exists, satellites that cannot see the fix,
   an end of either ellipse axis or any ambiguity (`events.visible_satellites`, cached
   per solution) leave `satellite_ids` and `transponders` for
-  `not_visible_satellite_ids` (never every satellite).
+  `not_visible_satellite_ids` (never every satellite); this needs a fix (`is_fix`), not
+  only a consistent fit. `EventRecord.width_lower_bound` is set while, in every monitor
+  window holding the event, its detections together reach both edges of the window (within
+  `WINDOW_EDGE_FRACTION = 0.08` of the span, at least 1.5 bins: a receiver's anti-alias
+  filter rolls off there, and the simulated one is 3 dB down at 44 % of the sample rate
+  from the center), so the width is a lower bound (ADAPT-5). When the verdict goes from `uplink` to `local`, the
+  correlator sets `onset_ns` to the last sighting at the sites that no longer see
+  anything (falling back to when the evidence alone first said local, then now; never
+  before `first_seen_ns`) before `set_aside` runs. When it goes from `local` to
+  `uplink`, `onset_ns` becomes the first detection held at a site outside
+  `EventRecord.local_site_ids` (the sites seeing it when it was judged local), and what
+  was measured on the local signal is set aside (`set aside: they belong to the local
+  signal measured before`).
 - `pipeline/events.py`: `EventRecord` and `EventBook` (lifecycle below, transitions,
   publication, the mutation API for tasking: `mark_characterizing`,
   `set_classification`, `add_measurement`, `set_caf`,
-  `set_solution(..., *, max_reduced_chi2=None)`, `report_cross_satellite_detection`,
+  `set_solution(..., *, max_reduced_chi2=None, max_semi_major_m=None)`,
+  `withdraw_solution(event_id, reason)`, `report_cross_satellite_detection`,
   `set_tasking`, `set_aside(..., keep=())`, `mark_recheck(event_id, reason)`,
   `clear_recheck(event_id, reason)`, `transmission_changed(event_id, why,
-  onset_ns=None, keep=())`), conversion to `schemas.Event`, simulation truth matching.
+  onset_ns=None, keep=(), *, keep_classification=False)`), conversion to `schemas.Event`, simulation truth matching.
   `assess_fit(chi2, dof, reduced_chi2, max_reduced_chi2) -> FitAssessment(consistent,
-  p_value, scale)` (`FIT_MAX_P_VALUE = 1e-3`) and `visible_satellites(solution, orbits,
-  sat_ids, t_s, min_elevation_deg)` are public. `EventRecord` gains `onset_ns`,
-  `resumed_ns`, `break_s`, `recheck`, `recheck_since_ns`, `set_aside_count` and
-  `not_visible_satellite_ids`, `received_range()` and `onset`. Mutations never block and
+  p_value, scale)` (`FIT_MAX_P_VALUE = 1e-3`), `visible_satellites(solution, orbits,
+  sat_ids, t_s, min_elevation_deg)`, `fix_semi_major_limit_m(region)` (the largest 95 %
+  semi-major axis of a fix: `FIX_MAX_SEMI_MAJOR_M = 1e6` m, or `FIX_MAX_REGION_FRACTION
+  = 0.25` of the region's smaller extent when that is less) and `writable_text(text)`
+  (text UTF-8 cannot carry escaped; applied to transition reasons, row reasons, the
+  `TaskingStatus` texts, `last_solve_reason` and `recheck`) are public. `EventRecord`
+  gains `onset_ns`, `resumed_ns`, `break_s`, `recheck`, `recheck_since_ns`,
+  `set_aside_count`, `not_visible_satellite_ids` and `width_lower_bound`,
+  `received_range()` and `onset`. `set_solution` publishes every converged solution with
+  the fix gate applied (`SolutionOut.is_fix`, `not_fix_reason`, PROTOCOL.md B): only a
+  fix makes the event `located`; a consistent solution that is not a fix sends a located
+  event back to `locating` (`position withdrawn: the position is not a fix: ...`) or adds
+  the transition `the position is not a fix: ...`. `withdraw_solution` clears the
+  published position (solution, `solution_t_ns`, `solution_used`, residuals; the rows
+  stay used; history kept; `last_solve_reason` set), returns a located event to
+  `locating` and records `position withdrawn: <reason>`. `set_aside` rebuilds each
+  evidence row's sightings from the detections held now, so `last_seen_ns` is null for
+  a channel that holds none of the current transmission. Mutations never block and
   never raise for an event that has moved on, and follow merges. Publication: material
-  changes (a re-check included) at the next flush, numeric drift at most every 5 s.
+  changes (a re-check, `onset_ns` and `width_lower_bound` included) at the next flush,
+  numeric drift at most every 5 s.
   Caps: 1000 measurement rows, the first
   and newest 500 solution-history rows and 200 transitions per document (the store
   keeps all); `prune()`, called from the runtime's 1 Hz loop, drops the oldest inactive
@@ -1056,7 +1111,7 @@ and log line.
     is not paired`): the channel watching it with the highest
     `downlink_quality_db` (table refreshed every 30 s), preferring a channel at the
     primary's site within 3 dB (common clock). A channel must be online, acknowledged,
-    able to tune the centre, not excluded by an earlier non-retryable failure, and its
+    able to tune the center, not excluded by an earlier non-retryable failure, and its
     pair must have an admissible emitter position (`measurement_windows` not None).
     Partner rotation: in the 4th, 6th, 8th ... rounds of an event each partner slot is
     handed, in turn, to another candidate within `ROTATE_WITHIN_DB = 1` dB of the best
@@ -1094,8 +1149,23 @@ and log line.
     to a target row only when its carrier is relayed by that row's transponders. Events
     calibrated on different reference carriers through the same channels each keep
     their own and are scheduled separately, every `calibration.interval_s` per carrier.
-    Reference results get no repeat check (their window is a small box around the
-    prediction). A reference capture that fails is retried only after
+    Clock checks (`Tasking._plan_clock_checks`, R3): what is left of
+    `CLOCK_CHECKS_PER_ROUND = 2` reference pairs per round after the pairs' own
+    calibrations (so the first round of an event is unchanged) calibrates one
+    satellite's copy of a reference carrier at the primary's site and at another site:
+    the partners' sites first, then any site of a cross-site TDOA calibration still valid
+    (which brings back rotated partners). The satellite's own error is common to both
+    ends, so the correction is the two clocks' difference plus the site-dependent rest of
+    the ephemeris error. Checks are throttled per pair like calibrations
+    (`calibration.interval_s`) and ordered by what a site lacks (a satellite it has no
+    valid check through, then sites checked through fewer than two satellites), then
+    never tried and longest since tried; they share the reference time slots (rates
+    recomputed per carrier over every channel of the slot). They are `Calibration`
+    entries keyed `(sat, site_a, sat, site_b, kind)`, listed in
+    `RoundReport.calibrations` and `Tasking.calibrations()` and stored with
+    `detail.event_id`, and are never applied to target rows; the correlation of a check
+    keeps the satellite's own self-peak (both ends use it). Reference results get no
+    repeat check (their window is a small box around the prediction). A reference capture that fails is retried only after
     `calibration.interval_s`. Calibrations, confirmation tracks and channel exclusions
     live in memory: a restart or a configuration change starts them afresh
     (calibrations are stored, not reloaded), and `Tasking.world_changed(effective_ns)`
@@ -1119,8 +1189,8 @@ and log line.
     for the swapped pairing when the two satellites are co-channel, both are seen from
     the other site and both cross copies fall in the other channel's band;
     `signal_bw_hz = max(f_hi - f_lo, 10 Hz)`; `t0_offset_s` from the integer difference of
-    the first-sample times; centre differences corrected per MATH section 5. Target and
-    reference rows carry capture ids (`<channel_id>|<t_first_ns>|<round centre>|<round
+    the first-sample times; center differences corrected per MATH section 5. Target and
+    reference rows carry capture ids (`<channel_id>|<t_first_ns>|<round center>|<round
     rate>`) and the estimator's noise shares, so the solver models the noise every pair
     of a round shares through the primary's capture.
   - Rejection. A pair is rejected (two rows with null values and the reason) for a
@@ -1146,14 +1216,39 @@ and log line.
     pair agreeing, the jumped pair is refused as `inconsistent with this pair's earlier
     detections` and the event is re-checked. While re-checked one agreeing pair clears
     the re-check and one disagreeing detection with none agreeing sets everything
-    aside. Re-check triggers besides a short break: a change between two definite
+    aside. Only a track measured before the change counts as agreeing: each track
+    keeps the labeled time of its first detection (`_PairTrack.since_ns`), and a re-check
+    remembers the time up to which a track must have begun (`_EventState.recheck_tie`:
+    the end of the capture that gave the earlier class, the previous round's level
+    reading, the moment of a conflict, or for a break the time the event was lost).
+    When the agreeing pairs all began after that and no earlier track is held, nothing
+    ties the signal now to the one before: `transmission_changed` with the rows measured
+    since the oldest track began kept (`another transmission: <what changed>, and every
+    pair measured now was first detected after that, so nothing ties the signal now to
+    the one measured before; ...`), `onset_ns` at that track's first detection, and for a
+    class change the new class kept (`keep_classification`). While an earlier track is
+    held but not measured again, the re-check waits; after `RECHECK_WAIT_ROUNDS = 3`
+    rounds with only new tracks agreeing it is cleared (`re-check passed: pair X agrees
+    with its own measurements, and no pair measured before the change was measured
+    again in 3 rounds, so the change could not be tested`). Re-check triggers besides a short break: a change between two definite
     classes (both confidence at least `CLASS_CHANGE_CONFIDENCE = 0.5`), a primary-level
     step of `POWER_STEP_DB = 6` dB, a width change by `WIDTH_STEP_RATIO = 2` and at least
     `WIDTH_STEP_MIN_HZ = 1 kHz`. Backstop (`Tasking._split_test`): when rows added to a
     consistent fit break it (no solution or an inconsistent one) and the rows added
     since (at least `SPLIT_MIN_ROWS = 4`) fit one transmitter alone, the earlier rows are
     set aside (`set aside: the newest measurements fit one transmitter of their own but
-    not together with the earlier ones`) and the new rows' fix is attached. A set-aside
+    not together with the earlier ones`) and the new rows' fix is attached. The earlier
+    fit must have had redundancy (`dof >= 1`, `Tasking._fitted_one_transmitter`): rows
+    that merely determined a position were never checked against each other. When a
+    solve over a superset of the published position's rows finds no position at all and
+    no split explains it, the position is withdrawn (`EventBook.withdraw_solution`,
+    transition `position withdrawn: the newest measurements, added to the N it rested
+    on, admit no position (<solver reason>)`; counter `solutions_withdrawn`). Rows of
+    the published position that slid out of the solver window (`solver.max_measurements`,
+    the newest N) still count as covered (`Tasking._withdrawal_text`); the transition then
+    reads `position withdrawn: the newest N measurements (the solver window), which hold
+    every measurement since the position and K of the M it rested on, admit no position
+    (...)` (or `..., all newer than the M it rested on, ...`). A set-aside
     made elsewhere clears tasking's tracks (through `EventRecord.set_aside_count`).
   - Rows. Every correlated pair gives a TDOA row and an FDOA row; `value` is `z - c`
     when calibrated (with `correction` and `reference_carrier_id`), otherwise `z`.
@@ -1161,8 +1256,9 @@ and log line.
     (`CLASSIFY_BAND_FACTOR = 4` times its width, at least `2 x MIN_CLASSIFY_SAMPLES`
     samples, cut out of the spectrum, so that a neighboring carrier inside a
     minimum-rate capture is not classified in the event's place): on the first round,
-    15 s after an `unknown`, every 60 s otherwise, and again in every round while the
-    event is re-checked. A swept class with fewer than 5 sweep periods in the capture
+    15 s after an `unknown`, every 60 s otherwise, again in every round while the
+    event is re-checked, and once when every confirmed track began after the capture
+    that gave the class (the class may describe an earlier signal on the frequency). A swept class with fewer than 5 sweep periods in the capture
     sets the event's capture length to 5.25 periods (capped by `max_samples`) and
     schedules the next round at once.
   - Solve: the newest `solver.max_measurements` accepted rows; the global search on the
@@ -1174,34 +1270,50 @@ and log line.
     chi-square tail probability below `FIT_MAX_P_VALUE = 1e-3` is published flagged
     inconsistent, its ellipse, CEP and covariances enlarged by `sqrt(reduced_chi2)`
     (counter `solves_inconsistent`), and never makes the event `located` (a located
-    event goes back to `locating`). The strongest detected correlation surface of the
-    round (else the latest) goes to `set_caf`.
+    event goes back to `locating`). It also passes `max_semi_major_m =
+    fix_semi_major_limit_m(processing.region)`: a consistent solution with no redundancy
+    (`dof < 1`) or a larger ellipse is published as not a fix (counter `solves_not_fix`)
+    and the status message ends `The position is shown but is not a fix: <reason>.`. The
+    nearest-reference choice needs a fix. The strongest detected correlation surface of
+    the round (else the latest) goes to `set_caf`.
   - Status (`Event.tasking`): a plain sentence when every correlated pair of a round
     failed for one reason of the signal (no TDOA on a narrowband signal, ambiguous
     correlations of a periodic waveform, coupling, no copy found), kept while the next
-    round runs; a note for a satellite whose orbit is not available and for an
-    inconsistent fit; `idle` with a message for an event judged `local`;
+    round runs; a note for a satellite whose orbit is not available, for an
+    inconsistent fit and for a solution that is not a fix; `idle` with a message for an event judged `local`;
     `unlocatable_reason` (`UNLOCATABLE_AMBIGUOUS`, `UNLOCATABLE_COUPLED`: every pair of
     the latest round failed that way and no row has been used since;
     `UNLOCATABLE_ONE_SATELLITE`: fewer than two relaying, visible satellites), cleared
     when a row is used.
   - Site clocks: `Tasking.site_clock_estimates()` turns the TDOA calibrations still
-    valid into `ClockEdge(sat_a, site_a, sat_b, site_b, c_s, eph_s, sat_sigma_a_s,
-    sat_sigma_b_s)` rows (same-site ones included); `site_clock_offsets(edges, config,
-    site_name=None)` fits `c = o_a - o_b + e_sat_a - e_sat_b` per connected group of
-    sites by weighted minimum norm (clocks weighted by their configured sigma,
-    satellites by position sigma over c, so what the data cannot resolve goes to the
-    satellites), shifts each group to a median of zero, and sets `caution` when `|o| >=
-    max(CLOCK_CAUTION_NS = 1000, 10 x clock.sigma_ns, 3 x the RMS site-dependent
-    ephemeris allowance of its edges)` (the allowance: position sigma times the angle
-    between the two sites seen from the satellite, over c); in a group of two sites both
-    are flagged on their difference. Published as `Status.site_clocks`.
+    valid, the clock checks included, into `ClockEdge(sat_a, site_a, sat_b, site_b, c_s,
+    eph_s, sat_sigma_a_s, sat_sigma_b_s)` rows (same-site ones included; a
+    same-satellite edge has one ephemeris term and no satellite term);
+    `site_clock_offsets(edges, config, site_name=None)` fits `c = o_a - o_b + e_sat_a -
+    e_sat_b` per connected group of sites by weighted minimum norm (clocks weighted by
+    their configured sigma, satellites by position sigma over c, so what the data cannot
+    resolve goes to the satellites); the sites whose clock differences the edges
+    determine (`_determined_clusters`, from the design's null space) are shifted to
+    their own median of zero, any other site by the group median. From the
+    same-satellite edges it also works out each site's offset *through each satellite*.
+    The *limit* of a site is `max(CLOCK_CAUTION_NS = 1000, 10 x clock.sigma_ns, 3 x the
+    RMS site-dependent ephemeris allowance of its edges)` (the allowance: position sigma
+    times the angle between the two sites seen from the satellite, over c). Views
+    through two or more satellites that differ by the limit or more: no caution, and the
+    message says the clock is probably fine and names the satellite(s) whose position is
+    probably wrong. Otherwise an offset at `max(limit, the largest disagreement between
+    satellites in its group)` is a `caution`: "calibrations through X and Y agree" with
+    two or more satellites, else the message gives both explanations (`either its clock
+    is off ..., or the position of X is wrong beyond its configured uncertainty ...`).
+    Two sites whose difference alone is known (a cluster of two) are both judged on
+    their difference. Published as
+    `Status.site_clocks`.
   - Known limits, measured against `SimWorld`: a CW has no delay to separate copies by,
     so when a channel also hears a second copy a few Doppler bins away (a co-channel
     satellite, or a self-peak ridge) the FDOA scatters up to about 5 reported sigma; two
     transmitters on the air at once and detected alternately are not separated (their
-    mixed fit is flagged inconsistent, or the solve fails and the earlier position stays
-    with only `solve_reason` changed); the FDOA-rate bound is a strict worst case, so in
+    mixed fit is flagged inconsistent, or the solve fails and the earlier position is
+    withdrawn); site clocks are checked only while an event is tasked; the FDOA-rate bound is a strict worst case, so in
     low orbit the repeat gate is wide and captures short (about 58 ms on
     `leo-example.yaml`).
 - `pipeline/advisory.py`: plain-language headline, detail and actions (uplink: change
@@ -1212,14 +1324,29 @@ and log line.
   the start time (the onset of the current transmission). Ellipses are given as 95 %
   semi-axes (`95 % ellipse with semi-axes A by B, major axis N° from north`). An
   inconsistent fit is described as unreliable (no meaningful ellipse above 2,000 km) and
-  its position is not to be reported; an unresolved ambiguity lists every candidate and
+  its position is not to be reported; a consistent solution that is not a fix gets `The
+  best fit so far, at <position> (<ellipse>), is not a reliable position: <reason>. It is
+  not to be reported until more measurements make it a fix.` and the action `Report the
+  frequency, <start> and the affected satellite <authority>; do not report the computed
+  position yet: it is not a fix.`; a width that is a lower bound reads `(at least N kHz
+  wide)`; an unresolved ambiguity lists every candidate and
   says the system cannot choose; a re-checked position is reported only once new
   measurements confirm it; an unlocatable signal gets `No position can be computed.
   <unlocatable_reason>`. Local and undetermined advice quotes the received (downlink)
   frequency, the site and the channels (`received near F at SITE on CH`), with a
-  `tune to F` hint. Before a fix the advisory names only satellites the signal was seen
-  or measured through (`It may also reach X ...`); after one, satellites that cannot see
-  the fix are said to be unaffected.
+  `tune to F` hint. Before a fix (`is_fix`) the advisory names only satellites the signal
+  was seen or measured through (`It may also reach X ...`); after one, satellites that
+  cannot see the fix are said to be unaffected. A fix whose rows go through a satellite
+  in `EventRecord.doubted_satellite_ids` (set by tasking every round from
+  `SiteClockEstimate.suspect_satellite_ids`, through `EventBook.set_satellite_doubt`)
+  adds `The reference calibrations put the position of X wrong beyond its configured
+  uncertainty, and the ellipse does not include that error: the transmitter may lie
+  outside it.` and its report reads `(<position>, ±N at 95 % confidence; the ephemeris of
+  X is in doubt, so the transmitter may lie outside this)`. A lost event says when it
+  stopped, what reopening does (within `REOPEN_WINDOW_S`; kept under re-check within
+  `REACQUIRE_KEEP_S`, set aside after longer), `Nothing needs to be moved or changed
+  while the signal is off; act again if it returns.`, and keeps its report action ending
+  `saying that it stopped at <time> and may start again.`
 - `api/`: the console interface of PROTOCOL.md section B (`schemas.py` the contract,
   `rest.py` the routes and error mapping, `ws.py` `/ws/ui`, `deps.py` authentication and
   the `/ws/ui` origin check `ws_origin_ok`).
@@ -1231,8 +1358,10 @@ and log line.
 Event lifecycle. `state` is derived: `closed` once the operator closed it (or it was
 merged into another event); otherwise `lost` while no detection holds it; otherwise its
 progress: `detected` (raised) -> `characterizing` (first capture requested) ->
-`locating` (first CAF measurement accepted) -> `located` (a converged and consistent
-solution exists; an inconsistent one sends a located event back to `locating`).
+`locating` (first CAF measurement accepted) -> `located` (the solution is a fix:
+converged, consistent, with redundancy and an ellipse within the region's bound; a
+solution that is not a fix, or a withdrawn one, sends a located event back to
+`locating`).
 Progress is kept while an event is lost, so an event detected again within
 `REACQUIRE_KEEP_S = 30` s resumes with its measurements, solution and verdict, but
 with a position or used rows it is put under re-check (`recheck`, transition `detected
@@ -1245,10 +1374,19 @@ rows stay listed with `used = false` and the reason `set aside: ...`, the ellips
 in the history marked `set_aside`, progress returns to `characterizing` (to `locating`
 when rows passed in `keep` remain), the verdict re-settles from `undetermined`, the
 re-check and `not_visible_satellite_ids` are cleared, and a solve that started before
-the set-aside cannot attach its result. The same happens when the correlator turns an
-`uplink` verdict to `local` (MATH section 7) and when tasking finds another transmitter
-on the frequency (`transmission_changed`, which also sets `onset_ns`). A local event
-reads `characterizing` because tasking captures once before the verdict settles. Every
+the set-aside cannot attach its result; the evidence rows forget the sightings of
+channels that hold no current detection. The same happens when the correlator turns an
+`uplink` verdict to `local` (MATH section 7; `onset_ns` becomes the last sighting at the
+sites that no longer see anything), when it turns a `local` verdict to `uplink`
+(`onset_ns` becomes the first detection held at a site that did not see the local
+signal when it was judged local, `EventRecord.local_site_ids`; else the latest
+cross-satellite proof) and when tasking finds another transmitter on the
+frequency (`transmission_changed`, which also sets `onset_ns`). Tasking captures once
+before the verdict settles; once the event is judged local, nothing more is captured,
+so a `characterizing` event with nothing measured returns to `detected`
+(`EventBook.settle_local`, transition `judged local: nothing to characterize or locate
+by satellite`), and its `satellite_ids`, `transponders` and `not_visible_satellite_ids`
+are empty (no satellite relays a local signal). Every
 transition is stored and pushed with a reason.
 
 ## 8. CLI (`cli.py`)
@@ -1293,10 +1431,13 @@ every command: [--log-level debug|info|warning|error] [--log-format text|json]
   for one channel; `--node-config FILE` is YAML with the keys `driver_options`,
   `channels` (`{channel_id: {options}}`), `chunk_payload_bytes` and
   `send_buffer_bytes` (`NODE_CONFIG_KEYS`; read with `safe_yaml_load`; flags win over
-  the file; `load_node_config`, `node_driver_options`, `node_channel_options`). The
-  shared options alone, and the shared options with each channel's, are each used to
-  build a driver before connecting, so a bad option exits 2 naming the channel, and a
-  driver option the driver requires (sigmf `path`) must be among the shared ones.
+  the file; `load_node_config`, `node_driver_options`, `node_channel_options`). Before
+  connecting, the shared options merged with each channel's own are used to build a
+  driver, so a bad option exits 2 naming the channel; the shared set alone is built
+  (and must work) only when no channel has options of its own. A required option such
+  as sigmf `path` may therefore be given per channel only: when the shared set alone
+  would not build, one WARNING says that channels without options of their own (`other
+  than A, B`) will not open if the server assigns them.
   Driver hardware libraries (the SoapySDR bindings of `soapy`) load only when a channel
   opens (the channel is then reported failed in `assign_ack`). `--clock` replaces the
   reported clock source (`SystemClock(source, locked=not --clock-unlocked)`); with
@@ -1326,7 +1467,9 @@ every command: [--log-level debug|info|warning|error] [--log-format text|json]
   still exits 0.
 - `accuracy` calls `core.accuracy.accuracy_map` (in latitude bands sized by
   `accuracy_band_cells`, with progress, after `rest.accuracy_problems`) and writes the
-  `AccuracyGrid` keys as JSON; `--request` is read with `safe_yaml_load`.
+  `AccuracyGrid` keys as JSON; `--request` is read with `safe_yaml_load`. `--pair` ends
+  may be `channel@sat`; `--reference-carrier nearest` calibrates each cell against the
+  reference carrier nearest it.
 - `montecarlo` calls `sim.montecarlo.run_trials` (default emitter: the scenario's only
   jammer; `--param` checked against `run_trials`' signature), prints the summary, and
   with `--out` writes the whole result.

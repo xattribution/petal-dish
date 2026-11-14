@@ -637,11 +637,23 @@ def cmd_node(args: argparse.Namespace) -> int:
     # module this installation lacks) before the node dials out. A driver's own
     # hardware library (the SoapySDR bindings of soapy) is loaded only when a channel
     # opens, so its absence shows in the channel's assign_ack and the node's log.
-    for where, extra in [("", {})] + [(f" (channel {c})", o) for c, o in per_channel.items()]:
+    # A channel opens with the shared options merged with its own, so those merged sets
+    # are what must build; the shared set alone must build only when no channel has
+    # options of its own (an option every channel sets for itself, such as the
+    # recording 'path' of sigmf, need not be shared).
+    checks = [(f" (channel {c})", {**options, **o}) for c, o in per_channel.items()] or [("", options)]
+    for where, merged in checks:
         try:
-            get_driver(args.driver, **{**options, **extra})
+            get_driver(args.driver, **merged)
         except (ValueError, CaptureError) as exc:
             raise UsageError(f"--driver {args.driver}{where}: {exc}") from exc
+    if per_channel:
+        try:
+            get_driver(args.driver, **options)
+        except (ValueError, CaptureError) as exc:
+            logger.warning("--driver %s: channels other than %s have no options of their own and will not "
+                           "open if the server assigns them: %s", args.driver, ", ".join(per_channel), exc,
+                           extra={"site_id": args.site, "driver": args.driver})
     offset = int(args.sim_time_offset_ns or 0)
     if offset and args.driver != "sim":
         raise UsageError("--sim-time-offset-ns applies to --driver sim only")
@@ -791,6 +803,17 @@ def demo_time_offset_ns(start: str | None, now_ns: int | None = None) -> int:
     return epoch - (time.time_ns() if now_ns is None else int(now_ns))
 
 
+def demo_start_line(start: str | None) -> tuple[str, str] | None:
+    """The banner line of ``petal-locate demo --start ISO``: the requested epoch itself
+    (normalised to UTC), at which the simulated clock stood when the demo started; None
+    without ``--start``. Call it after ``demo_time_offset_ns`` has accepted the text."""
+    from petal_locate.core.timebase import iso_from_ns, ns_from_iso
+
+    if not start:
+        return None
+    return "Start:", f"simulated time starts at {iso_from_ns(ns_from_iso(start))}"
+
+
 async def _demo(args: argparse.Namespace) -> int:
     import secrets
 
@@ -869,11 +892,9 @@ async def _demo(args: argparse.Namespace) -> int:
             ("Data:", f"{data_dir}" + (" (removed on exit)" if temporary else "")),
             ("Nodes:", f"{len(children)} ({args.driver} driver): " + ", ".join(c.site_id for c in children)),
         ]
-        if offset:
-            from petal_locate.core.timebase import iso_from_ns
-
-            started = (time.time_ns() + offset) // 10**9 * 10**9
-            lines.append(("Start:", f"simulated time starts at {iso_from_ns(started)}"))
+        start_line = demo_start_line(getattr(args, "start", None))
+        if start_line is not None:
+            lines.append(start_line)
         _print_banner(lines)
         announced = False
         while not stop.is_set():
@@ -907,7 +928,7 @@ async def _demo(args: argparse.Namespace) -> int:
         try:
             await asyncio.wait_for(asyncio.shield(serve), timeout=20.0)
         except TimeoutError:
-            logger.error("the demo server did not stop in time; cancelling it")
+            logger.error("the demo server did not stop in time; canceling it")
             server.force_exit = True
             serve.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -967,7 +988,7 @@ def check_report(cfg: Any, t_ns: int, scenario: Any = None) -> str:
         ],
     ))
     out.append("")
-    out.append("Look angles (every channel by every satellite; gain at the satellite's first downlink centre)")
+    out.append("Look angles (every channel by every satellite; gain at the satellite's first downlink center)")
     rows = []
     for row in compute_look_angles(cfg, t_ns):
         notes = []
@@ -987,7 +1008,7 @@ def check_report(cfg: Any, t_ns: int, scenario: Any = None) -> str:
     out.append("")
     out.append("Monitor windows (downlink)")
     out.append(format_table(
-        ["site", "channel", "monitor", "centre MHz", "span kHz", "nfft", "navg", "frames/s", "bin Hz", "source"],
+        ["site", "channel", "monitor", "center MHz", "span kHz", "nfft", "navg", "frames/s", "bin Hz", "source"],
         [
             [site.id, channel.id, m.id, _number(m.center_hz / 1e6, 4), _number(m.span_hz / 1e3, 2), m.nfft,
              m.navg, _number(m.frame_rate_hz, 2), _number(m.bin_hz, 2),
@@ -1389,7 +1410,8 @@ def build_parser() -> argparse.ArgumentParser:
     acc.add_argument("--step-deg", type=float, help="grid step, degrees (default 2)")
     acc.add_argument("--region", metavar="LAT_MIN,LAT_MAX,LON_MIN,LON_MAX", help="default: the configured region")
     acc.add_argument("--kinds", metavar="tdoa,fdoa", help="measurement kinds (default both)")
-    acc.add_argument("--reference-carrier", metavar="ID", help="assume calibration against this reference carrier")
+    acc.add_argument("--reference-carrier", metavar="ID",
+                     help="assume calibration against this reference carrier ('nearest': the one nearest each cell)")
     acc.add_argument("--integration-s", type=float, help="capture duration, s (default: configured)")
     acc.add_argument("--time", help="ISO 8601 UTC (default now)")
     acc.add_argument("--max-cells", type=int, default=200_000, help="largest grid allowed (default 200000)")

@@ -31,7 +31,7 @@ Each request runs in its own task: admission by the channel's `ReadGate`,
 `driver.read`, chunking with `protocol.iter_capture_chunks`, upload through the
 outbox. The answer is `capture_data` frames or exactly one `capture_error`:
 
-  out_of_range  rate or centre outside the driver's capabilities, or the driver says so
+  out_of_range  rate or center outside the driver's capabilities, or the driver says so
   too_late      `deadline_ns` has passed (on arrival, during the read or during the
                 upload), or the driver no longer holds the interval
   overflow      the driver lost samples in the interval
@@ -632,6 +632,9 @@ class _Session:
         self._drivers: list[tuple[SdrDriver, str]] = []
         self._captures: dict[str, _CaptureJob] = {}
         self._cancel_reasons: dict[str, str] = {}
+        # The newest sim_update of this session: a channel that opens after it arrived
+        # (an assign still being applied) is handed it as soon as its driver is open.
+        self._sim_update: SimUpdate | None = None
         # The newest assignment not yet applied. One slot, not a queue: an assign that
         # arrives while an older one still waits replaces it (see `_assign`).
         self._assignment: tuple[int, list[ChannelAssignment]] | None = None
@@ -1026,6 +1029,13 @@ class _Session:
         channel.capabilities = capabilities
         channel.gate = ReadGate(capabilities.concurrent_reads)
         self._channels[assignment.channel_id] = channel
+        update = self._sim_update
+        if update is not None and isinstance(driver, SimUpdateHook):
+            # it arrived while this channel was opening and met no driver (R12)
+            self._spawn(
+                self._forward_sim_update(update, [(assignment.channel_id, driver)]),
+                f"sim_update:{update.version}:{assignment.channel_id}",
+            )
         return channel
 
     async def _refresh_channel(self, channel: _Channel) -> None:
@@ -1151,13 +1161,18 @@ class _Session:
         self._cancel_reasons[cancel.capture_id] = "cancelled by the server"
         job.task.cancel()
 
-    def _fail_capture(self, request: CaptureRequest, code: str, message: str) -> None:
-        """Answer a request with `capture_error` (dropped when the session has ended)."""
+    def _fail_capture(
+        self, request: CaptureRequest, code: str, message: str, *, by_server: bool = False
+    ) -> None:
+        """Answer a request with `capture_error` (dropped when the session has ended).
+        by_server: the server withdrew it on purpose (`capture_cancel`, or an assign that
+        removed or changed the channel): logged at INFO, not as a failure (R16)."""
         self._stats.captures_failed += 1
         if code not in CAPTURE_ERROR_CODES:
             code, message = "driver", f"{code}: {message}"
-        logger.warning(
-            "capture failed: %s: %s",
+        (logger.info if by_server else logger.warning)(
+            "capture %s: %s: %s",
+            "withdrawn by the server" if by_server else "failed",
             code,
             message,
             extra=self._extra(
@@ -1231,7 +1246,7 @@ class _Session:
         except asyncio.CancelledError:
             reason = self._cancel_reasons.pop(request.capture_id, None)
             if reason is not None:
-                self._fail_capture(request, "cancelled", reason)
+                self._fail_capture(request, "cancelled", reason, by_server=True)
             raise
         except TimeoutError as exc:
             if deadline is not None and deadline.expired():
@@ -1263,7 +1278,7 @@ class _Session:
         if not capabilities.min_hz <= request.center_hz <= capabilities.max_hz:
             raise CaptureError(
                 "out_of_range",
-                f"centre {request.center_hz:.3f} Hz is outside "
+                f"center {request.center_hz:.3f} Hz is outside "
                 f"{capabilities.min_hz:.3f}..{capabilities.max_hz:.3f} Hz",
             )
 
@@ -1311,6 +1326,10 @@ class _Session:
     # ------------------------------------------------------------------ simulation
 
     def _on_sim_update(self, update: SimUpdate) -> None:
+        """Forward a `sim_update` to every open driver with the hook, and remember the
+        newest one for channels that open later (`_open_channel`)."""
+        if self._sim_update is None or update.version >= self._sim_update.version:
+            self._sim_update = update
         targets: list[tuple[str, SimUpdateHook]] = []
         for channel in self._channels.values():
             driver = channel.driver
@@ -1318,7 +1337,8 @@ class _Session:
                 targets.append((channel.channel_id, driver))
         if not targets:
             logger.debug(
-                "sim_update: no driver wants it", extra=self._extra(version=update.version)
+                "sim_update: no open driver wants it now (kept for channels still opening)",
+                extra=self._extra(version=update.version),
             )
             return
         self._spawn(self._forward_sim_update(update, targets), f"sim_update:{update.version}")

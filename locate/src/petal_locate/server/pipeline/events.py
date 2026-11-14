@@ -45,9 +45,11 @@ break; tasking likewise flags a change of waveform class, power or width. While
 that agrees clears it (``clear_recheck``), one that disagrees sets everything aside.
 
 Onset. ``onset_ns`` is when the current transmission began: the first detection after
-the latest break (``reopen``), or the first detection that showed another transmitter
-(``transmission_changed``). The advisory tells the operator to report it as the start
-time; ``first_seen_ns`` stays the first detection of the event.
+the latest break (``reopen``), the first detection that showed another transmitter
+(``transmission_changed``), or, when the correlator's verdict changes between
+``uplink`` and ``local``, the start of the signal that took over (``Correlator``). The
+advisory tells the operator to report it as the start time; ``first_seen_ns`` stays the
+first detection of the event.
 
 Fit consistency (``assess_fit``). A converged solution whose reduced chi-square exceeds
 ``solver.max_reduced_chi2`` (and is significant, tail probability below
@@ -55,6 +57,15 @@ Fit consistency (``assess_fit``). A converged solution whose reduced chi-square 
 it flagged ``fit_consistent = false`` with its ellipse enlarged by
 ``sqrt(reduced_chi2)``; the event is then ``locating``, never ``located`` (a located
 event whose new fit is inconsistent goes back to ``locating``).
+
+A fix (``SolutionOut.is_fix``). Only a converged, consistent solution with redundancy
+(``dof >= 1``: more measurements than the two unknowns of a position, so the fit can be
+checked against itself) and a 95 % semi-major axis within ``fix_semi_major_limit_m`` of
+the region is a fix; anything else is published with ``is_fix = false`` and
+``not_fix_reason`` and never makes the event ``located`` (a located event whose new
+solution is not a fix goes back to ``locating``). When a solve over a superset of the
+rows of the published position finds no position at all, that position is withdrawn
+(``withdraw_solution``): it no longer fits what is measured.
 
 Publication. Mutations mark a record dirty; ``EventBook.flush`` builds the console
 document once and hands it to the publisher (console and store). A *material* change
@@ -86,6 +97,8 @@ __all__ = [
     "ACTIVE_STATES",
     "DEFAULT_REFRESH_S",
     "FIT_MAX_P_VALUE",
+    "FIX_MAX_REGION_FRACTION",
+    "FIX_MAX_SEMI_MAJOR_M",
     "MAX_HISTORY_ROWS",
     "MAX_INACTIVE_RECORDS",
     "MAX_MEASUREMENT_ROWS",
@@ -106,7 +119,9 @@ __all__ = [
     "caf_display",
     "classification_out",
     "event_truth",
+    "fix_semi_major_limit_m",
     "visible_satellites",
+    "writable_text",
 ]
 
 logger = logging.getLogger(__name__)
@@ -151,6 +166,18 @@ SET_ASIDE_REASON: Final[str] = "set aside"
 FIT_MAX_P_VALUE: Final[float] = 1e-3
 """A fit is inconsistent only when its chi-square is also this improbable (so a small
 number of degrees of freedom needs a larger reduced chi-square to be flagged)."""
+
+FIX_MAX_SEMI_MAJOR_M: Final[float] = 1.0e6
+"""Largest 95 % semi-major axis of a fix, m: a linearised ellipse beyond this says the
+measurements do not pin the position down (the geometry is degenerate), whatever the
+region (``fix_semi_major_limit_m``)."""
+
+FIX_MAX_REGION_FRACTION: Final[float] = 0.25
+"""A fix's 95 % semi-major axis is also at most this fraction of the region's smaller
+extent (``fix_semi_major_limit_m``): an ellipse spanning much of a small region is not a
+position."""
+
+_M_PER_DEG: Final[float] = 111_195.0  # mean metres per degree of great circle
 
 Space = Literal["up", "down"]
 """Frequency space of an event: ``up`` for uplink ranges (mapped through a
@@ -292,6 +319,9 @@ class EventRecord:
     recheck_since_ns: int | None = None
     set_aside_count: int = 0  # times set_aside withdrew something (tasking restarts its tracks)
     not_visible_satellite_ids: list[str] = field(default_factory=list)  # correlator (ADAPT-1)
+    width_lower_bound: bool = False  # correlator: every detection fills its window (ADAPT-5)
+    local_site_ids: tuple[str, ...] = ()  # correlator: sites seeing it when the verdict became local
+    doubted_satellite_ids: tuple[str, ...] = ()  # tasking: positions the calibrations put beyond their sigma
     # publication bookkeeping (EventBook)
     measurement_seq: int = 0
     published_signature: tuple[Any, ...] | None = None
@@ -601,6 +631,7 @@ class EventBook:
         last = record.transitions[-1] if record.transitions else None
         if not force and last is not None and last.state == state and last.verdict == verdict:
             return
+        reason = writable_text(reason)
         transition = schemas.Transition(t_ns=int(t_ns), state=state, verdict=verdict, reason=reason)  # type: ignore[arg-type]
         record.transitions.append(transition)
         _cap_keep_first(record.transitions, MAX_TRANSITION_ROWS)
@@ -680,15 +711,18 @@ class EventBook:
         transition: str | None = None,
         now: int | None = None,
         keep: Iterable[int] = (),
+        keep_classification: bool = False,
     ) -> bool:
         """Withdraw the event's solution and every accepted measurement (see the module
         docstring): rows keep their values with ``used = false`` and the reason
         ``set aside: <why>``; the solution, the classification and the correlation
         surface leave the document (the history keeps the ellipses); progress returns to
-        ``characterizing`` when it was further. ``keep``: entry ``seq`` numbers that stay
-        used (rows already known to belong to the current transmission). A transition is
-        noted with ``transition`` (or a sentence built from ``why``). Returns whether
-        anything changed."""
+        ``characterizing`` when it was further; the evidence rows' "last seen" times keep
+        only the detections held now (the others saw the earlier signal). ``keep``: entry ``seq`` numbers that stay
+        used (rows already known to belong to the current transmission).
+        ``keep_classification``: the class was measured on the current transmission and
+        stays. A transition is noted with ``transition`` (or a sentence built from
+        ``why``). Returns whether anything changed."""
         if record.closed or record.historic:
             return False
         now = self._clock() if now is None else int(now)
@@ -712,7 +746,8 @@ class EventBook:
         if record.solution is not None or record.solution_out is not None:
             changed = True
         # the class and the correlation surface describe the signal measured before too
-        record.classification = None
+        if not keep_classification:
+            record.classification = None
         record.caf = None
         record.solution = None
         record.solution_out = None
@@ -722,6 +757,18 @@ class EventBook:
         record.recheck = None
         record.recheck_since_ns = None
         record.not_visible_satellite_ids = []
+        # "last saw it" belongs to the transmission on the air: only what is held now (R2)
+        seen: dict[tuple[str, str | None], int] = {}
+        for unit in record.members.values():
+            key = (unit.channel_id, unit.sat_id)
+            seen[key] = max(seen.get(key, 0), int(unit.last_seen_ns))
+        record.channel_seen_ns = seen
+        record.evidence = [
+            row.model_copy(update={"last_seen_ns": seen.get((row.channel_id, row.sat_id))})
+            if row.last_seen_ns is not None and (row.channel_id, row.sat_id) not in seen
+            else row
+            for row in record.evidence
+        ]
         for i, row in enumerate(record.solution_history):
             if not row.set_aside:
                 record.solution_history[i] = row.model_copy(update={"set_aside": True})
@@ -802,6 +849,25 @@ class EventBook:
             self.note_transition(record, self._clock(), reason)
         return True
 
+    def settle_local(self, record: EventRecord, now: int | None = None) -> bool:
+        """The correlator judged the event local: nothing reaches a satellite, so tasking
+        captures no more and the event is not characterized or located by satellite. A
+        ``characterizing`` event with nothing measured returns to ``detected`` (transition
+        ``judged local: nothing to characterize or locate by satellite``). Returns whether
+        the progress moved."""
+        if record.closed or record.historic or record.progress != "characterizing":
+            return False
+        if record.solution_out is not None or any(e.row.used for e in record.measurements):
+            return False
+        record.progress = "detected"
+        if not record.lost:
+            self.note_transition(
+                record, self._clock() if now is None else int(now),
+                "judged local: nothing to characterize or locate by satellite",
+            )
+        self.touch(record, "state")
+        return True
+
     def mark_characterizing(self, event_id: str, t_ns: int | None = None) -> bool:
         """Tasking requested the event's first capture: ``detected`` -> ``characterizing``.
 
@@ -853,6 +919,8 @@ class EventBook:
         record = self._target(event_id, "add_measurement")
         if record is None:
             return None
+        if row.reason is not None and writable_text(row.reason) != row.reason:
+            row = row.model_copy(update={"reason": writable_text(row.reason)})
         record.measurement_seq += 1
         entry = MeasurementEntry(seq=record.measurement_seq, row=row, measurement=measurement)
         record.measurements.append(entry)
@@ -889,6 +957,7 @@ class EventBook:
         reason: str | None = None,
         *,
         max_reduced_chi2: float | None = None,
+        max_semi_major_m: float | None = None,
     ) -> bool:
         """Attach the result of a solve.
 
@@ -900,9 +969,13 @@ class EventBook:
             residuals, every other row gets null.
         max_reduced_chi2: ``solver.max_reduced_chi2``; the fit is assessed against it
             (``assess_fit``). None: not assessed (consistent).
-        A converged, consistent solution moves the event to ``located`` and adds a row
-        to the solution history; an inconsistent one is published flagged, with its
-        ellipse enlarged, and keeps (or returns) the event at ``locating``. Returns
+        max_semi_major_m: largest 95 % semi-major axis of a fix
+            (``fix_semi_major_limit_m``); None: no bound.
+        A converged solution adds a row to the solution history. A fix (converged,
+        consistent, ``dof >= 1``, ellipse within the bound: ``SolutionOut.is_fix``)
+        moves the event to ``located``; an inconsistent one is published flagged, with
+        its ellipse enlarged, and one that is otherwise not a fix is published with its
+        ``not_fix_reason``; both keep (or return) the event at ``locating``. Returns
         False for a closed event or a solution that is not finite. Raises ValueError
         when ``used`` does not match the residuals.
         """
@@ -910,7 +983,7 @@ class EventBook:
         if record is None:
             return False
         if solution is None:
-            record.last_solve_reason = reason
+            record.last_solve_reason = writable_text(reason)
             logger.info("event %s: solve gave no position (%s)", record.id, reason, extra={"event_id": record.id})
             return True
         residuals = list(np.asarray(solution.residuals, dtype=np.float64).ravel())
@@ -924,7 +997,7 @@ class EventBook:
             logger.info("event %s: solution from set-aside rows discarded", record.id, extra={"event_id": record.id})
             return False
         try:
-            data = _assessed(solution.as_dict(), max_reduced_chi2)
+            data = _assessed(solution.as_dict(), max_reduced_chi2, max_semi_major_m)
             out = schemas.SolutionOut.model_validate(data)
             text = json.dumps(data, allow_nan=False)
         except (ValidationError, ValueError, TypeError) as exc:
@@ -932,6 +1005,7 @@ class EventBook:
             logger.error("event %s: solution rejected: %s", record.id, exc, extra={"event_id": record.id})
             return False
         was_consistent = record.solution_out.fit_consistent if record.solution_out is not None else None
+        was_fix = record.solution_out.is_fix if record.solution_out is not None else None
         by_seq = dict(zip(used_seqs, residuals))
         for i, entry in enumerate(record.measurements):
             residual = _finite_or_none(by_seq.get(entry.seq))
@@ -953,13 +1027,22 @@ class EventBook:
                     semi_minor_m=out.ellipse.semi_minor_m,
                     n_measurements=out.n_measurements,
                     fit_consistent=out.fit_consistent,
+                    is_fix=out.is_fix,
                 )
             )
             _cap_keep_first(record.solution_history, MAX_HISTORY_ROWS)
-            if out.fit_consistent:
+            if out.is_fix:
                 if was_consistent is False and record.progress == "locating" and not record.lost:
                     self.note_transition(record, self._clock(), "the measurements agree again", force=True)
                 self._advance(record, "located", "position estimated")
+            elif out.fit_consistent:
+                note = f"the position is not a fix: {out.not_fix_reason}"
+                if record.progress == "located":
+                    record.progress = "locating"
+                    if not record.lost:
+                        self.note_transition(record, self._clock(), f"position withdrawn: {note}")
+                elif was_fix is not False and not record.lost:
+                    self.note_transition(record, self._clock(), note, force=True)
             else:
                 note = (
                     f"measurements inconsistent (reduced chi-square {_number(out.reduced_chi2)}): more than one "
@@ -977,6 +1060,35 @@ class EventBook:
         self.touch(record, "solution")
         return True
 
+    def withdraw_solution(self, event_id: str, reason: str) -> bool:
+        """The published position no longer fits what is measured (a solve over a
+        superset of its rows found no position at all, R6): it leaves the document (the
+        history keeps its ellipse), the rows stay used and lose their residuals, and a
+        ``located`` event returns to ``locating``. ``reason`` completes the transition
+        "position withdrawn: ...". Returns whether a position was withdrawn."""
+        record = self._target(event_id, "withdraw_solution")
+        if record is None or (record.solution is None and record.solution_out is None):
+            return False
+        now = self._clock()
+        record.solution = None
+        record.solution_out = None
+        record.solution_t_ns = None
+        record.solution_used = ()
+        record.last_solve_reason = writable_text(reason)
+        record.not_visible_satellite_ids = []
+        for i, entry in enumerate(record.measurements):
+            if entry.row.residual is not None:
+                record.measurements[i] = MeasurementEntry(
+                    entry.seq, entry.row.model_copy(update={"residual": None}), entry.measurement
+                )
+        if record.progress == "located":
+            record.progress = "locating"
+        if not record.lost:
+            self.note_transition(record, now, f"position withdrawn: {reason}", force=True)
+        self.touch(record, "solution", "state")
+        logger.info("event %s: position withdrawn (%s)", record.id, reason, extra={"event_id": record.id})
+        return True
+
     def set_tasking(self, event_id: str, status: schemas.TaskingStatus) -> bool:
         """Show what capture tasking is doing for the event. A change is published with
         the next material change, or after ``refresh_s`` at the latest (it is not
@@ -987,9 +1099,28 @@ class EventBook:
         record = self._target(event_id, "set_tasking")
         if record is None:
             return False
+        texts = {name: getattr(status, name) for name in ("message", "solve_reason", "unlocatable_reason")}
+        escaped = {name: writable_text(text) for name, text in texts.items() if writable_text(text) != text}
+        if escaped:
+            status = status.model_copy(update=escaped)
         if record.tasking != status:
             record.tasking = status
             self.touch(record, "tasking")
+        return True
+
+    def set_satellite_doubt(self, event_id: str, sat_ids: Iterable[str]) -> bool:
+        """Satellites whose position the reference calibrations put wrong beyond their
+        configured uncertainty (``SiteClockEstimate.suspect_satellite_ids``): the advice
+        for a fix resting on them says its ellipse does not include that error. Returns
+        whether it changed."""
+        record = self._target(event_id, "set_satellite_doubt")
+        if record is None:
+            return False
+        doubted = tuple(sorted({str(s) for s in sat_ids}))
+        if doubted == record.doubted_satellite_ids:
+            return False
+        record.doubted_satellite_ids = doubted
+        self.touch(record, "state")
         return True
 
     def mark_recheck(self, event_id: str, reason: str) -> bool:
@@ -1003,7 +1134,7 @@ class EventBook:
         if record.solution_out is None and not any(e.row.used for e in record.measurements):
             return False
         now = self._clock()
-        record.recheck = reason
+        record.recheck = writable_text(reason)
         record.recheck_since_ns = now
         self.note_transition(record, now, f"re-check: {reason}", force=True)
         self.touch(record, "recheck")
@@ -1023,13 +1154,20 @@ class EventBook:
         return True
 
     def transmission_changed(
-        self, event_id: str, why: str, onset_ns: int | None = None, keep: Iterable[int] = ()
+        self,
+        event_id: str,
+        why: str,
+        onset_ns: int | None = None,
+        keep: Iterable[int] = (),
+        *,
+        keep_classification: bool = False,
     ) -> bool:
         """Tasking found that another transmitter (or the same one, moved) now holds the
         event's frequency: everything measured before is set aside (``set_aside``; the
-        entries in ``keep`` belong to the current transmission and stay used) and the
-        current transmission starts at ``onset_ns`` (labelled time of the first
-        detection that showed it; now when None). Returns False for a closed event."""
+        entries in ``keep`` belong to the current transmission and stay used, and with
+        ``keep_classification`` so does the class) and the current transmission starts
+        at ``onset_ns`` (labelled time of the first detection that showed it; now when
+        None). Returns False for a closed event."""
         record = self._target(event_id, "transmission_changed")
         if record is None:
             return False
@@ -1039,7 +1177,7 @@ class EventBook:
         record.recheck_since_ns = None
         self.set_aside(
             record, why, transition=f"another transmission: {why}; earlier position and measurements set aside",
-            now=now, keep=keep,
+            now=now, keep=keep, keep_classification=keep_classification,
         )
         logger.info("event %s: another transmission (%s)", record.id, why, extra={"event_id": record.id})
         return True
@@ -1112,6 +1250,9 @@ class EventBook:
             len(record.transitions),
             record.recheck,
             record.set_aside_count,
+            record.width_lower_bound,
+            record.onset_ns,
+            record.doubted_satellite_ids,
         )
 
     def flush(self, *, force: bool = False) -> list[EventRecord]:
@@ -1266,6 +1407,7 @@ class EventBook:
             received_lo_hz=received[0] if received is not None else None,
             received_hi_hz=received[1] if received is not None else None,
             seen_site_ids=record.seen_sites(),
+            width_lower_bound=bool(record.width_lower_bound),
         )
 
     def summary(self, record: EventRecord) -> schemas.EventSummary:
@@ -1282,6 +1424,7 @@ class EventBook:
                 azimuth_deg=solution.ellipse.azimuth_deg,
                 cep50_m=solution.cep50_m,
                 fit_consistent=solution.fit_consistent,
+                is_fix=solution.is_fix,
                 ambiguous=bool(solution.ambiguities),
                 ambiguities=[
                     schemas.AmbiguitySummary(
@@ -1331,6 +1474,7 @@ class EventBook:
             received_lo_hz=received[0] if received is not None else None,
             received_hi_hz=received[1] if received is not None else None,
             seen_site_ids=record.seen_sites(),
+            width_lower_bound=bool(record.width_lower_bound),
         )
 
     # ----------------------------------------------------------------- history
@@ -1454,10 +1598,75 @@ def assess_fit(chi2: float, dof: int, reduced_chi2: float | None, max_reduced_ch
     return FitAssessment(False, p_value, math.sqrt(float(reduced_chi2)))
 
 
-def _assessed(data: dict[str, Any], max_reduced_chi2: float | None) -> dict[str, Any]:
+def fix_semi_major_limit_m(region: Any) -> float:
+    """Largest 95 % semi-major axis a fix may have in ``region`` (a ``Region``: degrees
+    ``lat_min``, ``lat_max`` and ``lon_span_deg()``), m: ``FIX_MAX_SEMI_MAJOR_M``, or
+    ``FIX_MAX_REGION_FRACTION`` of the region's smaller extent (north-south, or east-west
+    at the latitude nearest the equator) when that is less. None: the absolute limit."""
+    if region is None:
+        return FIX_MAX_SEMI_MAJOR_M
+    try:
+        lat_min, lat_max = float(region.lat_min), float(region.lat_max)
+        span = float(region.lon_span_deg())
+    except (AttributeError, TypeError, ValueError):
+        return FIX_MAX_SEMI_MAJOR_M
+    nearest = 0.0 if lat_min <= 0.0 <= lat_max else min(abs(lat_min), abs(lat_max))
+    north_south = (lat_max - lat_min) * _M_PER_DEG
+    east_west = span * _M_PER_DEG * math.cos(math.radians(nearest))
+    extent = min(north_south, east_west)
+    if not (math.isfinite(extent) and extent > 0.0):
+        return FIX_MAX_SEMI_MAJOR_M
+    return min(FIX_MAX_SEMI_MAJOR_M, FIX_MAX_REGION_FRACTION * extent)
+
+
+def writable_text(text: str | None) -> str | None:
+    """``text`` with anything UTF-8 cannot carry (an unpaired surrogate, say in a node's
+    error message) escaped; None stays None (SRV-2, defence in depth: the parsers refuse
+    such text already, and an event document must stay writable whatever reaches it)."""
+    if text is None or text.isascii():
+        return text
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+def _km_text(metres: float) -> str:
+    """``12,671 km`` or ``84 km`` or ``0.4 km``."""
+    km = float(metres) / 1000.0
+    return f"{km:,.0f} km" if km >= 10.0 else f"{km:.1f} km"
+
+
+def _not_fix_reason(out: Mapping[str, Any], max_reduced_chi2: float | None, max_semi_major_m: float | None) -> str | None:
+    """Why an assessed solution is not a fix (``SolutionOut.not_fix_reason``), or None."""
+    if not out.get("converged", False):
+        return "the solver did not converge"
+    if not out["fit_consistent"]:
+        limit = f", limit {max_reduced_chi2:g}" if max_reduced_chi2 is not None else ""
+        return (
+            f"the measurements do not fit one stationary transmitter (reduced chi-square "
+            f"{_number(out.get('reduced_chi2'))}{limit})"
+        )
+    dof, n = int(out["dof"]), int(out.get("n_measurements", 0))
+    if dof < 1:
+        return (
+            f"no redundancy: {n} measurement{'' if n == 1 else 's'} for the two unknowns of a position, so the fit "
+            "cannot be checked against itself"
+        )
+    semi_major = float(out["ellipse"]["semi_major_m"])
+    if max_semi_major_m is not None and not semi_major <= float(max_semi_major_m):
+        return (
+            f"the 95 % error ellipse has a semi-major axis of {_km_text(semi_major)}, more than the "
+            f"{_km_text(max_semi_major_m)} a fix may have here: the measurements do not pin the position down"
+        )
+    return None
+
+
+def _assessed(
+    data: dict[str, Any], max_reduced_chi2: float | None, max_semi_major_m: float | None = None
+) -> dict[str, Any]:
     """``Solution.as_dict()`` with the fit assessment applied (``fit_consistent``,
     ``fit_p_value``, ``ellipse_scale``; covariances, ellipse axes and CEP enlarged when
-    inconsistent), its ambiguities each on their own chi-square."""
+    inconsistent) and the fix gate (``is_fix``, ``not_fix_reason``: converged,
+    consistent, ``dof >= 1``, semi-major axis within ``max_semi_major_m``), its
+    ambiguities each on their own chi-square."""
     fit = assess_fit(float(data["chi2"]), int(data["dof"]), data.get("reduced_chi2"), max_reduced_chi2)
     out = dict(data)
     out["fit_consistent"] = fit.consistent
@@ -1472,7 +1681,13 @@ def _assessed(data: dict[str, Any], max_reduced_chi2: float | None) -> dict[str,
         ellipse["semi_minor_m"] = float(ellipse["semi_minor_m"]) * fit.scale
         out["ellipse"] = ellipse
         out["cep50_m"] = float(data["cep50_m"]) * fit.scale
-    out["ambiguities"] = [_assessed(dict(a), max_reduced_chi2) for a in data.get("ambiguities", [])]
+    reason = _not_fix_reason(out, max_reduced_chi2, max_semi_major_m)
+    out["is_fix"] = reason is None
+    out["not_fix_reason"] = reason
+    out["ambiguities"] = [
+        _assessed({"converged": data.get("converged", False), **dict(a)}, max_reduced_chi2, max_semi_major_m)
+        for a in data.get("ambiguities", [])
+    ]
     return out
 
 

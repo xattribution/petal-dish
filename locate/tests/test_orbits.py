@@ -298,7 +298,7 @@ def test_tle_validation() -> None:
     with pytest.raises(ValueError, match="line2 must start"):
         ob.TleOrbit(l1, l1)
     other1, other2 = make_tle(0.05, 80.0, 0.0001, 30.0, 10.0, 1.00273791, TLE_EPOCH, satnum=12345)
-    with pytest.raises(ValueError, match="catalogue number"):
+    with pytest.raises(ValueError, match="catalog number"):
         ob.TleOrbit(l1, other2)
     assert ob.TleOrbit(l1 + "\n", l2 + "  \r\n").line1 == l1  # trailing blanks and newlines are tolerated
 

@@ -23,7 +23,8 @@ TDOA rows in seconds, FDOA rows in hertz (A minus B, MATH.md section 5); covaria
 
 The configuration is read by attribute (``processing``, ``channel(id)``,
 ``satellite(id)``, ``carrier(id)``, ``carrier_xyz(id)``, ``orbits()``,
-``sites_xyz()``, ``resolved_uncertainty()``, ``carriers``, ``satellites``); nothing
+``sites_xyz()``, ``resolved_uncertainty()``, ``reference_carriers()``, ``carriers``,
+``satellites``); nothing
 here imports ``petal_locate.config``. Nothing keeps state, reads a clock or draws
 random numbers.
 """
@@ -40,7 +41,7 @@ from scipy import fft as sfft
 
 from .caf import _band_filter
 from .crlb import post_correlation_snr, stein_sigmas
-from .geodesy import lla_to_ecef, radii_of_curvature
+from .geodesy import geodesic_distance_m, lla_to_ecef, radii_of_curvature
 from .geometry import elevation_deg, measurement_windows, predict_pair, search_windows, self_peak
 from .linkbudget import emitter_boresight, path_budget, uplink_budget
 from .media import row_media_partials
@@ -53,6 +54,7 @@ from .types import PathSpec, Uncertainty
 __all__ = [
     "ACCURACY_CONFIDENCE",
     "MIN_SIGNAL_BW_HZ",
+    "NEAREST_REFERENCE",
     "CapturePlan",
     "PairSearch",
     "relaying_transponder",
@@ -748,6 +750,84 @@ class _Pair:
     shares: dict[str, tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)  # kind -> per-cell shares
 
 
+NEAREST_REFERENCE = "nearest"
+"""``accuracy_map(reference_carrier_id=...)`` value that calibrates every cell's pairs
+against the reference tasking would use for an emitter there (K6, R7): per pair, the
+carrier relayed by both of its transponders whose band is clear of the target's, nearest
+the cell, then nearest in frequency. A configured carrier of that id takes precedence."""
+
+_GRID_KEYS = ("semi_major_95_m", "semi_minor_95_m", "azimuth_deg", "cep50_m", "dominant", "n_rows", "reason")
+
+
+def _nearest_reference_map(
+    config: Any,
+    pair_list: Sequence[tuple[str, str]],
+    emitter: Any,
+    f_e: float,
+    t: int,
+    region: Any,
+    step: float,
+    kind_list: Sequence[str],
+    integration_s: float | None,
+    bandwidth: float,
+    rms_bw: float,
+) -> dict[str, Any]:
+    """``accuracy_map`` with ``reference_carrier_id = NEAREST_REFERENCE``: one map per
+    distinct per-pair choice of reference over the grid, each cell taken from the map of
+    its own choice. Each pair's summary carries ``reference_cells``: carrier id -> number
+    of cells calibrated against it (``"none"`` for cells with no eligible carrier)."""
+    lat_axis, lon_axis = (np.asarray(v, dtype=np.float64).reshape(-1) for v in region.grid(step))
+    lat2, lon2 = np.meshgrid(lat_axis, lon_axis, indexing="ij")
+    carriers = [c for c in config.reference_carriers() if c.location is not None and c.emitter is not None]
+    lo, hi = f_e - 0.5 * bandwidth, f_e + 0.5 * bandwidth
+    choice = np.full((len(pair_list),) + lat2.shape, -1, dtype=np.int64)
+    for k, (ch_a, ch_b) in enumerate(pair_list):
+        found_a, found_b = pair_satellites(config, ch_a, ch_b, f_e, f"pairs[{k}]")
+        if found_a is None or found_b is None:
+            continue
+        (sat_a, tp_a), (sat_b, tp_b) = found_a, found_b
+        eligible = []
+        for i, carrier in enumerate(carriers):
+            f_ref, half = float(carrier.uplink_center_hz), 0.5 * float(carrier.bandwidth_hz)
+            if f_ref - half <= hi and lo <= f_ref + half:
+                continue  # it would sit under the target
+            ra = relaying_transponder(config.satellite(sat_a), f_ref)
+            rb = relaying_transponder(config.satellite(sat_b), f_ref)
+            if ra is None or rb is None or ra.id != tp_a.id or rb.id != tp_b.id:
+                continue
+            eligible.append(i)
+        if not eligible:
+            continue
+        eligible.sort(key=lambda i: abs(float(carriers[i].uplink_center_hz) - f_e))  # ties: nearest in frequency
+        distance = np.stack([
+            np.asarray(geodesic_distance_m(lat2, lon2, carriers[i].location.lat_deg, carriers[i].location.lon_deg))
+            for i in eligible
+        ])
+        choice[k] = np.asarray(eligible)[np.argmin(distance, axis=0)]
+    flat = choice.reshape(len(pair_list), -1).T  # [cells, pairs]
+    combos, inverse = np.unique(flat, axis=0, return_inverse=True)
+    inverse = np.asarray(inverse).reshape(-1)
+    maps = []
+    for combo in combos:
+        refs = [carriers[int(i)] if i >= 0 else None for i in combo]
+        maps.append(_map(config, pair_list, emitter, f_e, t, region, step, kind_list, refs, integration_s,
+                         bandwidth, rms_bw, NEAREST_REFERENCE))
+    counts = np.bincount(inverse, minlength=len(combos))
+    out = dict(maps[int(np.argmax(counts))])
+    n_lon = lat2.shape[1]
+    for key in _GRID_KEYS:
+        out[key] = [[maps[int(inverse[i * n_lon + j])][key][i][j] for j in range(n_lon)] for i in range(lat2.shape[0])]
+    pairs = []
+    for k, summary in enumerate(out["pairs"]):
+        cells: dict[str, int] = {}
+        for c, n in zip(combos, counts):
+            name = carriers[int(c[k])].id if c[k] >= 0 else "none"
+            cells[name] = cells.get(name, 0) + int(n)
+        pairs.append({**summary, "reference_cells": cells})
+    out["pairs"] = pairs
+    return out
+
+
 def accuracy_map(
     config: Any,
     pairs: Sequence[tuple[str, str]],
@@ -774,6 +854,9 @@ def accuracy_map(
     degrees. kinds: rows to form, any of ``"tdoa"``, ``"fdoa"``.
     reference_carrier_id: a configuration carrier with ``location`` and ``emitter``;
     each pair whose two transponders also relay it is differenced against it.
+    ``NEAREST_REFERENCE`` (``"nearest"``): each cell's pairs are differenced against the
+    reference tasking would use for an emitter in that cell (``_nearest_reference_map``).
+    None: no calibration.
     integration_s: capture length, s, replacing ``processing.capture.duration_s``
     (without the ``max_samples`` cap); None uses the tasking rule.
 
@@ -833,6 +916,50 @@ def accuracy_map(
         raise ValueError(f"emitter.bandwidth_hz must not be negative, got {emitter.bandwidth_hz!r}")
     rms_bw = model_rms_bandwidth_hz(emitter)
 
+    if reference_carrier_id == NEAREST_REFERENCE and not _has_carrier(config, NEAREST_REFERENCE):
+        return _nearest_reference_map(
+            config, pair_list, emitter, f_e, t, region, step, kind_list, integration_s, bandwidth, rms_bw
+        )
+    reference = None
+    if reference_carrier_id is not None:
+        reference = config.carrier(reference_carrier_id)
+        if reference.location is None or reference.emitter is None:
+            raise ValueError(
+                f"reference_carrier_id: carrier {reference_carrier_id!r} needs a location and an emitter model"
+            )
+    return _map(
+        config, pair_list, emitter, f_e, t, region, step, kind_list, [reference] * len(pair_list), integration_s,
+        bandwidth, rms_bw, reference_carrier_id,
+    )
+
+
+def _has_carrier(config: Any, carrier_id: str) -> bool:
+    try:
+        config.carrier(carrier_id)
+    except (ValueError, KeyError, AttributeError):
+        return False
+    return True
+
+
+def _map(
+    config: Any,
+    pair_list: Sequence[tuple[str, str]],
+    emitter: Any,
+    f_e: float,
+    t: int,
+    region: Any,
+    step: float,
+    kind_list: Sequence[str],
+    references: Sequence[Any | None],
+    integration_s: float | None,
+    bandwidth: float,
+    rms_bw: float,
+    label: str | None,
+) -> dict[str, Any]:
+    """``accuracy_map`` with each pair's reference carrier given (``references[k]``, a
+    carrier or None); ``label`` is the result's ``reference_carrier_id``."""
+    t_s = sec(t)
+    step = float(step)
     processing = config.processing
     caf_cfg, solver_cfg = processing.caf, processing.solver
     height = float(solver_cfg.height_m)
@@ -848,16 +975,6 @@ def accuracy_map(
     shape = lat2.shape
     x = lla_to_ecef(lat2, lon2, height)  # [n_lat, n_lon, 3]
     inside = np.asarray(region.contains(lat2, lon2), dtype=bool)
-
-    reference = None
-    x_ref = None
-    if reference_carrier_id is not None:
-        reference = config.carrier(reference_carrier_id)
-        if reference.location is None or reference.emitter is None:
-            raise ValueError(
-                f"reference_carrier_id: carrier {reference_carrier_id!r} needs a location and an emitter model"
-            )
-        x_ref = np.asarray(config.carrier_xyz(reference_carrier_id), dtype=np.float64)
 
     # ---- per pair: paths, plan, windows, budgets, sigmas
     models: list[_Pair] = []
@@ -884,8 +1001,11 @@ def accuracy_map(
         pm.capture_a = (id_a, plan.sample_rate_hz, plan.n_samples, round(a.f_tune_hz))
         pm.capture_b = (id_b, plan.sample_rate_hz, plan.n_samples, round(b.f_tune_hz))
 
+        reference = references[k]
         if reference is not None:
+            x_ref = np.asarray(config.carrier_xyz(reference.id), dtype=np.float64)
             pm.ref = _reference_model(config, reference, x_ref, pm, t, kind_list, unc, orbits, sites, integration_s)
+            pm.ref["carrier_id"] = reference.id
             if pm.ref.get("reason") is None:
                 pm.cal_kinds = tuple(kd for kd in kind_list if pm.ref["sigma"].get(kd) is not None)
             else:
@@ -971,7 +1091,7 @@ def accuracy_map(
         cell_sigma = sigma.reshape(-1, m)[cells]
         jac, gain, categories, own_sigma = _design(
             models, xc, lat2.reshape(-1)[cells], lon2.reshape(-1)[cells], t_s, height, unc, orbits, sites, m,
-            cell_sigma, cells, reference_carrier_id,
+            cell_sigma, cells,
         )
         out = covariance_batch(jac, own_sigma, active.reshape(-1, m)[cells], gain, categories)
         total[cells] = out["total"]
@@ -1019,7 +1139,7 @@ def accuracy_map(
         "f_e_hz": f_e,
         "step_deg": step,
         "kinds": list(kind_list),
-        "reference_carrier_id": reference_carrier_id,
+        "reference_carrier_id": label,
         "pairs": [_pair_summary(pm) for pm in models],
     }
 
@@ -1058,7 +1178,6 @@ def _design(
     m: int,
     sigma: np.ndarray,
     cells: np.ndarray,
-    reference_id: str | None,
 ) -> tuple[np.ndarray, np.ndarray | None, list[str], np.ndarray]:
     """``J`` ``[P, m, 2]``, ``G = H_c S_c^(1/2)`` ``[P, m, n]`` and the rows' own sigmas at
     cells ``x`` (``[P, 3]``; ``cells`` their flat grid indices, ``sigma`` ``[P, m]`` the
@@ -1193,7 +1312,7 @@ def _design(
                 if calibrated:
                     assert ref is not None
                     ref_parts = row_media_partials(kind, ref["a"], ref["b"], np.array([t_s]), np.asarray(ref["x_ref"]),
-                                                   orbits, sites, ("ref", reference_id))
+                                                   orbits, sites, ("ref", ref.get("carrier_id")))
                     for name, _, _ in media:
                         for end, part in ref_parts[name].items():
                             media_add(name, end, row, np.full(p, -float(np.asarray(part)[0])))

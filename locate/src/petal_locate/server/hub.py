@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import inspect
 import itertools
 import logging
@@ -233,7 +234,9 @@ class CaptureFailed(Exception):
           for three heartbeat periods during the capture.
         - `not_ready`: the node has not acknowledged the channel's assignment, or its
           driver failed to open.
-        - `limit`: the node already has `MAX_CONCURRENT_CAPTURES` captures pending.
+        - `limit`: the node had `MAX_CONCURRENT_CAPTURES` captures pending until the
+          deadline (a capture over the limit waits for a slot, shared by every caller,
+          for as long as its deadline allows).
         - `too_large`: the request exceeds 64 MiB of samples.
         - `deadline`: the last chunk did not arrive by `deadline_ns` (plus the grace
           period), or the deadline had already passed.
@@ -753,6 +756,32 @@ class _Pending:
     started: float
 
 
+def _writable(text: str) -> str:
+    """``text`` with anything UTF-8 cannot carry (an unpaired surrogate) escaped."""
+    if text.isascii():
+        return text
+    return text.encode("utf-8", "backslashreplace").decode("utf-8")
+
+
+class _PendingMap(dict[str, _Pending]):
+    """The captures a node holds (by capture id). Every removal sets ``freed``, so a
+    capture waiting for one of the node's ``MAX_CONCURRENT_CAPTURES`` slots
+    (``Hub.capture``) looks again."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.freed = asyncio.Event()
+
+    def pop(self, key: str, *default: Any) -> Any:  # type: ignore[override]
+        out = super().pop(key, *default)
+        self.freed.set()
+        return out
+
+    def __delitem__(self, key: str) -> None:
+        super().__delitem__(key)
+        self.freed.set()
+
+
 class _Session:
     """State of one welcomed node; kept after it ends as the site's last known state."""
 
@@ -783,7 +812,7 @@ class _Session:
         self.assigned_version = config_version
         self.ready: dict[str, Capabilities] = {}
         self.channel_errors: dict[str, str] = {}
-        self.pending: dict[str, _Pending] = {}
+        self.pending: _PendingMap = _PendingMap()
         self.rtt_ms: collections.deque[float] = collections.deque(maxlen=RTT_WINDOW)
         self.last_rx = time.monotonic()
         self.ended = False
@@ -1197,13 +1226,7 @@ class Hub:
         )
         session = self._taskable_session(channel_id)
         if len(session.pending) >= MAX_CONCURRENT_CAPTURES:
-            self._counters["capture_refused_limit"] += 1
-            raise CaptureFailed(
-                "limit",
-                f"the node of site {session.site_id!r} already has "
-                f"{MAX_CONCURRENT_CAPTURES} captures pending",
-                channel_id=channel_id,
-            )
+            session = await self._wait_for_slot(channel_id, session, request.deadline_ns)
         wait_s = (request.deadline_ns - self._clock()) / _NS_PER_S
         if wait_s <= 0.0:
             self._counters["capture_failed_deadline"] += 1
@@ -1273,6 +1296,31 @@ class Hub:
             extra={**session.log_fields(), "capture_id": capture_id, "channel_id": channel_id},
         )
         return result
+
+    async def _wait_for_slot(self, channel_id: str, session: _Session, deadline_ns: int) -> _Session:
+        """Wait until the channel's node holds fewer than `MAX_CONCURRENT_CAPTURES`
+        captures (R4: every caller shares the node's limit; one event's round no longer
+        makes another's fail), for at most the time left before `deadline_ns` on the
+        server clock. A late start is the node's to serve from its lookback (or fail
+        `too_late`). Returns the live session (it may have been replaced meanwhile).
+        Raises `CaptureFailed("limit")` when no slot frees in time, or what
+        `_taskable_session` raises."""
+        self._counters["capture_queued"] += 1
+        while len(session.pending) >= MAX_CONCURRENT_CAPTURES:
+            left_s = (deadline_ns - self._clock()) / _NS_PER_S
+            if left_s <= 0.0:
+                self._counters["capture_refused_limit"] += 1
+                raise CaptureFailed(
+                    "limit",
+                    f"the node of site {session.site_id!r} had {MAX_CONCURRENT_CAPTURES} captures pending "
+                    "until the deadline",
+                    channel_id=channel_id,
+                )
+            session.pending.freed.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(session.pending.freed.wait(), timeout=min(left_s, 1.0))
+            session = self._taskable_session(channel_id)
+        return session
 
     def _taskable_session(self, channel_id: str) -> _Session:
         """The live session whose node may be tasked on the channel now.
@@ -2125,7 +2173,9 @@ class Hub:
                 del self._last_frame[key]
 
     def _status_of(self, session: _Session) -> dict[str, Any]:
-        """`NodeStatus` of a session (live, or the last one of its site)."""
+        """`NodeStatus` of a session (live, or the last one of its site). Text from the
+        node or a provider is escaped where UTF-8 cannot carry it (SRV-2: the parser
+        already refuses such text; this keeps a status writable whatever reaches it)."""
         online = not session.ended and self._sessions.get(session.site_id) is session
         channels: list[dict[str, Any]] = []
         for channel_id, channel in session.assigned.items():
@@ -2151,17 +2201,17 @@ class Hub:
                     "ok": online and channel_id in session.ready and not blind,
                     "last_frame_age_s": min(ages) if ages else None,
                     "windows": windows,
-                    "detection_problem": "; ".join(problems) if problems else None,
+                    "detection_problem": _writable("; ".join(problems)) if problems else None,
                 }
             )
         return {
             "site_id": session.site_id,
-            "node_id": session.node_id,
+            "node_id": _writable(session.node_id),
             "online": online,
             "latency_ms": session.rtt_ms[-1] if online and session.rtt_ms else None,
             "clock": session.clock.to_wire(),
-            "driver": session.driver,
-            "software": session.software,
+            "driver": _writable(session.driver),
+            "software": _writable(session.software),
             "channels": channels,
             "connected_since": _iso_utc(session.connected_since_ns) if online else None,
         }
@@ -2193,6 +2243,9 @@ class Hub:
                 if name in health:
                     entry[name] = health[name]
             entry["blind"] = bool(entry["blind"])
+            for name in ("blind_reason", "note"):
+                if isinstance(entry[name], str):
+                    entry[name] = _writable(entry[name])
         return entry
 
     def _publish_status(

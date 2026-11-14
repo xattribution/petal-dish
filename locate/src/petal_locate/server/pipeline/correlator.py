@@ -122,6 +122,13 @@ NEW_EVENT_HOLD_S: Final[float] = 1.0
 """Longest a detection that overlaps no event waits for the other windows' frames of the
 same instant before it raises (or re-opens) one, s."""
 
+WINDOW_EDGE_FRACTION: Final[float] = 0.08
+"""Share of a monitor window's span, on each side, that counts as its edge when judging
+whether a detection fills the window (ADAPT-5): a receiver's anti-alias filter rolls off
+there, so a signal wider than the window is detected only to a few percent of the span
+short of each edge (the simulated receiver is 3 dB down at 44 % of the sample rate from
+the center, 10 dB at 46 %)."""
+
 _NS: Final[int] = 1_000_000_000
 
 
@@ -978,8 +985,33 @@ class Correlator:
             )
         return rows
 
+    def _fills_its_windows(self, record: EventRecord) -> bool:
+        """Whether, in every monitor window holding the event, its detections together
+        reach both edges of the window (within ``WINDOW_EDGE_FRACTION`` of the span, at
+        least 1.5 bins, where the receiver's filter rolls off): the signal may be wider
+        than any window shows, so its width is a lower bound (ADAPT-5)."""
+        # per window, what its detections cover together (a noise-like signal can break
+        # into pieces that come and go: a piece must not undo the window's verdict)
+        spans: dict[tuple[str, str], tuple[float, float]] = {}
+        for unit in record.members.values():
+            key = (unit.channel_id, unit.monitor_id)
+            lo, hi = spans.get(key, (math.inf, -math.inf))
+            spans[key] = (min(lo, float(unit.down_lo_hz)), max(hi, float(unit.down_hi_hz)))
+        found = False
+        for key, (lo, hi) in spans.items():
+            state = self._windows.get(key)
+            if state is None:
+                continue
+            spec = state.spec
+            tolerance = max(1.5 * spec.bin_hz, WINDOW_EDGE_FRACTION * spec.span_hz)
+            if lo > spec.lo_hz + tolerance or hi < spec.hi_hz - tolerance:
+                return False
+            found = True
+        return found
+
     def _evaluate(self, record: EventRecord, now: int) -> None:
         """Rebuild the evidence rows of an active event and decide its verdict."""
+        record.width_lower_bound = self._fills_its_windows(record)
         contexts = self._row_contexts(record)
         best_by_row: dict[tuple[str, str | None], Unit] = {}
         strongest: dict[str | None, Unit] = {}
@@ -1051,15 +1083,18 @@ class Correlator:
         record.satellite_ids = [s for s in sats if s not in hidden]
         record.not_visible_satellite_ids = hidden
         self._decide(record, now)
+        if record.verdict == "local":
+            # a local signal reaches no satellite: none relays it, whatever the frequency plan
+            record.transponders, record.satellite_ids, record.not_visible_satellite_ids = [], [], []
         self._book.touch(record, "numeric")
 
     def _not_visible(self, record: EventRecord, sats: Sequence[str]) -> list[str]:
         """Satellites of the frequency plan that cannot see the transmitter: below
         ``solver.min_elevation_deg`` (and the horizon) over the whole ellipse of a
-        consistent solution and its ambiguities (``events.visible_satellites``). Empty
-        without such a solution; never every satellite. Cached per solution."""
+        fix (``SolutionOut.is_fix``) and its ambiguities (``events.visible_satellites``).
+        Empty without one; never every satellite. Cached per solution."""
         solution = record.solution_out
-        if solution is None or not solution.fit_consistent or not sats or not self._orbits:
+        if solution is None or not solution.is_fix or not sats or not self._orbits:
             return []
         key = (record.solution_t_ns, tuple(sats))
         cached = self._visibility.get(record.id)
@@ -1155,11 +1190,54 @@ class Correlator:
         record.verdict_basis = decision.basis
         record.verdict_reason = reason
         record.verdict_gaps = [dict(g) for g in decision.gaps]
+        if changed and previous == "uplink" and decision.verdict == "local":
+            # Another transmission now (R2): the local signal is known on its own from when
+            # the uplink was last seen at the sites that no longer see anything.
+            record.onset_ns = self._local_onset(record, now)
+        elif changed and previous == "local" and decision.verdict == "uplink":
+            # Another transmission now: a local signal does not become an uplink one, so the
+            # uplink signal starts with its first detection where the local one was not seen.
+            record.onset_ns = self._uplink_onset(record, now)
+        if changed and decision.verdict == "local":
+            record.local_site_ids = tuple(record.seen_sites())
         if changed:
             self._book.note_transition(record, now, f"verdict: {reason}")
             self._book.touch(record, "verdict")
             if previous == "uplink" and decision.verdict == "local":
                 self._book.set_aside(record, "the uplink signal they belong to has stopped", now=now)
+            elif previous == "local" and decision.verdict == "uplink":
+                self._book.set_aside(record, "they belong to the local signal measured before", now=now)
+            if decision.verdict == "local":
+                self._book.settle_local(record, now)
+
+    @staticmethod
+    def _local_onset(record: EventRecord, now: int) -> int:
+        """Onset of the local signal that took over an uplink event's frequency (labelled
+        UTC ns): the last detection at the sites that no longer see anything (the uplink
+        signal ended then, and what remains is the local one), else when the evidence
+        alone first said local, else now; never before the event's first detection."""
+        seen = set(record.seen_sites())
+        ended = [
+            int(row.last_seen_ns)
+            for row in record.evidence
+            if row.site_id not in seen and row.last_seen_ns is not None
+        ]
+        onset = max(ended) if ended else (record.local_since_ns if record.local_since_ns is not None else now)
+        return int(min(max(int(onset), int(record.first_seen_ns)), int(now)))
+
+    @staticmethod
+    def _uplink_onset(record: EventRecord, now: int) -> int:
+        """Onset of the uplink signal that took over a local event's frequency (labelled
+        UTC ns): the first detection now held at a site that did not see the local signal
+        when it was judged local, else the latest cross-satellite proof, else now; never
+        before the event's first detection."""
+        local = set(record.local_site_ids)
+        firsts = [int(u.first_seen_ns) for u in record.members.values() if u.site_id not in local]
+        if firsts and local:
+            onset = min(firsts)
+        else:
+            onset = int(record.caf_uplink_ns) if record.caf_uplink_ns is not None else now
+        return int(min(max(int(onset), int(record.first_seen_ns)), int(now)))
 
     def _distance(self, a: str, b: str) -> float:
         d = self._distances.get((a, b))

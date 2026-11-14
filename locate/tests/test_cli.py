@@ -153,6 +153,42 @@ def test_check_reports_the_example_details(capsys: pytest.CaptureFixture[str]) -
     assert "muos-pac:shared-1" in out
 
 
+#: British spellings that must not reach an operator (US spelling in UI and CLI text).
+#: Wire codes such as "cancelled" are left alone, so only "cancelling" is listed.
+_BRITISH = re.compile(r"\b(centre\w*|catalogue\w*|colour\w*|behaviour\w*|honour\w*|labell\w*|cancelling|"
+                      r"metres?|kilometres?|licence|organis\w*|recognis\w*|authoris\w*|initialis\w*|normalis\w*|"
+                      r"analys(?:e|ed|es|ing)|favour\w*|neighbour\w*|defence|programme|whilst|grey)\b", re.I)
+
+
+def _operator_strings(path: Path) -> list[tuple[int, str]]:
+    """Every string constant of a module that is not a docstring (messages, help, tables)."""
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                docstrings.add(id(first.value))
+    return [(node.lineno, node.value) for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings]
+
+
+def test_operator_text_of_the_cli_and_drivers_is_in_us_spelling(capsys: pytest.CaptureFixture[str]) -> None:
+    """'centre MHz' in check, 'centre ... Hz' in driver capture errors and 'catalogue
+    number' in the TLE error reached operators (residual R10)."""
+    package = ROOT / "src" / "petal_locate"
+    paths = [package / "cli.py", package / "core" / "orbits.py", *sorted((package / "node" / "drivers").glob("*.py"))]
+    found = [f"{path.relative_to(package)}:{line}: {match.group(0)!r}"
+             for path in paths for line, text in _operator_strings(path) for match in _BRITISH.finditer(text)]
+    assert found == []
+    assert cli.main(["check", "--config", str(ROOT / "config" / "pacific-uhf.yaml"), "--time", T_FIXED,
+                     "--log-level", "warning"]) == 0
+    out = capsys.readouterr().out
+    assert "center MHz" in out and "first downlink center" in out and not _BRITISH.search(out)
+
+
 def test_check_refuses_bad_input(files: dict[str, Path], capsys: pytest.CaptureFixture[str]) -> None:
     bad = files["tmp"] / "bad.yaml"
     bad.write_text(files["config"].read_text().replace("lat_deg: 35.0", "lat_deg: 135.0"))
@@ -295,6 +331,36 @@ def test_accuracy_command(files: dict[str, Path], monkeypatch: pytest.MonkeyPatc
     assert cli.main([*base, *flags]) == 1
 
 
+def test_accuracy_pair_ends_may_name_the_satellite(files: dict[str, Path], capsys: pytest.CaptureFixture[str]) -> None:
+    """``--pair charlie-ab@sat-a,bravo-b`` names the satellite of a channel that watches
+    two; the request checks refused it as an unknown channel (residual R1). The real
+    engine runs the map."""
+    out = files["tmp"] / "map.json"
+    base = ["accuracy", "--config", str(files["config"]), "--time", T_FIXED, "--log-level", "warning",
+            "--f-e-hz", "300e6", "--eirp-dbw", "20", "--bandwidth-hz", "10000", "--step-deg", "10"]
+    assert cli.main([*base, "--pair", "charlie-ab@sat-a,bravo-b", "--pair", "charlie-ab@sat-b,alpha-a",
+                     "--out", str(out)]) == 0
+    schemas.AccuracyGrid.model_validate_json(out.read_text())
+    assert cli.main([*base, "--pair", "charlie-ab@sat-a,charlie-ab@sat-b"]) == 2
+    assert "pairs.0: the two channels of a pair must differ" in capsys.readouterr().err
+    assert cli.main([*base, "--pair", "alpha-a@sat-b,bravo-b"]) == 2
+    assert "does not watch satellite 'sat-b'" in capsys.readouterr().err
+
+
+def test_accuracy_reference_may_be_the_nearest_one(files: dict[str, Path], capsys: pytest.CaptureFixture[str]) -> None:
+    """``--reference-carrier nearest`` calibrates each cell against the reference carrier
+    nearest it (core.accuracy.NEAREST_REFERENCE); the request checks refused it as an
+    unknown carrier. The real engine runs the map."""
+    out = files["tmp"] / "map.json"
+    base = ["accuracy", "--config", str(files["config"]), "--time", T_FIXED, "--log-level", "warning",
+            "--f-e-hz", "300e6", "--eirp-dbw", "20", "--bandwidth-hz", "10000", "--step-deg", "10",
+            "--pair", "alpha-a,bravo-b"]
+    assert cli.main([*base, "--reference-carrier", "nearest", "--out", str(out)]) == 0
+    schemas.AccuracyGrid.model_validate_json(out.read_text())
+    assert cli.main([*base, "--reference-carrier", "nearby"]) == 2
+    assert "unknown carrier 'nearby'" in capsys.readouterr().err
+
+
 # --------------------------------------------------------------------------- montecarlo
 
 
@@ -434,9 +500,16 @@ def test_demo_with_the_default_configuration(tmp_path: Path) -> None:
     from petal_locate.config import load_config
 
     n_sites = len(load_config(ROOT / "config" / "pacific-uhf.yaml").sites)
-    process = start_demo(["--data-dir", str(tmp_path / "data"), "--log-level", "warning"])
+    process = start_demo(["--data-dir", str(tmp_path / "data"), "--log-level", "warning",
+                          "--start", "2026-11-13T12:00:00.250+09:00"])
     try:
         url = console_url(process)
+        assert process.stdout is not None
+        banner: list[str] = []
+        while len(banner) < 20 and (not banner or banner[-1] not in ("", "Press Ctrl-C to stop.\n")):
+            banner.append(process.stdout.readline())  # the rest of the banner
+        # the banner says the requested epoch, not the clock a second or so later (residual R17)
+        assert "  Start:      simulated time starts at 2026-11-13T03:00:00.250Z\n" in banner, banner
         port = url.rsplit(":", 1)[1].strip("/")
         wait_for(lambda: every_site_online(url, n_sites), 90.0, "every site online")
         status = httpx.get(f"{url}api/v1/status", trust_env=False, headers=auth(url)).json()
@@ -585,6 +658,58 @@ def test_node_command_hands_its_settings_to_the_agent(monkeypatch: pytest.Monkey
     assert seen["clock"] is None and "chunk_payload_bytes" not in seen  # the agent's own defaults
     assert cli.main([*base, "--driver", "noise", "--sim-time-offset-ns", "5"]) == 2  # simulation only
     assert cli.main([*base, "--driver", "noise", "--channel-option", "alpha-a:no_such_option=1"]) == 2
+
+
+def test_node_takes_a_required_driver_option_given_per_channel_only(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every channel of a sigmf node replays its own recording, so 'path' is given per
+    channel only; the node refused to start because it first built a driver from the
+    shared options alone (residual R13)."""
+    import petal_locate.node.agent as agent_module
+
+    seen: dict[str, Any] = {}
+
+    class FakeAgent:
+        def __init__(self, server: str, site: str, token: str, **kwargs: Any) -> None:
+            seen.update(kwargs)
+            self.site_id = site
+            self.server_ws_url = server
+
+        def request_stop(self) -> None:
+            pass
+
+        async def run(self) -> None:
+            return None
+
+    monkeypatch.setattr(agent_module, "NodeAgent", FakeAgent)
+    monkeypatch.setenv("PETAL_NODE_TOKEN_ALPHA", "t")
+    base = ["node", "--server", "ws://127.0.0.1:9", "--site", "alpha", "--driver", "sigmf"]
+    assert cli.main([*base, "--channel-option", "alpha-a:path=/data/alpha-a.sigmf-meta",
+                     "--channel-option", "alpha-b:path=/data/alpha-b.sigmf-meta", "--driver-option", "loop=true"]) == 0
+    assert seen["driver_options"] == {"loop": True}
+    assert seen["channel_driver_options"] == {"alpha-a": {"path": "/data/alpha-a.sigmf-meta"},
+                                              "alpha-b": {"path": "/data/alpha-b.sigmf-meta"}}
+    # a channel the server assigns without its own options cannot open: said once, up front
+    warned = [line for line in capsys.readouterr().err.splitlines() if "no options of their own" in line]
+    assert len(warned) == 1 and "WARNING" in warned[0] and "'path'" in warned[0]
+    # still refused: no path anywhere, a bad shared option, a bad per-channel option
+    assert cli.main(base) == 2
+    assert "path" in capsys.readouterr().err
+    assert cli.main([*base, "--channel-option", "alpha-a:path=/a.sigmf-meta", "--driver-option", "loop=maybe"]) == 2
+    assert "(channel alpha-a)" in capsys.readouterr().err
+    assert cli.main([*base, "--channel-option", "alpha-a:path=/a.sigmf-meta",
+                     "--channel-option", "alpha-b:no_such_option=1"]) == 2
+    assert "(channel alpha-b)" in capsys.readouterr().err
+
+
+def test_demo_banner_says_the_requested_start_epoch() -> None:
+    """The banner printed the simulated clock when it was written, a second or more
+    after the epoch asked for (residual R17)."""
+    assert cli.demo_start_line(None) is None
+    assert cli.demo_start_line("2026-11-13T03:00:00Z") == ("Start:", "simulated time starts at 2026-11-13T03:00:00Z")
+    assert cli.demo_start_line("2026-11-13T12:00:00.250+09:00") == (
+        "Start:", "simulated time starts at 2026-11-13T03:00:00.250Z")
 
 
 def test_demo_start_epoch_offset() -> None:

@@ -5,7 +5,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import type { Event, EvidenceRow, LopCollection, MeasurementRow, NodeStatus, SolutionOut, SystemConfig, TaskingStatus } from '../api/types.gen';
 import { ErrorNote, Info, Loading, SimTag, Status, StatusSymbol, useTick } from '../components/common';
 import { Heatmap, LinePlot } from '../components/plots';
-import { candidates, isInconsistent, received, semiAxes, splitHistory } from '../domain/event';
+import { candidates, isInconsistent, isNotFix, notFixText, received, semiAxes, splitHistory, widthText } from '../domain/event';
 import { eventLevel, isActive, STATE_WORD, VERDICT_WORD } from '../domain/status';
 import { DATUM, distanceM, formatLat, formatLatLon, formatLon, formatMgrs } from '../format/geo';
 import { DASH, db, deg, fixed, hz3, km, mhz, micros, millihertz, percent, plural } from '../format/units';
@@ -354,6 +354,9 @@ function noPositionReason(ev: Event): { title: string; why: string } {
   if (ev.verdict === 'local') return { title: 'No position', why: 'Local interference enters at one site, not through the satellites, so it is not located by time and frequency differences.' };
   if (t?.unlocatable_reason) return { title: 'Cannot be located', why: t.unlocatable_reason };
   if (setAside) return { title: 'No position', why: 'The earlier position and its measurements were set aside (see Transitions): the signal was lost for a while or changed, so it is located again from new measurements only.' };
+  // R6: a published position the newest measurements no longer admit is withdrawn
+  const withdrawn = ev.transitions.at(-1)?.reason?.match(/^position withdrawn: (.+)$/)?.[1];
+  if (withdrawn) return { title: 'Position withdrawn', why: `${withdrawn.charAt(0).toUpperCase()}${withdrawn.slice(1)}${/[.?]$/.test(withdrawn) ? '' : '.'} Do not report the earlier position.` };
   if (t?.solve_reason) return { title: 'No position', why: `The last solve gave no position: ${t.solve_reason}.` };
   if (t?.state === 'idle' && t.message) return { title: 'No position', why: t.message };
   if (ev.satellite_ids.length < 2) return { title: 'No position', why: 'Only one satellite relays this range, so there is no satellite pair to correlate.' };
@@ -378,9 +381,20 @@ function Location({ ev }: { ev: Event }) {
   const share = shareOf(sol);
   const truth = ev.truth;
   const bad = isInconsistent(sol);
+  // R4: consistent, but no redundancy or an ellipse too large: shown, never reported
+  const notFix = isNotFix(sol);
   const all = candidates(sol);
   return (
     <div>
+      {!bad && notFix ? (
+        <div className="notice caution" role="note" style={{ marginTop: 0 }}>
+          <span className="status">
+            <StatusSymbol level="caution" />
+            <span className="word">Not a fix</span>
+          </span>{' '}
+          {notFixText(sol)} The computed position is shown; do not report it until more measurements make it a fix.
+        </div>
+      ) : null}
       {bad ? (
         // UX-1: the measurements do not fit one stationary transmitter; the position is not a fix
         <div className="notice caution" role="note" style={{ marginTop: 0 }}>
@@ -424,8 +438,8 @@ function Location({ ev }: { ev: Event }) {
         </>
       ) : (
         <>
-          <div className={`fixline mono${bad ? ' ink2' : ''}`}>
-            {bad ? <span style={{ fontSize: 12 }}>Computed, not a fix: </span> : null}
+          <div className={`fixline mono${notFix ? ' ink2' : ''}`}>
+            {notFix ? <span style={{ fontSize: 12 }}>Computed, not a fix: </span> : null}
             {formatLatLon(sol.lat_deg, sol.lon_deg, 4)} <span className="ink2" style={{ fontSize: 12 }}>{DATUM}</span>
           </div>
           <div className="mono" style={{ marginBottom: 8 }}>
@@ -456,7 +470,7 @@ function Location({ ev }: { ev: Event }) {
         <dd>
           {sol.n_measurements} measurements, {'χ²'} {fixed(sol.chi2, 1)} on {sol.dof} degrees of freedom
           {sol.reduced_chi2 !== null ? ` (reduced ${fixed(sol.reduced_chi2, 2)})` : ''}
-          {bad ? ': inconsistent' : ''}
+          {bad ? ': inconsistent' : notFix && sol.dof < 1 ? ': no redundancy' : ''}
         </dd>
         <dt>Solved</dt>
         <dd className="mono">{ev.solution_t_ns ? dtgSecondsNs(ev.solution_t_ns) : '—'}</dd>
@@ -524,7 +538,7 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
   const data: MapData = useMemo(() => {
     const solutions: MapSolution[] = [];
     if (sol) {
-      const bad = isInconsistent(sol);
+      const bad = isNotFix(sol);
       const unresolved = sol.ambiguity_resolved_by === 'unresolved' && sol.ambiguities.length > 0;
       solutions.push({
         id: 'fix',
@@ -550,7 +564,7 @@ function EventMap({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
       truth: ev.truth ? [{ id: ev.truth.emitter_id, lat: ev.truth.lat_deg, lon: ev.truth.lon_deg, label: 'truth (SIMULATION)' }] : [],
     };
     // keyed on what is drawn (ev and sol change identity on every update)
-  }, [ev.id, ev.solution_t_ns, sol?.fit_consistent, truthKey, cfg, subs.data, lop]);
+  }, [ev.id, ev.solution_t_ns, sol?.fit_consistent, sol?.is_fix, truthKey, cfg, subs.data, lop]);
   const focus = useMemo((): MapFocus | null => {
     // the fix with room for its ellipse, every mirror and (in simulation) the truth
     const pts: Array<{ lat: number; lon: number; r: number }> = [];
@@ -731,7 +745,8 @@ function History({ ev }: { ev: Event }) {
     { x: cur.x, y: cur.major, token: '--fix', label: 'semi-major', points: true },
     { x: cur.x, y: cur.minor, token: '--fix', dash: [5, 4], label: 'semi-minor', points: true },
   ];
-  const note = (r: (typeof h)[number]) => [r.set_aside ? 'set aside' : '', r.fit_consistent === false ? 'inconsistent, enlarged' : ''].filter(Boolean).join('; ');
+  const note = (r: (typeof h)[number]) =>
+    [r.set_aside ? 'set aside' : '', r.fit_consistent === false ? 'inconsistent, enlarged' : r.is_fix === false ? 'not a fix' : ''].filter(Boolean).join('; ');
   return (
     <>
       {split.breakNs ? (
@@ -793,7 +808,8 @@ function History({ ev }: { ev: Event }) {
 // The plots redraw their canvases on every render; an event update (several a round)
 // re-renders the dossier, so these re-render only when what they show changed.
 const CorrelationView = memo(Correlation, (a, b) => a.ev.id === b.ev.id && a.ev.caf?.t_ns === b.ev.caf?.t_ns);
-const historyKey = (ev: Event) => ev.solution_history.map((r) => `${r.t_ns}${r.set_aside ? 's' : ''}${r.fit_consistent === false ? 'i' : ''}`).join('|');
+const historyKey = (ev: Event) =>
+  ev.solution_history.map((r) => `${r.t_ns}${r.set_aside ? 's' : ''}${r.fit_consistent === false ? 'i' : ''}${r.is_fix === false ? 'n' : ''}`).join('|');
 const HistoryView = memo(History, (a, b) => a.ev.id === b.ev.id && historyKey(a.ev) === historyKey(b.ev));
 
 const TASKING_WORD: Record<TaskingStatus['state'], string> = {
@@ -877,6 +893,16 @@ function exportEvent(ev: Event): void {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+/** ADAPT-5: why a width is a lower bound (Event.width_lower_bound). */
+function WidthInfo() {
+  return (
+    <>
+      {' '}
+      <Info label="width lower bound">Every detection of this signal reaches both edges of the monitor window it was measured in, so the signal may be wider than the range shown.</Info>
+    </>
+  );
+}
+
 /** Header of the dossier: what the event is, where it is received, when it began and what tasking does. */
 function DossierHead({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
   useTick(1000);
@@ -914,7 +940,15 @@ function DossierHead({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
         {rx ? (
           <>
             <span>
-              Received <b className="mono">{rx.range}</b> at <b>{rx.sites.join(', ') || '—'}</b>
+              Received <b className="mono">{rx.range}</b>
+              {ev.width_lower_bound && ev.received_lo_hz !== null && ev.received_lo_hz !== undefined && ev.received_hi_hz !== null && ev.received_hi_hz !== undefined ? (
+                <>
+                  {' '}
+                  ({widthText(ev.received_lo_hz, ev.received_hi_hz, true)})
+                  <WidthInfo />
+                </>
+              ) : null}{' '}
+              at <b>{rx.sites.join(', ') || '—'}</b>
             </span>
             <span>
               On{' '}
@@ -934,7 +968,8 @@ function DossierHead({ ev, cfg }: { ev: Event; cfg: SystemConfig | null }) {
               <b className="mono">
                 {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? `${mhz(ev.uplink_lo_hz)} – ${mhz(ev.uplink_hi_hz)} MHz` : 'outside every transponder'}
               </b>
-              {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? ` (${fixed((ev.uplink_hi_hz - ev.uplink_lo_hz) / 1000, 2)} kHz)` : ''}
+              {ev.uplink_lo_hz !== null && ev.uplink_hi_hz !== null ? ` (${widthText(ev.uplink_lo_hz, ev.uplink_hi_hz, ev.width_lower_bound)})` : ''}
+              {ev.width_lower_bound ? <WidthInfo /> : null}
             </span>
             <span>
               Downlink <span className="unit">MHz</span>{' '}

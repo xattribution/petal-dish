@@ -364,7 +364,7 @@ class ClockStatus(WireModel):
         (free running).
     locked: whether the clock is disciplined right now. A capture taken unlocked
         yields no TDOA unless both channels of the pair are at one site.
-    est_offset_ns: the node's estimate of true time minus labelled time, ns (signed;
+    est_offset_ns: the node's estimate of true time minus labeled time, ns (signed;
         MATH.md section 4 `delta_g`). Displayed, never applied to measurements.
     holdover_s: seconds since the reference was lost, 0 while locked.
     """
@@ -379,7 +379,7 @@ class MonitorAssignment(WireModel):
     """One spectrum window a node streams for a channel.
 
     monitor_id: unique within the channel.
-    center_hz: centre of the window, Hz (downlink RF).
+    center_hz: center of the window, Hz (downlink RF).
     span_hz: width of the window and sample rate of its snippets, Hz.
     nfft: bins per frame, 2 to `MAX_PSD_BINS` (a frame must fit one WebSocket message).
     navg: Welch segments averaged per frame (at least 1).
@@ -415,7 +415,7 @@ class ChannelAssignment(WireModel):
 class Capabilities(WireModel):
     """What an opened driver can do (reported in `assign_ack`).
 
-    min_hz, max_hz: tunable range of centre frequencies, Hz (min_hz <= max_hz).
+    min_hz, max_hz: tunable range of center frequencies, Hz (min_hz <= max_hz).
     max_sample_rate_hz: highest complex sample rate, Hz.
     lookback_s: how far into the past a capture may start, seconds (0 for none).
     concurrent_reads: how many reads the driver serves at once (at least 1).
@@ -494,7 +494,7 @@ class Hello(WireModel):
     software: node software name and version, free text.
     driver: name of the SDR driver in use.
     clock: state of the node clock.
-    t_ns: node clock when the message was sent, UTC ns (labelled time).
+    t_ns: node clock when the message was sent, UTC ns (labeled time).
     """
 
     type: Literal["hello"] = "hello"
@@ -589,7 +589,7 @@ class Heartbeat(WireModel):
     """Node -> server, every `heartbeat_s`.
 
     seq: heartbeat counter of the session, from 0.
-    t_ns: node clock when the message was sent, UTC ns (labelled time).
+    t_ns: node clock when the message was sent, UTC ns (labeled time).
     rtt_ms: round trip the node measured for its previous heartbeat, milliseconds;
         None (left out of the JSON) until one has been measured.
     clock: state of the node clock.
@@ -621,11 +621,11 @@ class CaptureRequest(WireModel):
 
     capture_id: identifier the server chose; unique within the session.
     channel_id: the channel to read.
-    t_start_ns: labelled time of the first sample wanted, UTC ns. Usually a little in
+    t_start_ns: labeled time of the first sample wanted, UTC ns. Usually a little in
         the future; may be in the past when the driver advertises `lookback_s`.
     n_samples: complex samples wanted, 1 to `MAX_CAPTURE_SAMPLES`.
     sample_rate_hz: complex sample rate, Hz.
-    center_hz: tuning centre, Hz.
+    center_hz: tuning center, Hz.
     deadline_ns: node-clock time by which the last chunk must be sent, UTC ns; never
         before `t_start_ns`.
     """
@@ -683,7 +683,7 @@ class SimUpdate(WireModel):
     """Server -> node, the simulated world changed (simulation backplane).
 
     version: version of the new scenario document.
-    effective_ns: labelled time from which samples use the new world, UTC ns. A JSON
+    effective_ns: labeled time from which samples use the new world, UTC ns. A JSON
         integer here, like every time on the node interface (the HTTP document the
         node then fetches carries the same instant as a decimal string).
     """
@@ -717,7 +717,7 @@ class PsdHeader(WireModel):
     """Header of a node -> server spectrum frame; payload float32[nfft], little-endian.
 
     channel_id, monitor_id: the window the frame belongs to.
-    t_ns: labelled time of the first sample of the snippet, UTC ns.
+    t_ns: labeled time of the first sample of the snippet, UTC ns.
     center_hz, span_hz: bin k sits at center_hz + (k - nfft/2) * span_hz / nfft, Hz.
     nfft: number of bins (2 to `MAX_PSD_BINS`), which fixes the payload length at
         4 * nfft bytes.
@@ -744,8 +744,8 @@ class CaptureDataHeader(WireModel):
     capture_id, channel_id: the request answered.
     seq: chunk counter, from 0.
     last: true on the chunk that ends at `n_samples_total`, and only there.
-    t_first_ns: labelled time of sample 0 of the whole capture, UTC ns.
-    sample_rate_hz, center_hz: rate and centre actually used, Hz.
+    t_first_ns: labeled time of sample 0 of the whole capture, UTC ns.
+    sample_rate_hz, center_hz: rate and center actually used, Hz.
     n_samples_total: samples in the whole capture.
     offset: index of this chunk's first sample within the capture.
     n: samples in this chunk (at least 1), which fixes the payload at 8 * n bytes.
@@ -790,8 +790,8 @@ class ConsoleDetection(WireModel):
 
     track_id: tracker-assigned identifier of the detection.
     f_lo_hz, f_hi_hz: occupied band, downlink Hz (f_lo_hz <= f_hi_hz).
-    authorized_carrier_id: the authorised carrier it matches, or None (JSON null).
-    anomaly: whether an authorised carrier is behaving abnormally.
+    authorized_carrier_id: the authorized carrier it matches, or None (JSON null).
+    anomaly: whether an authorized carrier is behaving abnormally.
     """
 
     _OMIT_NONE: ClassVar[bool] = False
@@ -835,7 +835,7 @@ class ConsolePsdHeader(WireModel):
     """Header of a server -> console spectrum frame (PROTOCOL.md section B).
 
     channel_id, monitor_id: the window the frame belongs to.
-    t_ns: labelled time of the first sample, UTC ns: an int here, a decimal string in
+    t_ns: labeled time of the first sample, UTC ns: an int here, a decimal string in
         JSON because JavaScript numbers cannot hold it.
     center_hz, span_hz: bin k sits at center_hz + (k - nfft/2) * span_hz / nfft, Hz.
     nfft: number of bins. The payload is float32[nfft] of PSD, followed by

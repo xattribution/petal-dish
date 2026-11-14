@@ -598,3 +598,33 @@ def test_ionosphere_limits_calibrated_uhf_map(cfg: SystemConfig, jammer: Emitter
     ok = np.isfinite(a) & np.isfinite(b)
     assert ok.any() and np.all(a[ok] >= b[ok] * (1 - 1e-9)) and np.any(a[ok] > 1.05 * b[ok])
     assert "ionosphere" in set(np.array(with_iono["dominant"], dtype=object).ravel().tolist())
+
+
+def test_nearest_reference_map_calibrates_each_cell_against_the_nearest_carrier(
+    cfg: SystemConfig, jammer: EmitterModel
+) -> None:
+    """R7 / K6: reference_carrier_id="nearest" uses, per cell and pair, the reference
+    tasking would calibrate against for an emitter there (relayed by both transponders,
+    clear of the target band, nearest the cell). With a second shared-1 carrier at
+    Sapporo listed first, cells near Guam take Guam's map and cells near Sapporo the
+    Sapporo carrier's; an explicit carrier and None keep their meaning."""
+    from petal_locate.core.accuracy import NEAREST_REFERENCE
+
+    data = cfg.export_dict()
+    guam = next(c for c in data["carriers"] if c["id"] == "ref-guam")
+    north = {**guam, "id": "ref-north", "name": "Reference carrier, Sapporo city center (illustrative, test)",
+             "location": dict(next(c for c in data["carriers"] if c["id"] == "ref-sapporo")["location"])}
+    data["carriers"] = [north, *data["carriers"]]
+    two = SystemConfig.model_validate(data)
+    region = Region(lat_min=14.0, lat_max=42.0, lon_min=138.0, lon_max=146.0)
+    nearest = accuracy_map(two, PAIRS, jammer, F_J, T0, region, 4.0, reference_carrier_id=NEAREST_REFERENCE)
+    by_guam = accuracy_map(two, PAIRS, jammer, F_J, T0, region, 4.0, reference_carrier_id="ref-guam")
+    by_north = accuracy_map(two, PAIRS, jammer, F_J, T0, region, 4.0, reference_carrier_id="ref-north")
+    assert nearest["reference_carrier_id"] == NEAREST_REFERENCE
+    for lat, expected in ((14.0, by_guam), (42.0, by_north)):
+        got = cell(nearest, "semi_major_95_m", lat, 142.0)
+        assert got is not None and got == pytest.approx(cell(expected, "semi_major_95_m", lat, 142.0), rel=1e-9)
+    assert cell(by_guam, "semi_major_95_m", 42.0, 142.0) != pytest.approx(cell(by_north, "semi_major_95_m", 42.0, 142.0))
+    for summary in nearest["pairs"]:
+        assert set(summary["reference_cells"]) == {"ref-guam", "ref-north"}
+        assert sum(summary["reference_cells"].values()) == len(nearest["lat_deg"]) * len(nearest["lon_deg"])

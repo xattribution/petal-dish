@@ -137,7 +137,7 @@ class TleOrbit:
         l1 = _check_tle_line(line1, "line1", "1")
         l2 = _check_tle_line(line2, "line2", "2")
         if l1[2:7] != l2[2:7]:
-            raise ValueError("line2 carries a different catalogue number from line1")
+            raise ValueError("line2 carries a different catalog number from line1")
         try:
             self._sat = Satrec.twoline2rv(l1, l2)
         except Exception as exc:  # sgp4 raises ValueError on malformed fields

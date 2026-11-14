@@ -428,3 +428,22 @@ def test_calibrated_fixes_contain_a_30_tecu_ionosphere(cfg: SystemConfig) -> Non
     assert s["n_solved"] == n, s["failures"]
     assert abs(s["mean_nees_total"] - 2.0) <= 3.0 * 2.0 / math.sqrt(n)
     assert s["containment_95_total"] >= 0.8
+
+
+def test_the_reference_is_the_eligible_one_nearest_the_emitter(cfg: SystemConfig, demo: Scenario) -> None:
+    """R7 / K6: a pair is calibrated against the reference tasking would use once it has a
+    fix, the eligible carrier nearest the emitter, not the first one in configuration
+    order; an explicit carrier is still honoured. A carrier at Sapporo, listed first and
+    relayed by shared-1 like Guam's, is 2,700 km from the demo jammer (20 N 132 E); Guam
+    is 1,500 km away."""
+    data = cfg.export_dict()
+    guam = next(c for c in data["carriers"] if c["id"] == "ref-guam")
+    north = {**guam, "id": "ref-north", "name": "Reference carrier, Sapporo city center (illustrative, test)",
+             "location": dict(next(c for c in data["carriers"] if c["id"] == "ref-sapporo")["location"])}
+    data["carriers"] = [north, *data["carriers"]]
+    two = SystemConfig.model_validate(data)
+    world = SimWorld(two, demo)
+    plan = plan_event(two, world, "jammer-philsea", DEFAULT_T_NS)
+    assert plan.pairs and all(t.reference is not None and t.reference.carrier_id == "ref-guam" for t in plan.pairs)
+    named = plan_event(two, world, "jammer-philsea", DEFAULT_T_NS, reference_carrier_id="ref-north")
+    assert all(t.reference is not None and t.reference.carrier_id == "ref-north" for t in named.pairs)

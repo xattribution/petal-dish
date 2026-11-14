@@ -4,11 +4,34 @@
 // and the tests share them.
 import type { Event, EventSummary, SolutionHistoryRow, SolutionOut, SolutionSummary, SystemConfig } from '../api/types.gen';
 import { formatLat, formatLon } from '../format/geo';
-import { km, mhz } from '../format/units';
+import { fixed, km, mhz } from '../format/units';
 
 /** A solution the server flagged inconsistent (SolutionOut.fit_consistent false): never a fix. */
 export function isInconsistent(sol: Pick<SolutionOut | SolutionSummary, 'fit_consistent'> | null | undefined): boolean {
   return !!sol && sol.fit_consistent === false;
+}
+
+/**
+ * A solution that may not be reported as a fix (R4): the server says so (`is_fix` false: no
+ * redundancy, an ellipse beyond its sanity bound, no convergence) or the fit is inconsistent
+ * (a server older than `is_fix` sets only `fit_consistent`). Never shown as a position.
+ */
+export function isNotFix(sol: Pick<SolutionOut | SolutionSummary | SolutionHistoryRow, 'fit_consistent' | 'is_fix'> | null | undefined): boolean {
+  return !!sol && (sol.is_fix === false || sol.fit_consistent === false);
+}
+
+/** Why a solution is not a fix, as a sentence ("No redundancy: ..."), or null for a fix. */
+export function notFixText(sol: Pick<SolutionOut, 'fit_consistent' | 'is_fix' | 'not_fix_reason'> | null | undefined): string | null {
+  if (!sol || !isNotFix(sol)) return null;
+  const reason = sol.not_fix_reason?.trim();
+  if (!reason) return sol.fit_consistent === false ? 'The measurements do not fit one stationary transmitter.' : 'The server does not count it as a fix.';
+  return `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${/[.?]$/.test(reason) ? '' : '.'}`;
+}
+
+/** Width of a range: "8.00 kHz", or "at least 8.00 kHz" when every detection filled its monitor window (ADAPT-5). */
+export function widthText(loHz: number, hiHz: number, lowerBound: boolean | null | undefined): string {
+  const w = `${fixed((hiHz - loHz) / 1000, 2)} kHz`;
+  return lowerBound ? `at least ${w}` : w;
 }
 
 export interface Candidate {

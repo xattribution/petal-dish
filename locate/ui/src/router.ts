@@ -33,16 +33,28 @@ export function href(view: ViewName, id?: string | null, params?: Record<string,
   return h;
 }
 
+/** Go to a route (`href`): a new history entry, or with `replace` the current one.
+ *  The hashchange is dispatched synchronously in both cases, so the view (and the
+ *  focus a number key moves into it) changes before the next key is handled; setting
+ *  `location.hash` instead would fire it only in a later task. Going to the route
+ *  already shown adds no entry. */
 export function navigate(to: string, replace = false): void {
-  if (replace) {
-    history.replaceState(null, '', to);
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  } else window.location.hash = to;
+  const target = to.startsWith('#') ? to : `#${to}`;
+  if (!replace && window.location.hash === target) return;
+  const oldURL = window.location.href;
+  if (replace) history.replaceState(null, '', target);
+  else history.pushState(null, '', target);
+  window.dispatchEvent(new HashChangeEvent('hashchange', { oldURL, newURL: window.location.href }));
 }
 
 function subscribe(cb: () => void): () => void {
+  // Back and Forward between entries this module pushed fire popstate (and hashchange)
   window.addEventListener('hashchange', cb);
-  return () => window.removeEventListener('hashchange', cb);
+  window.addEventListener('popstate', cb);
+  return () => {
+    window.removeEventListener('hashchange', cb);
+    window.removeEventListener('popstate', cb);
+  };
 }
 
 export function useRoute(): Route {

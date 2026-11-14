@@ -248,12 +248,21 @@ def test_unmapped_event_explains_that_no_satellite_relays_it() -> None:
 
 
 def test_lost_closed_and_merged_events_say_so() -> None:
-    lost = _record(**UPLINK, lost=True, solution_out=_solution())
+    lost = _record(**UPLINK, lost=True, lost_ns=T0 + 90 * 10**9, solution_out=_solution())
     advisory = advise(lost, _config())
     assert advisory.headline.startswith("No longer detected: uplink interference")
-    assert "reopens" in advisory.detail
-    assert advisory.actions[0] == "No action is needed unless the signal returns."
-    assert any(a.startswith("Report the estimated transmitter position") for a in advisory.actions)
+    # final recheck: the advice no longer says 'no action is needed' and then 'report it so it can
+    # be stopped', and it says what reopening does now (a long break sets the history aside)
+    assert advisory.detail.startswith(
+        "The signal is no longer detected at any site at 2026-11-13 00:01:30Z. If the same frequency is detected "
+        "again within 15 minutes, this event reopens: within 30 s it keeps its position and measurements and checks "
+        "them against new ones; after a longer break they are set aside and the signal is located afresh"
+    )
+    assert "keeps its history" not in advisory.detail
+    assert advisory.actions[0] == "Nothing needs to be moved or changed while the signal is off; act again if it returns."
+    assert not any("No action is needed" in a or "found and stopped" in a for a in advisory.actions)
+    report = next(a for a in advisory.actions if a.startswith("Report the estimated transmitter position"))
+    assert report.endswith("saying that it stopped at 2026-11-13 00:01:30Z and may start again.")
     closed = advise(_record(**UPLINK, closed=True), _config())
     assert closed.headline.startswith("Closed: uplink interference") and closed.actions[0].startswith("Nothing to do")
     merged = advise(_record(**UPLINK, closed=True, merged_into="EV-000007"), _config())
@@ -394,3 +403,33 @@ def test_report_quotes_the_onset_of_the_current_transmission() -> None:
     rechecked = advise(record, _config())
     assert record.recheck in rechecked.detail
     assert any("once new measurements confirm it" in a for a in rechecked.actions)
+
+
+def test_a_fix_through_a_satellite_whose_position_is_in_doubt_says_the_ellipse_may_miss() -> None:
+    """Final recheck (ephemeris-error): the calibrations put two satellites' positions
+    wrong beyond their configured uncertainty, which the solver does not budget for; the
+    event was located with the truth outside its ellipse while the advice said 'Report
+    ... ±241 m'. A fix whose rows go through such a satellite is still reported, with the
+    warning that the ellipse does not include that error. Satellites the rows do not go
+    through do not matter."""
+    from petal_locate.server.pipeline.events import MeasurementEntry
+
+    pair = schemas.PairRef(
+        a=schemas.ChannelRef(sat_id="sat-a", site_id="alpha", channel_id="x"),
+        b=schemas.ChannelRef(sat_id="sat-b", site_id="far", channel_id="y"),
+    )
+    row = schemas.MeasurementRow(t_ns=T0, kind="tdoa", pair=pair, value=1e-3, sigma=1e-7, residual=None,
+                                 snr_db=20.0, calibrated=False, used=True, reason=None)
+    entries = [MeasurementEntry(1, row, None)]
+    clear = _record(**UPLINK, solution_out=_solution(), measurements=entries, solution_used=(1,))
+    assert "may lie outside" not in _all_text(advise(clear, _config()))
+    doubted = _record(**UPLINK, solution_out=_solution(), measurements=entries, solution_used=(1,),
+                      doubted_satellite_ids=("sat-b",))
+    advisory = advise(doubted, _config())
+    assert ("The reference calibrations put the position of Sat B wrong beyond its configured uncertainty, and the "
+            "ellipse does not include that error: the transmitter may lie outside it.") in advisory.detail
+    report = next(a for a in advisory.actions if a.startswith("Report the estimated transmitter position"))
+    assert "±4.9 km at 95 % confidence; the ephemeris of Sat B is in doubt, so the transmitter may lie outside this)" in report
+    other = _record(**UPLINK, solution_out=_solution(), measurements=entries, solution_used=(1,),
+                    doubted_satellite_ids=("sat-c",))
+    assert "may lie outside" not in _all_text(advise(other, _config()))

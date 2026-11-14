@@ -12,10 +12,12 @@ description: >-
   threshold (about 40 and 39 dB post-correlation SNR) and its own located position near
   the true one, without the two being merged: calibrated (jammer A against the Guam
   reference in shared-1, jammer B against the Sapporo reference in shared-2) a single
-  round's fixes land 40 to 500 m (A) and 60 to 160 m (B) from the truth inside their 95 %
-  ellipses (0.4 to 0.6 km and 0.6 to 1.1 km long, 0.1 km wide). Without calibration they
-  are about 1 km off, or an unresolved two-candidate ambiguity at some times of day.
-  Truth errors are the small ones of pacific-demo.
+  round's fixes land 40 to 500 m (A) and 60 to 520 m (B) from the truth inside their 95 %
+  ellipses (0.46 to 0.61 km by 0.24 to 0.26 km for A, 0.73 to 1.2 km by 0.15 to 0.20 km
+  for B). Without calibration they are 0.6 to 2 km off, or, at about half the times of
+  day, an unresolved two-candidate ambiguity. Truth errors are the small ones of
+  pacific-demo. Measured with the server's chain (tests/test_sim_verify.py) at eight
+  times of day on 2026-01-01.
 emitters:
   - id: jammer-a
     name: Uplink noise jammer A (simulated, open ocean)

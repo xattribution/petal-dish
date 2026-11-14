@@ -152,9 +152,10 @@ export function createMock(options = {}) {
         // as server/pipeline/events.EventBook.summary: every other position that fits as well
         ambiguities: sol.ambiguities.map((a) => ({ lat_deg: a.lat_deg, lon_deg: a.lon_deg, semi_major_m: a.ellipse.semi_major_m,
           semi_minor_m: a.ellipse.semi_minor_m, azimuth_deg: a.ellipse.azimuth_deg })),
-        fit_consistent: sol.fit_consistent ?? true } : null,
+        fit_consistent: sol.fit_consistent ?? true, is_fix: sol.is_fix ?? true } : null,
       simulated: e.simulated ?? false,
       onset_ns: e.onset_ns ?? null, received_lo_hz: e.received_lo_hz ?? null, received_hi_hz: e.received_hi_hz ?? null, seen_site_ids: e.seen_site_ids ?? [],
+      width_lower_bound: e.width_lower_bound ?? false,
     };
   }
 

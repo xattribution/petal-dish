@@ -6,7 +6,7 @@ description: >-
   configuration (Guam city center in shared-1, Sapporo city center in shared-2, 8 kHz
   each, 20 dBW from omnidirectional antennas, about 51 to 56 dB-Hz at every channel, as
   configured) and the transponders' own noise. The operator should see the reference
-  carriers as authorised, unflagged signals on the shared-1 and shared-2 windows, a
+  carriers as authorized, unflagged signals on the shared-1 and shared-2 windows, a
   quiet noise floor everywhere else, and no events, verdicts or positions:
   there is nothing to find. Truth errors are the small ones of pacific-demo; since the
   server calibrates only the pairs of active events, no calibration runs either.

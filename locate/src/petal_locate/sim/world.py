@@ -961,20 +961,27 @@ class SimWorld:
             tau_d_dot = np.empty(len(entries))
             tau_u_dot = np.zeros(len(entries))
             delay = np.empty(len(entries))
-            for tau_x in sorted({tp.group_delay_s for tp, _ in entries}):
-                idx = [j for j, (tp, _) in enumerate(entries) if tp.group_delay_s == tau_x]
-                pts = np.stack([xg] + [entries[j][1].xyz for j in idx if entries[j][1] is not None])
-                _, d_dot, u_dot = bent_pipe_rates(pts, orbit, xg, t_s, tau_x)
-                bp = bent_pipe(pts, orbit, xg, t_s, tau_x)
-                row = 1
-                for j in idx:
-                    tau_d_dot[j] = float(d_dot)
-                    if entries[j][1] is None:
-                        delay[j] = float(np.asarray(bp.tau_d)) + tau_x
-                    else:
-                        tau_u_dot[j] = float(np.asarray(u_dot)[row])
-                        delay[j] = float(np.asarray(bp.D)[row])
-                        row += 1
+            try:
+                for tau_x in sorted({tp.group_delay_s for tp, _ in entries}):
+                    idx = [j for j, (tp, _) in enumerate(entries) if tp.group_delay_s == tau_x]
+                    pts = np.stack([xg] + [entries[j][1].xyz for j in idx if entries[j][1] is not None])
+                    _, d_dot, u_dot = bent_pipe_rates(pts, orbit, xg, t_s, tau_x)
+                    bp = bent_pipe(pts, orbit, xg, t_s, tau_x)
+                    row = 1
+                    for j in idx:
+                        tau_d_dot[j] = float(d_dot)
+                        if entries[j][1] is None:
+                            delay[j] = float(np.asarray(bp.tau_d)) + tau_x
+                        else:
+                            tau_u_dot[j] = float(np.asarray(u_dot)[row])
+                            delay[j] = float(np.asarray(bp.D)[row])
+                            row += 1
+            except ValueError as exc:
+                # placed at this instant but not over the rate stencil around it (the last
+                # second of an ephemeris table): its paths are left out here, the other
+                # satellites' are not
+                self._note_unplaced(f"satellite {sat_id!r}", t_s, exc)
+                continue
             f_rx = np.asarray(baseband_frequency(f_c, t_true, 0.0, tau_d_dot, tau_u_dot), dtype=np.float64)
             # the transponder's own noise is generated in the satellite: no uplink Doppler
             noise_rows = np.array([e is None for _, e in entries])

@@ -132,6 +132,7 @@ export function summaryOf(e: Event): EventSummary {
           ambiguous: s.ambiguities.length > 0,
           ambiguities: s.ambiguities.map((a) => ({ lat_deg: a.lat_deg, lon_deg: a.lon_deg, semi_major_m: a.ellipse.semi_major_m, semi_minor_m: a.ellipse.semi_minor_m, azimuth_deg: a.ellipse.azimuth_deg })),
           fit_consistent: s.fit_consistent ?? true,
+          is_fix: s.is_fix ?? true,
         }
       : null,
     simulated: e.simulated ?? false,
@@ -139,6 +140,7 @@ export function summaryOf(e: Event): EventSummary {
     received_lo_hz: e.received_lo_hz ?? null,
     received_hi_hz: e.received_hi_hz ?? null,
     seen_site_ids: e.seen_site_ids ?? [],
+    width_lower_bound: e.width_lower_bound ?? false,
   };
 }
 

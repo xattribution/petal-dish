@@ -340,18 +340,27 @@ def _scenario_errors(exc: Exception) -> list[dict[str, str]]:
 # ------------------------------------------------------------------------ worker pool
 
 
+WORK_CLOSE_GRACE_S: Final[float] = 10.0
+"""``WorkPool.close`` logs the jobs still running after this long, s."""
+
+
 class WorkPool:
     """Runs CPU-heavy blocking work (CAF, solve, lines of position, accuracy maps,
     classification, tracker updates of large windows) off the event loop, at most
     ``limit`` jobs at a time; further jobs wait their turn."""
 
-    def __init__(self, limit: int = CPU_WORKERS) -> None:
+    def __init__(self, limit: int = CPU_WORKERS, *, close_grace_s: float = WORK_CLOSE_GRACE_S) -> None:
+        """limit: jobs at once (>= 1). close_grace_s: how long ``close`` waits for the
+        jobs running before it logs which they are (it then goes on waiting: a thread
+        cannot be stopped), s."""
         if limit < 1:
             raise ValueError("limit: must be at least 1")
         self._limit = int(limit)
+        self._close_grace_s = float(close_grace_s)
         self._semaphore = asyncio.Semaphore(self._limit)
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=self._limit, thread_name_prefix="petal-work")
         self._futures: set[concurrent.futures.Future[Any]] = set()
+        self._jobs: dict[concurrent.futures.Future[Any], tuple[str, float]] = {}  # name, monotonic start
         self._running = 0
         self._waiting = 0
         self._closed = False
@@ -389,7 +398,9 @@ class WorkPool:
             context = contextvars.copy_context()
             future = self._executor.submit(context.run, functools.partial(fn, *args, **kwargs))
             self._futures.add(future)
+            self._jobs[future] = (getattr(fn, "__qualname__", None) or repr(fn), time.monotonic())
             future.add_done_callback(self._futures.discard)
+            future.add_done_callback(lambda f: self._jobs.pop(f, None))
             try:
                 return await asyncio.wrap_future(future)
             finally:
@@ -399,7 +410,9 @@ class WorkPool:
 
     async def close(self) -> None:
         """Refuse new jobs, drop queued ones, wait (without blocking the loop) for those
-        running, and stop the threads. Idempotent."""
+        running, and stop the threads. Jobs still running after ``close_grace_s`` are
+        logged by name and age (SRV-6: a stuck job would otherwise hold shutdown silently);
+        the wait goes on. Idempotent."""
         if self._closed and not self._futures:
             self._executor.shutdown(wait=False)
             return
@@ -409,7 +422,21 @@ class WorkPool:
             future.cancel()  # only queued jobs can be cancelled
         running = [f for f in pending if not f.cancelled()]
         if running:
-            await asyncio.gather(*(asyncio.wrap_future(f) for f in running), return_exceptions=True)
+            waiting = asyncio.gather(*(asyncio.wrap_future(f) for f in running), return_exceptions=True)
+            done, _ = await asyncio.wait({waiting}, timeout=self._close_grace_s)
+            if not done:
+                now = time.monotonic()
+                stuck = sorted(
+                    (self._jobs.get(f, ("unknown job", now)) for f in running if not f.done()), key=lambda j: j[1]
+                )
+                logger.warning(
+                    "shutdown waits for %d worker job(s) still running after %.0f s: %s",
+                    len(stuck),
+                    self._close_grace_s,
+                    ", ".join(f"{name} ({now - started:.0f} s)" for name, started in stuck),
+                    extra={"jobs": [name for name, _ in stuck]},
+                )
+            await waiting
         self._executor.shutdown(wait=True)  # idle by now: returns at once
 
 

@@ -59,11 +59,11 @@ while the solver allows for both, so their calibrated ellipses are cautious.
 | scenario | the simulated world | what the operator should see |
 |---|---|---|
 | `pacific-demo` (default) | a 10 kHz noise jammer, 20 dBW, at 20 N 132 E on a channel all three satellites relay; small satellite, oscillator and clock errors | a new signal on every site, an uplink verdict within seconds, a fix calibrated against the Guam reference with a median miss of 0.13 km (at most 0.44 km) inside a 95 % ellipse with a semi-major of 0.47 to 0.61 km |
-| `clock-fault` | the same, with the Naha site clock 10 us late | the same calibrated fix; without calibration the fix would be about 31 km off (median), mostly outside its ellipse, with no warning from the fit |
-| `ephemeris-error` | the jammer at 17 N 141 E while two satellites are 8 km and 6 km from where the server believes them | calibrated 0.13 km from the truth (median); uncalibrated 12 to 25 km off or worse |
+| `clock-fault` | the same, with the Naha site clock 10 us late | the same calibrated fix, and on the Network screen a caution on Naha's clock (about -10 us by calibration, the calibrations through two satellites agreeing); without calibration the fix would be about 31 km off (median), mostly outside its ellipse, with no warning from the fit |
+| `ephemeris-error` | the jammer at 17 N 141 E while two satellites are 8 km and 6 km from where the server believes them | calibrated 0.13 km from the truth (median); uncalibrated 12 to 25 km off or worse; no clock caution, and the Network screen's site-clock notes name muos-pac and uhf-172e as probably mispositioned; live, after the first minute the fix stays about 0.2 km off while its ellipse shrinks to 0.24 km, so the truth falls outside it, and the advice warns that the ellipse does not include the satellites' errors |
 | `two-jammers` | a second jammer, 8 kHz, 18 dBW, at 30 N 135 E on the other shared channel | two separate events, each located (median miss 0.08 km and 0.10 km) |
-| `uplink-cw` | an unmodulated carrier, 5 dBW, at 15 N 130 E | classification `cw`, uplink, FDOA only ("No TDOA: the signal is too narrow ..."), a coarse calibrated fix (median miss about 16 km, 95th percentile 50 km) inside a very long ellipse |
-| `uplink-swept` | a sawtooth chirp sweeping 10 kHz every 40 ms at 21 N 127 E | classification `swept`, uplink, every correlation ambiguous, no position, and a message saying why it cannot be located |
+| `uplink-cw` | an unmodulated carrier, 5 dBW, at 15 N 130 E | classification `cw`, uplink, FDOA only ("No TDOA: the signal is too narrow ..."); the first positions, from two FDOA rows, are shown as "not a fix"; a coarse calibrated fix (median miss about 16 km, 95th percentile 50 km) inside a very long ellipse once there are spare measurements |
+| `uplink-swept` | a sawtooth chirp sweeping 10 kHz every 40 ms at 21 N 127 E | classification `swept`, uplink, the correlations ambiguous, no position, and a message saying why it cannot be located (fresh at 03:00 and 03:26 UTC; a calibrated pair whose window holds one peak can still locate it, roughly) |
 | `local-interferer` | a weak terrestrial transmitter 4 km from Busan on a downlink frequency | seen only at Busan; verdict local ("Local interference at Busan", received near 260.005 MHz), advice to relocate, shield or filter there, no location attempt |
 | `quiet` | only the two reference carriers | the references shown as authorized carriers, no events |
 
@@ -93,8 +93,11 @@ ionosphere (30 TECU) and the troposphere, which the solver carries as uncertaint
   stated level (`processing.uncertainty.iono_vtec_tecu`), which must match the region
   and season: at twice the assumed level the ellipses are too small.
 - **Cannot:** locate a signal only one satellite relays; locate a CW jammer without
-  calibration (calibrated, about 16 km median); locate a periodically swept jammer at
-  all; always pick between two candidate positions without calibration.
+  calibration (calibrated, about 16 km median), nor quickly (a fit from too few rows
+  is not a fix); locate a periodically swept jammer, as a rule (its correlations are
+  ambiguous; only a pair whose search window holds a single peak measures it); always
+  pick between two
+  candidate positions without calibration.
 - **Sites** buy redundancy and detection margin, not location accuracy: any one site
   with channels on all three satellites predicts within about 20 % of the seven-site
   network.

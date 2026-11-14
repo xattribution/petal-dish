@@ -1212,6 +1212,61 @@ async def test_capture_cancel_stops_the_read_and_is_acknowledged(no_leaks: None)
             assert len(session.of("capture_error")) == 1
 
 
+async def test_a_capture_the_server_withdraws_is_logged_at_info_not_as_a_failure(
+    no_leaks: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """R16: a capture the server cancels on purpose (capture_cancel, or an assign that
+    removes the channel) is answered 'cancelled' as before but logged at INFO; a capture
+    that really fails is still a WARNING."""
+    drivers = Drivers()
+    async with FakeServer([channel("ch-a")]) as server:
+        async with running_agent(server, drivers):
+            session = await server.session()
+            await session.expect("assign_ack")
+            driver = drivers["ch-a"]
+            driver.hold = asyncio.Event()
+            with caplog.at_level(logging.INFO, logger="petal_locate.node.agent"):
+                await session.send(request("c1", "ch-a"))
+                await asyncio.wait_for(driver.read_started.wait(), 2.0)
+                await session.send(CaptureCancel(capture_id="c1"))
+                assert (await expect_error(session, "c1")).code == "cancelled"
+                driver.hold = None
+                await session.send(request("c2", "ch-a", fc=1e12))  # outside the channel
+                assert (await expect_error(session, "c2")).code == "out_of_range"
+            records = [r for r in caplog.records if r.name == "petal_locate.node.agent" and "capture" in r.getMessage()]
+            withdrawn = [r for r in records if "withdrawn by the server" in r.getMessage()]
+            failed = [r for r in records if r.getMessage().startswith("capture failed")]
+            assert len(withdrawn) == 1 and withdrawn[0].levelno == logging.INFO
+            assert "cancelled by the server" in withdrawn[0].getMessage()
+            assert len(failed) == 1 and failed[0].levelno == logging.WARNING
+            assert "center 1000000000000.000 Hz is outside" in failed[0].getMessage()
+
+
+async def test_a_sim_update_that_arrives_while_a_channel_opens_reaches_its_driver(no_leaks: None) -> None:
+    """R12: a sim_update that arrives while the channels of an assign are still opening
+    met no open driver and was dropped ('no driver wants it'); the node now remembers the
+    newest one and hands it to each driver as it opens."""
+    built: dict[str, HookedDriver] = {}
+
+    def factory(assignment: ChannelAssignment) -> HookedDriver:
+        built[assignment.channel_id] = HookedDriver(assignment.channel_id, open_delay_s=0.5)
+        return built[assignment.channel_id]
+
+    async with FakeServer([channel("ch-sim")]) as server:
+        async with running_agent(server, factory):
+            session = await server.session()
+            effective = time.time_ns() + 2 * NS
+            await session.send(SimUpdate(version=4, effective_ns=effective - 1))
+            await session.send(SimUpdate(version=5, effective_ns=effective))
+            await session.expect("assign_ack")
+            hooked = built["ch-sim"]
+            await wait_until(lambda: len(hooked.sim_updates) >= 1, 2.0, "the sim update")
+            assert hooked.sim_updates == [(5, effective)]  # the newest, once
+            await session.send(SimUpdate(version=6, effective_ns=effective + 1))  # open now: forwarded as before
+            await wait_until(lambda: len(hooked.sim_updates) == 2, 2.0, "the next sim update")
+            assert hooked.sim_updates[-1] == (6, effective + 1)
+
+
 async def test_concurrent_captures_on_two_channels(no_leaks: None) -> None:
     n = 100_000
     per_capture = -(-n * 8 // DEFAULT_CHUNK_PAYLOAD_BYTES)  # 25 chunks each

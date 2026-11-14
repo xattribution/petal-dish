@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { EventSummary, SystemConfig } from '../api/types.gen';
 import { Empty, ErrorNote, Loading, SimTag, Status, StatusSymbol, useTick } from '../components/common';
-import { isInconsistent, semiAxes, summaryCandidatesText, summaryReceivedText } from '../domain/event';
+import { isInconsistent, isNotFix, semiAxes, summaryCandidatesText, summaryReceivedText, widthText } from '../domain/event';
 import { compareEvents, eventLevel, isActive, nodeLevel, satelliteProblems, STATE_WORD, VERDICT_WORD, worst } from '../domain/status';
 import { formatLat, formatLon } from '../format/geo';
 import { mhz, plural } from '../format/units';
@@ -94,6 +94,9 @@ function QueueRow({ e, current, nowMs, live, cfg }: { e: EventSummary; current: 
   // UX-3: a local signal is described by what is received at the site, not an uplink equivalent
   const local = e.verdict === 'local' ? summaryReceivedText(e, cfg) : null;
   const amb = sol ? summaryCandidatesText(sol) : null;
+  // ADAPT-5: every detection fills its window, so the range shown is a lower bound
+  const [wLo, wHi] = local ? [e.received_lo_hz, e.received_hi_hz] : [e.uplink_lo_hz, e.uplink_hi_hz];
+  const wider = e.width_lower_bound && wLo !== null && wLo !== undefined && wHi !== null && wHi !== undefined ? `, ${widthText(wLo, wHi, true)} wide` : '';
   return (
     <a className="qrow" href={href('event', e.id)} aria-current={current ? 'true' : undefined} data-event={e.id}>
       <span className="sym">
@@ -114,6 +117,7 @@ function QueueRow({ e, current, nowMs, live, cfg }: { e: EventSummary; current: 
         ) : (
           <span className="mono">{e.uplink_lo_hz !== null && e.uplink_hi_hz !== null ? `${mhz(e.uplink_lo_hz, 4)}–${mhz(e.uplink_hi_hz, 4)} MHz up` : 'outside every transponder'}</span>
         )}
+        {wider}
         {e.label ? `, ${CLASS_WORD[e.label] ?? e.label}` : ''}
         {local ? null : (
           <>
@@ -127,6 +131,11 @@ function QueueRow({ e, current, nowMs, live, cfg }: { e: EventSummary; current: 
           // UX-1: an inconsistent fit is a caution, never a confident position
           <span className="status amb">
             <StatusSymbol level="caution" /> Measurements inconsistent: no fix
+          </span>
+        ) : sol && isNotFix(sol) ? (
+          // R4: no redundancy yet, or an ellipse too large to pin the position down
+          <span className="status amb">
+            <StatusSymbol level="caution" /> Not a fix yet: more measurements needed
           </span>
         ) : sol && amb ? (
           <span className="amb">Ambiguous, {amb}</span>
@@ -227,7 +236,7 @@ function OverviewMap() {
     for (const e of summaries.values()) {
       if (!isActive(e) || !e.solution) continue;
       const s = e.solution;
-      const bad = isInconsistent(s);
+      const bad = isNotFix(s);
       solutions.push({
         id: e.id,
         eventId: e.id,

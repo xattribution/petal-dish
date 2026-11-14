@@ -576,7 +576,7 @@ def _quiet_downlink(
     f_d = _positive(
         _number(_attr(transponder, "uplink_center_hz", "transponder"), "transponder.uplink_center_hz")
         + _number(_attr(transponder, "translation_hz", "transponder"), "transponder.translation_hz"),
-        "transponder downlink centre",
+        "transponder downlink center",
     )
     noise = transponder_outputs(np.empty(0), transponder)
     down = downlink_budget(

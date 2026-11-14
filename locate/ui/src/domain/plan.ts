@@ -4,6 +4,12 @@
 import type { SystemConfig } from '../api/types.gen';
 import { watchedSatellites } from './config';
 
+/**
+ * `AccuracyRequest.reference_carrier_id` that calibrates each cell's pairs against the
+ * reference carrier tasking would use for an emitter there (core.accuracy.NEAREST_REFERENCE).
+ */
+export const NEAREST_REFERENCE = 'nearest';
+
 export interface PairEnd {
   /** what the request carries: "channel_id", or "channel_id@sat_id" for a channel watching several satellites */
   value: string;

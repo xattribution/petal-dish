@@ -638,8 +638,7 @@ def build_events() -> dict[str, Any]:
             subset = [r for rk in all_rows[first_k: k + 1] for r in rk]
             s, why = solve_rows(subset)
             if s is not None:
-                history.append({"t_ns": ns_str(all_rows[k][0].pr.t_mid_ns), "semi_major_m": s.ellipse["semi_major_m"], "semi_minor_m": s.ellipse["semi_minor_m"],
-                                "n_measurements": s.n_measurements, "fit_consistent": True, "set_aside": part == "pre"})
+                history.append(history_row(all_rows[k][0].pr.t_mid_ns, s, set_aside=part == "pre"))
                 if part == "post":
                     sol = s
             log(f"  {part} solve with epochs {first_k}..{k}: {why or (round(s.lat_deg, 3), round(s.lon_deg, 3), round(s.ellipse['semi_major_m']), s.ambiguity_resolved_by, len(s.ambiguities))}")
@@ -698,9 +697,7 @@ def build_event_mixed() -> dict[str, Any]:
             subset = [r for rk in all_rows[: k + 1] for r in rk]
             s, why = solve_rows(subset)
             if s is not None:
-                out = server_events._assessed(s.as_dict(), PROC.solver.max_reduced_chi2)
-                history.append({"t_ns": ns_str(all_rows[k][0].pr.t_mid_ns), "semi_major_m": out["ellipse"]["semi_major_m"], "semi_minor_m": out["ellipse"]["semi_minor_m"],
-                                "n_measurements": s.n_measurements, "fit_consistent": out["fit_consistent"], "set_aside": False})
+                history.append(history_row(all_rows[k][0].pr.t_mid_ns, s))
                 sol = s
             log(f"  solve 0..{k}: {why or (round(s.lat_deg, 3), round(s.lon_deg, 3), round(s.reduced_chi2 or 0, 1))}")
         assert sol is not None, "the mixed event did not solve"
@@ -737,7 +734,7 @@ def build_event2() -> dict[str, Any]:
         s, why = solve_rows(subset)
         log(f"  solve 0..{k}: {why or (round(s.lat_deg, 3), round(s.lon_deg, 3), round(s.ellipse['semi_major_m']), s.ambiguity_resolved_by, [(round(a.lat_deg, 2), round(a.lon_deg, 2)) for a in s.ambiguities])}")
         if s is not None:
-            history.append({"t_ns": ns_str(all_rows[k][0].pr.t_mid_ns), "semi_major_m": s.ellipse["semi_major_m"], "semi_minor_m": s.ellipse["semi_minor_m"], "n_measurements": s.n_measurements})
+            history.append(history_row(all_rows[k][0].pr.t_mid_ns, s))
             sol = s
     newest: dict[tuple[str, str, str], Row] = {}
     for r in rows:
@@ -1073,18 +1070,36 @@ def build_accuracy() -> None:
                 variants.append({"pairs": pairs, "kinds": list(kinds), "reference_carrier_id": ref,
                                  "emitter": {"eirp_dbw": ACC_EIRP_DBW, "bandwidth_hz": default["bandwidth_hz"], "waveform": "noise"},
                                  "f_e_hz": default["f_e_hz"], "step_deg": ACC_STEP, "grid": grid})
+    # R7: each cell calibrated against the reference nearest it (the console's "nearest to each cell")
+    t0 = time.time()
+    grid = check(S.AccuracyGrid, accuracy_grid(default["pairs"], ("tdoa", "fdoa"), "nearest", default["f_e_hz"], default["bandwidth_hz"], T0_NS))
+    log(f"accuracy default ('tdoa', 'fdoa') ref=nearest: {sum(v is not None for row in grid['semi_major_95_m'] for v in row)} cells in {time.time() - t0:.0f} s")
+    variants.append({"pairs": default["pairs"], "kinds": ["tdoa", "fdoa"], "reference_carrier_id": "nearest",
+                     "emitter": {"eirp_dbw": ACC_EIRP_DBW, "bandwidth_hz": default["bandwidth_hz"], "waveform": "noise"},
+                     "f_e_hz": default["f_e_hz"], "step_deg": ACC_STEP, "grid": grid})
     write("accuracy.json", {"variants": variants})
 
 
 # --------------------------------------------------------------------------- main assembly
 
 
+FIX_LIMIT_M = server_events.fix_semi_major_limit_m(PROC.region)
+
+
 def solution_out(sol: Any) -> dict[str, Any]:
     """SolutionOut as the server publishes a solve: ``Solution.as_dict()`` with the fit
     assessment of ``processing.solver.max_reduced_chi2`` applied (fit_consistent,
-    fit_p_value, ellipse_scale; an inconsistent fit enlarged), the same helper the
-    server's EventBook uses."""
-    return server_events._assessed(sol.as_dict(), PROC.solver.max_reduced_chi2)
+    fit_p_value, ellipse_scale; an inconsistent fit enlarged) and the fix gate (is_fix,
+    not_fix_reason; ``events.fix_semi_major_limit_m`` of the region), the same helper
+    the server's EventBook uses."""
+    return server_events._assessed(sol.as_dict(), PROC.solver.max_reduced_chi2, FIX_LIMIT_M)
+
+
+def history_row(t_ns: int, sol: Any, set_aside: bool = False) -> dict[str, Any]:
+    """SolutionHistoryRow of a converged solve, assessed as the server assesses it."""
+    out = solution_out(sol)
+    return {"t_ns": ns_str(t_ns), "semi_major_m": out["ellipse"]["semi_major_m"], "semi_minor_m": out["ellipse"]["semi_minor_m"],
+            "n_measurements": out["n_measurements"], "fit_consistent": out["fit_consistent"], "is_fix": out["is_fix"], "set_aside": set_aside}
 
 
 def solution_summary(sol: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -1095,7 +1110,7 @@ def solution_summary(sol: dict[str, Any] | None) -> dict[str, Any] | None:
             "azimuth_deg": sol["ellipse"]["azimuth_deg"], "cep50_m": sol["cep50_m"], "ambiguous": len(sol["ambiguities"]) > 0,
             "ambiguities": [{"lat_deg": a["lat_deg"], "lon_deg": a["lon_deg"], "semi_major_m": a["ellipse"]["semi_major_m"],
                              "semi_minor_m": a["ellipse"]["semi_minor_m"], "azimuth_deg": a["ellipse"]["azimuth_deg"]} for a in sol["ambiguities"]],
-            "fit_consistent": sol.get("fit_consistent", True)}
+            "fit_consistent": sol.get("fit_consistent", True), "is_fix": sol.get("is_fix", True)}
 
 
 def record_of(ev: dict[str, Any]) -> Any:
@@ -1118,6 +1133,7 @@ def record_of(ev: dict[str, Any]) -> Any:
         resumed_ns=None if ev.get("resumed_ns") is None else int(ev["resumed_ns"]),
         break_s=ev.get("break_s"), recheck=ev.get("recheck"),
         not_visible_satellite_ids=list(ev.get("not_visible_satellite_ids") or []),
+        width_lower_bound=bool(ev.get("width_lower_bound", False)),
     )
 
 
@@ -1216,6 +1232,7 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                 r["last_seen_ns"] = ns_str(T0_NS - 1_000_000_000)
 
         reasons = {("detected", "undetermined"): "first confirmed detection", ("characterizing", None): "first capture requested",
+                   ("detected", "local"): "judged local: nothing to characterize or locate by satellite",
                    ("locating", None): "first correlation accepted", ("located", None): "converged solution", ("lost", None): "all detections released",
                    ("closed", None): "closed by operator"}
 
@@ -1312,9 +1329,10 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                 r["last_seen_ns"] = ns_str(T0_NS - 500_000_000)
         first3 = T0_NS - 312 * sec
         ev3 = {
-            "id": "EV-0041", "state": "characterizing", "verdict": "local",
+            # judged local: back to detected, and no satellite relays a local signal (as the server)
+            "id": "EV-0041", "state": "detected", "verdict": "local",
             "first_seen_ns": ns_str(first3), "last_seen_ns": ns_str(T0_NS - 500_000_000), "uplink_lo_hz": lo3, "uplink_hi_hz": hi3,
-            "satellite_ids": ["muos-pac"], "transponders": downlink_ranges(lo3, hi3),
+            "satellite_ids": [], "transponders": [],
             "classification": {"label": "modulated", "confidence": 0.84, "features": {"occupied_bw_hz": 3180.0, "spectral_flatness": 0.61, "envelope_kurtosis": 1.71, "sweep_linearity": 0.01, "symbol_line_db": 17.2, "duty_cycle": 1.0}},
             "advisory": {
                 "headline": "Local interference at Busan on solo-pac: find or shield the source near the site",
@@ -1324,7 +1342,8 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                             "Shield or filter the Busan antenna; other sites and users are not affected"],
             },
             "evidence": ev3_evidence,
-            "transitions": transitions(first3, [(0, "detected", "undetermined"), (6 * sec, "detected", "local"), (8 * sec, "characterizing", "local")]),
+            "transitions": transitions(first3, [(0, "detected", "undetermined"), (2 * sec, "characterizing", "undetermined"),
+                                                (6 * sec, "characterizing", "local"), (6 * sec, "detected", "local")]),
             "solution": None, "solution_t_ns": None, "solution_history": [], "measurements": [], "caf": None,
             "truth": {"emitter_id": "local-busan", "lat_deg": l1.lat, "lon_deg": l1.lon, "miss_m": None, "inside_ellipse": None},
         }
@@ -1362,7 +1381,7 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                "advisory": {"headline": "Uplink interference on solo-io, no longer seen", "detail": "Seen at Manila, Naha and Tokyo for five minutes; only one satellite relays solo-io, so it could not be located.", "actions": ["Note the time in the shift log"]},
                "evidence": [], "transitions": transitions(T0_NS - 5400 * sec, [(0, "detected", "undetermined"), (6 * sec, "detected", "uplink"), (300 * sec, "lost", "uplink")]), "truth": None}
         ev6 = {**ev5, "id": "EV-0038", "state": "closed", "verdict": "local", "first_seen_ns": ns_str(T0_NS - 9000 * sec), "last_seen_ns": ns_str(T0_NS - 8700 * sec),
-               "uplink_lo_hz": 301.4998e6, "uplink_hi_hz": 301.5002e6, "satellite_ids": ["muos-pac"], "transponders": downlink_ranges(301.4998e6, 301.5002e6),
+               "uplink_lo_hz": 301.4998e6, "uplink_hi_hz": 301.5002e6, "satellite_ids": [], "transponders": [],
                "classification": {"label": "cw", "confidence": 0.95, "features": {"occupied_bw_hz": 10.0}},
                "advisory": {"headline": "Local carrier at Naha, closed by operator", "detail": "A test oscillator in the Naha equipment room; removed.", "actions": []},
                "transitions": transitions(T0_NS - 9000 * sec, [(0, "detected", "undetermined"), (6 * sec, "detected", "local"), (240 * sec, "lost", "local"), (300 * sec, "closed", "local")])}
@@ -1417,6 +1436,7 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
             e["seen_site_ids"] = list(dict.fromkeys(r["site_id"] for r in e["evidence"] if r["state"] == "seen"))
             e.setdefault("onset_ns", e["first_seen_ns"])
             e.setdefault("not_visible_satellite_ids", [])
+            e.setdefault("width_lower_bound", False)
             # the server's own advice for this record (wording, conventions, report actions)
             e["advisory"] = advise(record_of(check(S.Event, e)), cfg, simulated=False).model_dump(mode="json")
         events = [check(S.Event, e) for e in all_events]
@@ -1426,7 +1446,8 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                                             "uplink_lo_hz": e["uplink_lo_hz"], "uplink_hi_hz": e["uplink_hi_hz"], "satellite_ids": e["satellite_ids"],
                                             "label": e["classification"]["label"] if e["classification"] else None, "headline": e["advisory"]["headline"],
                                             "solution": solution_summary(e["solution"]), "simulated": True, "onset_ns": e["onset_ns"],
-                                            "received_lo_hz": e["received_lo_hz"], "received_hi_hz": e["received_hi_hz"], "seen_site_ids": e["seen_site_ids"]}) for e in events]
+                                            "received_lo_hz": e["received_lo_hz"], "received_hi_hz": e["received_hi_hz"], "seen_site_ids": e["seen_site_ids"],
+                                            "width_lower_bound": e["width_lower_bound"]}) for e in events]
         write("event_summaries.json", summaries, 2)
         truth = check(S.SimTruth, {
             "version": 3,
@@ -1480,13 +1501,17 @@ def build_all(skip_accuracy: bool, only: set[str] | None) -> None:
                 "connected_since": iso_from_ns(T0_NS - (4 * 3600 + k * 611) * 1_000_000_000) if online else None,
             })
         # site clocks as tasking estimates them from cross-site TDOA calibrations (UX-10): the
-        # scenario's truth (labelled minus true time = -site_clock_offset_ns) between the
-        # online sites, one calibration per pair through the satellites they share
+        # scenario's truth (labeled minus true time = -site_clock_offset_ns) between the
+        # online sites, one calibration per pair through the satellites they share, and the
+        # same-satellite clock checks tasking adds (R3: no satellite term, so Manila is seen
+        # alike through muos-io and uhf-172e and its clock, not a satellite, is blamed)
         truth_off = {sid: -SCN.errors.site_clock_offset_ns.get(sid, 0.0) * 1e-9 for sid in ("honolulu", "tokyo", "naha", "seoul", "busan", "manila")}
         edges = []
         for a, b, sat_a, sat_b in (("honolulu", "naha", "muos-pac", "uhf-172e"), ("honolulu", "tokyo", "uhf-172e", "muos-pac"), ("naha", "manila", "muos-pac", "muos-io"),
                                    ("tokyo", "manila", "muos-io", "uhf-172e"), ("seoul", "busan", "muos-pac", "uhf-172e"), ("busan", "manila", "uhf-172e", "muos-io"),
-                                   ("seoul", "naha", "muos-io", "muos-pac")):
+                                   ("seoul", "naha", "muos-io", "muos-pac"),
+                                   ("naha", "manila", "muos-io", "muos-io"), ("tokyo", "manila", "uhf-172e", "uhf-172e"),
+                                   ("seoul", "busan", "muos-pac", "muos-pac")):
             edges.append(ClockEdge(sat_a, a, sat_b, b, truth_off[a] - truth_off[b], eph_s=5e-9))
         site_clocks = [c.model_dump(mode="json") for c in site_clock_offsets(edges, cfg)]
         satellites = [{"sat_id": sat.id, "ephemeris_ok": True, "unavailable_since_ns": None, "message": None} for sat in cfg.satellites]

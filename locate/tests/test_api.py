@@ -611,6 +611,31 @@ async def test_accuracy_map_is_banded_cached_and_bounded(
         assert reply.status_code == 422 and reply.json()["errors"][0]["loc"] == "pairs"
 
 
+async def test_accuracy_map_takes_the_nearest_reference(files: dict[str, Path], monkeypatch: pytest.MonkeyPatch) -> None:
+    """``reference_carrier_id: "nearest"`` (``core.accuracy.NEAREST_REFERENCE``) reaches
+    the engine as written; it is refused only when the configuration has no reference
+    carrier at all (it used to be refused as an unknown carrier, R7 wiring)."""
+    from petal_locate.core.accuracy import NEAREST_REFERENCE
+
+    calls: list[Any] = []
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: stand_in_accuracy(calls))
+    async with serving(settings_for(files), files["presets"]) as (app, client):
+        body = {"pairs": [["alpha-a", "bravo-b"]], "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
+                "f_e_hz": 300.0e6, "step_deg": 10.0, "t": T_FIXED, "reference_carrier_id": NEAREST_REFERENCE}
+        reply = await client.post(f"{API}/analysis/accuracy", json=body)
+        assert reply.status_code == 200, reply.text
+        assert calls and all(c[3] == "nearest" for c in calls)
+        cfg = runtime_of(app).config
+        request = schemas.AccuracyRequest.model_validate(body)
+        assert rest.accuracy_problems(cfg, request) == []
+        bare = cfg.model_copy(update={"carriers": [c.model_copy(update={"use_as_reference": False}) for c in cfg.carriers]})
+        problems = rest.accuracy_problems(bare, request)
+        assert [p["loc"] for p in problems] == ["reference_carrier_id"]
+        assert "has none" in problems[0]["msg"]
+        reply = await client.post(f"{API}/analysis/accuracy", json=dict(body, reference_carrier_id="nearby"))
+        assert reply.status_code == 422 and "unknown carrier 'nearby'" in reply.json()["errors"][0]["msg"]
+
+
 async def test_accuracy_map_uncertainty_override_is_used_for_that_map_only(
     files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1135,7 +1160,8 @@ async def test_link_budget_leaves_out_a_satellite_it_cannot_place(files: dict[st
 
 async def test_a_simulated_time_offset_moves_the_whole_server_clock(files: dict[str, Path]) -> None:
     """`petal-locate demo --start` (K8): the server's time base carries the offset, and
-    so does the hub, while the application runs; the default stays the host clock."""
+    so do the hub and the store (each takes the server clock; nothing is patched); the
+    default stays the host clock."""
     from petal_locate.server import hub as hub_module
 
     offset = -200 * 86400 * 10**9
@@ -1145,15 +1171,12 @@ async def test_a_simulated_time_offset_moves_the_whole_server_clock(files: dict[
         assert abs(int(meta["server_t_ns"]) - (time.time_ns() + offset)) < 5 * 10**9
         status = (await client.get(f"{API}/status")).json()
         assert abs(int(status["server_t_ns"]) - (time.time_ns() + offset)) < 5 * 10**9
-        # the hub takes the server clock (or, with a hub that has no clock parameter, the
-        # application shifts the hub module's time while it runs)
-        hub_clock = getattr(app.state.hub, "_clock", None)
-        hub_now = hub_clock() if callable(hub_clock) else hub_module.time.time_ns()
-        assert abs(hub_now - (time.time_ns() + offset)) < 5 * 10**9
+        assert app.state.hub._clock is app.state.clock
+        assert abs(app.state.hub._clock() - (time.time_ns() + offset)) < 5 * 10**9
         assert abs(app.state.runtime.store._clock() - (time.time_ns() + offset)) < 5 * 10**9
-    assert hub_module.time is time  # put back when the application stops
+        assert hub_module.time is time  # the hub module is never patched
     async with serving(settings_for(files), files["presets"]) as (app, client):
-        assert app.state.clock is time.time_ns and hub_module.time is time
+        assert app.state.clock is time.time_ns and app.state.hub._clock is time.time_ns
 
 
 async def test_a_console_address_carrying_the_token_opens_an_authenticated_console(
@@ -1176,3 +1199,139 @@ async def test_a_console_address_carrying_the_token_opens_an_authenticated_conso
             assert reply.status_code == 200 and "sessionStorage" not in reply.text and "wrong" not in reply.text
     async with serving(settings_for(files), files["presets"], static_dir=static) as (_app, client):
         assert "sessionStorage" not in (await client.get("/", params={"token": "x"})).text  # no token configured
+
+
+# --------------------------------------------------------------------------- residual R1: 'channel@sat' pair ends
+
+
+def recording_accuracy(pairs_seen: list[Any]) -> Callable[..., dict[str, Any]]:
+    """``stand_in_accuracy`` that also records the pairs each band was asked for."""
+    inner = stand_in_accuracy([])
+
+    def accuracy_map(config: Any, pairs: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        pairs_seen.append([tuple(p) for p in pairs])
+        return inner(config, pairs, *args, **kwargs)
+
+    return accuracy_map
+
+
+async def test_accuracy_pairs_accept_channel_at_satellite_ends(
+    files: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pair end may name the satellite of a channel that watches several
+    ('charlie-ab@sat-a', as the Plan screen and ``accuracy --pair`` send it); the server
+    refused it as an unknown channel (residual R1, ADAPT-4 server half)."""
+    pairs_seen: list[Any] = []
+    monkeypatch.setattr(rest, "_load_accuracy_map", lambda: recording_accuracy(pairs_seen))
+    async with serving(settings_for(files), files["presets"]) as (_app, client):
+        body = {"pairs": [["charlie-ab@sat-a", "bravo-b"]], "emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
+                "f_e_hz": 300.0e6, "step_deg": 10.0, "t": T_FIXED}
+        reply = await client.post(f"{API}/analysis/accuracy", json=body)
+        assert reply.status_code == 200, reply.text
+        assert pairs_seen and pairs_seen[0] == [("charlie-ab@sat-a", "bravo-b")]  # handed on as written
+
+        both = dict(body, pairs=[["charlie-ab@sat-a", "bravo-b"], ["charlie-ab@sat-b", "bravo-a"]])
+        assert (await client.post(f"{API}/analysis/accuracy", json=both)).status_code == 200
+
+        async def errors(pairs: list[list[str]]) -> list[dict[str, str]]:
+            reply = await client.post(f"{API}/analysis/accuracy", json=dict(body, pairs=pairs))
+            assert reply.status_code == 422, reply.text
+            return reply.json()["errors"]
+
+        # one channel at both ends is refused whichever satellites the ends name
+        assert await errors([["charlie-ab@sat-a", "charlie-ab@sat-b"]]) == [
+            {"loc": "pairs.0", "msg": "the two channels of a pair must differ"}]
+        assert await errors([["charlie-ab", "charlie-ab@sat-b"]]) == [
+            {"loc": "pairs.0", "msg": "the two channels of a pair must differ"}]
+        # the same pair written twice, in either order, counts once
+        assert await errors([["charlie-ab@sat-a", "bravo-b"], ["bravo-b", "charlie-ab@sat-a"]]) == [
+            {"loc": "pairs.1", "msg": "the same pair as pairs.0 (each pair counts once)"}]
+        # the channel part is what must exist; a named satellite must be one the channel watches
+        assert await errors([["nowhere@sat-a", "bravo-b"]]) == [
+            {"loc": "pairs.0.0", "msg": "unknown receive channel 'nowhere'"}]
+        assert await errors([["bravo-b", "alpha-a@sat-b"]]) == [
+            {"loc": "pairs.0.1", "msg": "channel 'alpha-a' does not watch satellite 'sat-b' (it watches sat-a)"}]
+        (malformed,) = await errors([["charlie-ab@", "bravo-b"]])
+        assert malformed["loc"] == "pairs.0.0" and "channel_id@sat_id" in malformed["msg"]
+
+
+def test_accuracy_problems_see_one_pair_named_with_and_without_its_satellites() -> None:
+    """A bare channel id and the same channel with the satellite it correlates on are
+    one pair end: naming a pair once bare and once with '@sat' ends counted it twice and
+    made the map optimistic (final recheck of R1)."""
+    cfg = make_config()
+
+    def request(*pairs: tuple[str, str]) -> schemas.AccuracyRequest:
+        return schemas.AccuracyRequest(pairs=list(pairs), emitter={"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
+                                       f_e_hz=300.0e6)
+
+    duplicate = [{"loc": "pairs.1", "msg": "the same pair as pairs.0 (each pair counts once)"}]
+    # single-satellite channels: the bare id is the channel on its only satellite
+    assert rest.accuracy_problems(cfg, request(("alpha-a", "bravo-b"), ("bravo-b@sat-b", "alpha-a@sat-a"))) == duplicate
+    assert rest.accuracy_problems(cfg, request(("alpha-a@sat-a", "bravo-b"), ("alpha-a", "bravo-b@sat-b"))) == duplicate
+    # a channel watching both satellites takes the one the other end does not use, as the map does
+    assert rest.accuracy_problems(cfg, request(("charlie-ab", "bravo-b"), ("charlie-ab@sat-a", "bravo-b"))) == duplicate
+    assert rest.accuracy_problems(cfg, request(("charlie-ab@sat-b", "bravo-a"), ("charlie-ab", "bravo-a"))) == duplicate
+    # different satellites of that channel are different pairs
+    assert rest.accuracy_problems(cfg, request(("charlie-ab@sat-a", "alpha-b"), ("charlie-ab@sat-b", "alpha-b"))) == []
+
+
+def test_accuracy_problems_split_pair_ends_without_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The checks run before the engine is loaded (the command line calls them first);
+    in a build without ``core.accuracy`` they check the ends as written instead of
+    crashing (a valid request then gets its 501, ``test_accuracy_map_failures``)."""
+    cfg = make_config()
+
+    def request(*pairs: tuple[str, str]) -> schemas.AccuracyRequest:
+        return schemas.AccuracyRequest(pairs=list(pairs), emitter={"eirp_dbw": 20.0, "bandwidth_hz": 10e3},
+                                       f_e_hz=300.0e6)
+
+    assert rest.accuracy_problems(cfg, request(("charlie-ab@sat-b", "alpha-a"))) == []
+    assert rest.accuracy_problems(cfg, request(("alpha-a", "alpha-a"))) == [
+        {"loc": "pairs.0", "msg": "the two channels of a pair must differ"}]
+    monkeypatch.setitem(sys.modules, "petal_locate.core.accuracy", None)
+    assert rest.accuracy_problems(cfg, request(("charlie-ab", "alpha-a"))) == []
+    assert rest.accuracy_problems(cfg, request(("charlie-ab@sat-b", "alpha-a"))) == [
+        {"loc": "pairs.0.0", "msg": "unknown receive channel 'charlie-ab@sat-b'"}]
+
+
+def test_the_accuracy_request_declares_the_pair_limit_the_server_enforces() -> None:
+    """SRV-4: AccuracyRequest.pairs carries the limit rest.py enforces, so the OpenAPI
+    document (and the console's generated types) show it."""
+    from petal_locate.server.api import schemas as api_schemas
+
+    field = api_schemas.AccuracyRequest.model_json_schema()["properties"]["pairs"]
+    assert field["maxItems"] == rest.ACCURACY_MAX_PAIRS and field["minItems"] == 1
+    body = {"emitter": {"eirp_dbw": 20.0, "bandwidth_hz": 10e3}, "f_e_hz": 300.0e6}
+    api_schemas.AccuracyRequest.model_validate({**body, "pairs": [["a", "b"]] * rest.ACCURACY_MAX_PAIRS})
+    with pytest.raises(ValueError, match="pairs"):
+        api_schemas.AccuracyRequest.model_validate({**body, "pairs": [["a", "b"]] * (rest.ACCURACY_MAX_PAIRS + 1)})
+
+
+def test_every_ns_field_of_the_console_api_is_a_decimal_string() -> None:
+    """R19: at the console boundary every absolute-time ``*_ns`` field is a decimal string
+    of integer nanoseconds (PROTOCOL.md section B); ``est_offset_ns`` (a node's clock
+    estimate, a signed offset) is the documented exception among the documents, and the
+    site clock estimate's offsets are ``*_us`` numbers. The configuration and scenario
+    carry durations, not times, under ``*_ns`` names (a site clock's sigma, the TDOA bias,
+    a simulated clock offset): plain numbers."""
+    from petal_locate.server.api import schemas as api_schemas
+
+    exceptions = {"est_offset_ns", "sigma_ns", "tdoa_bias_ns", "site_clock_offset_ns"}
+    bad: list[str] = []
+    for name in api_schemas.__all__:
+        model = getattr(api_schemas, name)
+        if not (isinstance(model, type) and hasattr(model, "model_json_schema")):
+            continue
+        schema = model.model_json_schema(mode="serialization")
+        defs = {schema.get("title", name): schema, **schema.get("$defs", {})}
+        for title, definition in defs.items():
+            for field, spec in (definition.get("properties") or {}).items():
+                if not field.endswith("_ns") or field in exceptions:
+                    continue
+                kinds = {spec.get("type")} | {option.get("type") for option in spec.get("anyOf", [])}
+                if kinds - {"string", "null", None}:
+                    bad.append(f"{title}.{field}: {sorted(k for k in kinds if k)}")
+    assert bad == []
+    fields = api_schemas.SiteClockEstimate.model_fields
+    assert {"offset_us", "sigma_us"} <= set(fields) and not any(f.endswith("_ns") for f in fields)

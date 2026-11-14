@@ -7,7 +7,7 @@ illustrative link parameters (G/T -14 dB/K, SFD -136 dBW/m^2, 26 dBW saturated E
 per 25 kHz channel, 400 K receivers) and generic city-center sites. None of it is
 measured on real satellites, terminals or radios.** The simulator and the solver share
 the project's geometry code, so these results show what the system does with the
-physics as modelled, not that the model matches the sky. Raw numbers are in
+physics as modeled, not that the model matches the sky. Raw numbers are in
 `docs/results/*.json`; `scripts/capability_study.py` reproduces them (section 8).
 
 The ionosphere and the troposphere are part of every result. The solver and the
@@ -46,7 +46,7 @@ Sapporo references, redesigned in this study so that all three satellites relay 
 well) shrinks this about tenfold: semi-axes of 0.5 to 1.0 km by 0.2 to 0.4 km at 03 UTC
 (0.3 to 2.0 km over the day). The median miss is then 120 to 320 m and the 95th
 percentile 0.27 to 0.94 km. With satellite positions known only to TLE grade (tens of
-kilometres in-track), uncalibrated fixes are off by about 23 km (median; 95th
+kilometers in-track), uncalibrated fixes are off by about 23 km (median; 95th
 percentile 66 to 73 km). Calibration then depends on distance from the reference: 0.32
 km median near Guam (300 km from the reference), 0.88 km in the Philippine Sea (1,500
 km away), and a predicted 95 % semi-major of 4.4 to 24 km at about 3,000 km (South China
@@ -71,7 +71,7 @@ Calibration cancels the part the jammer and the reference share (the same downli
 the same sites) but not the difference between their uplinks, which reach the
 satellites at different angles: at 30 TECU about 1.1 microseconds are left on the South
 China Sea measurements, against about 0.1 microseconds of measurement noise. The cost
-is modest: calibrated ellipses are 6 to 40 % larger than with no ionosphere at all
+is modest: calibrated ellipses are 6 to 39 % larger than with no ionosphere at all
 (0.57 km instead of 0.47 km in the Philippine Sea), and the median calibrated miss is
 120 to 320 m instead of 100 to 250 m. In return the fixes stay inside their own
 ellipses: 35 to 40 of
@@ -93,9 +93,11 @@ MHz-wide signals it becomes the larger of the two.
   still works, but there is no second copy to compare with.
 - Locate a CW (unmodulated) jammer without calibration. A CW has no bandwidth, so only
   frequency differences can be measured. Calibrated, a CW fix is coarse: about 16 km
-  median miss (95th percentile 50 km), with an ellipse tens of kilometres long.
-- Locate a periodically swept jammer at all. Every correlation is ambiguous, and the
-  system says so instead of giving a position.
+  median miss (95th percentile 50 km), with an ellipse tens of kilometers long.
+- Locate a periodically swept jammer, as a rule. The correlations are ambiguous, and the
+  system says so instead of giving a position. Only a calibrated pair whose search window
+  is narrow enough to hold a single peak of the sweep measures it (seen once live,
+  LIMITATIONS.md section 7).
 - Locate well near Hawaii. Only two of the three satellites see that area (75 E is
   always below Hawaii's horizon), so there is one pair. It is unobservable without
   calibration, and gives 2.8 to 6.7 km calibrated against the distant Guam reference,
@@ -110,7 +112,7 @@ MHz-wide signals it becomes the larger of the two.
 ionosphere, not by the number of sites. Any one of the five Asian sites, each with
 channels on all three satellites, predicts within about 20 % of the full seven-site
 network, and dropping any one site changes the prediction by at most about 15 %. The
-Hawaii sites alone see only two satellites (calibrated 2.0 to 14 km, uncalibrated
+Hawaii sites alone see only two satellites (calibrated 1.9 to 14 km, uncalibrated
 unobservable). More sites buy redundancy, an uplink-or-local verdict without a
 correlation (it needs sightings at two sites more than 200 km apart), and detection
 margin through bigger antennas. They do not buy location accuracy.
@@ -332,8 +334,8 @@ set to other sizes (95 % semi-major in km; VTEC / zenith delay):
 | TLE, calibrated Guam | Korean peninsula | 8.58 | 8.58 | 8.58 | 8.59 | 8.61 | ephemeris position |
 | TLE, calibrated Guam | Pacific east of Japan | 9.88 | 9.88 | 9.88 | 9.89 | 9.90 | ephemeris position |
 
-The configured 30 TECU widens the operator-grade ellipses by 2 to 22 % uncalibrated and
-by 6 to 40 % calibrated; with TLE-grade ephemeris the satellite errors dwarf it (under
+The configured 30 TECU widens the operator-grade ellipses by 1 to 22 % uncalibrated and
+by 6 to 39 % calibrated; with TLE-grade ephemeris the satellite errors dwarf it (under
 3 %). The troposphere alone changes nothing visible at these bandwidths. The Monte Carlo
 (section 3) checks that these wider ellipses are the right size.
 
@@ -407,10 +409,10 @@ second candidate.
 seeds as the rows above, so within a point only the media differ: "off" has no media in
 the simulation and none in the solver (the model before the media terms); "drawn" is the
 table above; "fixed" applies one level everywhere (10, 30 or 60 TECU, with 2.3 m of
-troposphere); "not modelled" applies 30 TECU and 2.3 m to a solver without media terms.
+troposphere); "not modeled" applies 30 TECU and 2.3 m to a solver without media terms.
 Each cell: median miss in km / inside own 95 % ellipse (of 40) / mean NEES.
 
-| point | off | drawn | fixed 10 TECU | fixed 30 TECU | fixed 60 TECU | 30 TECU, not modelled |
+| point | off | drawn | fixed 10 TECU | fixed 30 TECU | fixed 60 TECU | 30 TECU, not modeled |
 |---|---|---|---|---|---|---|
 | Philippine Sea | 0.13 / 36 / 2.23 | 0.20 / 38 / 2.37 | 0.14 / 40 / 1.01 | 0.16 / 40 / 1.41 | 0.23 / 33 / 4.07 | 0.15 / 17 / 7.52 |
 | South China Sea | 0.16 / 36 / 2.70 | 0.24 / 35 / 2.34 | 0.18 / 40 / 0.93 | 0.29 / 39 / 2.71 | 0.42 / 20 / 6.19 | 0.29 / 0 / 24.85 |
@@ -500,13 +502,17 @@ the full chain (uplink-cw scenario, 15 N 130 E, 40 trials each, drawn errors and
 all 80 pair correlations report FDOA only ("narrowband"). Uncalibrated, 40 of 40 trials
 are unobservable. Calibrated, 40 of 40 are located: median miss 15.5 km against a
 predicted CEP50 of 15.0 km, 95th percentile 50 km, 35 of 40 inside their ellipses (mean
-NEES 2.1).
+NEES 2.1). Each of these is one round's fit from two FDOA rows, with no redundancy: the
+server shows such a position but does not count it as a fix (MATH.md section 9, fix
+gate) and locates a CW only once later rounds add spare rows.
 
 ### 4.5 Swept jammers: ambiguous
 
 The uplink-swept scenario (10 kHz sawtooth every 40 ms), 40 trials each: all 80 pair
 correlations are "ambiguous", calibrated or not, so there is no position. The system
-reports why instead of guessing.
+reports why instead of guessing. A pair is ambiguous when its search window holds more
+than one of the sweep's correlation peaks; a calibrated window narrow enough to hold
+one gives a valid measurement (LIMITATIONS.md section 7).
 
 ### 4.6 Which sites matter
 
@@ -582,7 +588,9 @@ moments at which rounds ran still followed the wall clock).
   operator-grade sigmas.
 - ephemeris-error: verdict uplink 5.0 s and located 7.4 s after detection. The fix was
   88, 15, 18 and 61 m off, always inside; at 16 rows the ellipse was 437 by 164 m. The
-  same rows without corrections land 12.0 km off (NEES 31).
+  same rows without corrections land 12.0 km off (NEES 31). With many more rows the fix
+  stays a couple of hundred meters off while its ellipse shrinks past that (LIMITATIONS.md
+  section 7).
 
 ## 6. Reference carriers: why calibration helps now
 
@@ -626,7 +634,7 @@ target's.
 
 - Everything is simulated, with illustrative link numbers and nominal slots; the
   inclinations and phases are invented. The time-of-day effects depend on them.
-- The ionosphere and troposphere are modelled simply: a thin shell at 350 km and the
+- The ionosphere and troposphere are modeled simply: a thin shell at 350 km and the
   Black and Eisner mapping, one VTEC and one zenith delay per ground end, no gradients
   along a path, no scintillation. The simulator applies one value at every ground end,
   so the Monte Carlo tests only the fully correlated case of the solver's per-end
@@ -645,7 +653,7 @@ target's.
   start-up prior as its baseline (10 s of frames). A jammer under a busy authorized
   carrier is judged against that carrier's power instead.
 - No terrain, multipath, interference from other users or real hardware timing was
-  modelled. The node drivers for real radios are untested on hardware.
+  modeled. The node drivers for real radios are untested on hardware.
 
 ## 8. How the numbers were produced
 
@@ -679,7 +687,7 @@ run had the machine to itself (load average about 1). The scenario descriptions 
 `config/scenarios/*.yaml` quote the server's chain as re-implemented in
 `tests/test_sim_verify.py`, at four or eight epochs; that chain picks the primary by
 detected SNR and captures references in a later slot, and its claims are asserted by
-`test_sim_verify.py` and, live, by `tests/e2e/test_system.py`. The ellipse sizes those
-descriptions quote were written before the media terms and are smaller than the ones
-above (for example 0.4 to 0.6 km by 0.1 km calibrated in pacific-demo, against 0.47 to
-0.61 km by 0.24 to 0.25 km here).
+`test_sim_verify.py` and, live, by `tests/e2e/test_system.py`. The pacific-demo,
+clock-fault and ephemeris-error descriptions were measured with the media terms in the
+solver and agree with the table of section 5 (for example 0.45 to 0.61 km by 0.24 to
+0.26 km calibrated in pacific-demo, against 0.47 to 0.61 km by 0.24 to 0.25 km here).

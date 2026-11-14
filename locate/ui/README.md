@@ -56,7 +56,7 @@ e2e/            Playwright smoke walk (mock or live), fixes.spec.ts (mock only: 
 ## The mock
 
 `mock/generate_fixtures.py` computes every number from the real core on
-`config/pacific-uhf.yaml`: IQ synthesised with `core.signals` / `core.channel` along
+`config/pacific-uhf.yaml`: IQ synthesized with `core.signals` / `core.channel` along
 `core.geometry` delays, correlated with `core.caf.caf_estimate`, solved with
 `core.solver.solve` (reference calibration included), lines of position from
 `core.lop`, spectra from `SimWorld.render_psd`, look angles and footprints from

@@ -26,7 +26,7 @@ The UI lives in `locate/ui` (`npm ci && npm run build` writes the production bun
    estimate that cannot be made returns `None` with a reason.
 6. Tests must be deterministic (fixed seeds) and finish quickly; mark anything over
    about 10 s with `@pytest.mark.slow`.
-7. Simulated results are labelled as simulated everywhere they are shown.
+7. Simulated results are labeled as simulated everywhere they are shown.
 
 ## When several people (or agents) work at once
 

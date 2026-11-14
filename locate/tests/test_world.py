@@ -889,3 +889,35 @@ def test_a_satellite_whose_table_has_ended_is_left_out_not_every_channel(cfg_bar
     # before the end the satellite is there as before
     before = end - 600 * 10**9
     assert [p for p in world.channel_paths(io_channel, before, tune_io, fs) if p.sat_id == "muos-io"]
+
+
+def test_frames_across_the_end_of_an_ephemeris_table_leave_out_only_that_satellite(cfg_bare: SystemConfig) -> None:
+    """Final recheck (ADAPT-7): within the last second of muos-io's table the satellite is
+    placed at the instant but not over the Doppler stencil around it, and the raised error
+    refused every monitor frame and capture of every channel, those on other satellites
+    included (the event went lost for 17 s). Only muos-io's paths are left out there."""
+    from petal_locate.core.orbits import orbit_state
+
+    end = T0 - T0 % (60 * 10**9)
+    orbit = cfg_bare.orbit("muos-io")
+    samples = []
+    for k in range(-120, 1):
+        t = end + k * 60 * 10**9
+        r, v = orbit_state(orbit, sec(t))
+        samples.append({"t": iso_from_ns(t), "r_m": [float(x) for x in r], "v_mps": [float(x) for x in v]})
+    data = cfg_bare.export_dict()
+    for sat in data["satellites"]:
+        if sat["id"] == "muos-io":
+            sat["orbit"] = {"type": "table", "samples": samples}
+    table_cfg = SystemConfig.model_validate(data)
+    world = SimWorld(table_cfg, scenario([jammer()]))
+    fs, n = 50e3, 4096
+    a, _ = pair(table_cfg)
+    tune_io = F_J + translation(table_cfg, "muos-io")
+    for t in (end - 1_500_000_000, end - 500_000_000, end - 1):
+        psd = world.render_psd("tokyo-pac", t, a.f_tune_hz, 50e3, 256, 8)  # a muos-pac channel
+        assert psd.shape == (256,) and np.all(np.isfinite(psd))
+        iq = world.render_iq("honolulu-pac", t, n, fs, a.f_tune_hz)
+        assert iq.shape == (n,) and np.all(np.isfinite(iq))
+        assert world.render_iq("tokyo-io", t, n, fs, tune_io).shape == (n,)
+        assert np.all(np.isfinite(world.render_psd("tokyo-io", t, tune_io, 50e3, 256, 8)))

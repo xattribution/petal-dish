@@ -6,7 +6,7 @@ pinned in `ui/package-lock.json`. Nothing else third-party is bundled: Python
 dependencies are installed from the package index, and the build and test tools
 (TypeScript, Vite, Vitest, Playwright and their dependencies) are not shipped.
 
-| Material in the console build | Version | Licence | Copyright and source |
+| Material in the console build | Version | License | Copyright and source |
 |---|---|---|---|
 | Natural Earth vector data (land 1:110m and 1:50m, admin-0 countries 1:50m) as TopoJSON, from the world-atlas package | Natural Earth 4.1.0; world-atlas 2.0.2 | Natural Earth: public domain. world-atlas packaging: ISC | naturalearthdata.com; Michael Bostock, github.com/topojson/world-atlas |
 | B612 and B612 Mono fonts (Latin subset, weights 400 and 700), from @fontsource/b612 and @fontsource/b612-mono | 5.3.0 | SIL Open Font License 1.1 (OFL-1.1) | Copyright 2012 The B612 Project Authors, github.com/polarsys/b612 |
@@ -17,11 +17,11 @@ dependencies are installed from the package index, and the build and test tools
 | yaml | 2.9.1 | ISC | Copyright Eemeli Aro |
 
 No other fonts are bundled; the console falls back to the browser's sans-serif and
-monospace fonts. The full licence text of every item follows, as each package ships it
+monospace fonts. The full license text of every item follows, as each package ships it
 (this file is part of the source distribution and of the wheel, under
 `petal_locate-<version>.dist-info/licenses/`).
 
-## Licence texts
+## License texts
 
 ### B612 (@fontsource/b612 5.3.0): SIL Open Font License 1.1
 
@@ -123,7 +123,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ### B612 Mono (@fontsource/b612-mono 5.3.0): SIL Open Font License 1.1
 
-The same licence text as B612 above, with this copyright line:
+The same license text as B612 above, with this copyright line:
 
 ```text
 Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612) B612Mono-Italic.ttf: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612) B612Mono-Bold.ttf: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612) B612Mono-BoldItalic.ttf: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612)

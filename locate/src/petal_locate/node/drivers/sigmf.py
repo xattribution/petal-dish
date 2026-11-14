@@ -206,7 +206,7 @@ def load_recording(path: str | Path, t0_ns: int | None = None) -> SigMFRecording
     for index, segment in enumerate(captures[1:], start=1):
         if isinstance(segment, dict) and segment.get("core:frequency", center) != center:
             logger.warning(
-                "sigmf capture segment retunes; the replay keeps the first centre",
+                "sigmf capture segment retunes; the replay keeps the first center",
                 extra={"meta_path": str(meta_path), "segment": index},
             )
             break

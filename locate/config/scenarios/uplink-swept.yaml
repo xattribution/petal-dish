@@ -11,10 +11,13 @@ description: >-
   it correlates with itself at near-equal height one sweep period later and at every
   step of 100 microseconds in delay with 25 Hz in Doppler. Even the narrowest search
   window (a calibrated pair, a few tens of hertz in Doppler) holds several of these
-  peaks, so every cross-satellite correlation comes back ambiguous (eight candidates
+  peaks, so the cross-satellite correlations come back ambiguous (eight candidates
   listed), with or without calibration, instead of giving a single TDOA/FDOA; the
-  system must report that and show no position. Truth errors are the small ones of
-  pacific-demo.
+  system must report that and show no position from them (live, fresh at 03:00 and
+  03:26 UTC, every correlation was ambiguous). At some times a calibrated pair's window
+  is narrow enough to hold a single peak; that pair then measures the jammer correctly
+  and gives a rough fix (live, a 10 to 12 km by 0.3 km ellipse that held the truth).
+  Truth errors are the small ones of pacific-demo.
 emitters:
   - id: jammer-swept
     name: Uplink swept jammer (simulated, open ocean)

@@ -312,7 +312,12 @@ async def test_full_round_measures_within_three_sigma_and_locates_the_jammer() -
         assert all(p.reason == REASON_UNCONFIRMED and p.result is not None and p.result.detected for p in first.pairs)
         assert first.solution is None and first.classification == "noise"
         assert len(first.calibrations) == 4 and {c.carrier_id for c in first.calibrations} == {"ref-guam"}
-        assert len(env.store.calibrations) == 4
+        # the pairs' own calibrations in the first round; same-satellite clock checks (R3) later
+        pair_cals = [c for c in env.store.calibrations if c["a_sat_id"] != c["b_sat_id"]]
+        assert len(pair_cals) == 4
+        later = [c for r in reports[1:] for c in r.calibrations]
+        assert later and all(c.key[0] == c.key[2] and c.key[1] != c.key[3] for c in later)
+        assert len(env.store.calibrations) == 4 + len(later)
         assert {c["kind"] for c in env.store.calibrations} == {"tdoa", "fdoa"}
         assert all(c["detail"]["simulated"] for c in env.store.calibrations)
         assert len({c.cal.cal_id for c in first.calibrations}) == 4
@@ -393,7 +398,8 @@ async def test_calibration_removes_an_injected_common_ephemeris_bias() -> None:
     async with environment(CONFIG, biased) as env:
         record = make_event(env)
         reports = await rounds(env, record, 2)
-        assert len(env.tasking.calibrations()) == 4
+        # the two pairs' calibrations (the second round adds same-satellite clock checks, R3)
+        assert len([c for c in env.tasking.calibrations() if c.key[0] != c.key[2]]) == 4
         for entry in record.used_measurements():
             m = entry.measurement
             if m.kind != "tdoa":
@@ -501,6 +507,27 @@ async def test_a_new_simulated_world_drops_the_calibrations_of_the_old_one() -> 
         assert solution is not None
         miss = geodesic_distance_m(solution.lat_deg, solution.lon_deg, 17.0, 141.0)
         assert miss < solution.ellipse["semi_major_m"], (miss, solution.ellipse)
+
+
+async def test_a_fix_through_satellites_the_calibrations_doubt_is_reported_with_a_warning() -> None:
+    """Final recheck (ephemeris-error, SIMULATED): muos-pac and uhf-172e are 8 and 6 km off
+    in-track against the 1 km the solver budgets for. The clock checks show it (each
+    site's timing differs between satellites, and the satellites are named), yet the
+    event was located and its advice said 'Report ... ±241 m' while the truth lay outside
+    the ellipse. The event now carries the satellites in doubt, and the advice warns that
+    the ellipse does not include that error."""
+    ephemeris_error = load_scenario(ROOT / "config" / "scenarios" / "ephemeris-error.yaml")
+    async with environment(CONFIG, ephemeris_error) as env:
+        record = make_event(env)
+        await rounds(env, record, 12)
+        suspects = {s for e in env.tasking.site_clock_estimates() for s in e.suspect_satellite_ids}
+        assert suspects and suspects <= {"muos-pac", "uhf-172e"}
+        assert set(record.doubted_satellite_ids) == suspects
+        assert record.state == "located"
+        record.verdict = "uplink"
+        advisory = env.book.to_schema(record).advisory
+        assert "and the ellipse does not include that error: the transmitter may lie outside it." in advisory.detail
+        assert any("is in doubt, so the transmitter may lie outside this" in a for a in advisory.actions)
 
 
 async def test_events_on_two_reference_carriers_through_the_same_channels_are_both_calibrated() -> None:
@@ -1012,6 +1039,76 @@ async def test_another_transmitter_on_the_same_frequency_sets_the_earlier_rows_a
         assert any(a.startswith("Report the estimated transmitter position (") for a in doc.advisory.actions)
 
 
+QUIET = load_scenario(ROOT / "config" / "scenarios" / "quiet.yaml")
+
+
+async def test_a_waveform_change_with_nothing_measured_before_it_is_another_transmission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Final recheck: a swept jammer that gave no usable correlation was replaced, with no
+    break, by a noise jammer elsewhere. The noise jammer's pairs were confirmed and
+    located while the class still said swept (it is measured once a minute), and the
+    swept-to-noise re-check then 'passed' by comparing the new jammer with its own
+    tracks; the onset stayed the swept jammer's start. Now the class is measured again as
+    soon as every measured track began after it, and a re-check that only tracks begun
+    after the change agree with starts another transmission: the onset moves to the first
+    detection of those tracks, their rows and the new class stay, and it is located."""
+    current = {"label": "swept"}
+
+    def classify(*_args: Any) -> Classification:
+        return Classification(current["label"], 0.9, {})
+
+    monkeypatch.setattr(tasking_module, "_classify_event", classify)
+    async with environment(NO_CAL, QUIET) as env:
+        record = make_event(env, config=NO_CAL)
+        await rounds(env, record, 2)  # nothing correlates: no track, the class says swept
+        assert record.classification is not None and record.classification.label == "swept"
+        assert not record.used_measurements() and record.onset == T0
+
+        env.hub.world = world_for(DEMO, NO_CAL)
+        swap_ns = env.clock()
+        current["label"] = "noise"
+        await rounds(env, record, 5)
+        reasons = [t.reason or "" for t in record.transitions]
+        assert not any(r.startswith("re-check passed") for r in reasons), reasons
+        assert any(
+            r.startswith("another transmission: its waveform changed from swept to noise, and every pair measured now "
+                         "was first detected after that") for r in reasons
+        ), reasons
+        assert env.tasking.counters["transmission_changes"] == 1
+        assert record.onset_ns is not None and swap_ns <= record.onset_ns < env.clock()
+        assert record.classification is not None and record.classification.label == "noise"
+        used = record.used_measurements()
+        assert used and all(e.row.t_ns >= record.onset_ns for e in used)
+        assert record.state == "located" and record.solution is not None
+        assert geodesic_distance_m(record.solution.lat_deg, record.solution.lon_deg, 20.0, 132.0) < 5e3
+
+
+async def test_a_recheck_waits_for_a_pair_measured_before_the_change_but_not_for_ever() -> None:
+    """While a pair measured before the change is still held but not measured again, the
+    agreement of pairs first detected since does not decide the re-check; after
+    RECHECK_WAIT_ROUNDS rounds it is cleared, saying the change could not be tested (and
+    nothing is set aside)."""
+    async with environment(NO_CAL) as env:
+        record = make_event(env, config=NO_CAL)
+        await rounds(env, record, 3)
+        assert record.state == "located"
+        state = env.tasking._states[record.id]
+        # a pair measured long before, never captured again (as after a change of primary)
+        state.tracks[("gone-a", "gone-b")] = tasking_module._PairTrack(
+            confirmed=tasking_module._Detection(T0, 0.0, 1e-7, 0.0, 1e-3), since_ns=T0 - 10
+        )
+        assert env.tasking._mark_recheck(record.id, state, "its level at tokyo-pac rose by 7 dB between rounds", T0 - 1)
+        # every other round rotates in new partners (nothing to agree with): two rounds per wait
+        reports = await rounds(env, record, 2 * tasking_module.RECHECK_WAIT_ROUNDS + 1)
+        reasons = [t.reason or "" for t in record.transitions]
+        assert any(r.startswith("re-check passed: pair ") and r.endswith(
+            f"no pair measured before the change was measured again in {tasking_module.RECHECK_WAIT_ROUNDS} rounds, "
+            "so the change could not be tested") for r in reasons), reasons
+        assert record.recheck is None and env.tasking.counters.get("transmission_changes", 0) == 0
+        assert record.state == "located" and reports
+
+
 async def test_an_event_back_after_a_short_break_is_rechecked_before_its_position_is_kept() -> None:
     """UX-5: lost for 13 s, then detected again: the position is kept but re-checked. The
     same transmitter's next detections agree, so it stays; another transmitter's first
@@ -1451,8 +1548,10 @@ def test_the_correlator_lists_only_satellites_that_can_see_the_fix() -> None:
     assert "cannot see the transmitter's estimated position, so its users are not affected" in advisory.detail
     doc = book.to_schema(record)
     assert doc.not_visible_satellite_ids == ["muos-io"] and doc.satellite_ids == ["muos-pac", "uhf-172e"]
-    # an inconsistent fit decides nothing
-    record.solution_out = hawaii_fix(CONFIG).model_copy(update={"fit_consistent": False})
+    # a solution that is not a fix (here an inconsistent one) decides nothing
+    record.solution_out = hawaii_fix(CONFIG).model_copy(
+        update={"fit_consistent": False, "is_fix": False, "not_fix_reason": "the measurements do not fit"}
+    )
     record.solution_t_ns = T0 + S
     correlator._evaluate(record, T0)
     assert record.satellite_ids == ["muos-pac", "uhf-172e", "muos-io"]
@@ -1489,8 +1588,9 @@ def test_site_clock_offsets_find_the_site_that_is_off() -> None:
     assert rows["naha"].offset_us == pytest.approx(-9.7, abs=0.05) and rows["naha"].caution
     names = {site.id: site.name for site in CONFIG.sites}
     assert rows["naha"].message.startswith(f"Reference calibrations against {names['tokyo']} put the timing of")
-    assert "about 9.7 µs behind the other sites: its clock is probably off" in rows["naha"].message
-    assert "an error in the position of uhf-172e beyond its configured uncertainty" in rows["naha"].message
+    # seen through one satellite only (uhf-172e at Naha): both explanations are named
+    assert "about 9.7 µs behind the other sites: either its clock is off" in rows["naha"].message
+    assert "or the position of uhf-172e is wrong beyond its configured uncertainty" in rows["naha"].message
     assert not any(rows[s].caution for s in ("tokyo", "busan", "manila", "seoul"))
     assert all(abs(rows[s].offset_us) < 0.2 for s in ("tokyo", "busan", "manila", "seoul"))
     assert rows["naha"].n_calibrations == 1 and rows["naha"].compared_with == ["tokyo"]
@@ -1501,10 +1601,51 @@ def test_site_clock_offsets_find_the_site_that_is_off() -> None:
     # two sites only: which one is off cannot be told, both are flagged
     pair = site_clock_offsets([ClockEdge("muos-pac", "naha", "muos-pac", "tokyo", -9.7 * us)], CONFIG)
     assert [e.caution for e in pair] == [True, True]
-    assert "differs by about 9.7 µs: one of the two clocks is probably off" in pair[0].message
+    assert "differs by about 9.7 µs: one of the two clocks may be off" in pair[0].message
+    assert "or the position of muos-pac is wrong" in pair[0].message  # one satellite: both explanations
+    both = site_clock_offsets(
+        [ClockEdge("muos-pac", "naha", "muos-pac", "tokyo", -9.7 * us),
+         ClockEdge("uhf-172e", "naha", "uhf-172e", "tokyo", -9.6 * us)], CONFIG)
+    assert [e.caution for e in both] == [True, True]
+    assert "one of the two clocks is probably off (calibrations through muos-pac and uhf-172e agree" in both[0].message
     assert site_clock_offsets([], CONFIG) == []
     healthy = site_clock_offsets([ClockEdge("muos-pac", "naha", "muos-pac", "tokyo", 0.3 * us)], CONFIG)
     assert not any(e.caution or e.message for e in healthy)
+
+
+def test_a_clock_fault_that_starts_mid_run_is_not_spread_onto_healthy_sites() -> None:
+    """Final recheck of R3: Naha's clock stepped 9.8 us while calibrations from before the
+    step still counted. Every edge was a spoke from Honolulu's muos-pac channel; Busan,
+    Naha (and later Hilo) were reached through uhf-172e. The fit gives what it cannot
+    resolve to the satellite term, which took the uhf-172e sites' mean: healthy Busan was
+    flagged at +4.9 us (later Hilo at +3.1 us) with 'either its clock is off or the
+    position of uhf-172e is wrong', neither of which was true. The sites whose clock
+    differences the edges determine are centered on their own median: with three of
+    them only Naha is off; with two, the pair is reported as such."""
+    from petal_locate.server.pipeline.tasking import ClockEdge, site_clock_offsets
+
+    us = 1e-6
+    names = {site.id: site.name for site in CONFIG.sites}
+
+    def spoke(sat: str, site: str, c_us: float) -> ClockEdge:
+        return ClockEdge("muos-pac", "honolulu", sat, site, c_us * us, 0.1 * us, 3.3 * us, 3.3 * us)
+
+    star = [spoke("uhf-172e", "busan", 0.0), spoke("uhf-172e", "naha", 9.8),
+            spoke("muos-io", "manila", 0.08), spoke("muos-io", "seoul", -0.08)]
+    rows = {e.site_id: e for e in site_clock_offsets(star, CONFIG)}
+    # Busan and Naha: only their difference is known, so the message is about the pair
+    for site in ("busan", "naha"):
+        assert rows[site].caution
+        assert rows[site].message.startswith(
+            f"Reference calibrations show the timing of {names['busan']} and {names['naha']} differs by about 9.8 µs"
+        )
+        assert "either its clock is off" not in rows[site].message
+    assert not any(rows[s].caution or rows[s].message for s in ("honolulu", "manila", "seoul"))
+    # with Hilo also reached through uhf-172e, Naha alone is off
+    rows = {e.site_id: e for e in site_clock_offsets(star + [spoke("uhf-172e", "hilo", 0.0)], CONFIG)}
+    assert rows["naha"].caution and rows["naha"].offset_us == pytest.approx(-9.8, abs=0.05)
+    assert not any(rows[s].caution for s in ("busan", "hilo", "honolulu", "manila", "seoul"))
+    assert all(abs(rows[s].offset_us) < 0.2 for s in ("busan", "hilo"))
 
 
 async def test_a_site_clock_fault_shows_in_the_calibration_estimates() -> None:
@@ -1520,3 +1661,139 @@ async def test_a_site_clock_fault_shows_in_the_calibration_estimates() -> None:
         assert naha.caution and CONFIG.site("naha").name in naha.message and "behind" in naha.message
         assert not any(e.caution for s, e in estimates.items() if s != "naha")
         assert all(abs(e.offset_us) < 0.5 for s, e in estimates.items() if s != "naha")
+
+
+NAHA_FIRST = (("naha-172e", 15.0), ("tokyo-pac", 12.0), ("seoul-io", 10.0))
+
+
+async def test_a_clock_fault_at_the_primary_site_is_told_apart_from_its_satellite() -> None:
+    """R3: with naha-172e the primary of every round, every cross-satellite calibration
+    had uhf-172e at Naha, so Naha's clock could not be told from uhf-172e's satellite term
+    and the fit gave the 10 us to the satellite (Naha shown healthy). Same-satellite clock
+    checks across sites (one satellite's copy of the reference at two sites: the
+    satellite's own error is common to both) measure the clock difference directly."""
+    async with environment(CONFIG, CLOCK_FAULT) as env:
+        record = make_event(env, sightings=NAHA_FIRST)
+        reports = await rounds(env, record, 8)
+        assert all(r.primary_channel_id == "naha-172e" for r in reports)
+        checks = [c for r in reports for c in r.calibrations if c.key[0] == c.key[2] and c.key[1] != c.key[3]]
+        assert {c.key[0] for c in checks} >= {"uhf-172e", "muos-pac"}  # through more than one satellite
+        # the round's first calibrations are the pairs' own; clock checks fill later rounds
+        assert not any(c.key[0] == c.key[2] for c in reports[0].calibrations)
+        estimates = {e.site_id: e for e in env.tasking.site_clock_estimates()}
+        naha = estimates["naha"]
+        assert naha.offset_us == pytest.approx(-10.0, abs=1.0) and naha.caution
+        assert "its clock is probably off" in naha.message and "agree" in naha.message
+        assert not any(e.caution for s, e in estimates.items() if s != "naha")
+        assert all(abs(e.offset_us) < 0.5 for s, e in estimates.items() if s != "naha")
+        # the target pairs were never same-satellite, and the clock checks did not stop them being solved
+        assert all(r.pairs and all(p.a_channel_id == "naha-172e" for p in r.pairs) for r in reports)
+        assert record.solution_out is not None and record.solution_out.fit_consistent
+
+
+def test_site_clock_offsets_tell_a_clock_from_a_satellite_position_error() -> None:
+    """R3: clock checks (one satellite's copy at two sites) give a site's offset through
+    each satellite. A late clock shows alike through all of them; a satellite several km
+    off beyond its configured sigma shows through that satellite only (with opposite
+    signs at sites on either side of it), so the clock is not blamed and the satellite
+    is named; such errors also stop smaller offsets elsewhere from being judged."""
+    from petal_locate.server.pipeline.tasking import ClockEdge, site_clock_offsets
+
+    us = 1e-6
+    names = {site.id: site.name for site in CONFIG.sites}
+
+    def check(sat: str, a: str, b: str, c_us: float) -> ClockEdge:
+        return ClockEdge(sat, a, sat, b, c_us * us, 0.1 * us, 3.3 * us, 3.3 * us)
+
+    # a clock fault at Naha seen through two satellites against three sites
+    late = [check(sat, "naha", other, -10.0 + d) for sat, d in (("muos-pac", 0.1), ("uhf-172e", -0.1))
+            for other in ("tokyo", "seoul", "manila")]
+    rows = {e.site_id: e for e in site_clock_offsets(late, CONFIG)}
+    assert rows["naha"].caution and rows["naha"].offset_us == pytest.approx(-10.0, abs=0.2)
+    assert "its clock is probably off (calibrations through muos-pac and uhf-172e agree" in rows["naha"].message
+    assert not any(rows[s].caution or rows[s].message for s in ("tokyo", "seoul", "manila"))
+    # muos-pac 8 km off: Hilo's checks against Asian sites show +4 us through it, nothing through uhf-172e
+    eph = [check("muos-pac", "hilo", other, 4.0) for other in ("tokyo", "seoul", "manila")]
+    eph += [check("uhf-172e", "hilo", other, 0.1) for other in ("tokyo", "seoul", "manila")]
+    rows = {e.site_id: e for e in site_clock_offsets(eph, CONFIG)}
+    assert not any(e.caution for e in rows.values())
+    note = rows["hilo"].message
+    assert note.startswith(f"Reference calibrations put the timing of {names['hilo']} differently through different")
+    assert "the clock of" in note and "is probably fine and the position of muos-pac is probably wrong" in note
+    # the same, with a 1.6 us offset of another site whose evidence goes through a contaminated one:
+    # not judged while satellite errors of 4 us show in the group
+    eph.append(check("muos-pac", "honolulu", "hilo", -1.6))
+    eph.append(check("uhf-172e", "honolulu", "hilo", -1.6))
+    rows = {e.site_id: e for e in site_clock_offsets(eph, CONFIG)}
+    assert not rows["honolulu"].caution
+
+
+async def test_a_failed_solve_over_more_rows_withdraws_the_published_position(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R6: when the rows a published position rests on, with the newest added, admit no
+    position at all, that position no longer fits what is measured: it is withdrawn (the
+    event goes back to locating and says why) instead of staying published with only
+    last_solve_reason set."""
+    async with environment() as env:
+        record = make_event(env)
+        await rounds(env, record, 3)
+        assert record.state == "located" and record.solution_out is not None
+        before = set(record.solution_used)
+
+        def no_position(job: Any) -> tuple[None, str]:
+            return None, "no admissible solution in the region"
+
+        monkeypatch.setattr(tasking_module, "_solve", no_position)
+        reports = await rounds(env, record, 2)  # the first may be a rotation round (nothing new confirmed)
+        assert any(r.solve_reason == "no admissible solution in the region" for r in reports)
+        assert before <= {e.seq for e in record.used_measurements()}  # the rows stay used
+        assert record.solution_out is None and record.solution is None and record.state == "locating"
+        reason = record.transitions[-1].reason
+        assert reason.startswith("position withdrawn: the newest measurements, added to the")
+        assert "admit no position (no admissible solution in the region)" in reason
+        assert all(e.row.residual is None for e in record.measurements)
+        assert env.book.to_schema(record).solution is None
+        assert env.tasking.counters["solutions_withdrawn"] == 1
+
+
+async def test_a_failed_solve_withdraws_the_position_even_past_the_solver_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R6 with more rows than solver.max_measurements: the solver sees only the newest N,
+    so the rows the published position rests on are no longer all among the rows solved
+    (the oldest slid out of the window). The newest rows admitting no position still
+    means the published position no longer fits what is measured: it is withdrawn."""
+    solver = CONFIG.processing.solver.model_copy(update={"max_measurements": 6})
+    config = CONFIG.model_copy(
+        update={"processing": CONFIG.processing.model_copy(update={"solver": solver})}
+    )
+    async with environment(config) as env:
+        record = make_event(env)
+        await rounds(env, record, 4)
+        assert record.state == "located" and record.solution_out is not None
+        published = set(record.solution_used)
+        assert len(record.used_measurements()) > 6 and len(published) == 6
+
+        def no_position(job: Any) -> tuple[None, str]:
+            return None, "no admissible solution in the region"
+
+        monkeypatch.setattr(tasking_module, "_solve", no_position)
+        reports = await rounds(env, record, 2)
+        assert any(r.solve_reason == "no admissible solution in the region" for r in reports)
+        assert published <= {e.seq for e in record.used_measurements()}  # the rows stay used
+        assert record.solution_out is None and record.state == "locating"
+        reason = record.transitions[-1].reason
+        assert reason.startswith("position withdrawn: the newest 6 measurements (the solver window)")
+        assert "admit no position (no admissible solution in the region)" in reason
+        assert env.tasking.counters["solutions_withdrawn"] == 1
+
+
+def test_only_a_redundant_consistent_fit_shows_its_rows_fit_one_transmitter() -> None:
+    """R4: the K2 split test sets the earlier rows aside as another transmitter's when
+    rows added to a fit break it. Two rows for two unknowns (dof 0) always 'fit', so a
+    break after them says nothing about another transmitter: only a consistent fit with
+    redundancy counts."""
+    fix = hawaii_fix(CONFIG)
+    assert Tasking._fitted_one_transmitter(fix)
+    assert not Tasking._fitted_one_transmitter(fix.model_copy(update={"dof": 0, "n_measurements": 2}))
+    assert not Tasking._fitted_one_transmitter(fix.model_copy(update={"fit_consistent": False}))
+    assert not Tasking._fitted_one_transmitter(None)

@@ -716,7 +716,7 @@ async def test_out_of_range_and_unknown_channel_requests_fail_with_their_codes()
             assert served.hub.is_online("site-a")
 
 
-async def test_cancelled_and_late_captures_free_the_node_and_more_than_eight_are_refused() -> None:
+async def test_cancelled_and_late_captures_free_the_node_and_a_ninth_waits_for_a_slot() -> None:
     # a long grace: the hub's own deadline timer must not beat the node's `too_late`
     async with serving(capture_grace_s=1.0) as served:
         hub = served.hub
@@ -747,7 +747,8 @@ async def test_cancelled_and_late_captures_free_the_node_and_more_than_eight_are
                 await hub.capture("a1", t_start_ns, long_n, 2.0e6, 250.0e6, t_start_ns + NS // 4)
             assert failure.value.code == "too_late" and "deadline" in failure.value.message
             assert 0.25 <= time.monotonic() - began < 0.25 + 0.75  # at its deadline
-            # eight at once is the limit of a node; the ninth is refused by the hub
+            # eight at once is the limit of a node; the hub holds a ninth back (nothing is
+            # sent) until a slot frees, and the node serves it from its lookback (R4)
             t_start_ns, deadline_ns = capture_times(0.3, n, fs)
             eight = [
                 asyncio.ensure_future(
@@ -756,14 +757,16 @@ async def test_cancelled_and_late_captures_free_the_node_and_more_than_eight_are
                 for i in range(MAX_CONCURRENT_CAPTURES)
             ]
             await asyncio.sleep(0)
-            with pytest.raises(CaptureFailed) as failure:
-                await hub.capture("a1", t_start_ns, n, fs, 250.0e6, deadline_ns)
-            assert failure.value.code == "limit"
-            done = await asyncio.wait_for(asyncio.gather(*eight), WAIT_S)
-            for i, capture in enumerate(done):
+            ninth = asyncio.ensure_future(hub.capture("a1", t_start_ns, n, fs, 250.0e6, deadline_ns))
+            await asyncio.sleep(0.05)
+            assert not ninth.done() and hub.counters()["capture_queued"] == 1
+            assert agent.stats.captures_started == 2 + MAX_CONCURRENT_CAPTURES  # the ninth was not sent
+            done = await asyncio.wait_for(asyncio.gather(*eight, ninth), WAIT_S)
+            for i, capture in enumerate(done[:MAX_CONCURRENT_CAPTURES]):
                 expected = noise_samples(11, ("a1", "a2")[i % 2], t_start_ns, n)
                 assert np.array_equal(capture.iq, expected)
-            assert agent.stats.captures_completed == 8 and agent.stats.captures_failed == 2
+            assert np.array_equal(done[-1].iq, noise_samples(11, "a1", t_start_ns, n))
+            assert agent.stats.captures_completed == 9 and agent.stats.captures_failed == 2
             assert hub.is_online("site-a") and agent.stats.sessions == 1
 
 

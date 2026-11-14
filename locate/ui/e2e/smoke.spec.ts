@@ -281,9 +281,9 @@ test('keyboard reaches the views and shows focus', async ({ page }) => {
   await expect(page).toHaveTitle(/^Network/);
   await page.keyboard.press('1');
   await expect(page).toHaveURL(/#\/watch/);
-  // The address changes at once but the view changes on the hashchange that follows, and
-  // <main> still holds focus from Network: wait for the Watch title (set in the same
-  // commit that focuses <main>), or Tab can land before that commit takes focus back.
+  // navigate() dispatches the hashchange synchronously, so the view and focus change
+  // before the next key (ui/e2e/fixes.spec.ts, R15); waiting for the Watch title as well
+  // keeps this walk independent of that timing against any server.
   await expect(page).toHaveTitle(/^Watch/);
   await expect(page.locator('main')).toBeFocused();
   await page.keyboard.press('Tab');

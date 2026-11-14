@@ -5,7 +5,7 @@ import { ValidationError } from '../api/client';
 import type { AccuracyGrid, AccuracyRequest, LookAngle, SystemConfig } from '../api/types.gen';
 import { Empty, ErrorNote, Info, Loading, StatusSymbol } from '../components/common';
 import { transpondersRelaying } from '../domain/config';
-import { accuracyDefaults, pairEnds, type PairEnd } from '../domain/plan';
+import { accuracyDefaults, NEAREST_REFERENCE, pairEnds, type PairEnd } from '../domain/plan';
 import { db, deg, fixed, hzToMhzInput, km, mhz, parseMhzToHz } from '../format/units';
 import { DOMINANT_KEY, DOMINANT_WORD, MapView, type MapData } from '../map/MapView';
 import { href, setParams, useRoute } from '../router';
@@ -419,6 +419,8 @@ function Accuracy({ cfg }: { cfg: SystemConfig }) {
               <label htmlFor="acc-ref">Reference emitter</label>
               <select id="acc-ref" value={form.reference} onChange={(e) => set({ reference: e.target.value })}>
                 <option value="">none</option>
+                {/* R7: each cell against the reference tasking would use for an emitter there (a carrier named "nearest" takes precedence) */}
+                {refs.length && !refs.some((r) => r.id === NEAREST_REFERENCE) ? <option value={NEAREST_REFERENCE}>nearest to each cell</option> : null}
                 {refs.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.id}

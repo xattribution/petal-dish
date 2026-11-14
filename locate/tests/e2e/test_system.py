@@ -20,17 +20,21 @@ next scenario starts with fresh events).
 
 What the scenarios must show (config/scenarios/*.yaml):
 
-- quiet: no event at all; the reference carriers are authorised, not interference.
+- quiet: no event at all; the reference carriers are authorized, not interference.
 - pacific-demo: an uplink verdict and a located jammer with the truth inside the 95 %
-  error ellipse (and the event survives a configuration replaced mid-round).
-- uplink-cw: FDOA only, and the operator is told in words why there is no TDOA.
+  error ellipse (and the event survives a configuration replaced mid-round); no site
+  clock is flagged.
+- uplink-cw: FDOA only, and the operator is told in words why there is no TDOA; a
+  solution without redundancy is not a fix (never located), a fix holds the truth.
 - local-interferer: a local verdict at one site; never located; tasking stands down.
 - clock-fault: calibration at work: every solved row carries a reference-carrier
   correction, pairs through the late Naha clock and a rotated partner (Manila) are used,
-  and the same rows solved without their corrections land far from the truth.
+  and the same rows solved without their corrections land far from the truth; the
+  site clock estimate of `/status` flags Naha about 10 us behind and no other site.
 - ephemeris-error: two satellites kilometres off in-track (TLE-class) while the solver
   assumes 1 km: the calibrated fix holds the truth inside its ellipse, and the same rows
-  solved without their corrections land more than 10 km off.
+  solved without their corrections land more than 10 km off; no healthy clock is blamed
+  with confidence (a caution names the satellite alternative).
 - uplink-swept: ambiguous correlations and no false position.
 - two-jammers: two separate events, each located near its own jammer.
 - pacific-demo, then ephemeris-error loaded with no break (another jammer on the same
@@ -342,6 +346,13 @@ async def _scenario(demo: Demo, name: str, psd: list[tuple[str, str]] | None = N
             assert console.problems == [], console.problems[:5]
 
 
+async def _site_clocks(client: httpx.AsyncClient) -> dict[str, dict[str, Any]]:
+    """``/status`` ``site_clocks`` by site id."""
+    response = await client.get(f"{API}/status")
+    assert response.status_code == 200, response.text
+    return {row["site_id"]: row for row in response.json()["site_clocks"]}
+
+
 async def _new_events(client: httpx.AsyncClient, known: set[str]) -> list[dict[str, Any]]:
     return [s for s in await _events(client) if s["id"] not in known and s["state"] != "closed"]
 
@@ -363,7 +374,8 @@ def _report(name: str, event: dict[str, Any]) -> None:
         f"\n[{name}] {event['id']} {event['state']} {event['verdict']} "
         f"verdict@{_t(event['transitions'], verdict=event['verdict'])}s located@{_t(event['transitions'], 'located')}s "
         f"rows={len(event['measurements'])} used={sum(m['used'] for m in event['measurements'])} "
-        f"semi_major={solution.get('ellipse', {}).get('semi_major_m')} miss={truth.get('miss_m')} "
+        f"semi_major={solution.get('ellipse', {}).get('semi_major_m')} fix={solution.get('is_fix')} "
+        f"miss={truth.get('miss_m')} "
         f"inside={truth.get('inside_ellipse')} class={(event.get('classification') or {}).get('label')} "
         f"tasking={(event.get('tasking') or {}).get('message')}"
     )
@@ -409,7 +421,7 @@ async def _first(items: list[Any]) -> Any:
 
 
 @pytest.mark.slow
-async def test_quiet_world_raises_no_event_and_carriers_stay_authorised(demo: Demo) -> None:
+async def test_quiet_world_raises_no_event_and_carriers_stay_authorized(demo: Demo) -> None:
     """Only the reference carriers are on the air. They move by tens of hertz with the
     satellites' Doppler; neither they nor their edges may become an event."""
     windows = [("tokyo-pac", "muos-pac:shared-2"), ("seoul-pac", "muos-pac:shared-2"), ("honolulu-172e", "uhf-172e:shared-1")]
@@ -497,6 +509,10 @@ async def test_pacific_demo_is_judged_uplink_and_located_with_truth_inside_the_e
         seen_states = [doc["state"] for _, doc in console.events[event_id]]
         assert "located" in seen_states and seen_states.index("located") > 0
         assert any(m.get("type") == "config" for m in console.others)
+        # healthy sites: the calibrations flag no clock (R3)
+        clocks = await _site_clocks(client)
+        assert not any(row["caution"] for row in clocks.values()), clocks
+        assert solution["is_fix"] is True
 
 
 @pytest.mark.slow
@@ -522,8 +538,17 @@ async def test_uplink_cw_gives_fdoa_only_and_says_why_there_is_no_tdoa(demo: Dem
         message = event["tasking"]["message"] or ""
         assert "No TDOA: the signal is too narrow" in message and "FDOA" in message
         assert event["caf"]["reason"] == "narrowband" and event["caf"]["peak_tdoa_s"] is None
-        if event["truth"]["miss_m"] is not None:  # an FDOA-only fix is long and thin, but honest
+        # R5: an FDOA-only solution from two rows has no redundancy (it once missed by 136 km
+        # outside an 84 km ellipse): it is shown but is not a fix, never located or reported.
+        # A fix (redundant, consistent, bounded) is long and thin, but holds the truth.
+        solution = event["solution"]
+        if solution is not None and solution["is_fix"]:
             assert event["truth"]["inside_ellipse"] is True
+        elif solution is not None:
+            assert event["state"] != "located" and solution["not_fix_reason"]
+            assert not any("Report the estimated transmitter position" in a for a in event["advisory"]["actions"])
+        if event["state"] == "located":
+            assert solution is not None and solution["is_fix"] and solution["dof"] >= 1
 
 
 @pytest.mark.slow
@@ -613,6 +638,20 @@ async def test_clock_fault_shows_the_calibration_at_work(demo: Demo) -> None:
         semi_major = event["solution"]["ellipse"]["semi_major_m"]
         assert raw_miss > 2.0 * truth["miss_m"] and raw_miss > 2.0 * semi_major, (raw_miss, semi_major)
 
+        # R3: the calibrations also show which clock is off. Same-satellite clock checks
+        # separate Naha's clock from the satellite it is calibrated through.
+        async def naha_flagged() -> dict[str, dict[str, Any]] | None:
+            clocks = await _site_clocks(client)
+            naha = clocks.get("naha")
+            return clocks if naha is not None and naha["caution"] else None
+
+        clocks = await _wait_for(naha_flagged, 90.0, "the Naha clock to be flagged in /status")
+        naha = clocks["naha"]
+        print(f"[clock-fault] site clocks: " + ", ".join(f"{k} {v['offset_us']:+.2f} us" for k, v in sorted(clocks.items())))
+        assert naha["offset_us"] == pytest.approx(-10.0, abs=1.5)
+        assert "Naha" in naha["message"] and "behind" in naha["message"]
+        assert not any(row["caution"] for site, row in clocks.items() if site != "naha")
+
 
 def _solve_used_rows(config_text: str, event: dict[str, Any], calibrated: bool) -> tuple[float, float, Any]:
     """Solve the rows the server used, with or without their reference corrections:
@@ -665,6 +704,28 @@ async def test_ephemeris_error_is_removed_by_the_reference_calibration(demo: Dem
         print(f"[ephemeris-error] calibrated miss {truth['miss_m']:.0f} m; same rows uncorrected: miss {raw_miss:.0f} m, "
               f"reduced chi2 {raw_fit:.2f}")
         assert raw_miss > 10_000.0 and raw_miss > 5.0 * truth["miss_m"]
+        # R3: satellites kilometres off must not be blamed on a healthy clock: no site is
+        # called a clock fault with confidence, and any caution names the satellite too.
+        clocks = await _site_clocks(client)
+        print(f"[ephemeris-error] site clocks: " + ", ".join(
+            f"{k} {v['offset_us']:+.2f} us{' CAUTION' if v['caution'] else ''}" for k, v in sorted(clocks.items())))
+        assert clocks, "no site clock estimate from the calibrations"
+        for site, row in clocks.items():
+            assert "its clock is probably off" not in (row["message"] or ""), (site, row["message"])
+            if row["caution"]:
+                assert "or the position of" in row["message"] or "or the positions of" in row["message"], row
+
+        # final recheck: the satellites the clock checks put off are named, and the located
+        # event's advice says its ellipse does not include that error
+        async def doubted() -> dict[str, Any] | None:
+            suspects = {s for row in (await _site_clocks(client)).values() for s in row.get("suspect_satellite_ids", [])}
+            again = await _event(client, event["id"])
+            return again if suspects and "may lie outside" in again["advisory"]["detail"] else None
+
+        warned = await _wait_for(doubted, 90.0, "the advice to warn that the ellipse may miss")
+        suspects = {s for row in (await _site_clocks(client)).values() for s in row.get("suspect_satellite_ids", [])}
+        assert suspects <= {"muos-pac", "uhf-172e"}, suspects
+        assert any("is in doubt, so the transmitter may lie outside this" in a for a in warned["advisory"]["actions"])
 
 
 @pytest.mark.slow

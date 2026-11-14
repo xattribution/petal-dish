@@ -1373,7 +1373,7 @@ class SimDriver:
         ):
             raise CaptureError(
                 "out_of_range",
-                f"centre {fc!r} Hz is outside {caps.min_hz:.3f}..{caps.max_hz:.3f} Hz",
+                f"center {fc!r} Hz is outside {caps.min_hz:.3f}..{caps.max_hz:.3f} Hz",
             )
         assert self._clock is not None
         now_ns = self._clock.now_ns()

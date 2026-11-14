@@ -1,9 +1,10 @@
-// Behaviours the operator relies on when things go wrong or are uncertain, against the
+// Behaviors the operator relies on when things go wrong or are uncertain, against the
 // mock (the fixtures come from the real core and the server's own advisory): a screen
-// that fails to load, a dropped link, the token prompt, an inconsistent fit, an
-// unresolved ambiguity, a local signal, a break in an event, site clocks, satellites the
-// server cannot place, blind windows, form defaults and panel widths. Skipped against a
-// real server (PETAL_URL), whose data these states cannot be forced into.
+// that fails to load, a dropped link, the token prompt, an inconsistent fit, a position
+// that is not a fix or was withdrawn, a width that is a lower bound, an unresolved
+// ambiguity, a local signal, a break in an event, site clocks, satellites the server
+// cannot place, blind windows, form defaults and panel widths. Skipped against a real
+// server (PETAL_URL), whose data these states cannot be forced into.
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 test.skip(Boolean(process.env.PETAL_URL), 'needs the mock and its fixtures');
@@ -51,6 +52,37 @@ test('number keys move focus into the view and name the page (UX-11)', async ({ 
   await page.locator('.qrow').first().click();
   await page.keyboard.press('j');
   await expect(page.locator('main')).not.toBeFocused();
+});
+
+test('a number key changes the view and focus before the next key; Back returns (R15)', async ({ page }) => {
+  await open(page, 'watch');
+  await expect(page.locator('.qrow').first()).toBeVisible();
+  // navigate() set location.hash, whose hashchange fires only in a later task: a key
+  // handled in between (Tab) went to the old view and focus was then pulled back.
+  const seen = await page.evaluate(async () => {
+    let changes = 0;
+    window.addEventListener('hashchange', () => (changes += 1));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '3', bubbles: true }));
+    const sync = { changes, hash: location.hash };
+    // microtasks only (React flushes a store update there): no other task, so no key, runs
+    for (let i = 0; i < 200 && !document.title.startsWith('Network'); i += 1) await Promise.resolve();
+    return { ...sync, title: document.title, focused: document.activeElement?.tagName ?? null };
+  });
+  expect(seen).toEqual({ changes: 1, hash: '#/network', title: 'Network – PETAL Locate', focused: 'MAIN' });
+  // each view change is a history entry: Back and Forward move between them
+  await page.keyboard.press('4');
+  await expect(page).toHaveTitle('Plan – PETAL Locate');
+  await page.goBack();
+  await expect(page).toHaveURL(/#\/network$/);
+  await expect(page).toHaveTitle('Network – PETAL Locate');
+  await page.goBack();
+  await expect(page).toHaveTitle('Watch – PETAL Locate');
+  await page.goForward();
+  await expect(page).toHaveTitle('Network – PETAL Locate');
+  // the view already shown adds no entry
+  await page.keyboard.press('3');
+  await page.goBack();
+  await expect(page).toHaveTitle('Watch – PETAL Locate');
 });
 
 test('before any status the roll-up says No data, and the token dialog leaves the banners undimmed (UX-7, UX-14)', async ({ page }) => {
@@ -130,6 +162,91 @@ test('an inconsistent fit is a caution, never a fix (UX-1)', async ({ page }) =>
   await expect(page.getByRole('region', { name: 'Advisory' })).toContainText('do not report the computed position');
 });
 
+type Doc = Record<string, unknown>;
+
+/**
+ * Rewrites one event wherever the console reads it: GET /events/<id>, its row in GET
+ * /events and every "event" message on the console socket. `edit` changes the Event
+ * document; `summary` the EventSummary row.
+ */
+async function rewriteEvent(page: Page, id: string, edit: (e: Doc) => void, summary: (s: Doc) => void): Promise<void> {
+  await page.route(new RegExp(`/api/v1/events/${id}$`), async (route) => {
+    const r = await route.fetch();
+    const doc = (await r.json()) as Doc;
+    edit(doc);
+    await route.fulfill({ response: r, json: doc });
+  });
+  await page.route(/\/api\/v1\/events(\?.*)?$/, async (route) => {
+    const r = await route.fetch();
+    const rows = (await r.json()) as Doc[];
+    for (const row of rows) if (row.id === id) summary(row);
+    await route.fulfill({ response: r, json: rows });
+  });
+  await page.routeWebSocket(/\/ws\/ui/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((m) => {
+      if (typeof m !== 'string') return ws.send(m);
+      const msg = JSON.parse(m) as Doc;
+      const ev = msg.event as Doc | undefined;
+      if (msg.type === 'event' && ev?.id === id) edit(ev);
+      ws.send(JSON.stringify(msg));
+    });
+  });
+}
+
+test('a consistent solution with no redundancy is not a fix, and a width that fills its window is a lower bound (R4, ADAPT-5)', async ({ page }) => {
+  const reason = 'no redundancy: 2 measurements for the two unknowns of a position, so the fit cannot be checked against itself';
+  await rewriteEvent(
+    page,
+    'EV-0042',
+    (e) => {
+      const sol = e.solution as Doc;
+      Object.assign(sol, { is_fix: false, not_fix_reason: reason, dof: 0, n_measurements: 2 });
+      const hist = e.solution_history as Doc[];
+      const last = hist[hist.length - 1];
+      if (last) last.is_fix = false;
+      Object.assign(e, { state: 'locating', width_lower_bound: true });
+    },
+    (s) => {
+      Object.assign(s.solution as Doc, { is_fix: false });
+      Object.assign(s, { state: 'locating', width_lower_bound: true });
+    },
+  );
+  await open(page, 'watch');
+  const row = page.locator('.qrow[data-event="EV-0042"]');
+  await expect(row).toContainText('Not a fix yet: more measurements needed');
+  await expect(row).toContainText('at least 8.00 kHz wide');
+  await expect(row).not.toContainText('semi-axes');
+  await row.click();
+  const loc = page.getByRole('region', { name: 'Location' });
+  await expect(loc).toContainText('Not a fix');
+  await expect(loc).toContainText('No redundancy: 2 measurements for the two unknowns of a position');
+  await expect(loc).toContainText('do not report it until more measurements make it a fix');
+  await expect(loc).toContainText('Computed, not a fix');
+  await expect(loc).toContainText('no redundancy');
+  await expect(page.locator('.dhead')).toContainText('(at least 8.00 kHz)');
+  await expect(page.getByRole('region', { name: 'Ellipse history' }).locator('tbody tr').last()).toContainText('not a fix');
+});
+
+test('a position the newest measurements no longer admit is withdrawn, with the reason (R6)', async ({ page }) => {
+  const why = 'the newest measurements, added to the 21 it rested on, admit no position (no admissible solution)';
+  await rewriteEvent(
+    page,
+    'EV-0042',
+    (e) => {
+      const transitions = e.transitions as Doc[];
+      const t = transitions[transitions.length - 1]?.t_ns ?? e.last_seen_ns;
+      Object.assign(e, { state: 'locating', solution: null, solution_t_ns: null });
+      transitions.push({ t_ns: t, state: 'locating', verdict: 'uplink', reason: `position withdrawn: ${why}` });
+    },
+    (s) => Object.assign(s, { state: 'locating', solution: null }),
+  );
+  await open(page, 'event/EV-0042');
+  const loc = page.getByRole('region', { name: 'Location' });
+  await expect(loc).toContainText('Position withdrawn');
+  await expect(loc).toContainText('The newest measurements, added to the 21 it rested on, admit no position (no admissible solution). Do not report the earlier position.');
+});
+
 test('an unresolved ambiguity lists every position that fits (UX-6) with semi-axes (UX-9)', async ({ page }) => {
   await open(page, 'watch');
   const row = page.locator('.qrow[data-event="EV-0043"]');
@@ -140,6 +257,16 @@ test('an unresolved ambiguity lists every position that fits (UX-6) with semi-ax
   await expect(loc.locator('table.candidates tbody tr')).toHaveCount(2);
   await expect(loc).toContainText('cannot choose between them');
   await expect(loc).not.toContainText('MGRS');
+});
+
+test('the dossier header wraps instead of widening the dossier at 1024 px (final recheck)', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  for (const id of ['EV-0040', 'EV-0042']) {
+    await open(page, `event/${id}`);
+    await expect(page.locator('.dhead')).toBeVisible();
+    const [scroll, client] = await page.locator('article.dossier').evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    expect(scroll, `dossier ${id} at 1024 px`).toBeLessThanOrEqual((client ?? 0) + 1);
+  }
 });
 
 test('a local signal shows what is received at the site, not an uplink (UX-3)', async ({ page }) => {
@@ -176,6 +303,27 @@ test('a site clock the calibrations put off is a caution in Network and the roll
   await expect(manila.getByRole('img', { name: 'Caution' }).first()).toBeVisible();
   await open(page, 'watch');
   await expect(page.locator('.rollup')).toContainText('manila');
+});
+
+test('a site whose offset differs between satellites blames the satellite, not its clock (R3)', async ({ page }) => {
+  const note =
+    'Reference calibrations put the timing of Seoul (city center) differently through different satellites (through muos-pac about 0.0 µs; through uhf-172e about 1.3 µs ahead). ' +
+    'A clock offset would show alike through every satellite, so the clock of Seoul (city center) is probably fine and the position of uhf-172e is probably wrong beyond its configured uncertainty (check its ephemeris).';
+  await rewriteStatus(page, (msg) => {
+    const clocks = msg.site_clocks as Array<Record<string, unknown>>;
+    const seoul = clocks.find((c) => c.site_id === 'seoul');
+    if (seoul) Object.assign(seoul, { offset_us: 0.65, caution: false, message: note });
+  });
+  await open(page, 'network');
+  const table = page.getByRole('table', { name: 'Sites and their nodes' });
+  const seoul = table.locator('tr', { hasText: 'Seoul' }).first();
+  await expect(seoul).toContainText('differs by satellite');
+  await expect(seoul.getByRole('img', { name: 'Caution' })).toHaveCount(0);
+  const notes = page.getByRole('region', { name: 'Site clocks by calibration' });
+  await expect(notes).toContainText('the position of uhf-172e is probably wrong beyond its configured uncertainty');
+  // the clock fault the calibrations through two satellites agree on stays a caution
+  await expect(notes.locator('li', { hasText: 'Manila' })).toContainText('calibrations through muos-io and uhf-172e agree');
+  await expect(notes.locator('li', { hasText: 'Manila' }).getByRole('img', { name: 'Caution' })).toBeVisible();
 });
 
 test('satellites the server cannot place and blind windows are shown, not only logged (ADAPT-7, SRV-1, K1)', async ({ page }) => {
@@ -216,10 +364,24 @@ test('loading a preset over unapplied edits asks first, as Reset does (UX-12)', 
   await expect(page.locator('.simhead')).toContainText('unapplied changes');
 });
 
+test('the accuracy map can calibrate each cell against the reference nearest it (R7)', async ({ page }) => {
+  const sent: unknown[] = [];
+  page.on('request', (r) => {
+    if (r.url().endsWith('/api/v1/analysis/accuracy') && r.method() === 'POST') sent.push(r.postDataJSON());
+  });
+  await open(page, 'plan?mode=accuracy');
+  await page.getByLabel('Reference emitter').selectOption('nearest');
+  await page.getByRole('button', { name: 'Compute accuracy map' }).click();
+  await expect(page.locator('form.side')).toContainText(/Locatable|No cell can be located/);
+  expect(sent.at(-1)).toMatchObject({ reference_carrier_id: 'nearest' });
+});
+
 test('the accuracy form starts from the configuration, and the side panel does not clip (ADAPT-10, UX-13)', async ({ page }) => {
+  // 1024 px too (final recheck: the elevation table and a hidden tip widened the panel there)
   for (const [w, h] of [
     [1280, 800],
     [1920, 1080],
+    [1024, 768],
   ] as const) {
     await page.setViewportSize({ width: w, height: h });
     await open(page, 'plan');

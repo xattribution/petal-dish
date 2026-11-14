@@ -16,9 +16,11 @@ Rules the texts follow:
 
 - Ellipses are always given by their 95 % (``solver.confidence``) semi-axes, the same
   convention as the console's figures; "within about X" and "±X" are the semi-major.
-- A position is only reported as a fix when its fit is consistent and unique. An
-  inconsistent fit (``SolutionOut.fit_consistent`` false) is described as unreliable
-  and not reported; an unresolved ambiguity lists every candidate and says the system
+- A position is only reported as a fix when it is one (``SolutionOut.is_fix``: a
+  consistent fit with redundancy and a bounded ellipse) and unique. An inconsistent fit
+  (``SolutionOut.fit_consistent`` false) or another solution that is not a fix (with its
+  ``not_fix_reason``) is described as unreliable and not reported; an unresolved
+  ambiguity lists every candidate and says the system
   cannot choose; a position being re-checked (``EventRecord.recheck``) is reported only
   once new measurements confirm it.
 - Satellites: before a position exists, satellites the signal was seen through (or
@@ -31,6 +33,9 @@ Rules the texts follow:
 - The start time to report is the onset of the current transmission
   (``EventRecord.onset``), given in UTC.
 - A signal that cannot be located (``TaskingStatus.unlocatable_reason``) says so and why.
+- A fix whose rows go through a satellite the reference calibrations put beyond its
+  configured position uncertainty (``EventRecord.doubted_satellite_ids``) is still
+  reported, with the warning that its ellipse does not include that error.
 
 Terms are explained the first time they appear; numbers are rounded to what matters.
 Simulated events say so in the headline. Pure functions, no I/O.
@@ -43,7 +48,8 @@ from datetime import datetime, timezone
 from typing import Any, Final
 
 from petal_locate.server.api import schemas
-from petal_locate.server.pipeline.events import EventRecord
+from petal_locate.server.pipeline.correlator import REOPEN_WINDOW_S
+from petal_locate.server.pipeline.events import REACQUIRE_KEEP_S, EventRecord
 
 __all__ = ["LABEL_TEXT", "advise", "format_distance", "format_frequency", "format_position"]
 
@@ -64,16 +70,19 @@ _MEANINGLESS_ELLIPSE_M: Final[float] = 2.0e6
 # ------------------------------------------------------------------- formatting
 
 
-def format_frequency(lo_hz: float, hi_hz: float) -> str:
-    """``"301.0125 MHz (about 25 kHz wide)"``: centre in MHz to 100 Hz, width rounded."""
+def format_frequency(lo_hz: float, hi_hz: float, at_least: bool = False) -> str:
+    """``"301.0125 MHz (about 25 kHz wide)"``: center in MHz to 100 Hz, width rounded;
+    ``at_least``: the width is a lower bound (the signal filled the window it was
+    measured in), ``"(at least 25 kHz wide)"``."""
     centre = 0.5 * (lo_hz + hi_hz)
     width = max(hi_hz - lo_hz, 0.0)
+    qualifier = "at least" if at_least else "about"
     if width >= 1e6:
-        span = f"about {width / 1e6:.1f} MHz wide"
+        span = f"{qualifier} {width / 1e6:.1f} MHz wide"
     elif width >= 1e3:
-        span = f"about {width / 1e3:.0f} kHz wide" if width >= 10e3 else f"about {width / 1e3:.1f} kHz wide"
+        span = f"{qualifier} {width / 1e3:.0f} kHz wide" if width >= 10e3 else f"{qualifier} {width / 1e3:.1f} kHz wide"
     else:
-        span = f"about {width:.0f} Hz wide"
+        span = f"{qualifier} {width:.0f} Hz wide"
     return f"{centre / 1e6:.4f} MHz ({span})"
 
 
@@ -180,12 +189,20 @@ def advise(record: EventRecord, config: Any, *, simulated: bool = False) -> sche
 
     if record.state == "lost":
         headline = f"No longer detected: {headline[0].lower()}{headline[1:]}"
+        stopped = f" at {_utc_text(record.lost_ns)}" if record.lost_ns is not None else ""
         detail = (
-            "The signal is no longer detected at any site. If the same frequency is detected "
-            "again soon, this event reopens and keeps its history. " + detail
+            f"The signal is no longer detected at any site{stopped}. If the same frequency is detected again within "
+            f"{_minutes_text(REOPEN_WINDOW_S)}, this event reopens: within {REACQUIRE_KEEP_S:g} s it keeps its "
+            "position and measurements and checks them against new ones; after a longer break they are set aside "
+            "and the signal is located afresh (the history is kept). " + detail
         )
-        keep = [a for a in actions if a.startswith("Report")]
-        actions = ["No action is needed unless the signal returns."] + keep
+        # what was measured stays worth reporting: the transmitter may start again
+        keep = [
+            a.replace(" so the transmitter can be found and stopped.",
+                      f", saying that it stopped{stopped} and may start again.")
+            for a in actions if a.startswith("Report")
+        ]
+        actions = ["Nothing needs to be moved or changed while the signal is off; act again if it returns."] + keep
     elif record.state == "closed":
         headline = f"Closed: {headline[0].lower()}{headline[1:]}"
         detail = "The operator closed this event. " + detail
@@ -201,7 +218,12 @@ def _finish(headline: str, detail: str, actions: list[str], simulated: bool) -> 
 
 
 def _frequency(record: EventRecord) -> str:
-    return format_frequency(record.lo_hz, record.hi_hz)
+    return format_frequency(record.lo_hz, record.hi_hz, bool(record.width_lower_bound))
+
+
+def _minutes_text(seconds: float) -> str:
+    """``15 minutes`` (whole minutes), else ``45 s``."""
+    return f"{seconds / 60.0:g} minutes" if seconds >= 120.0 and seconds % 60.0 == 0.0 else f"{seconds:g} s"
 
 
 def _utc_text(t_ns: int) -> str:
@@ -256,7 +278,10 @@ def _received_groups(record: EventRecord, names: _Names, *, via: bool) -> list[s
             group["sats"].append(names.satellite(row.sat_id))
     phrases = []
     for group in groups.values():
-        text = f"near {format_frequency(group['lo'], group['hi'])} at {_join(group['sites'])} on {_join(group['channels'])}"
+        text = (
+            f"near {format_frequency(group['lo'], group['hi'], bool(record.width_lower_bound))} at "
+            f"{_join(group['sites'])} on {_join(group['channels'])}"
+        )
         if via and group["sats"]:
             text += f" through {_join(group['sats'])}"
         phrases.append(text)
@@ -304,7 +329,7 @@ def _relaying(record: EventRecord) -> tuple[list[str], list[str]]:
     can see it, so all are known; before, only those seen or measured through are."""
     listed = list(record.satellite_ids)
     solution = record.solution_out
-    if solution is not None and solution.fit_consistent:
+    if solution is not None and solution.is_fix:
         return listed, []
     measured = _measured_satellite_ids(record)
     known = [s for s in listed if s in measured]
@@ -329,11 +354,12 @@ class _Position:
     unique, consistent position not under re-check, else None) and flags."""
 
     def __init__(self, sentence: str, report: str | None, *, ambiguous: bool = False, inconsistent: bool = False,
-                 candidates: str | None = None, unlocatable: str | None = None) -> None:
+                 candidates: str | None = None, unlocatable: str | None = None, not_fix: str | None = None) -> None:
         self.sentence = sentence
         self.report = report
         self.ambiguous = ambiguous
         self.inconsistent = inconsistent
+        self.not_fix = not_fix  # why a consistent solution is not a fix (no redundancy, a huge ellipse)
         self.candidates = candidates
         self.unlocatable = unlocatable
 
@@ -383,6 +409,13 @@ def _position(record: EventRecord, names: _Names) -> _Position:
             f"{position}, is not a reliable position; {spread}"
         )
         return _Position(sentence, None, inconsistent=True)
+    if not solution.is_fix:
+        reason = solution.not_fix_reason or "it does not meet the conditions of a fix"
+        sentence = (
+            f"The best fit so far, at {position} ({_ellipse_text(ellipse)}), is not a reliable position: "
+            f"{reason}. It is not to be reported until more measurements make it a fix."
+        )
+        return _Position(sentence, None, not_fix=reason)
     candidates = [solution, *solution.ambiguities]
     if solution.ambiguities:
         listed = "; ".join(
@@ -402,9 +435,29 @@ def _position(record: EventRecord, names: _Names) -> _Position:
         f"major axis {ellipse.azimuth_deg:.0f}° from north)."
     )
     report = f"{position}, ±{format_distance(ellipse.semi_major_m)} at {confidence} % confidence"
+    doubted = _doubted(record, names)
+    if doubted:
+        sentence += (
+            f" The reference calibrations put the position of {doubted} wrong beyond its configured uncertainty, "
+            "and the ellipse does not include that error: the transmitter may lie outside it."
+        )
+        report += f"; the ephemeris of {doubted} is in doubt, so the transmitter may lie outside this"
     if record.recheck:
         sentence += f" {record.recheck}"
     return _Position(sentence, report)
+
+
+def _doubted(record: EventRecord, names: _Names) -> str:
+    """The satellites in doubt (``EventRecord.doubted_satellite_ids``) that the published
+    position's rows go through, joined for a sentence ("" when none)."""
+    if not record.doubted_satellite_ids:
+        return ""
+    used = set(record.solution_used)
+    through: set[str] = set()
+    for entry in record.measurements:
+        if entry.seq in used:
+            through.update((entry.row.pair.a.sat_id, entry.row.pair.b.sat_id))
+    return _join([names.satellite(s) for s in record.doubted_satellite_ids if s in through])
 
 
 def _chi2_text(value: float | None) -> str:
@@ -478,6 +531,11 @@ def _uplink(record: EventRecord, names: _Names) -> tuple[str, str, list[str]]:
         actions.append(
             "Check whether more than one transmitter is on this frequency, whether a site's clock or timing "
             "receiver is faulty, or whether a satellite's ephemeris is out of date."
+        )
+    elif position.not_fix is not None:
+        actions.append(
+            f"Report the frequency, {start} and the affected satellite {authority}; do not report the computed "
+            "position yet: it is not a fix."
         )
     elif position.unlocatable is not None:
         actions.append(

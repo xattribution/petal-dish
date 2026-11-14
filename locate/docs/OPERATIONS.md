@@ -32,12 +32,12 @@ check flags it as electrically small. What the antennas of the example give (fro
 |---|---|---|---|
 | 0.72 m PETAL dish | 0.63 | 3.3 to 3.5 dBi, beam about 110 degrees | 10.7 to 11.4 dBW |
 | 1.2 m dish | 1.05 | 7.7 to 7.9 dBi | 7.2 to 7.8 dBW |
-| 10 dBi beam (helix, Yagi), linear, 3 dB polarisation loss | n/a | 10 dBi less 3 dB | 7.7 to 8.5 dBW |
+| 10 dBi beam (helix, Yagi), linear, 3 dB polarization loss | n/a | 10 dBi less 3 dB | 7.7 to 8.5 dBW |
 
 A small PETAL dish at UHF is therefore a broad-beam reflector, not a focusing antenna:
 it detects strong uplink interference (about 11 dBW toward the satellite, 13 W into an
 omnidirectional antenna, for 10 kHz of noise) but buys little gain. A 10 dBi helix or
-Yagi does as well as a 1.2 m dish. UHF satellite signals are circularly polarised; a
+Yagi does as well as a 1.2 m dish. UHF satellite signals are circularly polarized; a
 linear antenna loses 3 dB (`polarization_loss_db: 3.0`). A broad beam also hears other
 satellites above the horizon; when two satellites share a downlink frequency (MUOS
 Pacific and MUOS Indo-Asia in the example), the correlator excludes the predicted
@@ -116,7 +116,7 @@ committed under `src/petal_locate/server/static/`.
 ## 4. Writing a configuration
 
 A configuration is one YAML (or JSON) file: satellites with their transponders, sites
-with their receive channels, the authorised carriers (frequency plan, including the
+with their receive channels, the authorized carriers (frequency plan, including the
 reference transmitters) and processing settings. ARCHITECTURE.md section 3 lists every
 field and rule; `config/pacific-uhf.yaml` is a commented example. This two-site,
 two-satellite network was used for the commands below:
@@ -134,7 +134,7 @@ satellites:
       - {id: ch-1, uplink_center_hz: 301.000e+6, bandwidth_hz: 25.0e+3, translation_hz: -33.6e+6,
          g_over_t_dbk: -14.0, sfd_dbw_m2: -136.0, eirp_sat_dbw: 26.0}
   - id: sat-b
-    name: Satellite B (from a TLE; synthetic elements, catalogue number 99999)
+    name: Satellite B (from a TLE; synthetic elements, catalog number 99999)
     norad_id: 99999
     orbit:
       type: tle
@@ -195,19 +195,19 @@ processing:
 ```
 
 - **Satellites.** From a slot (`type: geo`: longitude, inclination, phase, epoch), a TLE
-  (`type: tle`; checksums and catalogue numbers are checked), Kepler elements, or an
+  (`type: tle`; checksums and catalog numbers are checked), Kepler elements, or an
   operator's ECEF ephemeris table (`type: table`, the best choice when you have one).
   TLE orbits get the TLE-grade ephemeris sigmas by default (RIC 2 / 20 / 10 km), the
   others operator-grade (0.1 / 1 / 1 km); `ephemeris_sigma` overrides either. Those TLE
   sigmas assume fresh elements: `check` warns when a TLE epoch is more than 14 days
   from the time checked (3 days for an orbit faster than 2 revolutions a day). Set
   `dut1_s` from the IERS bulletin when it matters (polar motion is ignored).
-- **Transponders.** Uplink centre, bandwidth, signed translation (downlink = uplink +
+- **Transponders.** Uplink center, bandwidth, signed translation (downlink = uplink +
   translation), G/T, SFD, saturated EIRP, optional group delay. A signal is relayed when
-  its centre lies in the uplink passband. Only satellites that relay the same uplink
+  its center lies in the uplink passband. Only satellites that relay the same uplink
   frequency can be paired for location.
-- **Sites and channels.** Antenna phase centre position (`lat_deg`, `lon_deg`, `alt_m`
-  plus `antenna_height_m`) surveyed to metres; `clock.sigma_ns` honest for the time
+- **Sites and channels.** Antenna phase center position (`lat_deg`, `lon_deg`, `alt_m`
+  plus `antenna_height_m`) surveyed to meters; `clock.sigma_ns` honest for the time
   reference; `time_zone` is display only. Each channel has an antenna model, pointing (a
   satellite it tracks, or a fixed azimuth/elevation with the satellites it watches),
   `system_noise_temp_k`, `polarization_loss_db` and `max_sample_rate_hz` (the radio's
@@ -220,7 +220,7 @@ processing:
   a watched transponder's downlink (it names the blind bands; a transponder wider than
   `max_sample_rate_hz` needs explicit windows that tile it) and when a channel's windows
   spread wider than one tuning of `max_sample_rate_hz` can sample.
-- **Carriers.** Every authorised carrier of the frequency plan (so it is not raised as
+- **Carriers.** Every authorized carrier of the frequency plan (so it is not raised as
   interference); a carrier with `location`, `emitter` and `use_as_reference: true` is a
   reference transmitter (section 8).
 - **Processing.** Defaults suit the example (ARCHITECTURE.md section 3); set `region`
@@ -245,7 +245,7 @@ petal-locate check --config my-network.yaml --time 2026-01-01T03:00:00Z
 ```
 Configuration 'my-network' (version 1) is valid.
   ...
-sat-b      Satellite B (from a TLE; synthetic elements, catalogue number 99999)  tle            -1.72         139.27             1
+sat-b      Satellite B (from a TLE; synthetic elements, catalog number 99999)  tle            -1.72         139.27             1
   ...
     sat-a      ch-1         tokyo   tokyo-a    52.8     33.2       55.3    16.3  ch-1        yes
   ...
@@ -417,9 +417,11 @@ petal-locate node --server ws://127.0.0.1:18731 --site tokyo --driver noise --st
   for one channel on top of those, for example one radio per channel. Every channel's
   options are checked before the node dials out (unknown options exit 2, naming the
   channel: `petal-locate node: --driver sigmf (channel manila-a): options: driver
-  'sigmf' refused its options (... unexpected keyword argument 'bogus')`). The options
-  every channel gets must be complete on their own (a `path` or `device` the driver
-  requires cannot be given per channel only).
+  'sigmf' refused its options (... unexpected keyword argument 'bogus')`). An option the
+  driver requires (a `path` or `device`) may be given per channel only; the node then
+  warns that a channel the server assigns without options of its own will not open
+  (`--driver sigmf: channels other than manila-a, manila-b have no options of their
+  own and will not open if the server assigns them: ...`).
   - `soapy` (real radios; untested on hardware): `--soapy-device ARGS` (SoapySDR device
     string, for example `driver=rtlsdr` or `driver=uhd,serial=...`), and options
     `rf_channel`, `center_hz`, `sample_rate_hz` (default: chosen to cover the monitors),
@@ -504,42 +506,55 @@ retried when the link comes back. Screens:
   calibration correction and its reference, SNR, residual, and why a row is not used),
   the correlation surface and its cuts, the transitions, what capture tasking is doing,
   and the ellipse against time (rows set aside after a break or another transmitter are
-  grayed, and a dashed rule marks where the current transmission starts). Cautions:
-  `Not a fix` for a fit whose measurements do not agree (its ellipse is drawn dotted and
-  enlarged, and it is never reported as located), `One of N positions` with every
-  candidate when the system cannot choose between them, `Re-check` while a position
-  from before a break or a change of signal is checked against new measurements, and
-  `Cannot be located` with the reason when no position can be computed.
+  grayed, a solve that was not a fix is noted, and a dashed rule marks where the current
+  transmission starts). A width shown as `at least N kHz` means the signal fills every
+  monitor window it was seen in and may be wider. Cautions: `Not a fix` with the
+  server's reason, for a fit whose measurements do not agree (its ellipse is drawn
+  dotted and enlarged) and for a position that cannot yet be trusted (too few
+  measurements to check it against itself, or an ellipse too large to pin it down;
+  `Not a fix yet` on the queue row); such a position is drawn dotted and never reported
+  as located. `Position withdrawn` when the newest measurements admit no position at
+  all, `One of N positions` with every candidate when the system cannot choose between
+  them, `Re-check` while a position from before a break or a change of signal is
+  checked against new measurements, and `Cannot be located` with the reason when no
+  position can be computed.
 - **Spectrum**: live spectrum and waterfall of any monitor window, with the learned
   baseline and detections (authorized carriers flagged); the header marks a window whose
   detection is blind or whose noise floor is raised.
 - **Network**: every site's node, its clock (source, lock, offset), its clock offset
   estimated from the reference calibrations (`By calibration`, with a Caution when a
   site is 1 us or more off the sites it is compared with, more when the configured clock
-  or ephemeris sigmas are large), latency and channels (a channel names a
-  window that receives frames but accepts none, `detection blind on <window>`, or whose
-  noise floor is raised), and a Satellites table (ephemeris available, or since when
-  not).
+  or ephemeris sigmas are large; `differs by satellite` when the calibrations through
+  different satellites disagree, which points at a satellite position rather than the
+  clock), latency and channels (a channel names a window that receives frames but
+  accepts none, `detection blind on <window>`, or whose noise floor is raised), the
+  server's sentences about site clocks under `Site clocks by calibration`, and a
+  Satellites table (ephemeris available, or since when not).
 - **Plan**: accuracy maps for chosen channel pairs and an assumed emitter (with a
   what-if uncertainty that does not change the configuration), and the elevation of
   every satellite from each site. The form starts from the loaded configuration (the
-  uplink band most satellites share, pairs at the site that watches most of them).
+  uplink band most satellites share, pairs at the site that watches most of them). The
+  reference emitter may be one carrier, none, or `nearest to each cell` (each cell
+  calibrated against the reference tasking would use for an emitter there).
 - **Configure**: the configuration with field-level validation, warnings (including
   sites with no node token on the server), save with version check, YAML export and
   import.
 - **Simulation** (only when the server simulates): presets, the scenario, emitters
   placed on the map with their link budgets, truth errors (ionosphere and troposphere
-  under Propagation media), and truth, labelled simulated. The clock strip says
+  under Propagation media), and truth, labeled simulated. The clock strip says
   `simulated time, N behind this computer` when the demo runs from a fixed start.
 
 The verdict means: **uplink** — the interference enters on the satellite uplink and
 reaches everyone using that transponder (change channel, transponder or satellite;
 moving the terminal will not help); **local** — it is at one site only (relocate,
 shield or filter there); **undetermined** — the evidence is not enough yet, and the
-dossier says what is missing. An event is **located** only when its measurements fit
-one stationary transmitter (reduced chi-square at most
-`processing.solver.max_reduced_chi2`, 5, or a tail probability above 0.001); otherwise
-it stays `locating` with the `Not a fix` caution.
+dossier says what is missing. An event is **located** only when its position is a fix:
+the measurements fit one stationary transmitter (reduced chi-square at most
+`processing.solver.max_reduced_chi2`, 5, or a tail probability above 0.001), there are
+more of them than the two unknowns of a position (so the fit is checked against
+itself), and the 95 % ellipse's semi-major axis is at most 1,000 km (or a quarter of
+`processing.region`'s smaller extent); otherwise it stays `locating` with the `Not a fix`
+caution and the advisory says not to report the position yet.
 
 ## 8. Calibration and reference transmitters
 
@@ -558,7 +573,7 @@ section 5).
   at one satellite reached the others through its back and made calibrated fixes worse
   than uncalibrated ones. More power soon hurts: at 40 dBW the reference saturated the
   transponder (YAML comments of `config/pacific-uhf.yaml`).
-- Survey the reference antenna's phase centre to metres; its error goes straight into
+- Survey the reference antenna's phase center to meters; its error goes straight into
   every calibrated fix.
 - Calibration cancels what the target and the reference have in common, so it helps
   less with distance (with TLE-grade ephemeris, a predicted 95 % semi-major of 1.2 km
@@ -578,12 +593,17 @@ section 5).
   re-calibrated this often, only while an event uses it), `max_age_s` (300). A
   measurement row shows the correction and the reference it came from.
 - The calibrations also give each site's clock offset (`/status` `site_clocks`, the
-  Network screen's `By calibration` column). With the `clock-fault` scenario's
-  calibrations the fit put Naha at -10.05 us and flagged it; in a live run where every
-  calibration involved Naha's 172 E channel, the offset went to that satellite instead
-  and nothing was flagged. A site joined through one satellite combination only cannot
-  be told apart from those satellites (LIMITATIONS.md section 7), so a clean column is
-  no proof of good clocks.
+  Network screen's `By calibration` column). While an event is tasked, tasking also runs
+  clock checks: one satellite's copy of a reference measured at two sites, which shows
+  the two clocks' difference without the satellite's own error. A late clock shows
+  alike through every satellite and is flagged ("calibrations through X and Y agree");
+  an offset that differs between satellites points at a satellite whose position is
+  worse than configured, and the server names it instead of the clock. Live, the
+  `clock-fault` scenario flagged Naha at -10.0 us within 20 s, and the `ephemeris-error`
+  scenario raised no clock caution and named muos-pac and uhf-172e. A site checked
+  through one satellite only gets a caution naming both explanations until a second
+  check arrives (LIMITATIONS.md section 7). Nothing is checked while no event is
+  tasked, so a clean column is no proof of good clocks.
 
 ## 9. The demo
 
@@ -640,7 +660,7 @@ petal-locate demo --port 0 --start 2026-11-13T03:00:00Z
 
 ```
   ...
-  Start:      simulated time starts at 2026-11-13T03:00:01Z
+  Start:      simulated time starts at 2026-11-13T03:00:00Z
 Press Ctrl-C to stop.
 All 7 nodes are online.
 ```
@@ -665,10 +685,14 @@ It took 2.1 s for 2116 cells and gave a value in 2041 of them, the best 1.55 km 
 pair, one TDOA and one FDOA, satellite B with TLE-grade sigmas; the dominant error is
 that satellite's velocity everywhere). `--request FILE` takes the API's request
 document instead of flags (an `uncertainty` block there is a what-if; it may set the
-ionosphere and troposphere sizes too). The planning code takes a pair end
-`channel@satellite` for a fixed-pointing channel that watches several satellites
-relaying the frequency, but this command and the API do not accept that form yet
-(LIMITATIONS.md section 8).
+ionosphere and troposphere sizes too). A pair end may be `channel@satellite` for a
+fixed-pointing channel that watches several satellites relaying the frequency
+(`--pair CHANNEL@SATELLITE,OTHER_CHANNEL`); the channel must watch that satellite, and
+one channel cannot be both ends of a pair whatever satellites the ends name.
+`--reference-carrier nearest` (`"nearest"` in a request, `nearest to each cell` on the
+Plan screen) calibrates each cell against the reference carrier tasking would use for an
+emitter there: relayed by both transponders of the pair, clear of the emitter's band,
+nearest the cell; a cell with none stays uncalibrated.
 
 **Monte Carlo** (simulated): the full chain, simulated IQ through the correlator and the
 solver, many times with independent noise, against a configuration and a scenario:
@@ -684,7 +708,9 @@ has no ionosphere or troposphere while the solver allows for both, so its ellips
 cautious). The second (errors drawn from the configured uncertainties, an ionosphere
 and a troposphere drawn for every trial, no calibration) gave a median miss of 1.8 km.
 `--param` passes any other `run_trials` argument (`capture_s`, `fs`, `t_ns`, `pairs`,
-`reference_carrier_id`); `--out` keeps every trial. Use a few hundred trials for
+`reference_carrier_id`; without it each pair is calibrated against the eligible
+reference nearest the emitter, as tasking does once it has a fix); `--out` keeps every
+trial. Use a few hundred trials for
 statistics; each takes about 1 s.
 
 ## 11. Troubleshooting
@@ -730,7 +756,8 @@ statistics; each takes about 1 s.
 - **No position.** The dossier's tasking status says why: `fewer than two accepted
   measurements` (pairs still `unconfirmed`: the first detection of each pair waits for a
   repeat, one round of 5 s), `unobservable` (for example a CW, FDOA only, without
-  calibration), `ambiguous` correlations (a periodically swept jammer), `narrowband`
+  calibration), `ambiguous` correlations (a periodically swept jammer: a calibrated pair
+  whose window holds one peak can still locate it, roughly), `narrowband`
   (no TDOA), or no second satellite with a usable channel relays the frequency (`idle`).
   When the signal itself cannot be located (it repeats itself, its delay and Doppler
   are coupled, or fewer than two visible satellites relay it) the dossier says so
@@ -742,7 +769,20 @@ statistics; each takes about 1 s.
   queue). The measurements do not fit one stationary transmitter: two transmitters on
   the frequency, a moving one, or a fault larger than the configured uncertainties.
   The position is shown with its ellipse enlarged by the square root of the reduced
-  chi-square and must not be reported.
+  chi-square and must not be reported. `Not a fix yet` in the queue (the dossier gives
+  the reason): too few measurements to check the position against itself (a CW gives
+  two FDOA rows per pair at first) or an ellipse too large to pin it down; wait for more
+  rounds or add pairs. A CW whose channels also hear a co-channel copy of the tone can
+  stay inconsistent for a long time (LIMITATIONS.md section 7).
+- **Position withdrawn** (dossier). The newest measurements, added to those the
+  published position rested on, admit no position at all, so it was taken back: do not
+  report the earlier position; look for a second transmitter or a changed signal.
+- **"The ephemeris of X is in doubt"** (advisory of a located event). The reference
+  calibrations show satellite X's position wrong beyond its configured uncertainty (the
+  Network screen's site-clock notes name it), and the solver does not budget for that:
+  the transmitter may lie outside the ellipse (in the ephemeris-error scenario it does,
+  a few hundred meters off). Report the position as approximate and load a current
+  ephemeris for X, or raise its `ephemeris_sigma` until the notes stop.
 - **Ambiguous fixes** (two candidates drawn, "unresolved"). Uncalibrated two-pair
   geometry crosses twice at some times of day; calibration removed it in every simulated
   case. Otherwise more pairs or rows over time, or a tighter `processing.region`, decide
@@ -752,12 +792,18 @@ statistics; each takes about 1 s.
   that should have seen it did not. Check the evidence matrix: if the distant channel is
   really blind (antenna pointing, a wrong antenna model or noise temperature makes its
   predicted margin optimistic), correct the configuration. An uplink event whose signal
-  stops while a local one takes its frequency turns local after 15 s and its old
-  position is set aside.
+  stops while a local one takes its frequency turns local after 15 s, its old position
+  is set aside and its start time becomes when the uplink signal was last seen at the
+  sites that no longer see anything. A local event reads `detected` (nothing is captured
+  or located by satellite); if an uplink signal later takes its frequency, the start
+  time becomes that signal's first detection at a site that did not see the local one.
 - **Event detected again, or the signal changed** (`Re-check` in the dossier). An
   event back within 30 s keeps its position under re-check, and so does one whose
   waveform class, level (6 dB) or width (twice) changes: the next detection that
-  agrees keeps it, one that disagrees sets it aside. After a longer break the earlier
+  agrees keeps it, one that disagrees sets it aside; only a pair measured before the
+  change can agree, so when only pairs first detected since agree, the transmission is
+  taken as new (its start time is their first detection and their measurements stay).
+  After a longer break the earlier
   position and measurements are set aside at once. When another transmitter takes the
   frequency without a break, the pairs' measurements jump further than the satellites'
   motion allows and the earlier rows are set aside (`another transmission: ...` in the

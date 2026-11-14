@@ -15,7 +15,7 @@ the first). Conventions that are decided already:
 - Zulu time first, 24-hour, DTG for people (`DDHHMMZ MON YY`), ISO 8601 in exports. A
   clock strip shows Zulu, then each site's local time with its computed zone letter
   and numeric offset.
-- Status uses the Astro ladder (colour plus shape plus word). Affiliation colours
+- Status uses the Astro ladder (color plus shape plus word). Affiliation colors
   (MIL-STD-2525 blue/red/green/yellow fills) are not used as categories.
 - Positions: decimal degrees with hemisphere letters and the datum (WGS 84); MGRS shown
   beside it for ground points. Distances in km, frequencies in MHz with Hz precision
@@ -39,7 +39,7 @@ the first). Conventions that are decided already:
    ellipse has shrunk as measurements accumulate. In simulation, the true position and
    the miss distance.
 4. **Watch the spectrum.** Live trace and waterfall per channel and monitor window,
-   with the learned baseline, detections, transponder edges and authorised carriers
+   with the learned baseline, detections, transponder edges and authorized carriers
    marked. Hover for frequency and level.
 5. **Check the network.** Per site: connection, latency, clock source, lock and
    estimated offset, driver, channels, age of last frame.
@@ -61,7 +61,7 @@ the first). Conventions that are decided already:
 
 ## Map
 
-World map centred on the area of interest (the default configuration is the Pacific,
+World map centered on the area of interest (the default configuration is the Pacific,
 so the antimeridian must render correctly). Offline vector land and borders, graticule,
 pan and zoom. Layers: sites, satellite sub-points and footprints, events and solutions,
 lines of position, accuracy heat map, simulation truth. Every layer can be toggled and

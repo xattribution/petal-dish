@@ -2,10 +2,10 @@
 # point in the Philippine Sea, west of the Mariana Islands; nothing here describes a real
 # emitter, platform, facility or satellite ephemeris.
 #
-# What it shows: two satellites are where a TLE-grade ephemeris would put them, kilometres
+# What it shows: two satellites are where a TLE-grade ephemeris would put them, kilometers
 # off in-track, while the server keeps assuming the operator-grade sigmas of
 # processing.uncertainty (100 m radial, 1 km in-track and cross-track). The uncalibrated
-# fix then moves tens of kilometres, outside its own ellipse, with no warning from the
+# fix then moves tens of kilometers, outside its own ellipse, with no warning from the
 # fit. A reference carrier measured through the same pair at the same time carries
 # almost the same satellite errors and removes them: calibration works best close to the
 # reference, which is why the jammer sits 560 km from the Guam reference. Numbers in the
@@ -17,27 +17,32 @@ description: >-
   Simulated scenario (not real data): the same uplink noise jammer as pacific-demo (10 kHz
   of noise at 301.005 MHz in shared-1, 20 dBW, omnidirectional) at a fictional open-ocean
   point in the Philippine Sea (17 N, 141 E), 560 km from the Guam reference carrier, while
-  two satellites are kilometres from where the server believes them: MUOS Pacific 8 km
+  two satellites are kilometers from where the server believes them: MUOS Pacific 8 km
   ahead in-track and the 172 E satellite 6 km behind (TLE-class errors, against the 1 km
   operator-grade sigma the solver assumes). Oscillator and clock errors are the small ones
   of pacific-demo. The operator should see the event detected on all 19 channels (52 to
   56 dB-Hz) and judged uplink as in pacific-demo. Without calibration the fix lands 12 to
-  37 km from the truth, outside its own 95 % ellipse (4.4 to 11 km by 0.6 km; NEES 42 to
-  74), and the fit gives no warning (reduced chi-square 0.14); near 12 UTC the two TDOA
-  hyperbolas cross twice and the nearer candidate is 130 km off, and near 21 UTC the
-  geometry degenerates (an ellipse thousands of kilometres long) and the fix is 300 km
-  off. Calibrated against the Guam reference, which the server does by default, the
-  satellite errors cancel: the fix is 30 to 300 m from the truth inside a 95 % ellipse of
-  280 to 580 m by 90 m (at one of eight epochs just outside it, NEES 6.5, inside the 99 %
-  ellipse). As rounds accumulate the noise averages down but the uncancelled part of the
-  8 km and 6 km errors does not (the solver budgets for 1 km), so after a couple of
-  minutes the ellipse has shrunk by about half and the truth sits at its edge at some
-  times of day (noise-free, 24 rounds: 200 m off, NEES up to 6). Calibration removes what
-  the jammer and the reference have in common, so it
-  helps less with distance: with the same errors at the pacific-demo position, 1,500 km
-  from Guam, the calibrated fix is 60 to 880 m off and outside its ellipse at four of
-  eight epochs, though the fit then flags it (reduced chi-square 4 to 15). Every number is
-  from the simulator with illustrative link parameters.
+  37 km from the truth, outside its own 95 % ellipse (5.4 to 13 km by 0.6 to 0.8 km; NEES
+  30 to 71), and the fit gives no warning (reduced chi-square 0.14 to 0.15); near 12 UTC
+  the two TDOA hyperbolas cross twice and the nearer candidate is 130 km off, and near
+  21 UTC the geometry degenerates (an ellipse thousands of kilometers long) and the fix is
+  300 km off. Calibrated against the Guam reference, which the server does by default,
+  the satellite errors cancel: the fix is 80 to 290 m from the truth inside a 95 % ellipse
+  of 0.32 to 0.59 km by 0.17 to 0.22 km (at one of eight epochs just outside it, NEES
+  6.7, inside the 99 % ellipse). As rounds accumulate the noise averages down but the
+  uncancelled part of the 8 km and 6 km errors does not (the solver budgets for 1 km),
+  so the ellipse shrinks past it: in the live demo started at 03:00 UTC the fix was 120
+  to 210 m off and inside its ellipse up to 34 rows (the first minute), then outside it
+  from 46 rows on in every snapshot over the next five minutes (180 to 240 m off, the 95 %
+  semi-major shrinking from 270 to 240 m). The clock checks show the satellite errors
+  from the first rounds (every site's timing differs between MUOS Pacific and the 172 E
+  satellite, and the Network screen names them), so the advice for the fix warns that
+  its ellipse does not include that error and the transmitter may lie outside it.
+  Calibration removes what the jammer and the reference have in common, so it helps less
+  with distance: with the same errors at the pacific-demo position, 1,500 km from Guam,
+  the calibrated fix is 190 to 870 m off and outside its ellipse at three of eight
+  epochs, though the fit then flags it at every epoch (reduced chi-square 4 to 12). Every
+  number is from the simulator with illustrative link parameters.
 emitters:
   - id: jammer-philsea
     name: Uplink noise jammer (simulated, open ocean)
@@ -53,7 +58,7 @@ emitters:
     waveform: {type: noise, bandwidth_hz: 10.0e+3, seed: 0}
 errors:
   ephemeris:
-    # TLE-class in-track errors on two satellites (RIC metres), constant over the capture
+    # TLE-class in-track errors on two satellites (RIC meters), constant over the capture
     muos-pac: {ric_pos_m: [300.0, 8000.0, 400.0], ric_vel_mps: [0.0, 0.0, 0.0]}
     uhf-172e: {ric_pos_m: [-200.0, -6000.0, 300.0], ric_vel_mps: [0.0, 0.0, 0.0]}
     # the third satellite as in pacific-demo (inside the operator-grade sigmas)

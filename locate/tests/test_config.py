@@ -329,7 +329,7 @@ def test_orbit_validation_tle_kepler_table() -> None:
     assert "satellites.0.orbit.line1" in locations(info.value)
     other = "2 25545" + ISS_L2[7:68]
     other += str((sum(int(ch) for ch in other if ch.isdigit()) + other.count("-")) % 10)
-    with pytest.raises(ValidationError, match="catalogue number"):
+    with pytest.raises(ValidationError, match="catalog number"):
         SystemConfig.model_validate(with_orbit({"type": "tle", "line1": ISS_L1, "line2": other}))
 
     kepler = dict(type="kepler", a_m=7178137.0, e=0.001, inc_deg=60.0, raan_deg=10.0, argp_deg=0.0,

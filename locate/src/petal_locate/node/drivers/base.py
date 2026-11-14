@@ -449,7 +449,7 @@ def plan_resample(fs_in: float, fc_in: float, fs_out: float, fc_out: float) -> R
     if not (
         isinstance(fs_out, (int, float)) and math.isfinite(fs_out) and fs_out > 0
     ) or not (isinstance(fc_out, (int, float)) and math.isfinite(fc_out)):
-        raise CaptureError("out_of_range", "sample rate and centre must be finite and positive")
+        raise CaptureError("out_of_range", "sample rate and center must be finite and positive")
     tolerance = _BAND_TOLERANCE * fs_in
     lo_in, hi_in = fc_in - fs_in / 2, fc_in + fs_in / 2
     lo_out, hi_out = fc_out - fs_out / 2, fc_out + fs_out / 2

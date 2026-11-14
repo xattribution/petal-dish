@@ -84,7 +84,7 @@ satellites:
 #   manila      17..20     28..31     33..37
 # At the downlinks used here (260 to 268 MHz, wavelength about 1.15 m) both dish sizes
 # are under 3 wavelengths, i.e. electrically small: a few dBi and a beam tens of
-# degrees wide. The 10 dBi beam antennas are linear (3 dB polarisation loss assumed).
+# degrees wide. The 10 dBi beam antennas are linear (3 dB polarization loss assumed).
 sites:
   - id: honolulu
     name: Honolulu (city center)
@@ -243,38 +243,40 @@ sites:
 # calibrated row, so it must be small next to the satellite-position error it removes
 # (about 1 to 3 microseconds of TDOA for the operator-grade 1 km sigmas, 20 to 70 for
 # TLE-grade). Design, all illustrative:
-# - Antenna: omnidirectional (modelled as isotropic, 0 dBi; a turnstile or quadrifilar
+# - Antenna: omnidirectional (modeled as isotropic, 0 dBi; a turnstile or quadrifilar
 #   helix over a ground plane), so every satellite above the horizon gets the full
 #   EIRP. An earlier design aimed a 10 dBi beam at one satellite; the other two then
 #   heard it only through the back of the beam (15 dB down), and its TDOA noise of
-#   2 to 4 microseconds made calibrated fixes worse than uncalibrated ones.
+#   1.7 to 3.5 microseconds kept calibrated ellipses at about half the uncalibrated size
+#   (2.9 against 5.5 km at 20 N 132 E).
 # - EIRP 20 dBW (100 W into the omni): 51 to 56 dB-Hz at every channel (link budget,
 #   03 to 21 UTC), like the demo jammer, while each shared transponder stays 6 to 7 dB
 #   below saturation with the reference alone (3.3 to 4 dB with a 20 dBW jammer
 #   alongside). Much more would saturate the transponder and rob the very signals it is
 #   meant to calibrate (in an ephemeris-dominated test map near Guam the calibrated
-#   ellipse is at worst 0.15 of the uncalibrated one at 20 or 30 dBW, but 0.38 at 40 dBW).
+#   ellipse is at worst 0.11 of the uncalibrated one at 20 or 30 dBW, but 0.20 at 40 dBW).
 # - Bandwidth 8 kHz of noise-like modulation, parked at the low edge of a shared channel
 #   (7.5 kHz below its center, 1 kHz inside the passband edge), leaving the upper
 #   16.5 kHz to users. At the same 20 dBW, 8 kHz instead of 5 kHz cuts the reference
-#   TDOA noise by about 1.6 (at fixed EIRP and high in-band SNR sigma goes as 1/B;
-#   B^-1.5 holds only at equal spectral density, B^-0.5 at low SNR): predicted 110 to
-#   120 ns per one-second reference capture
-#   (core.accuracy at 20 N 132 E, both demo pairs); the correlator measures 110 to 160 ns
-#   (the higher where a channel also hears a co-channel copy), about the noise of the
-#   target itself (90 to 120 ns), against 2 to 4 microseconds with the old beam design.
+#   TDOA noise by 1.6 to 1.8 (at fixed EIRP and high in-band SNR sigma goes as 1/B;
+#   B^-1.5 holds only at equal spectral density, B^-0.5 at low SNR): predicted 111 and
+#   159 ns per one-second reference capture on the two demo pairs (core.accuracy at
+#   20 N 132 E); the correlator measures 107 to 164 ns (the higher where a channel also
+#   hears a co-channel copy), about the noise of the target itself (90 to 145 ns),
+#   against 1.7 to 3.5 microseconds with the old beam design.
 # - Placement: one reference per shared channel (a reference only calibrates pairs on its
 #   own transponders), at two generic city centers that bracket the region north-south
 #   and see all three satellites: Guam (muos-pac 41-45 deg elevation, uhf-172e 52-57,
 #   muos-io 10-12) and Sapporo (21-30, 28-35 and 5-12 deg; muos-io is low from there,
 #   so a real site would need a clear western horizon). With operator-grade ephemeris
 #   calibration shrinks the predicted 95 % error ellipse at the representative points of
-#   docs/RESULTS.md from 4 to 6 km to 0.4 to 1 km (03 UTC; 0.2 to 1.8 km over the day),
-#   and the simulated miss from about 1.3 to 2 km to 140 to 280 m (median, Monte Carlo);
+#   docs/RESULTS.md from 5 to 6 km to 0.5 to 1.0 km (03 UTC; 0.3 to 2.0 km over the day),
+#   and the simulated miss from 1.3 to 1.9 km to 120 to 320 m (median, Monte Carlo);
 #   near Hawaii, which only two satellites see, it is what makes a fix possible at all.
-#   With TLE-grade ephemeris the residual grows with the distance between the emitter and
-#   the reference (1 km at 300 km, 9 to 24 km at 3,000 km); docs/RESULTS.md gives the gain
-#   from more reference sites.
+#   All of these include a 30 TECU ionosphere. With TLE-grade ephemeris the residual
+#   grows with the distance between the emitter and the reference (median miss 0.32 km
+#   at 300 km and 0.88 km at 1,500 km; predicted 95 % semi-major 4.4 to 24 km at
+#   3,000 km); docs/RESULTS.md gives the gain from moving the reference.
 carriers:
   - id: ref-guam
     name: Reference carrier, Guam city center (illustrative)

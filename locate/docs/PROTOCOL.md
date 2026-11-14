@@ -17,7 +17,7 @@ warning when it would send it over `ws://` to a host that is not a loopback addr
 
 All absolute times are integer UTC nanoseconds (`*_ns`), sent as JSON integers on this
 interface (both ends are Python), in `0 .. 2^63 - 1`. `t_first_ns` and every `t_ns` are
-**labelled** times (the node's clock). The one `*_ns` field that is not an absolute
+**labeled** times (the node's clock). The one `*_ns` field that is not an absolute
 time, `ClockStatus.est_offset_ns`, is a JSON number. Under `petal-locate demo --start`
 the server's clock and every simulated node's clock are the host clock plus one fixed
 offset (simulation only), so every time on both interfaces is simulated time.
@@ -136,7 +136,7 @@ fits one 1 MiB message; the configuration requires at least 16, ARCHITECTURE.md
 section 3); a capture is 1 to 8,388,608 samples (64 MiB).
 
 `est_offset_ns` is the node's estimate of `delta_g` of MATH.md section 4 (true time
-minus labelled time). It is displayed and never applied to measurements. A capture
+minus labeled time). It is displayed and never applied to measurements. A capture
 whose ClockStatus has `locked = false` yields no TDOA unless both channels of the pair
 are at the same site. The shipped `SystemClock` reports `ntp`, locked, without asking
 the operating system whether NTP is synchronised; a node run with `--driver sim`
@@ -157,7 +157,7 @@ channels not acknowledged under the current assignment, windows that are not ass
 or a different `nfft`, and frames stamped more than `PSD_FUTURE_TOLERANCE_S` (60 s)
 ahead of the server clock (counter `psd_dropped_future`, one warning per session; such a
 frame does not count as the window's newest). Its detection pipeline also drops frames
-whose centre moved by more than half a bin, that hold a non-finite bin, or whose `t_ns`
+whose center moved by more than half a bin, that hold a non-finite bin, or whose `t_ns`
 repeats or goes back by up to three frame periods. A frame more than three frame
 periods older than the newest accepted is taken as a step of the node's clock: it is
 accepted as the new time base (the learned baseline is kept) and warned about once per
@@ -201,12 +201,15 @@ data voids the capture.
 
 Server -> `capture_cancel {type, capture_id}` is advisory, sent on the deadline, when
 the caller cancels and when a capture is voided; the node answers with
-`capture_error {code: "cancelled"}`. The server gives up on a capture when its own
+`capture_error {code: "cancelled"}`. The node logs a capture the server withdrew (a
+`capture_cancel`, or an `assign` that removed or changed its channel) at INFO as
+`capture withdrawn by the server: cancelled: ...`; real failures stay WARNING
+`capture failed: ...`. The server gives up on a capture when its own
 clock passes `deadline_ns` plus `Settings.capture_grace_s` (1 s by default).
 
-The node reports the true labelled time of its first sample in `t_first_ns` and the
-rate and centre actually used; they need not equal the request. The correlator
-corrects first-sample and centre differences and rejects rate differences.
+The node reports the true labeled time of its first sample in `t_first_ns` and the
+rate and center actually used; they need not equal the request. The correlator
+corrects first-sample and center differences and rejects rate differences.
 
 Pending captures end with the session: a socket close fails them at once; on
 disconnect the node cancels captures in progress and never sends `capture_data` for a
@@ -224,8 +227,13 @@ retryable except `unknown_channel`, `too_large`, `out_of_range` and its own
   (counting those before `hello`) close the session with 1002. Both ends apply the
   rule; a binary frame from the server is malformed to the node.
 - Server enforces per-node limits: at most 8 concurrent captures, 64 MiB per capture.
-  The hub does not check `concurrent_reads`, the tuning range or the rate; the node
-  answers `busy` or `out_of_range` and tasking reads the capabilities.
+  A capture over the 8 is not sent: it waits (nothing on the wire) until one of the
+  node's slots frees, the session changes or its deadline passes, and only then fails
+  with the server's own `limit` code ("... had 8 captures pending until the deadline";
+  counters `capture_queued`, `capture_refused_limit`). The slots are shared by every
+  caller, so one event's round never makes another's fail at once. The hub does not
+  check `concurrent_reads`, the tuning range or the rate; the node answers `busy` or
+  `out_of_range` and tasking reads the capabilities.
 - Either side may close with code 1001 for shutdown; nodes reconnect with exponential
   backoff (1 s doubling to 30 s, plus up to 20 % jitter; reset after any session that
   reached `welcome`) and resume from `hello`. After a reject (other than
@@ -257,12 +265,13 @@ scenario version doubles as the document version and is also raised by every con
 change while simulating, so nodes always refetch. The node fetches immediately and uses
 the new world for samples at or after `effective_ns` and the previous world before it;
 a simulated node also refetches before sending `assign_ack` (through `on_assign`).
-The node hands a `sim_update` only to drivers already open, so one that arrives while
-its channels are opening would be lost: the server therefore sends the newest
-`sim_update` again right after an accepted `assign_ack` whenever one was sent while
-that session's assignment was unacknowledged (between `welcome` or `assign` and the
-ack; counter `sim_update_resent`). A node may thus receive the same `sim_update` twice;
-the sim driver ignores a version it holds. There is no polling. Real drivers never use
+The node hands a `sim_update` to every driver already open and remembers the newest
+one of the session, which it hands to each driver that opens later (one that arrived
+while its channels were opening is not lost). For nodes older than that, the server
+also sends the newest `sim_update` again right after an accepted `assign_ack` whenever
+one was sent while that session's assignment was unacknowledged (between `welcome` or
+`assign` and the ack; counter `sim_update_resent`). A node may thus receive the same
+`sim_update` twice; the sim driver ignores a version it holds. There is no polling. Real drivers never use
 this channel. How a simulated node switches worlds is in ARCHITECTURE.md section 6.
 
 # B. Console to server
@@ -300,7 +309,7 @@ Checks before any route, whether or not there is a token:
   web page can send cross-site unasked) and that carries neither `Authorization` nor
   `X-Petal-Client` is refused 403 `{detail: "a state-changing request must carry
   Content-Type application/json or application/yaml, an Authorization header, or the
-  header X-Petal-Client (cross-site request defence)"}`. The console sends
+  header X-Petal-Client (cross-site request defense)"}`. The console sends
   `X-Petal-Client: console` on every such request.
 - Size: the body of every such request is limited to 4 MiB (`rest.MAX_BODY_BYTES`,
   `Content-Length` or bytes streamed): 413 `{detail: "the request body is larger than
@@ -413,12 +422,13 @@ ChannelStatus    {channel_id, ok, last_frame_age_s | null, windows: [WindowStatu
 WindowStatus     {monitor_id, last_frame_age_s | null, detection_frame_age_s | null, blind, blind_reason | null,
                   learning | null, floor_raised_db | null, note | null}
 SatelliteStatus  {sat_id, ephemeris_ok, unavailable_since_ns | null, message | null}
-SiteClockEstimate {site_id, offset_us, sigma_us | null, n_calibrations, compared_with: [site_id], caution, message | null}
+SiteClockEstimate {site_id, offset_us, sigma_us | null, n_calibrations, compared_with: [site_id], caution, message | null,
+                   suspect_satellite_ids: [sat_id]}
 EventSummary     {id, state, verdict, first_seen_ns, last_seen_ns, uplink_lo_hz | null, uplink_hi_hz | null, satellite_ids,
                   label | null, headline, solution: SolutionSummary | null, simulated,
-                  onset_ns | null, received_lo_hz | null, received_hi_hz | null, seen_site_ids}
+                  onset_ns | null, received_lo_hz | null, received_hi_hz | null, seen_site_ids, width_lower_bound}
 SolutionSummary  {lat_deg, lon_deg, semi_major_m, semi_minor_m, azimuth_deg, cep50_m, ambiguous,
-                  ambiguities: [{lat_deg, lon_deg, semi_major_m, semi_minor_m, azimuth_deg}], fit_consistent}
+                  ambiguities: [{lat_deg, lon_deg, semi_major_m, semi_minor_m, azimuth_deg}], fit_consistent, is_fix}
 Event            {id, state, verdict, verdict_reason | null, first_seen_ns, last_seen_ns,
                   uplink_lo_hz | null, uplink_hi_hz | null, downlink_lo_hz | null, downlink_hi_hz | null,
                   satellite_ids, transponders: [{sat_id, transponder_id, downlink_lo_hz, downlink_hi_hz}],
@@ -427,11 +437,11 @@ Event            {id, state, verdict, verdict_reason | null, first_seen_ns, last
                   advisory: {headline, detail, actions: [text]},
                   evidence: [EvidenceRow], transitions: [{t_ns, state, verdict, reason | null}],
                   solution: SolutionOut | null, solution_t_ns | null,
-                  solution_history: [{t_ns, semi_major_m, semi_minor_m, n_measurements, fit_consistent, set_aside}],
+                  solution_history: [{t_ns, semi_major_m, semi_minor_m, n_measurements, fit_consistent, is_fix, set_aside}],
                   measurements: [MeasurementRow], caf: CafDisplay | null, truth: EventTruth | null,
                   merged_into | null, simulated, tasking: TaskingStatus | null,
                   onset_ns | null, resumed_ns | null, break_s | null, recheck | null,
-                  received_lo_hz | null, received_hi_hz | null, seen_site_ids}
+                  received_lo_hz | null, received_hi_hz | null, seen_site_ids, width_lower_bound}
 EvidenceRow      {channel_id, site_id, sat_id | null, state: "seen" | "not_seen_capable" | "not_capable" | "stale",
                   snr_db | null, cn0_dbhz | null, predicted_margin_db | null, last_seen_ns | null,
                   monitor_id | null, downlink_lo_hz | null, downlink_hi_hz | null}
@@ -446,7 +456,7 @@ EventTruth       {emitter_id, lat_deg, lon_deg, miss_m | null, inside_ellipse | 
 SolutionOut      core.solver.Solution.as_dict(): {lat_deg, lon_deg, height_m, cov_en_m2, cov_noise_en_m2, cov_consider_en_m2,
                   ellipse: {semi_major_m, semi_minor_m, azimuth_deg, confidence}, cep50_m, chi2, dof, reduced_chi2 | null,
                   residuals, ambiguities: [SolutionOut], ambiguity_resolved_by, converged, dominant_error, n_measurements}
-                  plus fit_consistent (true), fit_p_value | null, ellipse_scale (1.0)
+                  plus fit_consistent (true), fit_p_value | null, ellipse_scale (1.0), is_fix (true), not_fix_reason | null
 LopCollection    {type: "FeatureCollection", features: [{type: "Feature", geometry, properties: LopProperties}]}
 LopProperties    {role: "line" | "band", kind, event_id, seq, tag, a_sat_id, a_site_id, a_channel_id, b_sat_id, b_site_id,
                   b_channel_id, t_ns, value, correction, calibrated, sigma, sigma_total, k_sigma (2), height_m}
@@ -455,7 +465,7 @@ Footprint        {sat_id, min_elevation_deg, ring: [[lon, lat], ...]}       # cl
 LookAngle        {site_id, channel_id, sat_id, az_deg, el_deg, range_km, off_axis_deg, gain_dbi, peak_gain_dbi, freq_hz,
                   visible, watched, electrically_small}
 AccuracyRequest  {pairs: [[channel_a, channel_b]] (at most 128), emitter: EmitterModel, f_e_hz, t?: ISO, region?: Region,
-                  step_deg (0.25..10, 2), kinds (["tdoa", "fdoa"]), reference_carrier_id?, integration_s?,
+                  step_deg (0.25..10, 2), kinds (["tdoa", "fdoa"]), reference_carrier_id? (a carrier id or "nearest"), integration_s?,
                   uncertainty?: UncertaintyConfig}
 AccuracyGrid     {t_ns, lat_deg: [..], lon_deg: [..], semi_major_95_m: [[m | null]], cep50_m: [[m | null]], dominant: [[source | null]]}
 LinkBudgetRequest  {emitter: EmitterModel, f_e_hz, lat_deg, lon_deg, alt_m (0), t?: ISO}
@@ -480,35 +490,77 @@ Notes on the fields:
   `max(solver.min_elevation_deg, 0)` at the fix, at an end of either 95 % ellipse axis
   or at any ambiguity (never none; a satellite whose orbit cannot be evaluated is
   kept). The others are listed in `not_visible_satellite_ids`: they relay the frequency
-  but cannot see the transmitter, and tasking does not pair them.
-- `onset_ns` is the start of the current transmission (labelled time): `first_seen_ns`
-  unless the event broke off or another transmitter took over; report it as the start
-  time. `resumed_ns` is the server time of the latest re-detection after a loss and
+  but cannot see the transmitter, and tasking does not pair them. All three are empty
+  while the verdict is `local` (no satellite relays a local signal; `uplink_lo_hz` and
+  `uplink_hi_hz` still give the uplink frequencies its received range maps to), and
+  such an event reads `detected` (transition `judged local: nothing to characterize or
+  locate by satellite`).
+- `onset_ns` is the start of the current transmission (labeled time): `first_seen_ns`
+  unless the event broke off or another transmitter took over (then the first
+  detection after the break, or the first that showed the other transmitter); when a
+  local signal takes over an uplink event's frequency (verdict uplink to local) it is
+  the last sighting of the uplink signal at the sites that no longer see anything; when
+  an uplink signal takes over a local event's frequency (verdict local to uplink) it is
+  its first detection at a site that did not see the local signal; when a re-check
+  finds that only tracks begun after the change agree with what is measured now, it is
+  the first detection of the oldest of those tracks.
+  Report it as the start time. `resumed_ns` is the server time of the latest re-detection after a loss and
   `break_s` that loss in seconds. `recheck` is a plain sentence while a position or
   measurements from before a break, or from before a change of waveform class, level
   (6 dB) or width (twice and at least 1 kHz), are checked against new measurements;
   null otherwise. `received_lo_hz` / `received_hi_hz` span the downlink ranges of the
   `seen` evidence rows and `seen_site_ids` lists the sites with a `seen` row, in row
-  order, so a local event can be shown by where it is received.
+  order, so a local event can be shown by where it is received. `width_lower_bound`
+  (also in `EventSummary`) is true when, in every monitor window holding the event, its
+  detections together reach both edges of the window (within 8 % of the span, where the
+  receiver's filter rolls off, and at least 1.5 bins): the signal may be wider than its
+  range, so its width is a lower bound (the advisory then writes `(at least N kHz
+  wide)` instead of `(about ...)`).
 - `Transition.reason` is plain words: `all detections released`, `detected again after
   a break of <duration>` (within 30 s, with a position or rows, followed by `; the
   earlier position (or measurements) is checked against new measurements before it is
-  kept`), `re-check: <why>`, `re-check passed: <why>`, `another transmission: <why>;
+  kept`), `re-check: <why>`, `re-check passed: <why>` (`<why>` is `pair X measures the
+  same time and frequency differences as before`, or, when no pair measured before the
+  change came back within 3 rounds, `pair X agrees with its own measurements, and no pair
+  measured before the change was measured again in 3 rounds, so the change could not be
+  tested`), `another transmission: <why>;
   earlier position and measurements set aside`, `position withdrawn: measurements
-  inconsistent (reduced chi-square N): ...`, `the measurements agree again`, `closed by
-  operator`, `merged into EV-000012`, `split from ...`, `server restarted: kept as
+  inconsistent (reduced chi-square N): ...`, `the position is not a fix: <reason>`,
+  `position withdrawn: the position is not a fix: <reason>` (a located event whose new
+  solution is not a fix), `position withdrawn: the newest measurements, added to the N it
+  rested on, admit no position (<solver reason>)` (the published position, its residuals
+  and `solution_t_ns` are cleared; the rows stay used; when some of its rows slid out of
+  the solver window it reads `position withdrawn: the newest N measurements (the solver
+  window), which hold every measurement since the position and K of the M it rested on,
+  admit no position (<solver reason>)`, or `..., all newer than the M it rested on, ...`),
+  `the measurements agree again`, `judged local: nothing to characterize or locate by
+  satellite`, `position set aside: they belong to the local signal measured before`
+  (when an uplink signal takes a local event's frequency and something had been
+  measured),
+  `closed by operator`, `merged into EV-000012`, `split from ...`, `server restarted: kept as
   history`, and the set-aside reasons of ARCHITECTURE.md section 7. A document keeps the
   first and the newest 200 transitions and 500 solution-history rows, and the newest
   1000 measurement rows (the store keeps all).
-- An event is `located` only with a converged and consistent solution. A fit is
-  inconsistent when `reduced_chi2 > processing.solver.max_reduced_chi2` (5) and the
+- An event is `located` only while its solution is a fix (`is_fix`): converged,
+  consistent (below), with redundancy (`dof >= 1`: more measurements than the two
+  unknowns of a position, so the fit can be checked against itself) and a 95 %
+  semi-major axis within the server's sanity bound (1,000 km, or a quarter of the
+  region's smaller extent when that is less: `events.fix_semi_major_limit_m`). A
+  solution that is not a fix is still published, with `is_fix: false` and
+  `not_fix_reason`, one plain clause: `the solver did not converge`, `the measurements
+  do not fit one stationary transmitter (reduced chi-square X, limit Y)`, `no
+  redundancy: N measurements for the two unknowns of a position, so the fit cannot be
+  checked against itself`, or `the 95 % error ellipse has a semi-major axis of N km,
+  more than the M km a fix may have here: the measurements do not pin the position
+  down`; each ambiguity carries its own. A located event whose new solution is not a fix
+  goes back to `locating`. A fit is inconsistent when `reduced_chi2 > processing.solver.max_reduced_chi2` (5) and the
   chi-square tail probability is below 0.001: it is published with `fit_consistent:
   false`, `fit_p_value` and `ellipse_scale = sqrt(reduced_chi2)` already applied to
   `ellipse.semi_major_m`, `semi_minor_m` and `cep50_m` (its square to the three
   covariances), and a located event goes back to `locating`. Each ambiguity is judged on
   its own chi-square; `fit_p_value` is null when `dof < 1`. `SolutionSummary` and
   `solution_history` rows carry `fit_consistent` (their semi-axes are the enlarged
-  ones); a history row has `set_aside: true` once its measurements were set aside (a
+  ones) and `is_fix`; a history row has `set_aside: true` once its measurements were set aside (a
   break, another transmitter, a local signal). `dominant_error` (and the accuracy map's
   `dominant` grid) is one of `core.solver.ERROR_SOURCES`: `noise`,
   `ephemeris_position`, `ephemeris_velocity`, `clock`, `oscillator`, `tdoa_bias`,
@@ -518,7 +570,10 @@ Notes on the fields:
   given the strongest sighting (null when it cannot be predicted). `last_seen_ns` is
   the newest frame in which the channel's detection of the event was above threshold,
   also after the detection ended (so `stale` and `not_seen_capable` rows say how old
-  the sighting is); null when the channel never saw it.
+  the sighting is); null when the channel never saw the current transmission: once a
+  transmission is set aside (a long break, another transmitter, a local signal taking
+  over an uplink event) the sightings of channels holding no current detection are
+  forgotten.
 - `MeasurementRow.value` is A minus B in s or Hz, after calibration when `calibrated`;
   `correction` is then the reference-carrier correction already subtracted (the raw
   measurement is `value + correction`) and `reference_carrier_id` the carrier it was
@@ -541,9 +596,10 @@ Notes on the fields:
   capture (no usable channel, no second relaying satellite, or the event was judged
   `local`; `message` says which). `message` describes the last completed round and stays
   while the next one runs; it also names a satellite whose orbit cannot be evaluated
-  (`Satellite X: orbit not available (...); its pairs are not tasked.`) and an
+  (`Satellite X: orbit not available (...); its pairs are not tasked.`), an
   inconsistent fit (`The measurements do not fit one stationary transmitter (reduced
-  chi-square N, limit L): ...`). `solve_reason` says why the last solve gave no position
+  chi-square N, limit L): ...`) and a consistent solution that is not a fix (it ends
+  `The position is shown but is not a fix: <not_fix_reason>.`). `solve_reason` says why the last solve gave no position
   (`unobservable`, `fewer than two accepted measurements`, ...). `unlocatable_reason` is
   set when the signal itself cannot be located, one of three sentences: every pair of
   the latest round was ambiguous (`... the waveform repeats itself ...`) or coupled
@@ -557,11 +613,29 @@ Notes on the fields:
   since|until <ISO> (<reason>); its pairs are not tasked and nothing is located through
   it until the ephemeris is updated`).
 - `Status.site_clocks` are per-site clock offsets fitted from the TDOA calibrations
-  still valid (MATH.md section 9): `offset_us` is the site's labelled time minus true
-  time in microseconds (negative: late), relative to the median of the sites it is
-  compared with; `sigma_us` the RMS residual (null with one correction). `caution` is
-  set when `|offset| >= max(1 us, 10 x clock.sigma_ns, 3 x the site-dependent ephemeris
-  allowance)` (in a group of two sites both are flagged), and only then `message`.
+  still valid, including the same-satellite clock checks tasking schedules (MATH.md
+  section 9): `offset_us` is the site's labeled time minus true time in microseconds
+  (negative: late), relative to the median of the sites whose clock differences from
+  it the calibrations determine (else of its whole group);
+  `sigma_us` the RMS residual (null with one correction). `caution` means a clock fault
+  is likely or cannot be ruled out: `|offset| >= max(1 us, 10 x clock.sigma_ns, 3 x the
+  site-dependent ephemeris allowance, the largest difference between satellites any
+  site of its group shows)` (two sites whose difference alone is known are both
+  flagged on their difference). `message` is a plain sentence or null. With `caution` it says either
+  `... its clock is probably off (calibrations through X and Y agree, so it is not a
+  satellite position error); check its timing receiver ...` or, with the site seen
+  through fewer than two satellites, `... either its clock is off (check its timing
+  receiver: GPS, PPS and 10 MHz reference), or the position of X is wrong beyond its
+  configured uncertainty (seen from this site it would look the same); a calibration
+  through a second satellite will tell them apart.` Without `caution` it may say that
+  the site's timing differs between satellites (`... through X about N µs ahead; through
+  Y ...`), so its clock is probably fine and the position of the satellite named is
+  probably wrong beyond its configured uncertainty (check its ephemeris);
+  `suspect_satellite_ids` lists the satellites that message names (empty otherwise). An
+  event whose fix rests on rows through such a satellite gets an advisory saying the
+  ellipse does not include that error and the transmitter may lie outside it (the report
+  action adds `; the ephemeris of X is in doubt, so the transmitter may lie outside
+  this`).
 - `ChannelStatus.windows` gives each monitor window's state: `last_frame_age_s` (from
   the hub), `detection_frame_age_s` (the newest frame detection accepted), `blind`
   (frames arrive but none has been accepted for 10 frame periods) with `blind_reason`,
@@ -577,9 +651,19 @@ Notes on the fields:
   `processing.uncertainty` for that map only (its `iono_vtec_tecu`, `iono_correlation`,
   `tropo_zenith_m` and `tropo_correlation` default to 30, 0.5, 2.4 and 0.9 when left
   out, whatever the configuration says); satellites with their own `ephemeris_sigma`
-  keep it and site clocks keep `Site.clock.sigma_ns`. Pair ends are channel ids;
-  `core.accuracy` also takes `channel@satellite` for a channel watching several
-  satellites, but this route refuses that form as an unknown channel. One map is
+  keep it and site clocks keep `Site.clock.sigma_ns`. Pair ends are channel ids, or
+  `channel@satellite` for a channel watching several satellites (422 at `pairs.i.j` for
+  an unknown channel, a satellite the channel does not watch or a malformed end, such as
+  an empty part or a second `@`; at `pairs.i` when both ends are one channel or the
+  pair repeats an earlier one, in either order and however its ends are spelled: a bare
+  channel id and that channel `@` the satellite it correlates on are one end). More than
+  128 pairs is a 422 at
+  `pairs` from request validation. `reference_carrier_id` is a reference carrier's id,
+  or `"nearest"`: each cell's pairs are then calibrated against the reference carrier
+  tasking would use for an emitter in that cell (relayed by both transponders of the
+  pair, clear of the emitter's band, nearest the cell, then nearest in frequency; cells
+  with none stay uncalibrated; a configured carrier named `nearest` takes precedence;
+  422 when the configuration has no reference carrier). One map is
   computed at a time, up to 4 wait; the grid is computed in latitude bands of about 256
   cells, fewer when many pairs would need more than 256 MiB per band (never under two
   grid rows), and the 120 s limit is checked between bands.
@@ -589,7 +673,7 @@ Notes on the fields:
   zero width); `detectable` is `10 log10(1 + C / (N0 max(bandwidth, bin))) >=
   processing.detection.threshold_db` in the bins of the monitor covering `f_down_hz`
   (`monitor_id`; null and not detectable when no window covers it).
-- `SimTruth.events` covers the active events. Truth is fictional and labelled
+- `SimTruth.events` covers the active events. Truth is fictional and labeled
   simulated wherever it is shown.
 
 ## WebSocket `/ws/ui`
@@ -603,7 +687,8 @@ Server to browser, text frames:
 
 An event is published at once on a material change (state, verdict, evidence states,
 satellites, classification, a measurement, a solution, a correlation surface, a
-re-check) and at most every 5 s for numeric drift (SNR, C/N0, margins, edges).
+re-check, its onset, whether its width is a lower bound) and at most every 5 s for
+numeric drift (SNR, C/N0, margins, edges).
 
 Binary frames reuse the `PLB1` framing with header
 `{type: "psd", channel_id, monitor_id, t_ns: "<string>", center_hz, span_hz, nfft, seq,

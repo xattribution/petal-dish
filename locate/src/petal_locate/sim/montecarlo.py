@@ -20,9 +20,10 @@ runs it (ARCHITECTURE.md section 7), against a ``SimWorld`` instead of radios:
   allowance, ``6 |sigma_pos| / c`` per satellite in delay and ``6 f |sigma_vel| / c``
   in Doppler, so that a reference carrier (a single predicted point) is still found
   when the satellites are off by several of their configured sigmas.
-- **Calibration.** For each pair, the first reference carrier of the configuration
-  relayed by the pair's two transponders is captured on its own frequency through the
-  same channels at the same time, estimated with windows around its predicted values,
+- **Calibration.** For each pair, the reference carrier tasking would use (relayed by
+  the pair's two transponders, its band clear of the emitter's, nearest the emitter,
+  then nearest in frequency; or the one named) is captured on its own frequency through
+  the same channels at the same time, estimated with windows around its predicted values,
   and turned into corrections with ``solver.calibration_correction``; the target
   windows are then shifted by them and keep only the fixed margins.
 - **Solve.** ``solver.solve`` with every accepted TDOA/FDOA row (CAF results that are
@@ -214,7 +215,8 @@ def plan_event(
     end does not use). capture_s:
     capture length, s (replaces ``capture.duration_s``, for targets and references).
     fs: target sample rate, Hz (replaces the rule; references keep theirs).
-    reference_carrier_id: calibrate against this carrier only.
+    reference_carrier_id: calibrate against this carrier only; None: tasking's rule, the
+    eligible reference nearest the emitter (``_reference_task``).
 
     The uplink range is the emitter's occupied band, ``freq_hz +/- bandwidth_hz / 2``
     (the detection's mapped range in the server). Raises ValueError naming the argument
@@ -264,7 +266,10 @@ def plan_event(
             continue
         reference, note = None, None
         if use_calibration:
-            reference, note = _reference_task(config, ch_a, ch_b, a, b, tp_a, tp_b, t_start_ns, capture_s, reference_carrier_id)
+            reference, note = _reference_task(
+                config, ch_a, ch_b, a, b, tp_a, tp_b, t_start_ns, capture_s, reference_carrier_id,
+                near=(float(emitter.lat_deg), float(emitter.lon_deg)), band=(f_lo, f_hi),
+            )
         else:
             note = "calibration not requested"
         tasks.append(PairTask(ch_a, ch_b, a, b, tp_a.id, tp_b.id, plan, search, reference, note))
@@ -322,9 +327,16 @@ def _automatic_pairs(
 
 def _reference_task(
     config: SystemConfig, ch_a: str, ch_b: str, a: PathSpec, b: PathSpec, tp_a: Any, tp_b: Any, t_start_ns: int,
-    capture_s: float | None, only: str | None,
+    capture_s: float | None, only: str | None, near: tuple[float, float] | None = None,
+    band: tuple[float, float] | None = None,
 ) -> tuple[ReferenceTask | None, str | None]:
-    """The first reference carrier relayed by both of the pair's transponders, or a reason."""
+    """The reference carrier a pair is calibrated against, or a reason.
+
+    ``only``: that carrier. Otherwise tasking's rule (``Tasking._references_for``, K6):
+    reference carriers relayed by both of the pair's transponders whose band does not
+    overlap the emitter's ``band`` (Hz), nearest to ``near`` (the emitter's latitude and
+    longitude, standing in for the fix tasking calibrates against once it has one) first,
+    then nearest in frequency to the band's centre; the first with a usable window."""
     if not config.processing.calibration.enabled:
         return None, "calibration disabled in the configuration"
     if only is not None:
@@ -333,7 +345,23 @@ def _reference_task(
             raise ValueError(f"reference_carrier_id: carrier {only!r} needs a location and an emitter model")
         candidates = [carrier]
     else:
-        candidates = list(config.reference_carriers())
+        candidates = [c for c in config.reference_carriers() if c.location is not None and c.emitter is not None]
+        if band is not None:
+            lo, hi = band
+            candidates = [
+                c for c in candidates
+                if not (float(c.uplink_center_hz) - 0.5 * float(c.bandwidth_hz) <= hi
+                        and lo <= float(c.uplink_center_hz) + 0.5 * float(c.bandwidth_hz))
+            ]
+        centre = None if band is None else 0.5 * (band[0] + band[1])
+
+        def order(carrier: Any) -> tuple[float, float]:
+            distance = 0.0
+            if near is not None:
+                distance = float(geodesic_distance_m(near[0], near[1], carrier.location.lat_deg, carrier.location.lon_deg))
+            return distance, 0.0 if centre is None else abs(float(carrier.uplink_center_hz) - centre)
+
+        candidates.sort(key=order)
     for carrier in candidates:
         f_ref = float(carrier.uplink_center_hz)
         ra_tp = relaying_transponder(config.satellite(a.sat_id), f_ref)
@@ -476,7 +504,8 @@ def run_trials(
     ``DEFAULT_T_NS``, or the emitter's ``t_start`` when later); every trial uses the
     same epoch, so the geometry and the predicted covariance are the same in all of
     them. progress: called as ``progress(done, n_trials)`` after each trial.
-    reference_carrier_id: calibrate against this carrier only.
+    reference_carrier_id: calibrate against this carrier only (None: the eligible
+    reference nearest the emitter, as tasking chooses once it has a fix).
 
     Returns a JSON-ready dict (``simulated: True``): the plan (``pairs``, ``skipped``),
     ``truth``, per-trial results (``trials``) and ``summary``. A trial holds its

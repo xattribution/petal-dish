@@ -31,7 +31,8 @@ export interface MapSolution {
   semiMinorM: number;
   azimuthDeg: number;
   /** fix: a position with its ellipse; mirror: another position of an unresolved ambiguity
-   *  (dashed); unreliable: an inconsistent fit, enlarged ellipse, not a fix (dotted, no fill) */
+   *  (dashed); unreliable: a solution that is not a fix (SolutionOut.is_fix false: an
+   *  inconsistent fit with its enlarged ellipse, no redundancy, an ellipse too large) (dotted, no fill) */
   role: 'fix' | 'mirror' | 'unreliable';
   selected: boolean;
   label: string;

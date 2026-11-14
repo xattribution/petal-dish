@@ -17,7 +17,7 @@
   placeholder page saying how to build it. `/?token=<api token>` serves index.html
   with a script that hands the token to the console (`CONSOLE_TOKEN_KEY`).
 - `RequestGuardMiddleware`, before any route: the `Host` header must name an allowed
-  host (DNS-rebinding defence), a state-changing `/api` request must not be one a
+  host (DNS-rebinding defense), a state-changing `/api` request must not be one a
   foreign page can send unasked (403), and `/api` bodies are capped (413).
 - Time: `app.state.clock` is `Settings.clock()` (the host clock, plus the simulation
   offset of `petal-locate demo --start`); the runtime, the store and the hub use it.
@@ -37,13 +37,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import gc
-import inspect
 import json
 import logging
 import re
 import socket
 import sys
-import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -314,7 +312,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Start the hub, then (when the app owns it) build and start the runtime; stop
     them in the reverse order: console sockets, runtime, hub."""
     hub: Hub = app.state.hub
-    undo_hub_clock = _hub_clock(app.state.clock)
     hub.start()
     owned = None
     frozen = False
@@ -371,7 +368,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                 gc.unfreeze()
         sys.setswitchinterval(switch_interval)
         await hub.close()
-        undo_hub_clock()
         logger.info("server stopped")
 
 
@@ -491,7 +487,7 @@ class RequestGuardMiddleware:
                     await _plain_error(
                         send, 403,
                         "a state-changing request must carry Content-Type application/json or application/yaml, "
-                        "an Authorization header, or the header X-Petal-Client (cross-site request defence)",
+                        "an Authorization header, or the header X-Petal-Client (cross-site request defense)",
                     )
                     return
                 buffered = await _buffer_body(scope, receive, headers)
@@ -550,46 +546,6 @@ async def _plain_error(send: Any, status: int, detail: str) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-class _ShiftedTime:
-    """The ``time`` module as seen by a hub that cannot take a clock: ``time_ns`` is the
-    server's clock (host clock plus the simulation offset), everything else is the real
-    module. See ``_hub_clock``."""
-
-    def __init__(self, clock: Callable[[], int]) -> None:
-        self._clock = clock
-
-    def time_ns(self) -> int:
-        return self._clock()
-
-    def __getattr__(self, name: str) -> Any:
-        import time as real
-
-        return getattr(real, name)
-
-
-def _hub_clock(clock: Callable[[], int]) -> Callable[[], None]:
-    """Make the hub use the server clock; returns how to undo it.
-
-    With no simulation offset the clock is the host clock and nothing is done. With one
-    (``petal-locate demo --start``), the hub must stamp and compare times on the same
-    clock as the runtime and the simulated nodes. A hub whose constructor takes
-    ``clock`` gets it in ``create_app``; for one that does not, the ``time`` name of its
-    module is pointed at ``_ShiftedTime`` while this application runs."""
-    import time as real
-
-    from petal_locate.server import hub as hub_module
-
-    if clock is real.time_ns or "clock" in inspect.signature(Hub.__init__).parameters:
-        return lambda: None
-    previous = hub_module.__dict__.get("time")
-    hub_module.time = _ShiftedTime(clock)  # type: ignore[attr-defined]
-
-    def undo() -> None:
-        hub_module.time = previous  # type: ignore[attr-defined]
-
-    return undo
-
-
 def create_app(
     settings: Settings,
     *,
@@ -644,15 +600,12 @@ def create_app(
     app.state.api = ApiState()
     app.state.ui_sockets = UiSockets()
     app.state.clock = clock
-    hub_options: dict[str, Any] = {}
-    if clock is not time.time_ns and "clock" in inspect.signature(Hub.__init__).parameters:
-        hub_options["clock"] = clock
     app.state.hub = Hub(
         settings,
         assignments_for=providers.assignments_for,
         config_version=providers.config_version,
         simulation_info=providers.simulation_info,
-        **hub_options,
+        clock=clock,  # the server clock (host clock plus any simulation offset)
     )
     app.state.allowed_hosts = allowed_host_names(settings)
     install_error_handlers(app)

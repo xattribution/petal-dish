@@ -201,7 +201,7 @@ def generate_node_tokens(site_ids: Iterable[str]) -> dict[str, str]:
 class Marking(BaseModel):
     """Marking banner of the console; deployment configuration, never inferred.
 
-    level: short marking level shown in the banner (decides its colour in the console).
+    level: short marking level shown in the banner (decides its color in the console).
     line: the full banner text.
     """
 
@@ -230,7 +230,7 @@ class Settings(BaseModel):
     allowed_hosts: further names the `Host` header of a request may carry, besides the
         bound address, `localhost`, `127.0.0.1` and `::1` (and, when the server binds
         every interface, this machine's host name and addresses). `*` allows any.
-        Requests naming another host are answered 400 (DNS-rebinding defence).
+        Requests naming another host are answered 400 (DNS-rebinding defense).
     allowed_origins: further browser origins (`scheme://host[:port]`) that may open the
         console WebSocket `/ws/ui`, besides the server's own origin. `*` allows any.
     marking: banner for the console, or None for no banner.

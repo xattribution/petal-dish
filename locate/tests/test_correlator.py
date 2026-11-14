@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from petal_locate.config import SystemConfig
-from petal_locate.core.detect import Detection
+from petal_locate.core.detect import Classification, Detection
 from petal_locate.core.timebase import ns_from_iso
 from petal_locate.core.types import Measurement, PathSpec
 from petal_locate.server.api import schemas
@@ -360,7 +360,12 @@ def test_lost_then_reopened_keeps_the_event_and_its_progress() -> None:
     record = h.only()
     assert h.book.mark_characterizing(record.id)
     h.run(6.0, sightings)
-    assert record.state == "characterizing" and record.verdict == "local"
+    # final recheck: judged local, nothing is characterized or located by satellite any more, and
+    # no satellite relays a local signal
+    assert record.state == "detected" and record.verdict == "local"
+    assert record.transitions[-1].reason == "judged local: nothing to characterize or locate by satellite"
+    assert record.satellite_ids == [] and record.transponders == []
+    assert h.book.to_schema(record).satellite_ids == []
     h.run(0.5, {})
     assert record.state == "lost" and record.lost_ns == h.clock()
     assert record.transitions[-1].reason == "all detections released"
@@ -369,7 +374,7 @@ def test_lost_then_reopened_keeps_the_event_and_its_progress() -> None:
     h.run(20.0, {})
     h.run(0.5, {A1: [det(9, UP - 4e3, UP + 4e3)]})
     assert h.only() is record
-    assert record.state == "characterizing"
+    assert record.state == "detected"
     assert record.transitions[-1].reason == "detected again after a break of 20 s"
     assert record.resumed_ns == h.clock() and record.break_s == pytest.approx(20.5)
     assert record.onset_ns is not None and record.recheck is None  # nothing measured to re-check
@@ -632,22 +637,24 @@ def test_tasking_mutations_drive_the_lifecycle_and_are_published() -> None:
     assert rejected == 1 and record.state == "characterizing"
     m1 = Measurement("tdoa", 1e-3, 1e-6, T0, path, other)
     m2 = Measurement("fdoa", 0.5, 1e-3, T0, path, other)
+    m3 = Measurement("tdoa", 2e-3, 1e-6, T0, path, other)
     s1 = h.book.add_measurement(record.id, _row("tdoa"), m1)
     s2 = h.book.add_measurement(record.id, _row("fdoa", value=0.5), m2)
-    assert (s1, s2) == (2, 3) and record.state == "locating"
-    assert h.book.solver_measurements(record.id) == [m1, m2]
-    assert h.book.solver_measurements(record.id, limit=1) == [m2]
+    s3 = h.book.add_measurement(record.id, _row("tdoa", value=2e-3), m3)
+    assert (s1, s2, s3) == (2, 3, 4) and record.state == "locating"
+    assert h.book.solver_measurements(record.id) == [m1, m2, m3]
+    assert h.book.solver_measurements(record.id, limit=1) == [m3]
     with pytest.raises(ValueError):
         h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), T0, used=[s1])
     assert h.book.set_solution(record.id, None, T0, reason="unobservable")
     assert record.state == "locating" and record.last_solve_reason == "unobservable"
-    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), T0 + 1, used=[s1, s2])
-    assert record.state == "located"
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 1, used=[s1, s2, s3])
+    assert record.state == "located" and record.solution_out.is_fix
     residuals = {e.seq: e.row.residual for e in record.measurements}
-    assert residuals == {1: None, 2: 0.5, 3: -0.2}
+    assert residuals == {1: None, 2: 0.5, 3: -0.2, 4: 0.1}
     assert record.solution_history[-1].semi_major_m == pytest.approx(4895.0)
-    bad = FakeSolution([math.inf, 0.0])
-    assert not h.book.set_solution(record.id, bad, T0 + 2, used=[s1, s2])
+    bad = FakeSolution([math.inf, 0.0, 0.0])
+    assert not h.book.set_solution(record.id, bad, T0 + 2, used=[s1, s2, s3])
 
     class Caf:
         surface = [[0.0, -3.0], [-math.inf, 12.0]]
@@ -669,7 +676,7 @@ def test_tasking_mutations_drive_the_lifecycle_and_are_published() -> None:
     assert document["state"] == "located" and document["caf"]["peak_tdoa_s"] == 1e-6
     assert document["classification"]["label"] == "cw"
     assert document["solution"]["lat_deg"] == 20.0
-    assert [m["residual"] for m in document["measurements"]] == [None, 0.5, -0.2]
+    assert [m["residual"] for m in document["measurements"]] == [None, 0.5, -0.2, 0.1]
     assert all(isinstance(t["t_ns"], str) for t in document["transitions"])
     states = [t.state for t in record.transitions]
     assert states == ["detected", "characterizing", "locating", "located"]
@@ -738,17 +745,19 @@ def test_cross_satellite_detection_makes_the_verdict_uplink() -> None:
     assert "two satellites" in record.verdict_reason
 
 
-def _locate(h: Harness, record: Any) -> tuple[int, int]:
-    """Give the event two accepted rows and a converged solution; return their seqs."""
+def _locate(h: Harness, record: Any) -> tuple[int, int, int]:
+    """Give the event three accepted rows and a converged solution (one more row than
+    the two unknowns: a fix); return their seqs."""
     path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
     other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
     h.book.mark_characterizing(record.id)
     s1 = h.book.add_measurement(record.id, _row("tdoa"), Measurement("tdoa", 1e-3, 1e-6, T0, path, other))
     s2 = h.book.add_measurement(record.id, _row("fdoa", value=0.5), Measurement("fdoa", 0.5, 1e-3, T0, path, other))
-    assert s1 is not None and s2 is not None
-    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), h.clock(), used=[s1, s2])
+    s3 = h.book.add_measurement(record.id, _row("tdoa", value=2e-3), Measurement("tdoa", 2e-3, 1e-6, T0, path, other))
+    assert s1 is not None and s2 is not None and s3 is not None
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), h.clock(), used=[s1, s2, s3])
     assert record.state == "located"
-    return s1, s2
+    return s1, s2, s3
 
 
 def test_detected_again_after_a_long_break_sets_the_old_position_aside() -> None:
@@ -763,7 +772,7 @@ def test_detected_again_after_a_long_break_sets_the_old_position_aside() -> None
     record = h.only()
     h.run(6.0, sightings)
     assert record.verdict == "uplink"
-    s1, s2 = _locate(h, record)
+    s1, s2, _ = _locate(h, record)
     assert h.book.set_classification(record.id, type("C", (), {"label": "noise", "confidence": 0.9, "features": {}})())
     assert h.book.set_caf(record.id, caf_display(type("Caf", (), {
         "surface": [[0.0]], "delay_axis_s": [0.0], "doppler_axis_hz": [0.0], "delay_cut": ([0.0], [0.0]),
@@ -794,8 +803,8 @@ def test_detected_again_after_a_long_break_sets_the_old_position_aside() -> None
     h.run(5.5, sightings)
     assert record.verdict == "uplink" and record.verdict_basis == "two_sites"
     # New rows locate it again.
-    t1, t2 = _locate(h, record)
-    assert [e.seq for e in record.used_measurements()] == [t1, t2]
+    t1, t2, t3 = _locate(h, record)
+    assert [e.seq for e in record.used_measurements()] == [t1, t2, t3]
 
 
 def test_uplink_verdict_gives_way_when_only_a_local_signal_remains() -> None:
@@ -819,12 +828,13 @@ def test_uplink_verdict_gives_way_when_only_a_local_signal_remains() -> None:
     h.run(2.0, alone)
     assert record.verdict == "local" and record.verdict_basis == "capable_not_seen"
     assert record.verdict_reason.startswith("Far, 1,994 km away")
-    assert record.solution is None and record.state == "characterizing"
+    assert record.solution is None and record.state == "detected"
     assert not record.caf_uplink
     assert all(not e.row.used for e in record.measurements)
-    reasons = [t.reason or "" for t in record.transitions[-2:]]
+    reasons = [t.reason or "" for t in record.transitions[-3:]]
     assert reasons[0].startswith("verdict: Far") and "uplink signal seen earlier has stopped" in reasons[0]
     assert reasons[1].startswith("position set aside")
+    assert reasons[2] == "judged local: nothing to characterize or locate by satellite"
     assert "Local interference" in h.book.to_schema(record).advisory.headline
     # It stays local while only Alpha sees it.
     h.run(5.0, alone)
@@ -1016,3 +1026,222 @@ def test_site_distances_are_symmetric_geodesics() -> None:
         }
     )
     assert site_distances_km(one)[("p", "q")] == pytest.approx(110.85, abs=0.1)
+
+
+def test_a_solution_without_redundancy_or_with_an_absurd_ellipse_is_not_a_fix() -> None:
+    """R4/R5: live, an event was declared located from 2 rows (no redundancy, dof 0) with a
+    12,671 km ellipse 3,143 km from the truth, and an FDOA-only CW fix from 2 rows missed
+    by 136 km outside its 84 km ellipse. Only a converged, consistent fit with dof >= 1
+    and an ellipse within the sanity bound is a fix; anything else is published with
+    is_fix false and its reason, and the event is never located from it."""
+    from petal_locate.server.pipeline.events import FIX_MAX_SEMI_MAJOR_M, fix_semi_major_limit_m
+
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    path = PathSpec("sat-a", "alpha", UP, SAT_A_SHIFT)
+    other = PathSpec("sat-b", "alpha", UP, SAT_B_SHIFT)
+    h.book.mark_characterizing(record.id)
+    s1 = h.book.add_measurement(record.id, _row("fdoa", value=0.5), Measurement("fdoa", 0.5, 1e-3, T0, path, other))
+    s2 = h.book.add_measurement(record.id, _row("fdoa", value=0.6), Measurement("fdoa", 0.6, 1e-3, T0, path, other))
+    limit = FIX_MAX_SEMI_MAJOR_M
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2]), T0 + 1, used=[s1, s2], max_semi_major_m=limit)
+    out = record.solution_out
+    assert record.state == "locating" and out is not None and out.fit_consistent and not out.is_fix
+    assert out.not_fix_reason.startswith("no redundancy: 2 measurements for the two unknowns of a position")
+    assert record.transitions[-1].reason.startswith("the position is not a fix: no redundancy")
+    assert h.book.summary(record).solution.is_fix is False
+    assert record.solution_history[-1].is_fix is False
+    record.verdict, record.verdict_basis, record.verdict_reason = "uplink", "caf", "Seen through two satellites."
+    advisory = advise(record, None)
+    assert "is not a reliable position: no redundancy" in advisory.detail
+    assert not any("Report the estimated transmitter position" in a for a in advisory.actions)
+    assert any("do not report the computed position yet: it is not a fix" in a for a in advisory.actions)
+    # one more row: a fix
+    s3 = h.book.add_measurement(record.id, _row("fdoa", value=0.7), Measurement("fdoa", 0.7, 1e-3, T0, path, other))
+    assert h.book.set_solution(record.id, FakeSolution([0.5, -0.2, 0.1]), T0 + 2, used=[s1, s2, s3],
+                               max_semi_major_m=limit)
+    assert record.state == "located" and record.solution_out.is_fix and record.solution_out.not_fix_reason is None
+    # a consistent, redundant fit whose ellipse is thousands of kilometres long is withdrawn
+    huge = FakeSolution([0.5, -0.2, 0.1])
+    data = huge.as_dict()
+    data["ellipse"] = {**data["ellipse"], "semi_major_m": 12_671_000.0}
+    huge.as_dict = lambda: data  # type: ignore[method-assign]
+    assert h.book.set_solution(record.id, huge, T0 + 3, used=[s1, s2, s3], max_semi_major_m=limit)
+    assert record.state == "locating" and not record.solution_out.is_fix
+    assert "the 95 % error ellipse has a semi-major axis of 12,671 km, more than the 1,000 km a fix may have" in (
+        record.solution_out.not_fix_reason
+    )
+    assert record.transitions[-1].reason.startswith("position withdrawn: the position is not a fix: the 95 %")
+    # the bound: 1,000 km, or a quarter of a smaller region's smaller extent
+    from pathlib import Path
+
+    from petal_locate.config import load_config
+
+    pacific = load_config(Path(__file__).resolve().parents[1] / "config" / "pacific-uhf.yaml")
+    assert fix_semi_major_limit_m(pacific.processing.region) == pytest.approx(1.0e6)
+    small = type("R", (), {"lat_min": 10.0, "lat_max": 14.0, "lon_span_deg": lambda self: 6.0})()
+    assert fix_semi_major_limit_m(small) == pytest.approx(0.25 * 4.0 * 111_195.0)
+    assert fix_semi_major_limit_m(None) == FIX_MAX_SEMI_MAJOR_M
+
+
+def test_a_local_signal_that_takes_over_starts_its_own_transmission() -> None:
+    """R2: when the uplink signal stops and a local one holds its frequency at one site,
+    the event's onset (the start time the operator reports) and the evidence cells'
+    'last saw it' belong to the local signal: the onset is when the uplink was last seen
+    at the sites that no longer see anything, not the uplink's first detection, and a
+    channel that only saw the uplink no longer shows its last sighting."""
+    from petal_locate.server.pipeline.correlator import CAF_EVIDENCE_S, LOCAL_OVERRIDE_S
+
+    h = Harness(make_config())
+
+    def run(seconds: float, far: bool) -> None:
+        for _ in range(int(round(seconds / 0.5))):
+            h.clock.advance(0.5)
+            now = h.clock()
+            sightings = {A1: [det(1, UP - 5e3, UP + 5e3, last_ns=now)]}
+            if far:
+                sightings[FB] = [det(1, UP - 5e3, UP + 5e3, SAT_B_SHIFT, last_ns=now)]
+            h.frame(sightings)
+            h.corr.tick()
+
+    run(0.5, True)
+    record = h.only()
+    run(6.0, True)
+    _locate(h, record)
+    assert record.onset == T0
+    run(10.0, True)
+    stopped_ns = h.clock()  # the uplink's last frame at Far
+    assert h.rows(record)[FB_ROW].last_seen_ns == stopped_ns
+    for _ in range(int(2 * (CAF_EVIDENCE_S + LOCAL_OVERRIDE_S + 10.0))):
+        run(0.5, False)
+        if record.verdict == "local":
+            break
+    assert record.verdict == "local"
+    assert record.onset_ns == stopped_ns  # not the uplink's first detection (T0)
+    rows = h.rows(record)
+    assert rows[FB_ROW].last_seen_ns is None  # it only ever saw the uplink signal
+    assert record.channel_seen_ns.get(FB_ROW) is None
+    assert rows[A1_ROW].state == "seen" and rows[A1_ROW].last_seen_ns is not None
+    assert int(h.book.to_schema(record).onset_ns) == stopped_ns
+    run(5.0, False)  # later evaluations do not bring the uplink's sightings back
+    assert h.rows(record)[FB_ROW].last_seen_ns is None
+
+
+A1_ROW = ("alpha-a", "sat-a")
+FB_ROW = ("far-b", "sat-b")
+
+
+def test_an_uplink_signal_that_takes_over_a_local_event_starts_its_own_transmission() -> None:
+    """Final recheck: a local event whose frequency an uplink jammer then takes (seen far
+    away through both satellites) kept the local signal's onset, so the advisory gave the
+    local signal's start as the jammer's. A local signal does not become an uplink one:
+    the onset moves to the first detection at a site that did not see the local signal,
+    and what was measured on the local signal (its class) is set aside."""
+    h = Harness(make_config())
+    local = {A1: [det(1, UP - 5e3, UP + 5e3, cn0=70.0)]}
+    h.frame(local)
+    h.run(6.0, local)
+    record = h.only()
+    assert record.verdict == "local" and record.onset == T0
+    assert record.local_site_ids == ("alpha",)
+    assert h.book.set_classification(record.id, Classification("noise", 0.9, {}))
+    h.run(20.0, local)
+    start_ns = h.clock() + int(0.5e9)
+    both = {
+        A1: local[A1],
+        FA: [det(2, UP - 5e3, UP + 5e3, first_ns=start_ns)],
+        FB: [det(3, UP - 5e3, UP + 5e3, SAT_B_SHIFT, first_ns=start_ns)],
+    }
+    for _ in range(60):
+        h.run(0.5, both)
+        if record.verdict == "uplink":
+            break
+    assert record.verdict == "uplink"
+    assert record.onset_ns == start_ns  # the jammer's first detection, not the local signal's (T0)
+    assert int(h.book.to_schema(record).onset_ns) == start_ns
+    assert record.classification is None  # it described the local signal
+
+
+def test_event_text_that_utf8_cannot_carry_is_escaped() -> None:
+    """SRV-2 defence in depth: text reaching an event (a node's capture error message in a
+    row reason, a tasking message, a transition reason) is escaped where UTF-8 cannot
+    carry it, so the published document can always be written."""
+    h = Harness(make_config())
+    h.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    record = h.only()
+    bad = "capture_failed: driver: bad \ud800 name"
+    seq = h.book.add_measurement(record.id, _row(used=False, value=None).model_copy(update={"reason": bad}))
+    assert seq is not None
+    status = schemas.TaskingStatus(state="waiting", rounds=1, last_round_ns=T0, next_round_ns=None, channels=["alpha-a"],
+                                   message=f"Capture failed on alpha-a (driver: {bad}).", solve_reason=bad)
+    assert h.book.set_tasking(record.id, status)
+    h.book.note_transition(record, T0, f"note: {bad}", force=True)
+    assert h.book.set_solution(record.id, None, T0, reason=bad)
+    h.book.flush(force=True)
+    text = h.published[-1].text
+    text.encode("utf-8")  # writable
+    document = json.loads(text)
+    assert "\\\\ud800" in json.dumps(document) or "\\ud800" in document["measurements"][-1]["reason"]
+    assert document["measurements"][-1]["reason"].endswith("bad \\ud800 name")
+    assert record.tasking.message.endswith("(driver: capture_failed: driver: bad \\ud800 name).")
+    assert record.transitions[-1].reason == "note: capture_failed: driver: bad \\ud800 name"
+    assert record.last_solve_reason.endswith("\\ud800 name")
+
+
+def test_a_signal_that_fills_its_window_is_at_least_as_wide_as_shown() -> None:
+    """ADAPT-5: when every detection of an event reaches both edges of the window it was
+    measured in, the signal may be wider than any window shows: the document marks the
+    width as a lower bound and the advice says 'at least'."""
+    h = Harness(make_config())
+    spec = h.specs[A1]
+    full = det(1, spec.lo_hz - SAT_A_SHIFT, spec.hi_hz - SAT_A_SHIFT)  # the whole window
+    h.frame({A1: [full]})
+    record = h.only()
+    h.corr.tick()
+    assert record.width_lower_bound
+    document = h.book.to_schema(record)
+    assert document.width_lower_bound and h.book.summary(record).width_lower_bound
+    assert "(at least" in advise(record, None).detail
+    # a narrower signal inside the window: its width is measured
+    h2 = Harness(make_config())
+    h2.frame({A1: [det(1, UP - 5e3, UP + 5e3)]})
+    narrow = h2.only()
+    h2.corr.tick()
+    assert not narrow.width_lower_bound and not h2.book.to_schema(narrow).width_lower_bound
+    assert "(at least" not in advise(narrow, None).detail and "(about 10 kHz wide)" in advise(narrow, None).detail
+
+
+@pytest.mark.parametrize(("short_fraction", "lower_bound"), [(0.039, True), (0.07, True), (0.15, False)])
+def test_a_signal_that_fills_its_window_up_to_the_receiver_roll_off_is_a_lower_bound(
+    short_fraction: float, lower_bound: bool
+) -> None:
+    """Final recheck of ADAPT-5: a receiver's anti-alias filter rolls off near the window
+    edges, so a signal wider than the window is detected only to about 4 % of the span
+    short of each edge (live: a 20 MHz jammer showed 4.62 MHz of a 5 MHz window), far more
+    than 1.5 bins. The outer WINDOW_EDGE_FRACTION of each side counts as the edge; a
+    signal stopping well inside that is measured."""
+    h = Harness(make_config())
+    spec = h.specs[A1]
+    short = short_fraction * spec.span_hz
+    h.frame({A1: [det(1, spec.lo_hz + short - SAT_A_SHIFT, spec.hi_hz - short - SAT_A_SHIFT)]})
+    record = h.only()
+    h.corr.tick()
+    assert record.width_lower_bound is lower_bound
+    assert ("(at least" in advise(record, None).detail) is lower_bound
+
+
+def test_a_piece_of_a_wide_signal_does_not_undo_its_lower_bound() -> None:
+    """Final recheck (live, a 20 MHz jammer in 5 MHz windows): the flag flickered off when
+    the noise broke into a second, narrower detection in the same window. What a window's
+    detections cover together decides."""
+    h = Harness(make_config())
+    spec = h.specs[A1]
+    short = 0.04 * spec.span_hz
+    whole = det(1, spec.lo_hz + short - SAT_A_SHIFT, spec.hi_hz - short - SAT_A_SHIFT)
+    piece = det(2, UP - 2e3, UP + 2e3)
+    h.frame({A1: [whole, piece]})
+    record = h.only()
+    h.corr.tick()
+    assert len(record.members) == 2
+    assert record.width_lower_bound

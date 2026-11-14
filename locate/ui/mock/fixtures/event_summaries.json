@@ -23,7 +23,8 @@
       "cep50_m": 1217031.6682946049,
       "ambiguous": false,
       "ambiguities": [],
-      "fit_consistent": false
+      "fit_consistent": false,
+      "is_fix": false
     },
     "simulated": true,
     "onset_ns": "1794592736000000000",
@@ -36,7 +37,8 @@
       "seoul",
       "busan",
       "manila"
-    ]
+    ],
+    "width_lower_bound": false
   },
   {
     "id": "EV-0042",
@@ -62,7 +64,8 @@
       "cep50_m": 447.66620420840195,
       "ambiguous": false,
       "ambiguities": [],
-      "fit_consistent": true
+      "fit_consistent": true,
+      "is_fix": true
     },
     "simulated": true,
     "onset_ns": "1794592777500000000",
@@ -75,7 +78,8 @@
       "seoul",
       "busan",
       "manila"
-    ]
+    ],
+    "width_lower_bound": false
   },
   {
     "id": "EV-0043",
@@ -109,7 +113,8 @@
           "azimuth_deg": 5.45094398045087
         }
       ],
-      "fit_consistent": true
+      "fit_consistent": true,
+      "is_fix": true
     },
     "simulated": true,
     "onset_ns": "1794592745000000000",
@@ -122,19 +127,18 @@
       "seoul",
       "busan",
       "manila"
-    ]
+    ],
+    "width_lower_bound": false
   },
   {
     "id": "EV-0041",
-    "state": "characterizing",
+    "state": "detected",
     "verdict": "local",
     "first_seen_ns": "1794592488000000000",
     "last_seen_ns": "1794592799500000000",
     "uplink_lo_hz": 301500880.0,
     "uplink_hi_hz": 301504120.0,
-    "satellite_ids": [
-      "muos-pac"
-    ],
+    "satellite_ids": [],
     "label": "modulated",
     "headline": "Local interference at Busan (city center)",
     "solution": null,
@@ -144,7 +148,8 @@
     "received_hi_hz": 260504120.0,
     "seen_site_ids": [
       "busan"
-    ]
+    ],
+    "width_lower_bound": false
   },
   {
     "id": "EV-0044",
@@ -166,7 +171,8 @@
     "received_hi_hz": null,
     "seen_site_ids": [
       "honolulu"
-    ]
+    ],
+    "width_lower_bound": false
   },
   {
     "id": "EV-0039",
@@ -186,7 +192,8 @@
     "onset_ns": "1794587400000000000",
     "received_lo_hz": null,
     "received_hi_hz": null,
-    "seen_site_ids": []
+    "seen_site_ids": [],
+    "width_lower_bound": false
   },
   {
     "id": "EV-0038",
@@ -196,9 +203,7 @@
     "last_seen_ns": "1794584100000000000",
     "uplink_lo_hz": 301499800.0,
     "uplink_hi_hz": 301500200.0,
-    "satellite_ids": [
-      "muos-pac"
-    ],
+    "satellite_ids": [],
     "label": "cw",
     "headline": "Closed: local interference at one site",
     "solution": null,
@@ -206,6 +211,7 @@
     "onset_ns": "1794583800000000000",
     "received_lo_hz": null,
     "received_hi_hz": null,
-    "seen_site_ids": []
+    "seen_site_ids": [],
+    "width_lower_bound": false
   }
 ]

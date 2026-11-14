@@ -1162,7 +1162,11 @@ async def test_stale_capture_frames_are_discarded(served: Served) -> None:
         assert hub.is_online("site-a")
 
 
-async def test_ninth_concurrent_capture_is_refused(served: Served) -> None:
+async def test_ninth_concurrent_capture_waits_for_a_slot(served: Served) -> None:
+    """R4: the node's MAX_CONCURRENT_CAPTURES is shared by every caller. Live, two events
+    starting together had 4 captures at one node fail 'limit' and one event was then
+    solved from 2 rows. A capture over the limit now waits for a slot (no request goes
+    out meanwhile) and fails 'limit' only when its deadline passes first."""
     hub = served.hub
     async with FakeNode.connect(served) as node:
         await node.join()
@@ -1170,24 +1174,31 @@ async def test_ninth_concurrent_capture_is_refused(served: Served) -> None:
         requests = [await node.expect("capture_request") for _ in range(8)]
         assert len({r["capture_id"] for r in requests}) == 8
 
-        failure = await failure_of(start_capture(hub, "a1", 100))
-        assert failure.code == "limit" and "8 captures" in failure.message
+        # A ninth with a short deadline: no slot frees in time.
+        failure = await failure_of(start_capture(hub, "a1", 100, lead_s=0.0, timeout_s=0.3))
+        assert failure.code == "limit" and "8 captures pending until the deadline" in failure.message
         assert (await node.heartbeat())["type"] == "heartbeat_ack"  # no ninth request went out
 
-        # One finishes: there is room again.
+        # A ninth with time to spare waits: still nothing is sent ...
+        ninth = start_capture(hub, "a1", 100)
+        await asyncio.sleep(0.2)
+        assert not ninth.done()
+        assert (await node.heartbeat())["type"] == "heartbeat_ack"
+        assert hub.counters()["capture_queued"] == 2
+        # ... until one finishes: then it goes out at once and completes normally.
         iq = make_iq(100)
         await node.send(capture_frames(requests[0], iq)[0])
         assert np.array_equal((await asyncio.wait_for(tasks[0], WAIT_S)).iq, iq)
-        ninth = start_capture(hub, "a1", 100)
-        assert (await node.expect("capture_request"))["capture_id"] not in {
-            r["capture_id"] for r in requests
-        }
-        for task in [*tasks[1:], ninth]:
+        request = await node.expect("capture_request")
+        assert request["capture_id"] not in {r["capture_id"] for r in requests}
+        await node.send(capture_frames(request, iq)[0])
+        assert np.array_equal((await asyncio.wait_for(ninth, WAIT_S)).iq, iq)
+        for task in tasks[1:]:
             task.cancel()
-        await asyncio.gather(*tasks[1:], ninth, return_exceptions=True)
+        await asyncio.gather(*tasks[1:], return_exceptions=True)
         # Each withdrawn capture is cancelled at the node (advisory).
-        cancelled = {(await node.expect("capture_cancel"))["capture_id"] for _ in range(8)}
-        assert len(cancelled) == 8 and hub.counters()["capture_cancelled"] == 8
+        cancelled = {(await node.expect("capture_cancel"))["capture_id"] for _ in range(7)}
+        assert len(cancelled) == 7 and hub.counters()["capture_cancelled"] == 7
 
 
 async def test_capture_requests_that_cannot_be_made(served: Served) -> None:
@@ -2293,3 +2304,22 @@ def test_hub_and_its_subscriptions_survive_a_new_event_loop() -> None:
     assert first[:2] == [("online", "hello"), ("channels", "assign_ack")]
     assert events[len(first) :][:2] == [("online", "hello"), ("channels", "assign_ack")]
     assert problems == []
+
+
+async def test_node_status_escapes_text_utf8_cannot_carry(served: Served) -> None:
+    """SRV-2 defence in depth: node and provider text in a status (software, driver, a
+    window note) is escaped where UTF-8 cannot carry it, so the status can be written
+    whatever reaches it (the parser already refuses such text at the door)."""
+    from petal_locate.server.api import schemas as api_schemas
+
+    hub = served.hub
+    async with FakeNode.connect(served) as node:
+        await node.join()
+        session = hub._sessions["site-a"]
+        session.software = "petal-locate/\ud800"
+        session.driver = "sim\udfff"
+        hub.set_window_health(lambda channel_id, monitor_id: {"blind": True, "note": "no frames \ud800"})
+        (status,) = [s for s in hub.node_status() if s["site_id"] == "site-a"]
+        assert status["software"] == "petal-locate/\\ud800" and status["driver"] == "sim\\udfff"
+        assert "no frames \\ud800" in status["channels"][0]["detection_problem"]
+        api_schemas.NodeStatus.model_validate(status).model_dump_json()  # writable

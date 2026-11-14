@@ -91,15 +91,15 @@ class WaveformSpec(_Model):
 class EmitterSpec(_Model):
     """One radiating source in the simulated world.
 
-    kind: ``jammer`` (interference reaching satellites), ``carrier`` (an authorised
+    kind: ``jammer`` (interference reaching satellites), ``carrier`` (an authorized
     carrier of the configuration; set ``carrier_id``) or ``local`` (a terrestrial
     interferer heard directly by nearby sites).
-    carrier_id: the configuration ``Carrier`` this emitter realises. When set, every
+    carrier_id: the configuration ``Carrier`` this emitter realizes. When set, every
     field left as ``None`` takes the carrier's value (location, ``freq_hz`` =
     ``uplink_center_hz``, EIRP, antenna, pointing, waveform from its ``EmitterModel``).
-    lat_deg, lon_deg, alt_m, antenna_height_m: position; the phase centre is at
+    lat_deg, lon_deg, alt_m, antenna_height_m: position; the phase center is at
     ``alt_m + antenna_height_m`` above the ellipsoid.
-    freq_hz: RF centre frequency actually radiated, Hz.
+    freq_hz: RF center frequency actually radiated, Hz.
     eirp_dbw: EIRP on boresight, dBW.
     t_start, t_stop: optional on/off times (UTC); absent means always.
     """
@@ -174,7 +174,7 @@ class TruthErrors(_Model):
 
     ephemeris: per satellite id. sat_osc_frac: fractional error of each satellite's
     translation oscillator. site_clock_offset_ns: ``delta_g`` per site, true time
-    minus labelled time, ns. site_osc_frac: fractional error of each site's reference
+    minus labeled time, ns. site_osc_frac: fractional error of each site's reference
     oscillator (``eps_g``). iono: ionospheric delay. tropo: tropospheric delay.
     """
 
@@ -224,10 +224,10 @@ class Scenario(_Model):
     def validate_against(self, config: Any) -> None:
         """Raise ``ScenarioError`` naming the field when the scenario refers to a
         satellite, site or carrier the configuration does not have, when an emitter
-        that realises a carrier cannot take its defaults from it, when an emitter id
+        that realizes a carrier cannot take its defaults from it, when an emitter id
         collides with the emitter the simulator creates for a configuration carrier
         (one with ``location`` and ``emitter`` that no scenario emitter names; its id is
-        the carrier id), or when a waveform asks for what the synthesiser cannot make
+        the carrier id), or when a waveform asks for what the synthesizer cannot make
         (8-PSK: ``core.signals`` makes BPSK and QPSK)."""
         sat_ids = {s.id for s in config.satellites}
         site_ids = {s.id for s in config.sites}
@@ -241,11 +241,11 @@ class Scenario(_Model):
             if emitter.id in auto_ids:
                 raise ScenarioError(
                     f"{where}.id: {emitter.id!r} is the id of the emitter created for configuration carrier "
-                    f"{emitter.id!r}; rename it or set carrier_id: {emitter.id} to realise that carrier"
+                    f"{emitter.id!r}; rename it or set carrier_id: {emitter.id} to realize that carrier"
                 )
             if emitter.waveform is not None and emitter.waveform.type == "psk" and emitter.waveform.order not in (2, 4):
                 raise ScenarioError(
-                    f"{where}.waveform.order: {emitter.waveform.order}-PSK cannot be synthesised (2 or 4 only)"
+                    f"{where}.waveform.order: {emitter.waveform.order}-PSK cannot be synthesized (2 or 4 only)"
                 )
             if emitter.carrier_id is not None:
                 carrier = carriers.get(emitter.carrier_id)

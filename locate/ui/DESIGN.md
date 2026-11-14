@@ -156,7 +156,12 @@ charts, a "Welcome back". Changes made against it:
 | Backdrop of the token dialog stops at the banner rows | The marking banners stay above every overlay, undimmed | mil conventions, Marking banner; UX-14 |
 | DTG followed by `HH:MM:SSZ` | Event times that change by the second; the DTG itself stays standard | mil conventions, Time; UX-14 |
 | Caution notice "Not a fix" in Location, caution diamond on the queue row | `SolutionOut.fit_consistent` false: the measurements do not fit one stationary transmitter; the enlarged ellipse is shown, never reported | UX-1 |
-| Dotted `--fix` ellipse with no fill, label "(not a fix)" | An inconsistent fit's enlarged ellipse on the maps | UX-1; distinct from the solid fix and the dashed ambiguity |
+| Caution notice "Not a fix" with the server's reason, "Not a fix yet" on the queue row, "not a fix" in the ellipse history | `SolutionOut.is_fix` false for a consistent fit (`not_fix_reason`: no redundancy, an ellipse beyond the sanity bound, no convergence); shown, never reported | R4 |
+| Dotted `--fix` ellipse with no fill, label "(not a fix)" | A solution that is not a fix on the maps (`is_fix` false, including an inconsistent fit's enlarged ellipse) | UX-1, R4; distinct from the solid fix and the dashed ambiguity |
+| "Position withdrawn" heading with the reason in Location | The newest measurements admit no position, so the one published is withdrawn (transition "position withdrawn: ...") | R6 |
+| "at least N kHz" on the queue row and in the dossier header, with an (i) | `width_lower_bound`: in every monitor window the detections fill it to within the receiver's roll-off, so the signal may be wider | ADAPT-5 |
+| "Site clocks by calibration" notes under the Network table; "differs by satellite" under an offset | `SiteClockEstimate.message`: a clock fault (caution diamond) or a satellite position the per-satellite views blame instead (no status: the clock is fine) | R3 |
+| "nearest to each cell" reference in the accuracy form | `AccuracyRequest.reference_carrier_id = "nearest"`: each cell calibrated as tasking would calibrate an emitter there | R7 |
 | Candidates table "One of N positions" | Every position of an unresolved ambiguity, none singled out as the fix | MATH.md section 9; UX-6 |
 | Caution notice "Re-check" | `Event.recheck`: the position is being checked against new measurements | UX-5 |
 | "Start", "First seen", "Detected again ... after a break of" in the dossier header | `onset_ns` (the time to report), the first detection and the latest break | UX-5 |
@@ -168,3 +173,4 @@ charts, a "Welcome back". Changes made against it:
 | Letters I and T on accuracy cells | Ionosphere and troposphere as the dominant error | MATH.md section 9 media consider terms |
 | "simulated time, N behind this computer" (ink-2) in the clock strip | A simulated world running from a fixed epoch; the red clock warning stays for a real server | K8 |
 | "channel@sat" in the pair selects | A channel watching several satellites names the one a pair means | ADAPT-4 |
+| Plan side panel at least 448 px at every width; (i) tips hidden with `display: none`; dossier header column `minmax(0, 1fr)` | At 1024 px the elevation table, a hidden tip and a long header line no longer widen their panel past the window | UX-13; final recheck |

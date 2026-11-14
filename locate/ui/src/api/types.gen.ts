@@ -26,13 +26,19 @@ export interface AccuracyGrid {
  * ``t`` (ISO 8601) defaults to now (the start of the current minute, so that a
  * repeated request is answered from the server's cache), ``region`` to the configured
  * region. ``kinds`` chooses the measurement types assumed. ``reference_carrier_id``
- * assumes calibration against that reference carrier. ``integration_s`` defaults to
+ * assumes calibration against that reference carrier; ``"nearest"``
+ * (``core.accuracy.NEAREST_REFERENCE``) calibrates each cell's pairs against the
+ * reference carrier tasking would use for an emitter in that cell (relayed by both
+ * transponders of the pair, clear of the emitter's band, nearest the cell, then nearest
+ * in frequency; a configured carrier of that id takes precedence); null assumes no
+ * calibration. ``integration_s`` defaults to
  * the configured capture. ``uncertainty`` replaces ``processing.uncertainty`` for this
  * map only (what-if planning; the configuration is not changed): satellites with their
  * own ``ephemeris_sigma`` keep it, and site clocks keep ``Site.clock.sigma_ns``.
  *
  * The server refuses (422) a grid of more than 20 000 cells (choose a coarser
- * ``step_deg`` or a smaller ``region``) and gives up (504) after 120 s.
+ * ``step_deg`` or a smaller ``region``) or more than 128 pairs, and gives up (504)
+ * after 120 s.
  */
 export interface AccuracyRequest {
   emitter: EmitterModel;
@@ -166,7 +172,7 @@ export interface CaptureConfig {
 }
 
 /**
- * An authorised carrier of the frequency plan.
+ * An authorized carrier of the frequency plan.
  *
  * satellite_id, transponder_id: the transponder it is assigned to.
  * uplink_center_hz, bandwidth_hz: its uplink allocation, Hz. location, emitter: where
@@ -186,7 +192,7 @@ export interface Carrier {
 }
 
 /**
- * Surveyed position of a carrier's uplink antenna (phase centre at
+ * Surveyed position of a carrier's uplink antenna (phase center at
  * ``alt_m + antenna_height_m`` above the ellipsoid).
  */
 export interface CarrierLocation {
@@ -236,7 +242,7 @@ export interface ClassificationOut {
  *     (free running).
  * locked: whether the clock is disciplined right now. A capture taken unlocked
  *     yields no TDOA unless both channels of the pair are at one site.
- * est_offset_ns: the node's estimate of true time minus labelled time, ns (signed;
+ * est_offset_ns: the node's estimate of true time minus labeled time, ns (signed;
  *     MATH.md section 4 `delta_g`). Displayed, never applied to measurements.
  * holdover_s: seconds since the reference was lost, 0 while locked.
  */
@@ -319,15 +325,15 @@ export interface EmitterModel {
 /**
  * One radiating source in the simulated world.
  *
- * kind: ``jammer`` (interference reaching satellites), ``carrier`` (an authorised
+ * kind: ``jammer`` (interference reaching satellites), ``carrier`` (an authorized
  * carrier of the configuration; set ``carrier_id``) or ``local`` (a terrestrial
  * interferer heard directly by nearby sites).
- * carrier_id: the configuration ``Carrier`` this emitter realises. When set, every
+ * carrier_id: the configuration ``Carrier`` this emitter realizes. When set, every
  * field left as ``None`` takes the carrier's value (location, ``freq_hz`` =
  * ``uplink_center_hz``, EIRP, antenna, pointing, waveform from its ``EmitterModel``).
- * lat_deg, lon_deg, alt_m, antenna_height_m: position; the phase centre is at
+ * lat_deg, lon_deg, alt_m, antenna_height_m: position; the phase center is at
  * ``alt_m + antenna_height_m`` above the ellipsoid.
- * freq_hz: RF centre frequency actually radiated, Hz.
+ * freq_hz: RF center frequency actually radiated, Hz.
  * eirp_dbw: EIRP on boresight, dBW.
  * t_start, t_stop: optional on/off times (UTC); absent means always.
  */
@@ -409,10 +415,11 @@ export interface ErrorResponse {
  * horizon) at the fix, at an end of one of its 95 % ellipse axes or at an ambiguity
  * (never none). not_visible_satellite_ids: satellites of the plan left out because
  * they cannot see the transmitter's position (empty before a consistent fix).
- * onset_ns: start of the current transmission, labelled time: the first detection
- * after the latest break, or the first detection that showed another transmitter
- * took the frequency; equal to ``first_seen_ns`` while neither happened. Report this
- * as the start time. resumed_ns: server time the event was detected again after its
+ * onset_ns: start of the current transmission, labeled time: the first detection
+ * after the latest break, the first detection that showed another transmitter
+ * took the frequency, or, when a local signal took over an uplink event's frequency,
+ * the last sighting of the uplink at the sites that no longer see anything; equal to
+ * ``first_seen_ns`` while none of these happened. Report this as the start time. resumed_ns: server time the event was detected again after its
  * latest loss (null if it was never lost); break_s: the length of that break, s.
  * recheck: why the position and measurements shown are being checked against new
  * measurements (the event came back after a short break, or its waveform, power or
@@ -420,6 +427,9 @@ export interface ErrorResponse {
  * received_lo_hz / received_hi_hz: union of the downlink ranges of the ``seen``
  * evidence rows (what is on the air at the sites that see it; null while nothing is
  * seen). seen_site_ids: sites with a ``seen`` row, in row order.
+ * width_lower_bound: every detection holding the event reaches both edges of the
+ * monitor window it was measured in, so the signal may be wider than its range shows:
+ * its width is a lower bound ("at least N wide").
  */
 export interface Event {
   advisory: Advisory;
@@ -455,14 +465,15 @@ export interface Event {
   uplink_lo_hz: number | null;
   verdict: "uplink" | "local" | "undetermined";
   verdict_reason?: string | null;
+  width_lower_bound?: boolean;
 }
 
 /**
  * Row of ``GET /events``. ``uplink_lo_hz`` / ``uplink_hi_hz`` are null for an event
  * outside every transponder passband (see ``Event``). ``simulated``: the event comes
  * from the simulator. ``onset_ns``, ``received_lo_hz``, ``received_hi_hz``,
- * ``seen_site_ids``: as in ``Event`` (for a ``local`` event the queue shows the
- * received range and the sites, not the uplink range).
+ * ``seen_site_ids``, ``width_lower_bound``: as in ``Event`` (for a ``local`` event the
+ * queue shows the received range and the sites, not the uplink range).
  */
 export interface EventSummary {
   first_seen_ns: NsString;
@@ -481,6 +492,7 @@ export interface EventSummary {
   uplink_hi_hz: number | null;
   uplink_lo_hz: number | null;
   verdict: "uplink" | "local" | "undetermined";
+  width_lower_bound?: boolean;
 }
 
 /**
@@ -519,7 +531,8 @@ export interface EventTruth {
  * last_seen_ns: newest frame in which this channel's detection of the event was above
  * threshold, also after the detection ended (for ``stale`` and ``not_seen_capable``
  * rows it says how old the channel's last sighting is); null when the channel never
- * saw it.
+ * saw the current transmission (sightings of a transmission set aside, for example an
+ * uplink signal a local one took over from, are forgotten).
  * monitor_id: the monitor window of the channel that covers the event.
  * downlink_lo_hz, downlink_hi_hz: where the channel sees the signal (its detection,
  * when seen) or would see it (the event's range through ``sat_id``), Hz.
@@ -584,7 +597,7 @@ export interface Footprint {
 /**
  * Analytic circular geosynchronous orbit for slot-style definitions (MATH.md section 2).
  *
- * lon_deg: longitude the ground track is centred on, degrees east in [-180, 180].
+ * lon_deg: longitude the ground track is centered on, degrees east in [-180, 180].
  * inclination_deg: degrees. epoch: reference time. phase_deg: argument of latitude at
  * the epoch, degrees. drift_deg_per_day: eastward drift, degrees per day.
  */
@@ -685,7 +698,7 @@ export interface LinkBudgetRow {
  * One receive channel looking at one satellite (every channel by every
  * satellite). ``visible`` is elevation above 0. ``watched`` is whether the channel's
  * pointing includes the satellite. ``gain_dbi`` is the channel antenna's gain toward
- * the satellite at ``freq_hz`` (the downlink centre of the satellite's first
+ * the satellite at ``freq_hz`` (the downlink center of the satellite's first
  * transponder); ``peak_gain_dbi`` its boresight gain there. ``electrically_small``
  * marks a parabolic antenna under three wavelengths across at ``freq_hz``.
  */
@@ -816,7 +829,7 @@ export interface Meta {
 /**
  * One spectrum window of a receive channel (downlink frequencies).
  *
- * The node reads ``nfft * navg`` samples at ``fs = span_hz`` centred on ``center_hz``
+ * The node reads ``nfft * navg`` samples at ``fs = span_hz`` centered on ``center_hz``
  * every ``1 / frame_rate_hz`` seconds, so the frame must fit the frame period.
  */
 export interface Monitor {
@@ -852,7 +865,7 @@ export interface PairRef {
 }
 
 /**
- * A reflector of ``diameter_m`` metres with aperture ``efficiency`` (a PETAL dish).
+ * A reflector of ``diameter_m`` meters with aperture ``efficiency`` (a PETAL dish).
  *
  * Below 3 wavelengths across it is electrically small (``core.antennas``).
  */
@@ -1014,7 +1027,7 @@ export interface SimTruthEvent {
 }
 
 /**
- * A ground site. The antenna phase centre is at ``alt_m + antenna_height_m`` above
+ * A ground site. The antenna phase center is at ``alt_m + antenna_height_m`` above
  * the WGS84 ellipsoid (``xyz()``); ``antenna_height_m`` (above ground) also sets the
  * radio horizon of direct paths.
  *
@@ -1045,15 +1058,26 @@ export interface SiteClock {
  * A site's clock offset estimated from reference-carrier calibrations (the TDOA
  * corrections of cross-site pairs; MATH.md section 9).
  *
- * offset_us: estimated offset of the site's sample timestamps, labelled time minus true
+ * offset_us: estimated offset of the site's sample timestamps, labeled time minus true
  * time, microseconds (positive: its clock runs ahead; negative: behind, "late"), relative to the
- * median of its group of compared sites (the least-squares fit of the cross-site TDOA
- * corrections ``c ~ o_a - o_b``). sigma_us: RMS residual of the corrections it rests
- * on, microseconds (null with a single correction). n_calibrations: TDOA calibrations used.
- * compared_with: the other sites of those calibrations. caution: ``|offset_us|``
- * reaches ``max(tasking.CLOCK_CAUTION_NS = 1000 ns, 10 x sites[].clock.sigma_ns)``; in a
- * group of only two sites both are flagged when their difference reaches it (which one
- * is off cannot be told). message: plain sentence when caution, else null.
+ * median of the sites whose clock differences from it the calibrations determine (else
+ * of its group of compared sites; the least-squares fit of the cross-site TDOA
+ * corrections ``c ~ o_a - o_b``, including same-satellite clock checks, which carry no
+ * satellite term). sigma_us: RMS residual of the corrections it rests on, microseconds
+ * (null with a single correction). n_calibrations: TDOA calibrations used.
+ * compared_with: the other sites of those calibrations. caution: a clock fault is
+ * likely or cannot be ruled out: ``|offset_us|`` reaches the largest of
+ * ``tasking.CLOCK_CAUTION_NS`` (1000 ns), ``10 x sites[].clock.sigma_ns``, three times
+ * the site-dependent ephemeris allowance of its calibrations, and the largest difference
+ * between satellites any site of its group shows; two sites whose difference alone is
+ * known are both flagged on it (which one is off cannot be told). message: plain
+ * sentence, or null. With caution it says whether calibrations through two or more
+ * satellites agree (a clock fault) or names the satellite-position alternative (fewer
+ * satellites). Without caution it may say that the site's offset differs between
+ * satellites, so its clock is probably fine and a satellite's position is wrong beyond
+ * its configured uncertainty (that satellite is named). suspect_satellite_ids: the
+ * satellites that message names (empty otherwise); an event whose fix rests on them is
+ * told that its ellipse does not include that error.
  */
 export interface SiteClockEstimate {
   caution: boolean;
@@ -1063,17 +1087,20 @@ export interface SiteClockEstimate {
   offset_us: number;
   sigma_us: number | null;
   site_id: string;
+  suspect_satellite_ids?: string[];
 }
 
 /**
  * How the ellipse shrank as measurements accumulated: the 95 % semi-axes of each
  * converged solve. fit_consistent: false for an inconsistent fit (its semi-axes are
- * the enlarged ones, ``SolutionOut.ellipse_scale``). set_aside: the solve belongs to
- * measurements set aside later (``EventBook.set_aside``: a break, another
- * transmitter, a local signal), so later rows start afresh.
+ * the enlarged ones, ``SolutionOut.ellipse_scale``). is_fix: ``SolutionOut.is_fix`` of
+ * that solve. set_aside: the solve belongs to measurements set aside later
+ * (``EventBook.set_aside``: a break, another transmitter, a local signal), so later
+ * rows start afresh.
  */
 export interface SolutionHistoryRow {
   fit_consistent?: boolean;
+  is_fix?: boolean;
   n_measurements: number;
   semi_major_m: number;
   semi_minor_m: number;
@@ -1102,6 +1129,15 @@ export interface SolutionHistoryRow {
  * never ``located``. ellipse_scale: factor already applied to ``ellipse`` axes and
  * ``cep50_m`` (and its square to the three covariances): ``sqrt(reduced_chi2)`` for an
  * inconsistent fit, else 1. An ambiguity is assessed on its own chi-square.
+ *
+ * is_fix: whether the position may be reported as a fix: converged, ``fit_consistent``,
+ * with redundancy (``dof >= 1``: more measurements than the two unknowns of a position,
+ * so the fit can be checked against itself) and a 95 % semi-major axis within the
+ * server's sanity bound (``events.fix_semi_major_limit_m``: 1,000 km, or a quarter of
+ * the region's smaller extent when that is less). An event is ``located`` only while its
+ * solution is a fix. not_fix_reason: one plain clause saying why it is not (for example
+ * "no redundancy: 2 measurements for the two unknowns of a position, so the fit cannot
+ * be checked against itself"); null for a fix.
  */
 export interface SolutionOut {
   ambiguities: SolutionOut[];
@@ -1119,9 +1155,11 @@ export interface SolutionOut {
   fit_consistent?: boolean;
   fit_p_value?: number | null;
   height_m: number;
+  is_fix?: boolean;
   lat_deg: number;
   lon_deg: number;
   n_measurements: number;
+  not_fix_reason?: string | null;
   reduced_chi2: number | null;
   residuals: number[];
 }
@@ -1131,7 +1169,8 @@ export interface SolutionOut {
  * ambiguity is unresolved; ``ambiguities`` then lists every other position that fits
  * as well (``SolutionOut.ambiguities``), so a map can draw all of them.
  * fit_consistent: ``SolutionOut.fit_consistent`` (false: the measurements are
- * inconsistent, the ellipse is enlarged and the position is not a fix).
+ * inconsistent, the ellipse is enlarged and the position is not a fix). is_fix:
+ * ``SolutionOut.is_fix`` (false: not to be reported as a fix, for any reason).
  */
 export interface SolutionSummary {
   ambiguities?: AmbiguitySummary[];
@@ -1139,6 +1178,7 @@ export interface SolutionSummary {
   azimuth_deg: number;
   cep50_m: number;
   fit_consistent?: boolean;
+  is_fix?: boolean;
   lat_deg: number;
   lon_deg: number;
   semi_major_m: number;
@@ -1333,7 +1373,7 @@ export interface TropoError {
  *
  * ephemeris: per satellite id. sat_osc_frac: fractional error of each satellite's
  * translation oscillator. site_clock_offset_ns: ``delta_g`` per site, true time
- * minus labelled time, ns. site_osc_frac: fractional error of each site's reference
+ * minus labeled time, ns. site_osc_frac: fractional error of each site's reference
  * oscillator (``eps_g``). iono: ionospheric delay. tropo: tropospheric delay.
  */
 export interface TruthErrors {

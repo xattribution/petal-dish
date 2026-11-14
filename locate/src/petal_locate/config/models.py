@@ -3,7 +3,7 @@
 Pydantic v2 models with ``extra="forbid"``; YAML and JSON load to the same models
 (``loader.py``). Config files use degrees for angles and name the unit in every field
 (``lat_deg``, ``bandwidth_hz``, ``eirp_dbw``); frequencies are hertz, times of day are
-ISO-8601 UTC strings, positions in ``table`` orbits are ECEF metres.
+ISO-8601 UTC strings, positions in ``table`` orbits are ECEF meters.
 
 A validation failure is a ``pydantic.ValidationError`` (a ``ValueError``) whose entries
 carry the path of the field at fault, including the cross-reference checks made on the
@@ -145,7 +145,7 @@ MONITOR_SPAN_FACTOR: float = 1.25
 MONITOR_COVERAGE_WARN: float = 0.9
 """``warnings`` notes a watched transponder whose downlink passband the windows of a
 channel cover less than this fraction of (derived windows are capped at the channel's
-``max_sample_rate_hz``, so a wide transponder is watched over its centre only)."""
+``max_sample_rate_hz``, so a wide transponder is watched over its center only)."""
 
 TLE_AGE_WARN_DAYS: float = 14.0
 """``warnings`` notes a TLE whose epoch is further than this from the evaluation time,
@@ -190,7 +190,7 @@ MonitorId = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,128}$")
 monitors are named ``<satellite id>:<transponder id>``)."""
 
 IsoTime = Annotated[str, BeforeValidator(_iso_time)]
-"""UTC time as ISO-8601 text, normalised to ``YYYY-MM-DDTHH:MM:SS[.fff]Z``."""
+"""UTC time as ISO-8601 text, normalized to ``YYYY-MM-DDTHH:MM:SS[.fff]Z``."""
 
 PositiveFloat = Annotated[float, Field(gt=0)]
 NonNegativeFloat = Annotated[float, Field(ge=0)]
@@ -269,7 +269,7 @@ class TleOrbitModel(_Model):
     @model_validator(mode="after")
     def _check_pair(self) -> TleOrbitModel:
         if self.line1[2:7] != self.line2[2:7]:
-            raise ValueError("line2 carries a different catalogue number from line1")
+            raise ValueError("line2 carries a different catalog number from line1")
         _require_buildable(self)
         return self
 
@@ -277,7 +277,7 @@ class TleOrbitModel(_Model):
 class GeoOrbitModel(_Model):
     """Analytic circular geosynchronous orbit for slot-style definitions (MATH.md section 2).
 
-    lon_deg: longitude the ground track is centred on, degrees east in [-180, 180].
+    lon_deg: longitude the ground track is centered on, degrees east in [-180, 180].
     inclination_deg: degrees. epoch: reference time. phase_deg: argument of latitude at
     the epoch, degrees. drift_deg_per_day: eastward drift, degrees per day.
     """
@@ -448,7 +448,7 @@ class Transponder(_Model):
 
     @property
     def downlink_center_hz(self) -> float:
-        """Centre of the downlink passband, Hz."""
+        """Center of the downlink passband, Hz."""
         return self.uplink_center_hz + self.translation_hz
 
     @property
@@ -462,7 +462,7 @@ class Transponder(_Model):
         return self.downlink_center_hz + 0.5 * self.bandwidth_hz
 
     def relays(self, f_up_hz: float) -> bool:
-        """Whether an emitter centred on ``f_up_hz`` (Hz) is relayed: the centre lies in
+        """Whether an emitter centered on ``f_up_hz`` (Hz) is relayed: the center lies in
         the closed uplink passband (MATH.md section 4)."""
         return self.uplink_lo_hz <= f_up_hz <= self.uplink_hi_hz
 
@@ -517,7 +517,7 @@ class IsotropicAntenna(_Model):
 
 
 class ParabolicAntenna(_Model):
-    """A reflector of ``diameter_m`` metres with aperture ``efficiency`` (a PETAL dish).
+    """A reflector of ``diameter_m`` meters with aperture ``efficiency`` (a PETAL dish).
 
     Below 3 wavelengths across it is electrically small (``core.antennas``).
     """
@@ -668,7 +668,7 @@ EmitterPointing = Annotated[
 class Monitor(_Model):
     """One spectrum window of a receive channel (downlink frequencies).
 
-    The node reads ``nfft * navg`` samples at ``fs = span_hz`` centred on ``center_hz``
+    The node reads ``nfft * navg`` samples at ``fs = span_hz`` centered on ``center_hz``
     every ``1 / frame_rate_hz`` seconds, so the frame must fit the frame period.
     """
 
@@ -761,7 +761,7 @@ class SiteClock(_Model):
 
 
 class Site(_Model):
-    """A ground site. The antenna phase centre is at ``alt_m + antenna_height_m`` above
+    """A ground site. The antenna phase center is at ``alt_m + antenna_height_m`` above
     the WGS84 ellipsoid (``xyz()``); ``antenna_height_m`` (above ground) also sets the
     radio horizon of direct paths.
 
@@ -788,7 +788,7 @@ class Site(_Model):
         return check_time_zone(value)
 
     def xyz(self) -> np.ndarray:
-        """Antenna phase centre, ECEF m, ``ndarray[3]``."""
+        """Antenna phase center, ECEF m, ``ndarray[3]``."""
         return lla_to_ecef(self.lat_deg, self.lon_deg, self.alt_m + self.antenna_height_m)
 
 
@@ -817,7 +817,7 @@ class EmitterModel(_Model):
 
 
 class CarrierLocation(_Model):
-    """Surveyed position of a carrier's uplink antenna (phase centre at
+    """Surveyed position of a carrier's uplink antenna (phase center at
     ``alt_m + antenna_height_m`` above the ellipsoid)."""
 
     lat_deg: LatDeg
@@ -826,12 +826,12 @@ class CarrierLocation(_Model):
     antenna_height_m: NonNegativeFloat = 10.0
 
     def xyz(self) -> np.ndarray:
-        """Antenna phase centre, ECEF m, ``ndarray[3]``."""
+        """Antenna phase center, ECEF m, ``ndarray[3]``."""
         return lla_to_ecef(self.lat_deg, self.lon_deg, self.alt_m + self.antenna_height_m)
 
 
 class Carrier(_Model):
-    """An authorised carrier of the frequency plan.
+    """An authorized carrier of the frequency plan.
 
     satellite_id, transponder_id: the transponder it is assigned to.
     uplink_center_hz, bandwidth_hz: its uplink allocation, Hz. location, emitter: where
@@ -1129,7 +1129,7 @@ def fit_monitor_frame(
 def derive_monitors(channel: ReceiveChannel, satellites: Iterable[Satellite]) -> list[Monitor]:
     """Default spectrum windows of a channel: one per transponder of each watched satellite.
 
-    ``center_hz`` is the transponder's downlink centre and
+    ``center_hz`` is the transponder's downlink center and
     ``span_hz = min(1.25 * bandwidth_hz, max_sample_rate_hz)`` (so a transponder wider
     than the channel can sample is monitored over its central ``max_sample_rate_hz``
     only); ``nfft`` and ``navg`` follow ``fit_monitor_frame`` at 2 frames per second
@@ -1401,7 +1401,7 @@ class SystemConfig(_Model):
         return [carrier for carrier in self.carriers if carrier.use_as_reference]
 
     def carrier_xyz(self, carrier_id: str) -> np.ndarray:
-        """Antenna phase centre of a carrier with a ``location``, ECEF m, ``ndarray[3]``."""
+        """Antenna phase center of a carrier with a ``location``, ECEF m, ``ndarray[3]``."""
         carrier = self.carrier(carrier_id)
         if carrier.location is None:
             raise ValueError(f"carrier_id {carrier_id!r} has no location")
@@ -1410,12 +1410,12 @@ class SystemConfig(_Model):
     # ------------------------------------------------------------------ geometry
 
     def site_xyz(self, site_id: str) -> np.ndarray:
-        """Antenna phase centre of a site, ECEF m, ``ndarray[3]``:
+        """Antenna phase center of a site, ECEF m, ``ndarray[3]``:
         ``lla_to_ecef(lat_deg, lon_deg, alt_m + antenna_height_m)``."""
         return self.site(site_id).xyz()
 
     def sites_xyz(self) -> dict[str, np.ndarray]:
-        """Antenna phase centre of every site: ``dict[site_id, ndarray[3]]`` (ECEF m)."""
+        """Antenna phase center of every site: ``dict[site_id, ndarray[3]]`` (ECEF m)."""
         return {site.id: site.xyz() for site in self.sites}
 
     def orbit(self, sat_id: str) -> NumericOrbit:
@@ -1434,7 +1434,7 @@ class SystemConfig(_Model):
     def boresight_ecef(self, channel_id: str, t_s: Any) -> np.ndarray:
         """Unit ECEF vector along the boresight of a channel's antenna at Unix seconds ``t_s``.
 
-        A tracking channel points from the site's phase centre at the geometric
+        A tracking channel points from the site's phase center at the geometric
         position of its satellite at ``t_s``; a fixed channel points along its
         configured azimuth and elevation. ``t_s`` scalar gives ``ndarray[3]``, an array
         ``[M]`` gives ``[M, 3]``.
@@ -1490,7 +1490,7 @@ class SystemConfig(_Model):
 
         Returns ``(transponder, f_up_hz)`` with ``f_up_hz = f_down_hz - translation_hz``
         for the transponder of ``sat_id`` whose closed downlink passband contains
-        ``f_down_hz`` (the one with the nearest downlink centre if passbands overlap,
+        ``f_down_hz`` (the one with the nearest downlink center if passbands overlap,
         the earlier one on a tie), or ``None`` when no passband contains it.
         """
         f_down = float(f_down_hz)
@@ -1570,15 +1570,15 @@ class SystemConfig(_Model):
 
         - a parabolic antenna under 3 wavelengths at its operating frequency (it behaves
           as a reflector with a broad beam, not as a focusing dish): a receive channel's
-          dish at the lowest frequency it works at (the downlink centres of the
-          transponders of the satellites it watches and the centres of its monitors),
-          one note per channel; a carrier emitter's dish at the carrier's uplink centre;
+          dish at the lowest frequency it works at (the downlink centers of the
+          transponders of the satellites it watches and the centers of its monitors),
+          one note per channel; a carrier emitter's dish at the carrier's uplink center;
         - with ``t_s`` (Unix seconds) given: a watched satellite that is not above the
           site's horizon at that time (its downlink never appears in the channel), and a
           satellite whose orbit cannot be evaluated then (an ephemeris table that does not
           cover ``t_s``; its channels get no horizon note);
         - a carrier whose allocation reaches beyond the uplink passband of its
-          transponder (it is relayed, its centre being inside, but not all of it);
+          transponder (it is relayed, its center being inside, but not all of it);
         - a monitor with fewer than ``DETECTION_MIN_NAVG`` (8) averages per frame: the
           detection threshold and the C/N0 estimate are calibrated for at least 8
           (MATH.md section 7), so such a window raises false alarms or misses;
@@ -1591,7 +1591,7 @@ class SystemConfig(_Model):
           or configured) cover only partly, below ``MONITOR_COVERAGE_WARN`` (90 %) of
           it: the covered percentage and the blind bands (derived windows stop at the
           channel's ``max_sample_rate_hz``, so a wide transponder is watched over its
-          centre only);
+          center only);
         - a channel whose windows spread over more than ``max_sample_rate_hz`` from
           the lowest edge to the highest: one radio limited to that rate cannot serve
           them all at one tuning; the windows lost at a tuning in the middle are named;

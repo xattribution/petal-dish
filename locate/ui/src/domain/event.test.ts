@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EvidenceRow, SolutionHistoryRow, SolutionOut, SolutionSummary, SystemConfig } from '../api/types.gen';
 import { formatLat, formatLon } from '../format/geo';
-import { candidates, isInconsistent, received, semiAxes, splitHistory, summaryCandidatesText, summaryReceivedText } from './event';
+import { candidates, isInconsistent, isNotFix, notFixText, received, semiAxes, splitHistory, summaryCandidatesText, summaryReceivedText, widthText } from './event';
 
 const ellipse = (a: number, b: number) => ({ semi_major_m: a, semi_minor_m: b, azimuth_deg: 10, confidence: 0.95 });
 const zero = [
@@ -35,6 +35,33 @@ describe('fit consistency (UX-1)', () => {
     expect(isInconsistent(sol({ fit_consistent: true }))).toBe(false);
     expect(isInconsistent(sol({ fit_consistent: false, ellipse_scale: 5328 }))).toBe(true);
     expect(isInconsistent(null)).toBe(false);
+  });
+});
+
+describe('the fix gate (R4)', () => {
+  it('is not a fix when the server says so, or when the fit is inconsistent', () => {
+    expect(isNotFix(sol())).toBe(false);
+    expect(isNotFix(sol({ is_fix: true }))).toBe(false);
+    expect(isNotFix(sol({ is_fix: false, not_fix_reason: 'no redundancy' }))).toBe(true);
+    // a server older than is_fix: the inconsistent flag alone still means no fix
+    expect(isNotFix(sol({ fit_consistent: false }))).toBe(true);
+    expect(isNotFix(null)).toBe(false);
+    const row: SolutionHistoryRow = { t_ns: '1', semi_major_m: 1, semi_minor_m: 1, n_measurements: 2, is_fix: false };
+    expect(isNotFix(row)).toBe(true);
+  });
+  it("gives the server's reason as a sentence", () => {
+    const reason = 'no redundancy: 2 measurements for the two unknowns of a position, so the fit cannot be checked against itself';
+    expect(notFixText(sol({ is_fix: false, not_fix_reason: reason }))).toBe(`No redundancy: 2 measurements for the two unknowns of a position, so the fit cannot be checked against itself.`);
+    expect(notFixText(sol())).toBeNull();
+    expect(notFixText(sol({ fit_consistent: false }))).toBe('The measurements do not fit one stationary transmitter.');
+  });
+});
+
+describe('width of a range (ADAPT-5)', () => {
+  it('says "at least" when every detection filled its window', () => {
+    expect(widthText(301.001e6, 301.009e6, false)).toBe('8.00 kHz');
+    expect(widthText(301.001e6, 301.009e6, true)).toBe('at least 8.00 kHz');
+    expect(widthText(301.001e6, 301.009e6, undefined)).toBe('8.00 kHz');
   });
 });
 

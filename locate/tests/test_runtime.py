@@ -655,6 +655,38 @@ async def test_work_pool_limits_concurrency_and_closes_cleanly() -> None:
         WorkPool(0)
 
 
+async def test_work_pool_close_names_the_jobs_still_running_after_its_grace(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SRV-6: shutdown waits for running jobs (a thread cannot be stopped), but a job still
+    running after the grace period is logged by name and age instead of holding shutdown
+    silently."""
+    import logging
+
+    pool = WorkPool(1, close_grace_s=0.05)
+    gate = threading.Event()
+
+    def stuck_solve() -> str:
+        gate.wait(5.0)
+        return "done"
+
+    task = asyncio.create_task(pool.run(stuck_solve))
+    for _ in range(100):
+        if pool.running == 1:
+            break
+        await asyncio.sleep(0.01)
+    with caplog.at_level(logging.WARNING, logger="petal_locate.server.runtime"):
+        closing = asyncio.create_task(pool.close())
+        await asyncio.sleep(0.3)
+        assert not closing.done()  # it still waits
+        warned = [r.getMessage() for r in caplog.records if "still running" in r.getMessage()]
+        assert len(warned) == 1 and "1 worker job(s)" in warned[0] and "stuck_solve" in warned[0]
+        gate.set()
+        await asyncio.wait_for(closing, 2.0)
+    assert await task == "done"
+    assert not [t for t in threading.enumerate() if t.name.startswith("petal-work")]
+
+
 async def test_direct_construction_stores_its_configuration_at_start(tmp_path: Path) -> None:
     store = Store(tmp_path / "data")
     await store.open()

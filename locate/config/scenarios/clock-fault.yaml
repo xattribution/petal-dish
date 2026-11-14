@@ -10,17 +10,23 @@ description: >-
   tasking normally uses Naha: naha-172e is the best 172 E channel, so it is either the
   primary channel or the partner of the primary (Honolulu) for 172 E. The operator
   should see the event detected and judged uplink as in pacific-demo. Without
-  calibration the fix then lands 14 to 34 km from the truth, outside its own 95 %
-  ellipse (about 4.6 to 11 km by 0.6 km; NEES 56 to 58), and the fit gives no warning
-  (reduced chi-square 0.14, because only the two TDOA rows constrain the position); at
-  times of day when the two TDOA hyperbolas cross twice (near 21 UTC) it shows two
+  calibration the fix then lands 14 to 40 km from the truth, outside its own 95 %
+  ellipse (5.5 to 16 km by 0.7 to 0.8 km; NEES 39 to 42), and the fit gives no warning
+  (reduced chi-square 0.14 to 0.15, because only the two TDOA rows constrain the
+  position); near 12 UTC the geometry degenerates (an ellipse 1,700 km long, which the
+  server shows as not a fix) and the fix is 450 km off, and near 21 UTC, when the two TDOA hyperbolas cross twice, it shows two
   unresolved candidates, neither near the truth (the nearer about 185 km off). The
   reference-carrier calibration, measured through the same two sites, carries the same
-  10 microseconds and removes them: the calibrated fix is 75 to 200 m from the truth,
-  inside its 95 % ellipse (0.4 to 0.6 km by 0.1 km), as in pacific-demo. When the
-  strongest detection happens to be on a Seoul channel (near 09 UTC), every pair is
+  10 microseconds and removes them: the calibrated fix is 30 to 220 m from the truth,
+  inside its 95 % ellipse (0.45 to 0.61 km by 0.24 to 0.26 km), as in pacific-demo. When
+  the strongest detection happens to be on a Seoul channel (near 09 UTC), every pair is
   formed at Seoul, the site clocks cancel in every TDOA, and the fault has no effect at
   all; the server's partner rotation still brings cross-site pairs in every other round.
+  Measured with the server's chain (tests/test_sim_verify.py) at eight times of day on
+  2026-01-01. The calibrations and same-satellite clock checks also put Naha's clock
+  about 10 microseconds late on the Network screen, with a caution saying the
+  calibrations through two satellites agree (within about 20 s of the first rounds in a
+  live demo from 2026-11-13T03:00:00Z).
 emitters:
   - id: jammer-philsea
     name: Uplink noise jammer (simulated, open ocean)

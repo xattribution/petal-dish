@@ -871,27 +871,43 @@ def _load_accuracy_map() -> Callable[..., Mapping[str, Any]]:
 
 def accuracy_problems(cfg: SystemConfig, request: schemas.AccuracyRequest) -> list[dict[str, str]]:
     """Why an accuracy request cannot be computed, as ``[{"loc", "msg"}]`` (empty when it
-    can): unknown or repeated channels, a pair named twice, more than
-    ``ACCURACY_MAX_PAIRS`` pairs, a band that cannot fit ``ACCURACY_BAND_BYTES``, a
-    reference carrier that is not one."""
-    channels = {channel.id for site in cfg.sites for channel in site.channels}
+    can): an unknown channel, a satellite its channel does not watch, one channel at
+    both ends of a pair, a pair named twice, more than ``ACCURACY_MAX_PAIRS`` pairs, a
+    band that cannot fit ``ACCURACY_BAND_BYTES``, a reference carrier that is not one.
+
+    ``reference_carrier_id`` may also be ``"nearest"`` (``core.accuracy.NEAREST_REFERENCE``):
+    each cell's pairs are calibrated against the reference carrier tasking would use for
+    an emitter there. It needs at least one reference carrier; a configured carrier of
+    that id takes precedence.
+
+    A pair end is ``"channel_id"`` or ``"channel_id@sat_id"``
+    (``core.accuracy.split_channel_ref``); the channel check looks at the split parts.
+    The duplicate check looks at the satellite each end correlates on
+    (``core.accuracy.pair_satellites``, as the map resolves it), so ``["x@sat-a", "y"]``,
+    ``["y", "x@sat-a"]`` and ``["x", "y"]`` (x watching only sat-a) are the same pair, and
+    ``["x@sat-a", "x@sat-b"]`` pairs channel x with itself."""
     errors: list[dict[str, str]] = []
     if len(request.pairs) > ACCURACY_MAX_PAIRS:
         return [{"loc": "pairs", "msg": f"{len(request.pairs)} pairs, more than the {ACCURACY_MAX_PAIRS} a map may "
                                         "use; choose the pairs that matter"}]
-    seen: dict[frozenset[str], int] = {}
-    for i, (a, b) in enumerate(request.pairs):
-        for j, channel_id in enumerate((a, b)):
-            if channel_id not in channels:
-                errors.append({"loc": f"pairs.{i}.{j}", "msg": f"unknown receive channel {channel_id!r}"})
-        if a == b:
-            errors.append({"loc": f"pairs.{i}", "msg": "the two channels of a pair must differ"})
-            continue
-        key = frozenset((a, b))
-        if key in seen:
-            errors.append({"loc": f"pairs.{i}", "msg": f"the same pair as pairs.{seen[key]} (each pair counts once)"})
-        else:
-            seen[key] = i
+    resolve: Callable[[str, str], tuple[str | None, str | None]] | None
+    try:
+        from petal_locate.core.accuracy import NEAREST_REFERENCE, pair_satellites, split_channel_ref
+    except ImportError:  # this build cannot compute a map at all (the API answers 501): check the ends as written
+        NEAREST_REFERENCE = "nearest"  # noqa: N806 (the core constant's value)
+        resolve = None
+
+        def split_channel_ref(text: str) -> tuple[str, str | None]:
+            return text, None
+    else:
+        def resolve(end_a: str, end_b: str) -> tuple[str | None, str | None]:
+            try:
+                found_a, found_b = pair_satellites(cfg, end_a, end_b, float(request.f_e_hz))
+            except ValueError:  # the map refuses it later with its own reason; key on what was written
+                return None, None
+            return (found_a[0] if found_a else None), (found_b[0] if found_b else None)
+
+    errors.extend(_pair_problems(cfg, request.pairs, split_channel_ref, resolve))
     region = request.region or cfg.processing.region
     try:
         _lat, lon = region.grid(request.step_deg)
@@ -908,11 +924,65 @@ def accuracy_problems(cfg: SystemConfig, request: schemas.AccuracyRequest) -> li
         try:
             carrier = cfg.carrier(request.reference_carrier_id)
         except ValueError:
-            errors.append({"loc": "reference_carrier_id", "msg": f"unknown carrier {request.reference_carrier_id!r}"})
+            if request.reference_carrier_id != NEAREST_REFERENCE:
+                errors.append({"loc": "reference_carrier_id", "msg": f"unknown carrier {request.reference_carrier_id!r}"})
+            elif not any(c.location is not None and c.emitter is not None for c in cfg.reference_carriers()):
+                errors.append({"loc": "reference_carrier_id",
+                               "msg": f"{NEAREST_REFERENCE!r} calibrates against the nearest reference carrier, and the "
+                                      "configuration has none (no carrier with use_as_reference)"})
         else:
             if not carrier.use_as_reference:
                 errors.append({"loc": "reference_carrier_id",
                                "msg": f"carrier {carrier.id!r} is not a reference carrier (use_as_reference is false)"})
+    return errors
+
+
+def _pair_problems(
+    cfg: SystemConfig,
+    pairs: Sequence[tuple[str, str]],
+    split_channel_ref: Callable[[str], tuple[str, str | None]],
+    resolve: Callable[[str, str], tuple[str | None, str | None]] | None = None,
+) -> list[dict[str, str]]:
+    """The per-pair part of ``accuracy_problems``, on the split ``(channel_id, sat_id)``
+    of each end. Duplicates are keyed on the satellite each end correlates on:
+    ``resolve(end_a, end_b)`` (the map's own resolution), else the named satellite, else
+    the channel's only watched satellite, else None (the end as written)."""
+    watched = {channel.id: channel.watched_satellite_ids for site in cfg.sites for channel in site.channels}
+    errors: list[dict[str, str]] = []
+    seen: dict[frozenset[tuple[str, str | None]], int] = {}
+    for i, pair in enumerate(pairs):
+        ends: list[tuple[str, str | None]] = []
+        bad = False
+        for j, text in enumerate(pair):
+            loc = f"pairs.{i}.{j}"
+            try:
+                channel_id, sat_id = split_channel_ref(text)
+            except ValueError as exc:
+                errors.append({"loc": loc, "msg": str(exc)})
+                continue
+            if channel_id not in watched:
+                errors.append({"loc": loc, "msg": f"unknown receive channel {channel_id!r}"})
+                bad = True
+            elif sat_id is not None and sat_id not in watched[channel_id]:
+                errors.append({"loc": loc, "msg": f"channel {channel_id!r} does not watch satellite {sat_id!r} "
+                                                  f"(it watches {', '.join(watched[channel_id])})"})
+                bad = True
+            ends.append((channel_id, sat_id))
+        if len(ends) != 2:
+            continue
+        if ends[0][0] == ends[1][0]:
+            errors.append({"loc": f"pairs.{i}", "msg": "the two channels of a pair must differ"})
+            continue
+        resolved = resolve(pair[0], pair[1]) if resolve is not None and not bad else (None, None)
+        keyed: list[tuple[str, str | None]] = []
+        for (channel_id, sat_id), found in zip(ends, resolved):
+            only = watched.get(channel_id, ())
+            keyed.append((channel_id, found or sat_id or (only[0] if len(only) == 1 else None)))
+        key = frozenset(keyed)
+        if key in seen:
+            errors.append({"loc": f"pairs.{i}", "msg": f"the same pair as pairs.{seen[key]} (each pair counts once)"})
+        else:
+            seen[key] = i
     return errors
 
 

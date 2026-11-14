@@ -21,7 +21,36 @@ function CalibratedOffset({ c }: { c: SiteClockEstimate | undefined }) {
       <StatusSymbol level="caution" /> {text}
     </span>
   ) : (
-    <span title={title}>{text}</span>
+    <span title={title}>
+      {text}
+      {/* R3: the views through different satellites disagree; the note below names the satellite */}
+      {c.message ? <div className="note">differs by satellite</div> : null}
+    </span>
+  );
+}
+
+/** R3: what the reference calibrations say about each site's clock, in the server's words. */
+function ClockNotes({ clocks, siteName }: { clocks: SiteClockEstimate[]; siteName: (id: string) => string }) {
+  const notes = clocks.filter((c) => c.message);
+  if (!notes.length) return null;
+  return (
+    <section className="region" style={{ borderTop: '1px solid var(--rule)' }} aria-label="Site clocks by calibration">
+      <h2>Site clocks by calibration</h2>
+      <ul style={{ maxWidth: '90ch', margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+        {notes.map((c) => (
+          <li key={c.site_id} className="wrap" style={{ whiteSpace: 'normal' }}>
+            {c.caution ? (
+              <span className="status">
+                <StatusSymbol level="caution" /> <b>{siteName(c.site_id)}</b>
+              </span>
+            ) : (
+              <b>{siteName(c.site_id)}</b>
+            )}
+            : {c.message}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -120,7 +149,8 @@ export function NetworkView() {
                 By calibration{' '}
                 <Info label="clock offset by calibration">
                   The site's labeled time minus true time as the reference-carrier calibrations measure it, against the median of the sites it was compared with. A site far off
-                  gets a caution: check its timing receiver.
+                  gets a caution: check its timing receiver. An offset that differs between satellites points at a satellite position instead; the notes below the table
+                  say which.
                 </Info>
               </th>
               <th>Driver, software</th>
@@ -208,6 +238,7 @@ export function NetworkView() {
           </tbody>
         </table>
       </div>
+      <ClockNotes clocks={status.site_clocks ?? []} siteName={(id) => sites.get(id)?.name ?? id} />
       {status.satellites?.length ? (
         // ADAPT-7: whether the server can place each satellite now
         <div className="region" style={{ borderTop: '1px solid var(--rule)' }}>
